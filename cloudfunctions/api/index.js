@@ -161,6 +161,71 @@ function resolveVideoConfig(overrides = {}) {
   };
 }
 
+function resolvePointsConfig(overrides = {}) {
+  const points = overrides && overrides.points ? overrides.points : overrides;
+  return {
+    dailyFreeLimit: clampNumber(
+      points && Object.prototype.hasOwnProperty.call(points, "dailyFreeLimit")
+        ? points.dailyFreeLimit
+        : env("DAILY_FREE_LIMIT", "3"),
+      3,
+      0,
+      100
+    ),
+    imageCost: clampNumber(
+      points && Object.prototype.hasOwnProperty.call(points, "imageCost")
+        ? points.imageCost
+        : env("POINTS_IMAGE_COST", "10"),
+      10,
+      0,
+      100000
+    ),
+    videoCost: clampNumber(
+      points && Object.prototype.hasOwnProperty.call(points, "videoCost")
+        ? points.videoCost
+        : env("POINTS_VIDEO_COST", "10"),
+      10,
+      0,
+      100000
+    ),
+    checkinPoints: clampNumber(
+      points && Object.prototype.hasOwnProperty.call(points, "checkinPoints")
+        ? points.checkinPoints
+        : env("POINTS_CHECKIN_POINTS", "5"),
+      5,
+      0,
+      100000
+    ),
+    streakBonus: clampNumber(
+      points && Object.prototype.hasOwnProperty.call(points, "streakBonus")
+        ? points.streakBonus
+        : env("POINTS_STREAK_BONUS", "20"),
+      20,
+      0,
+      100000
+    ),
+    streakDays: clampNumber(
+      points && Object.prototype.hasOwnProperty.call(points, "streakDays")
+        ? points.streakDays
+        : env("POINTS_STREAK_DAYS", "7"),
+      7,
+      1,
+      30
+    ),
+    promoStartDate: overrideString(
+      points,
+      "promoStartDate",
+      env("PROMO_START_DATE", "2026-08-23")
+    ),
+    promoEndDate: overrideString(
+      points,
+      "promoEndDate",
+      env("PROMO_END_DATE", "2026-08-24")
+    ),
+    timeZone: overrideString(points, "timeZone", POINTS_TIME_ZONE)
+  };
+}
+
 function visionRequestMeta(requestId, action, vision) {
   return {
     requestId,
@@ -825,6 +890,7 @@ function normalizeRuntimePatch(input = {}) {
   const source = input && typeof input === "object" ? input : {};
   const imageSource = source.image && typeof source.image === "object" ? source.image : {};
   const videoSource = source.video && typeof source.video === "object" ? source.video : {};
+  const pointsSource = source.points && typeof source.points === "object" ? source.points : {};
   const imageKeys = [
     "provider",
     "baseUrl",
@@ -848,15 +914,30 @@ function normalizeRuntimePatch(input = {}) {
     "aspectRatio",
     "timeoutMs"
   ];
+  const pointsKeys = [
+    "dailyFreeLimit",
+    "imageCost",
+    "videoCost",
+    "checkinPoints",
+    "streakBonus",
+    "streakDays",
+    "promoStartDate",
+    "promoEndDate",
+    "timeZone"
+  ];
   const image = {};
   const video = {};
+  const points = {};
   imageKeys.forEach((key) => {
     if (hasOwn(imageSource, key)) image[key] = imageSource[key];
   });
   videoKeys.forEach((key) => {
     if (hasOwn(videoSource, key)) video[key] = videoSource[key];
   });
-  return { image, video };
+  pointsKeys.forEach((key) => {
+    if (hasOwn(pointsSource, key)) points[key] = pointsSource[key];
+  });
+  return { image, video, points };
 }
 
 function isValidHttpUrl(value) {
@@ -879,6 +960,7 @@ function validateRuntimePatch(patch) {
   const errors = [];
   const image = patch.image || {};
   const video = patch.video || {};
+  const points = patch.points || {};
   [
     ["image.baseUrl", image.baseUrl],
     ["image.endpoint", image.endpoint],
@@ -919,6 +1001,38 @@ function validateRuntimePatch(patch) {
   ].forEach(([field, value]) => {
     if (value !== undefined && String(value).length > 120) errors.push(`${field} 长度不能超过 120`);
   });
+  [
+    ["points.dailyFreeLimit", points.dailyFreeLimit, 0, 100],
+    ["points.imageCost", points.imageCost, 0, 100000],
+    ["points.videoCost", points.videoCost, 0, 100000],
+    ["points.checkinPoints", points.checkinPoints, 0, 100000],
+    ["points.streakBonus", points.streakBonus, 0, 100000],
+    ["points.streakDays", points.streakDays, 1, 30]
+  ].forEach(([field, value, minimum, maximum]) => {
+    if (
+      value !== undefined
+      && (!Number.isFinite(Number(value)) || Number(value) < minimum || Number(value) > maximum)
+    ) {
+      errors.push(`${field} 必须在 ${minimum}～${maximum} 之间`);
+    }
+  });
+  [
+    ["points.promoStartDate", points.promoStartDate],
+    ["points.promoEndDate", points.promoEndDate]
+  ].forEach(([field, value]) => {
+    if (value !== undefined && value !== "" && !/^\d{4}-\d{2}-\d{2}$/.test(String(value))) {
+      errors.push(`${field} 必须是 YYYY-MM-DD 日期`);
+    }
+  });
+  if (
+    points.promoStartDate !== undefined
+    && points.promoEndDate !== undefined
+    && points.promoStartDate
+    && points.promoEndDate
+    && String(points.promoStartDate) > String(points.promoEndDate)
+  ) {
+    errors.push("积分活动开始日期不能晚于结束日期");
+  }
   return errors;
 }
 
@@ -926,13 +1040,15 @@ function mergeRuntimeConfig(current, patch) {
   const existing = current && typeof current === "object" ? current : {};
   return {
     image: Object.assign({}, existing.image || {}, patch.image || {}),
-    video: Object.assign({}, existing.video || {}, patch.video || {})
+    video: Object.assign({}, existing.video || {}, patch.video || {}),
+    points: Object.assign({}, existing.points || {}, patch.points || {})
   };
 }
 
 function redactConfig(config, defaults) {
   const image = config.image || {};
   const video = config.video || {};
+  const points = config.points || {};
   return {
     image: {
       provider: image.provider || "",
@@ -958,6 +1074,17 @@ function redactConfig(config, defaults) {
       aspectRatio: video.aspectRatio || "",
       timeoutMs: Number(video.timeoutMs || 0),
       apiKeyConfigured: Boolean(defaults.video.apiKey)
+    },
+    points: {
+      dailyFreeLimit: Number(points.dailyFreeLimit || 0),
+      imageCost: Number(points.imageCost || 0),
+      videoCost: Number(points.videoCost || 0),
+      checkinPoints: Number(points.checkinPoints || 0),
+      streakBonus: Number(points.streakBonus || 0),
+      streakDays: Number(points.streakDays || 0),
+      promoStartDate: points.promoStartDate || "",
+      promoEndDate: points.promoEndDate || "",
+      timeZone: points.timeZone || POINTS_TIME_ZONE
     }
   };
 }
@@ -1002,34 +1129,40 @@ async function loadAdminRuntimeConfig(force = false) {
 async function resolveEffectiveConfigs() {
   const runtime = await loadAdminRuntimeConfig();
   return {
-    runtime: runtime || { image: {}, video: {} },
+    runtime: runtime || { image: {}, video: {}, points: {} },
     image: resolveImageConfig(runtime && runtime.image),
-    video: resolveVideoConfig(runtime && runtime.video)
+    video: resolveVideoConfig(runtime && runtime.video),
+    points: resolvePointsConfig(runtime && runtime.points)
   };
 }
 
 function adminConfigView(configs, runtime, metadata = {}) {
   const imageDefaults = resolveImageConfig();
   const videoDefaults = resolveVideoConfig();
-  const overrides = runtime || { image: {}, video: {} };
+  const overrides = runtime || { image: {}, video: {}, points: {} };
   return {
     defaults: redactConfig({
       image: imageDefaults,
-      video: videoDefaults
+      video: videoDefaults,
+      points: resolvePointsConfig()
     }, {
       image: imageDefaults,
-      video: videoDefaults
+      video: videoDefaults,
+      points: resolvePointsConfig()
     }),
     overrides: redactConfig(overrides, {
       image: imageDefaults,
-      video: videoDefaults
+      video: videoDefaults,
+      points: resolvePointsConfig()
     }),
     effective: redactConfig({
       image: configs.image,
-      video: configs.video
+      video: configs.video,
+      points: configs.points
     }, {
       image: configs.image,
-      video: configs.video
+      video: configs.video,
+      points: configs.points
     }),
     updatedAt: metadata.updatedAt || "",
     version: Number(metadata.version || 0),
@@ -1075,6 +1208,7 @@ async function saveAdminConfig(event, context) {
     _id: ADMIN_RUNTIME_CONFIG_ID,
     image: next.image,
     video: next.video,
+    points: next.points,
     version: previousVersion + 1,
     updatedAt: new Date(),
     updatedBy: getOpenId(context)
@@ -1088,7 +1222,8 @@ async function saveAdminConfig(event, context) {
     updatedBy: getOpenId(context),
     version: data.version,
     imageFields: Object.keys(patch.image),
-    videoFields: Object.keys(patch.video)
+    videoFields: Object.keys(patch.video),
+    pointsFields: Object.keys(patch.points)
   });
   const configs = await resolveEffectiveConfigs();
   return jsonResponse(true, adminConfigView(configs, next, data));
@@ -1559,11 +1694,84 @@ async function requestImageEdits(payload, apiKey, requestId, imageConfig = resol
   return response.json || {};
 }
 
-async function consumeQuota(openid) {
-  const dailyLimit = Math.max(1, Number(env("DAILY_GENERATION_LIMIT", "5")));
-  const dateKey = new Date().toISOString().slice(0, 10);
-  const quotaId = crypto.createHash("sha256").update(`${openid}:${dateKey}`).digest("hex").slice(0, 32);
-  const ref = db.collection("user_quotas").doc(quotaId);
+function dateKeyForTimeZone(date = new Date(), timeZone = POINTS_TIME_ZONE) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(date);
+  const values = {};
+  parts.forEach((part) => {
+    if (part.type !== "literal") values[part.type] = part.value;
+  });
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function shiftDateKey(dateKey, days) {
+  const [year, month, day] = String(dateKey || "").split("-").map(Number);
+  if (![year, month, day].every(Number.isFinite)) return "";
+  const value = new Date(Date.UTC(year, month - 1, day + Number(days || 0)));
+  return value.toISOString().slice(0, 10);
+}
+
+function isPromoDate(dateKey, points) {
+  const start = String(points && points.promoStartDate || "");
+  const end = String(points && points.promoEndDate || "");
+  return Boolean(start && end && dateKey >= start && dateKey <= end);
+}
+
+function calculateNextStreak(lastCheckinDate, currentStreak, dateKey) {
+  const streak = Math.max(0, Number(currentStreak) || 0);
+  if (!lastCheckinDate) return 1;
+  if (String(lastCheckinDate) === String(dateKey)) return streak || 1;
+  return String(lastCheckinDate) === shiftDateKey(dateKey, -1) ? streak + 1 : 1;
+}
+
+function pointsAccountId(openid) {
+  return crypto.createHash("sha256").update(`points:${openid}`).digest("hex").slice(0, 32);
+}
+
+function pointsLedgerId(openid, requestId) {
+  return crypto.createHash("sha256")
+    .update(`ledger:${openid}:${requestId}`)
+    .digest("hex")
+    .slice(0, 32);
+}
+
+function defaultPointsAccount(openid) {
+  return {
+    _id: pointsAccountId(openid),
+    openid,
+    pointsBalance: 0,
+    totalEarned: 0,
+    totalSpent: 0,
+    currentStreak: 0,
+    lastCheckinDate: "",
+    boundAt: new Date(),
+    updatedAt: new Date()
+  };
+}
+
+async function ensurePointsAccount(openid) {
+  const ref = db.collection(POINTS_ACCOUNT_COLLECTION).doc(pointsAccountId(openid));
+  try {
+    const result = await ref.get();
+    if (result && result.data) return result.data;
+  } catch (_) {
+    // 首次使用时集合可能还没有记录，下面直接创建。
+  }
+  const data = defaultPointsAccount(openid);
+  await ref.set({ data });
+  return data;
+}
+
+async function readDailyQuota(openid, dateKey, dailyFreeLimit) {
+  const quotaId = crypto.createHash("sha256")
+    .update(`quota:${openid}:${dateKey}`)
+    .digest("hex")
+    .slice(0, 32);
+  const ref = db.collection(USER_QUOTA_COLLECTION).doc(quotaId);
   let existing = null;
   try {
     const result = await ref.get();
@@ -1571,22 +1779,290 @@ async function consumeQuota(openid) {
   } catch (_) {
     existing = null;
   }
-  const used = Number(existing && existing.used) || 0;
-  if (used >= dailyLimit) {
-    const error = new Error(`今日生成次数已用完（${dailyLimit} 次）。`);
-    error.code = "quota-exceeded";
-    throw error;
-  }
-  const data = {
-    _id: quotaId,
-    openid,
-    dateKey,
-    used: used + 1,
-    dailyLimit,
-    updatedAt: new Date()
+  return {
+    ref,
+    data: Object.assign({
+      _id: quotaId,
+      openid,
+      dateKey,
+      used: 0,
+      freeUsed: 0,
+      promoFree: 0,
+      freeLimit: dailyFreeLimit,
+      dailyLimit: dailyFreeLimit,
+      updatedAt: new Date()
+    }, existing || {})
   };
-  await ref.set({ data });
-  return { used: used + 1, dailyLimit };
+}
+
+async function findPointLedger(openid, requestId) {
+  if (!openid || !requestId) return null;
+  const id = pointsLedgerId(openid, requestId);
+  try {
+    const result = await db.collection(POINTS_LEDGER_COLLECTION).doc(id).get();
+    return result && result.data ? result.data : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+async function savePointLedger(openid, requestId, data) {
+  const ledgerId = pointsLedgerId(openid, requestId);
+  const ref = db.collection(POINTS_LEDGER_COLLECTION).doc(ledgerId);
+  const record = Object.assign({
+    _id: ledgerId,
+    openid,
+    requestId,
+    createdAt: new Date()
+  }, data);
+  await ref.set({ data: record });
+  return record;
+}
+
+function pointsSummary(account, quota, points, dateKey) {
+  const value = account || defaultPointsAccount("anonymous");
+  const quotaData = quota && quota.data ? quota.data : {};
+  const freeLimit = Math.max(0, Number(points.dailyFreeLimit) || 0);
+  const freeUsed = Math.max(0, Number(quotaData.freeUsed !== undefined ? quotaData.freeUsed : quotaData.used) || 0);
+  const promoActive = isPromoDate(dateKey, points);
+  return {
+    pointsBalance: Math.max(0, Number(value.pointsBalance) || 0),
+    totalEarned: Math.max(0, Number(value.totalEarned) || 0),
+    totalSpent: Math.max(0, Number(value.totalSpent) || 0),
+    currentStreak: Math.max(0, Number(value.currentStreak) || 0),
+    lastCheckinDate: value.lastCheckinDate || "",
+    checkedInToday: value.lastCheckinDate === dateKey,
+    freeUsed,
+    freeLimit,
+    freeRemaining: Math.max(0, freeLimit - freeUsed),
+    promoActive,
+    promoStartDate: points.promoStartDate,
+    promoEndDate: points.promoEndDate,
+    imageCost: Number(points.imageCost) || 0,
+    videoCost: Number(points.videoCost) || 0,
+    checkinPoints: Number(points.checkinPoints) || 0,
+    streakBonus: Number(points.streakBonus) || 0,
+    streakDays: Number(points.streakDays) || 7,
+    billingMode: promoActive
+      ? "promo-free"
+      : freeUsed < freeLimit
+        ? "daily-free"
+        : "points"
+  };
+}
+
+async function reserveUsage(openid, requestId, kind) {
+  const configs = await resolveEffectiveConfigs();
+  const points = configs.points;
+  const dateKey = dateKeyForTimeZone(new Date(), points.timeZone);
+  const existingLedger = await findPointLedger(openid, requestId);
+  if (existingLedger) {
+    const quota = await readDailyQuota(openid, dateKey, points.dailyFreeLimit);
+    return Object.assign({
+      requestId,
+      dateKey,
+      kind,
+      alreadyReserved: true
+    }, existingLedger.billing || {}, {
+      pointsCharged: Math.max(0, Number(existingLedger.amount) < 0 ? -Number(existingLedger.amount) : 0),
+      quota: pointsSummary(await ensurePointsAccount(openid), quota, points, dateKey)
+    });
+  }
+
+  const cost = kind === "video" ? Number(points.videoCost) || 0 : Number(points.imageCost) || 0;
+  const quota = await readDailyQuota(openid, dateKey, points.dailyFreeLimit);
+  const account = await ensurePointsAccount(openid);
+  let source = "points";
+  let pointsCharged = cost;
+  if (isPromoDate(dateKey, points)) {
+    source = "promo-free";
+    pointsCharged = 0;
+    quota.data.promoFree = (Number(quota.data.promoFree) || 0) + 1;
+  } else if ((Number(quota.data.freeUsed) || Number(quota.data.used) || 0) < Number(points.dailyFreeLimit)) {
+    source = "daily-free";
+    pointsCharged = 0;
+    quota.data.freeUsed = (Number(quota.data.freeUsed) || Number(quota.data.used) || 0) + 1;
+    quota.data.used = quota.data.freeUsed;
+  } else {
+    const balance = Math.max(0, Number(account.pointsBalance) || 0);
+    if (balance < cost) {
+      const error = new Error(`积分不足，本次需要 ${cost} 积分，请先签到。`);
+      error.code = "points-insufficient";
+      error.pointsRequired = cost;
+      error.pointsBalance = balance;
+      throw error;
+    }
+    account.pointsBalance = balance - cost;
+    account.totalSpent = (Number(account.totalSpent) || 0) + cost;
+    account.updatedAt = new Date();
+    await db.collection(POINTS_ACCOUNT_COLLECTION).doc(account._id).set({ data: account });
+  }
+
+  quota.data.freeLimit = Number(points.dailyFreeLimit) || 0;
+  quota.data.dailyLimit = quota.data.freeLimit;
+  quota.data.updatedAt = new Date();
+  await quota.ref.set({ data: quota.data });
+  const ledger = await savePointLedger(openid, requestId, {
+    type: source === "points" ? "spend" : source,
+    kind,
+    amount: source === "points" ? -cost : 0,
+    balanceAfter: source === "points"
+      ? Math.max(0, Number(account.pointsBalance) || 0)
+      : Math.max(0, Number(account.pointsBalance) || 0),
+    dateKey,
+    description: source === "promo-free"
+      ? "活动期间免费使用"
+      : source === "daily-free"
+        ? "每日免费次数"
+        : `${kind === "video" ? "照片转视频" : "生图"}扣除积分`,
+    billing: {
+      source,
+      kind,
+      cost,
+      dateKey
+    }
+  });
+  return {
+    requestId,
+    dateKey,
+    kind,
+    source,
+    pointsCharged,
+    cost,
+    quota: pointsSummary(account, quota, points, dateKey),
+    ledgerId: ledger._id,
+    alreadyReserved: false
+  };
+}
+
+async function refundUsage(openid, requestId, reason) {
+  const original = await findPointLedger(openid, requestId);
+  if (!original) return null;
+  const refundRequestId = `refund:${requestId}`;
+  if (await findPointLedger(openid, refundRequestId)) return original;
+  const configs = await resolveEffectiveConfigs();
+  const points = configs.points;
+  const dateKey = String(original.dateKey || dateKeyForTimeZone(new Date(), points.timeZone));
+  if (original.type === "spend" && Number(original.amount) < 0) {
+    const account = await ensurePointsAccount(openid);
+    const amount = -Number(original.amount);
+    account.pointsBalance = (Number(account.pointsBalance) || 0) + amount;
+    account.totalSpent = Math.max(0, (Number(account.totalSpent) || 0) - amount);
+    account.updatedAt = new Date();
+    await db.collection(POINTS_ACCOUNT_COLLECTION).doc(account._id).set({ data: account });
+    await savePointLedger(openid, refundRequestId, {
+      type: "refund",
+      kind: original.kind || "",
+      amount,
+      balanceAfter: account.pointsBalance,
+      dateKey,
+      description: reason || "生成失败，积分已退回",
+      billing: { source: "refund", originalRequestId: requestId }
+    });
+    return account;
+  }
+  const quota = await readDailyQuota(openid, dateKey, points.dailyFreeLimit);
+  if (original.type === "daily-free") {
+    quota.data.freeUsed = Math.max(0, (Number(quota.data.freeUsed) || 0) - 1);
+    quota.data.used = quota.data.freeUsed;
+  } else if (original.type === "promo-free") {
+    quota.data.promoFree = Math.max(0, (Number(quota.data.promoFree) || 0) - 1);
+  }
+  quota.data.updatedAt = new Date();
+  await quota.ref.set({ data: quota.data });
+  await savePointLedger(openid, refundRequestId, {
+    type: "refund",
+    kind: original.kind || "",
+    amount: 0,
+    balanceAfter: 0,
+    dateKey,
+    description: reason || "生成失败，免费次数已退回",
+    billing: { source: "refund", originalRequestId: requestId }
+  });
+  return quota.data;
+}
+
+async function getUserPoints(context) {
+  const openid = getOpenId(context);
+  if (openid === "anonymous") {
+    return jsonResponse(true, Object.assign({
+      accountBound: false,
+      boundMessage: "点击签到后绑定微信身份"
+    }, pointsSummary(defaultPointsAccount("anonymous"), { data: {} }, resolvePointsConfig(), dateKeyForTimeZone())));
+  }
+  const configs = await resolveEffectiveConfigs();
+  const dateKey = dateKeyForTimeZone(new Date(), configs.points.timeZone);
+  const account = await ensurePointsAccount(openid);
+  const quota = await readDailyQuota(openid, dateKey, configs.points.dailyFreeLimit);
+  return jsonResponse(true, Object.assign({
+    accountBound: true,
+    boundMessage: "已绑定当前微信"
+  }, pointsSummary(account, quota, configs.points, dateKey)));
+}
+
+async function checkIn(context) {
+  const openid = getOpenId(context);
+  if (openid === "anonymous") return fail("请先完成微信授权后再签到。", "wechat-binding-required");
+  const configs = await resolveEffectiveConfigs();
+  const points = configs.points;
+  const dateKey = dateKeyForTimeZone(new Date(), points.timeZone);
+  const account = await ensurePointsAccount(openid);
+  const requestId = `checkin:${dateKey}`;
+  const existingLedger = await findPointLedger(openid, requestId);
+  if (existingLedger) {
+    const quota = await readDailyQuota(openid, dateKey, points.dailyFreeLimit);
+    return jsonResponse(true, Object.assign({
+      accountBound: true,
+      duplicate: true,
+      earnedToday: 0
+    }, pointsSummary(account, quota, points, dateKey)));
+  }
+  const nextStreak = calculateNextStreak(account.lastCheckinDate, account.currentStreak, dateKey);
+  const bonus = nextStreak > 0 && nextStreak % Number(points.streakDays) === 0
+    ? Number(points.streakBonus) || 0
+    : 0;
+  const earned = (Number(points.checkinPoints) || 0) + bonus;
+  account.pointsBalance = (Number(account.pointsBalance) || 0) + earned;
+  account.totalEarned = (Number(account.totalEarned) || 0) + earned;
+  account.currentStreak = nextStreak;
+  account.lastCheckinDate = dateKey;
+  account.boundAt = account.boundAt || new Date();
+  account.updatedAt = new Date();
+  await db.collection(POINTS_ACCOUNT_COLLECTION).doc(account._id).set({ data: account });
+  await savePointLedger(openid, requestId, {
+    type: "checkin",
+    kind: "checkin",
+    amount: earned,
+    balanceAfter: account.pointsBalance,
+    dateKey,
+    description: bonus ? `连续签到 ${points.streakDays} 天奖励` : "每日签到奖励",
+    billing: { base: points.checkinPoints, bonus }
+  });
+  const quota = await readDailyQuota(openid, dateKey, points.dailyFreeLimit);
+  return jsonResponse(true, Object.assign({
+    accountBound: true,
+    duplicate: false,
+    earnedToday: earned,
+    streakBonus: bonus
+  }, pointsSummary(account, quota, points, dateKey)));
+}
+
+async function getPointLedger(context) {
+  const openid = getOpenId(context);
+  if (openid === "anonymous") return jsonResponse(true, { records: [] });
+  const result = await db.collection(POINTS_LEDGER_COLLECTION)
+    .where({ openid })
+    .orderBy("createdAt", "desc")
+    .limit(50)
+    .get();
+  return jsonResponse(true, {
+    records: (result && result.data ? result.data : []).map((item) => Object.assign({}, item, {
+      id: item._id,
+      createdAt: item.createdAt instanceof Date
+        ? item.createdAt.toISOString()
+        : String(item.createdAt || "")
+    }))
+  });
 }
 
 async function findGenerationRecord(openid, requestId) {
@@ -1663,73 +2139,88 @@ async function generate(event, context) {
     wardrobeRefs: Array.isArray(payload.wardrobeFileIDs) ? payload.wardrobeFileIDs.length : 0
   });
 
-  const quota = await consumeQuota(openid);
-  let response;
-  if (mode === "edits") {
-    response = await requestImageEdits(
-      Object.assign({}, payload, { prompt }),
-      apiKey,
+  let billing = null;
+  try {
+    billing = await reserveUsage(openid, requestId, "image");
+    let response;
+    if (mode === "edits") {
+      response = await requestImageEdits(
+        Object.assign({}, payload, { prompt }),
+        apiKey,
+        requestId,
+        imageConfig
+      );
+    } else {
+      const url = imageConfig.endpoint || endpoint(imageConfig.baseUrl, "images/generations");
+      const body = {
+        model,
+        prompt,
+        size,
+        n: 1
+      };
+      response = await requestJson(url, body, apiKey, {}, {
+        requestId,
+        action: "generate",
+        imageGeneration: true,
+        allowRetry: imageConfig.retryEnabled,
+        maxAttempts: imageConfig.retryEnabled ? imageConfig.maxRetries + 1 : 1,
+        timeoutMs: imageConfig.timeoutMs
+      });
+    }
+    const image = extractImageItem(response);
+    if (!image) {
+      const error = new Error("图片接口没有返回图片。");
+      error.code = "empty-image-result";
+      throw error;
+    }
+    const buffer = image.buffer || await downloadUrl(image.url, {
       requestId,
-      imageConfig
-    );
-  } else {
-    const url = imageConfig.endpoint || endpoint(imageConfig.baseUrl, "images/generations");
-    const body = {
-      model,
-      prompt,
-      size,
-      n: 1
-    };
-    response = await requestJson(url, body, apiKey, {}, {
-      requestId,
-      action: "generate",
-      imageGeneration: true,
-      allowRetry: imageConfig.retryEnabled,
-      maxAttempts: imageConfig.retryEnabled ? imageConfig.maxRetries + 1 : 1,
-      timeoutMs: imageConfig.timeoutMs
+      action: "generate-result"
     });
+    const extension = imageExtension(image.mime);
+    const fileID = await cloud.uploadFile({
+      cloudPath: `results/${openid}/${Date.now()}-${crypto.randomBytes(4).toString("hex")}.${extension}`,
+      fileContent: buffer
+    });
+    const tempResult = await cloud.getTempFileURL({ fileList: [fileID.fileID] });
+    const tempFileURL = tempResult.fileList && tempResult.fileList[0] && tempResult.fileList[0].tempFileURL;
+    const createdAt = new Date();
+    const recordData = {
+      openid,
+      projectName: payload.projectName || "未命名项目",
+      prompt: String(payload.prompt),
+      negativePrompt: String(payload.negativePrompt || ""),
+      fileID: fileID.fileID,
+      tempFileURL: tempFileURL || "",
+      model,
+      createdAt,
+      size,
+      imageMode: mode,
+      requestId,
+      quotaUsed: billing.quota.freeUsed,
+      dailyLimit: billing.quota.freeLimit,
+      billingSource: billing.source,
+      pointsCharged: billing.pointsCharged
+    };
+    const saved = await db.collection("generation_records").add({ data: recordData });
+    return jsonResponse(true, {
+      recordId: saved._id,
+      fileID: fileID.fileID,
+      tempFileURL: tempFileURL || "",
+      createdAt: createdAt.toISOString(),
+      record: Object.assign({}, recordData, {
+        id: saved._id,
+        createdAt: createdAt.toISOString()
+      }),
+      quota: billing.quota,
+      billing
+    });
+  } catch (error) {
+    if (billing && !billing.alreadyReserved) {
+      await refundUsage(openid, requestId, "生图失败，已退回本次使用额度");
+    }
+    throw error;
   }
-  const image = extractImageItem(response);
-  if (!image) return fail("图片接口没有返回图片。", "empty-image-result");
-  const buffer = image.buffer || await downloadUrl(image.url, {
-    requestId,
-    action: "generate-result"
-  });
-  const extension = imageExtension(image.mime);
-  const fileID = await cloud.uploadFile({
-    cloudPath: `results/${openid}/${Date.now()}-${crypto.randomBytes(4).toString("hex")}.${extension}`,
-    fileContent: buffer
-  });
-  const tempResult = await cloud.getTempFileURL({ fileList: [fileID.fileID] });
-  const tempFileURL = tempResult.fileList && tempResult.fileList[0] && tempResult.fileList[0].tempFileURL;
-  const createdAt = new Date();
-  const recordData = {
-    openid,
-    projectName: payload.projectName || "未命名项目",
-    prompt: String(payload.prompt),
-    negativePrompt: String(payload.negativePrompt || ""),
-    fileID: fileID.fileID,
-    tempFileURL: tempFileURL || "",
-    model,
-    createdAt,
-    size,
-    imageMode: mode,
-    requestId,
-    quotaUsed: quota.used,
-    dailyLimit: quota.dailyLimit
-  };
-  const saved = await db.collection("generation_records").add({ data: recordData });
-  return jsonResponse(true, {
-    recordId: saved._id,
-    fileID: fileID.fileID,
-    tempFileURL: tempFileURL || "",
-    createdAt: createdAt.toISOString(),
-    record: Object.assign({}, recordData, {
-      id: saved._id,
-      createdAt: createdAt.toISOString()
-    }),
-    quota
-  });
 }
 
 async function listRecords(context) {
@@ -1955,7 +2446,7 @@ async function videoProviderStatus() {
   });
 }
 
-async function createVideoTask(event) {
+async function createVideoTask(event, context) {
   const configs = await resolveEffectiveConfigs();
   const video = configs.video;
   if (!video.configured) {
@@ -1969,46 +2460,59 @@ async function createVideoTask(event) {
     return fail("缺少视频源图片，请重新选择照片。", "VIDEO_SOURCE_IMAGE_MISSING");
   }
   const requestId = event.requestId;
-  const imageBuffer = await downloadCloudFile(payload.imageFileID, {
-    requestId,
-    action: "video.create",
-    fileType: "video-source"
-  });
-  const requestPayload = buildVideoGenerationPayload(payload, Buffer.from(imageBuffer), video);
-  log("info", "video.create.start", {
-    requestId,
-    provider: video.provider,
-    model: requestPayload.model,
-    resolution: requestPayload.resolution || "",
-    duration: requestPayload.duration || null,
-    imageBytes: Buffer.from(imageBuffer).length,
-    prompt: requestPayload.prompt
-  });
-  const response = await requestJsonMethod(
-    videoCreateUrl(video),
-    requestPayload,
-    video.apiKey,
-    "POST",
-    {},
-    videoRequestMeta(requestId, "video.create", video, false)
-  );
-  const normalized = normalizeVideoCreateResponse(response);
-  log("info", "video.create.finish", {
-    requestId,
-    provider: video.provider,
-    taskId: normalized.taskId,
-    providerStatus: normalized.providerStatus,
-    durationMs: null
-  });
-  return jsonResponse(true, Object.assign({}, normalized, {
-    requestId,
-    provider: video.provider,
-    model: requestPayload.model,
-    resolution: requestPayload.resolution || ""
-  }));
+  const openid = getOpenId(context);
+  let billing = null;
+  try {
+    const imageBuffer = await downloadCloudFile(payload.imageFileID, {
+      requestId,
+      action: "video.create",
+      fileType: "video-source"
+    });
+    const requestPayload = buildVideoGenerationPayload(payload, Buffer.from(imageBuffer), video);
+    billing = await reserveUsage(openid, requestId, "video");
+    log("info", "video.create.start", {
+      requestId,
+      provider: video.provider,
+      model: requestPayload.model,
+      resolution: requestPayload.resolution || "",
+      duration: requestPayload.duration || null,
+      imageBytes: Buffer.from(imageBuffer).length,
+      prompt: requestPayload.prompt,
+      billingSource: billing.source,
+      pointsCharged: billing.pointsCharged
+    });
+    const response = await requestJsonMethod(
+      videoCreateUrl(video),
+      requestPayload,
+      video.apiKey,
+      "POST",
+      {},
+      videoRequestMeta(requestId, "video.create", video, false)
+    );
+    const normalized = normalizeVideoCreateResponse(response);
+    log("info", "video.create.finish", {
+      requestId,
+      provider: video.provider,
+      taskId: normalized.taskId,
+      providerStatus: normalized.providerStatus,
+      durationMs: null
+    });
+    return jsonResponse(true, Object.assign({}, normalized, {
+      requestId,
+      provider: video.provider,
+      model: requestPayload.model,
+      resolution: requestPayload.resolution || "",
+      billing
+    }));
+  } catch (error) {
+    if (billing && !billing.alreadyReserved) {
+      await refundUsage(openid, requestId, "视频任务创建失败，已退回本次使用额度");
+    }
+    throw error;
+  }
 }
 
-async function queryVideoTask(event) {
+async function queryVideoTask(event, context) {
   const configs = await resolveEffectiveConfigs();
   const video = configs.video;
   if (!video.configured) {
@@ -2017,6 +2521,7 @@ async function queryVideoTask(event) {
       "VIDEO_PROVIDER_NOT_CONFIGURED"
     );
   }
+  const openid = getOpenId(context);
   const taskId = String(event.taskId || "").trim();
   if (!taskId) {
     return fail("缺少视频任务编号。", "VIDEO_TASK_ID_MISSING");
@@ -2030,6 +2535,12 @@ async function queryVideoTask(event) {
     videoRequestMeta(event.requestId, "video.query", video, true)
   );
   const normalized = normalizeVideoQueryResponse(response);
+  if (
+    ["failed", "cancelled"].includes(normalized.status)
+    && openid !== "anonymous"
+  ) {
+    await refundUsage(openid, event.requestId, "视频任务失败，已退回本次使用额度");
+  }
   if (normalized.status === "succeeded" && !normalized.videoURL) {
     return fail(
       "视频任务已完成，但服务没有返回视频地址。",

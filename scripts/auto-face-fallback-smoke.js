@@ -205,6 +205,7 @@ async function runMainImageUploadReuse() {
 async function runCloudFailureManualFallback() {
   resetLogs();
   const cloudError = new Error("云端自动贴脸失败");
+  cloudError.status = 503;
   cloudError.payload = {
     errorCode: "vision-upstream-failed",
     message: "视觉服务暂时不可用",
@@ -223,12 +224,20 @@ async function runCloudFailureManualFallback() {
   assert.strictEqual(page.data.autoFaceStatus.state, "manual-required");
   assert.strictEqual(page.data.autoFaceStatus.stage, "cloud-failed");
   assert.strictEqual(page.data.autoFaceStatus.source, "manual");
+  assert.ok(
+    page.data.autoFaceStatus.failureReason.includes("云端视觉服务或网络临时异常")
+  );
+  assert.ok(page.data.autoFaceStatus.nextStepText.includes("稍后重试"));
+  assert.strictEqual(page.data.manualGuideActive, true);
+  assert.ok(page.data.canvasGestureTip.includes("自动识别没成功"));
   assert.strictEqual(
     page.data.autoFaceStatus.details.cloudError.requestId,
     "req-smoke-face"
   );
   assert.ok(modalLog.some((item) => (
-    item.title === "请手动圈选"
+    item.title === "自动贴脸没成功"
+    && item.content.includes("原因：云端视觉服务或网络临时异常")
+    && item.content.includes("手动圈选：")
     && item.content.includes("请求编号：req-smoke-face")
   )));
   assert.strictEqual(loadingCount, 1);
@@ -248,7 +257,12 @@ async function runCloudUnavailableManualFallback() {
   assert.strictEqual(page.data.autoFaceStatus.state, "manual-required");
   assert.strictEqual(page.data.autoFaceStatus.stage, "cloud-unavailable");
   assert.strictEqual(page.data.autoFaceStatus.source, "manual");
-  assert.ok(modalLog.some((item) => item.content.includes("当前没有连接云端")));
+  assert.ok(page.data.autoFaceStatus.failureReason.includes("当前没有连接云端"));
+  assert.ok(modalLog.some((item) => (
+    item.title === "自动贴脸没成功"
+    && item.content.includes("原因：当前没有连接云端")
+    && item.content.includes("手动圈选：")
+  )));
   assert.strictEqual(loadingCount, 0);
   assert.strictEqual(hideLoadingCount, 0);
   assert.strictEqual(page.data.analysisAction, "");

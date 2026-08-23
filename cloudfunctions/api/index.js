@@ -1044,15 +1044,17 @@ async function getAdminConfig(context) {
   if (!isAdminContext(context)) return adminForbidden();
   const runtime = await loadAdminRuntimeConfig();
   const configs = await resolveEffectiveConfigs();
-  let metadata = {};
-  try {
-    const result = await db
-      .collection(ADMIN_RUNTIME_CONFIG_COLLECTION)
-      .doc(ADMIN_RUNTIME_CONFIG_ID)
-      .get();
-    metadata = result && result.data ? result.data : {};
-  } catch (_) {
-    metadata = {};
+  let metadata = runtime || {};
+  if (process.env.WECHAT_MINIAPP_TEST !== "1") {
+    try {
+      const result = await db
+        .collection(ADMIN_RUNTIME_CONFIG_COLLECTION)
+        .doc(ADMIN_RUNTIME_CONFIG_ID)
+        .get();
+      metadata = result && result.data ? result.data : {};
+    } catch (_) {
+      metadata = runtime || {};
+    }
   }
   return jsonResponse(true, adminConfigView(configs, runtime, metadata));
 }

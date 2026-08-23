@@ -1,4 +1,4 @@
-const API_BUILD_VERSION = "0.20.1";
+const API_BUILD_VERSION = "0.20.2";
 const API_BUILD_MARKER = "API_BUILD_TAG_20260823_ASSET_UPLOAD_V201";
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
@@ -22,6 +22,30 @@ const ADMIN_DEPLOYMENT_LOG_COLLECTION = "admin_deployment_logs";
 const MODEL_USAGE_EVENT_COLLECTION = "model_usage_events";
 const MODEL_USAGE_TIME_ZONE = "Asia/Shanghai";
 const MODEL_USAGE_TYPES = ["image", "face", "video"];
+const AUTO_FACE_FAILURE_LOG_COLLECTION = "auto_face_failure_logs";
+const AUTO_FACE_FAILURE_TIME_ZONE = "Asia/Shanghai";
+const AUTO_FACE_FAILURE_TYPES = [
+  "cloud-unavailable",
+  "missing-api-key",
+  "missing-main-image",
+  "image-too-large",
+  "empty-face-detection",
+  "timeout",
+  "upstream",
+  "network",
+  "unknown"
+];
+const AUTO_FACE_FAILURE_TYPE_LABELS = {
+  "cloud-unavailable": "云端未连接",
+  "missing-api-key": "视觉服务未配置",
+  "missing-main-image": "主图未上传",
+  "image-too-large": "图片过大",
+  "empty-face-detection": "未识别到清晰人脸",
+  timeout: "识别超时",
+  upstream: "上游服务异常",
+  network: "网络异常",
+  unknown: "其他失败"
+};
 const MODEL_COST_CONFIG_VERSION = "2026-08-23-v1";
 const ADMIN_RUNTIME_CACHE_TTL_MS = 15000;
 const POINTS_ACCOUNT_COLLECTION = "user_accounts";
@@ -708,6 +732,7 @@ function normalizeWebPoseSuggestions(value) {
 
 const db = cloud.database();
 const modelUsageTestEvents = [];
+const autoFaceFailureTestEvents = [];
 
 function modelUsageTypeForAction(action) {
   if (action === "generate") return "image";

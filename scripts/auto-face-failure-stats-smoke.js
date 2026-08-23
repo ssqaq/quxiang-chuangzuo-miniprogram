@@ -74,6 +74,20 @@ const stats = test.buildAutoFaceFailureStats(
   shanghaiDate(0, 12)
 );
 
+const cleanupCutoff = test.autoFaceFailureCleanupCutoff(shanghaiDate(0, 12));
+assert.ok(cleanupCutoff < shanghaiDate(-89, 12), "清理保留期应超过 89 天");
+assert.ok(
+  test.shouldRunAutoFaceFailureCleanup(shanghaiDate(0, 12), 0),
+  "首次调用应允许执行清理"
+);
+assert.ok(
+  !test.shouldRunAutoFaceFailureCleanup(
+    shanghaiDate(0, 12),
+    shanghaiDate(0, 11).getTime()
+  ),
+  "一天内不应重复执行清理"
+);
+
 assert.strictEqual(stats.today, 2, "今天统计不正确");
 assert.strictEqual(stats.last7d, 28, "近 7 天统计不正确");
 assert.strictEqual(stats.total30d, 30, "近 30 天统计不正确");
@@ -121,6 +135,7 @@ async function main() {
     last7d: stats.last7d,
     total30d: stats.total30d,
     recentCount: stats.recent.length,
+    cleanupRetentionDays: 90,
     apiReportAccepted: reportResult.accepted,
     adminStatsAvailable: !adminStats.unavailable
   }));

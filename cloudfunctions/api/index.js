@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.21.0";
-const API_BUILD_MARKER = "API_BUILD_TAG_20260823_LOCAL_REPAIR_V210";
+const API_BUILD_VERSION = "0.21.1";
+const API_BUILD_MARKER = "API_BUILD_TAG_20260823_LOCAL_REPAIR_AUTO_CLEANUP_V211";
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
 const cloud = require("wx-server-sdk");
@@ -46,6 +46,9 @@ const AUTO_FACE_FAILURE_TYPE_LABELS = {
   network: "网络异常",
   unknown: "其他失败"
 };
+const AUTO_FACE_FAILURE_RETENTION_DAYS = 90;
+const AUTO_FACE_FAILURE_CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const AUTO_FACE_FAILURE_CLEANUP_BATCH_SIZE = 100;
 const MODEL_COST_CONFIG_VERSION = "2026-08-23-v1";
 const ADMIN_RUNTIME_CACHE_TTL_MS = 15000;
 const POINTS_ACCOUNT_COLLECTION = "user_accounts";
@@ -733,6 +736,8 @@ function normalizeWebPoseSuggestions(value) {
 const db = cloud.database();
 const modelUsageTestEvents = [];
 const autoFaceFailureTestEvents = [];
+let autoFaceFailureCleanupLastRunAt = 0;
+let autoFaceFailureCleanupPromise = null;
 
 function modelUsageTypeForAction(action) {
   if (action === "generate") return "image";
@@ -900,6 +905,78 @@ function buildAutoFaceFailureStats(events = [], baseDate = new Date()) {
   };
 }
 
+function autoFaceFailureCleanupCutoff(baseDate = new Date()) {
+  return new Date(
+    baseDate.getTime() - AUTO_FACE_FAILURE_RETENTION_DAYS * 24 * 60 * 60 * 1000
+  );
+}
+
+function shouldRunAutoFaceFailureCleanup(baseDate = new Date(), lastRunAt = 0) {
+  return (
+    !lastRunAt
+    || baseDate.getTime() - Number(lastRunAt) >= AUTO_FACE_FAILURE_CLEANUP_INTERVAL_MS
+  );
+}
+
+async function cleanupAutoFaceFailureLogs(baseDate = new Date()) {
+  if (process.env.WECHAT_MINIAPP_TEST === "1") {
+    return { skipped: true, removed: 0, truncated: false };
+  }
+  if (
+    !shouldRunAutoFaceFailureCleanup(baseDate, autoFaceFailureCleanupLastRunAt)
+    && !autoFaceFailureCleanupPromise
+  ) {
+    return { skipped: true, removed: 0, truncated: false };
+  }
+  if (autoFaceFailureCleanupPromise) return autoFaceFailureCleanupPromise;
+
+  autoFaceFailureCleanupLastRunAt = baseDate.getTime();
+  autoFaceFailureCleanupPromise = (async () => {
+    const cutoff = autoFaceFailureCleanupCutoff(baseDate);
+    try {
+      const result = await db
+        .collection(AUTO_FACE_FAILURE_LOG_COLLECTION)
+        .where({ createdAt: db.command.lt(cutoff) })
+        .limit(AUTO_FACE_FAILURE_CLEANUP_BATCH_SIZE)
+        .get();
+      const rows = result && Array.isArray(result.data) ? result.data : [];
+      const deletable = rows.filter((item) => item && item._id);
+      await Promise.all(
+        deletable.map((item) => (
+          db.collection(AUTO_FACE_FAILURE_LOG_COLLECTION).doc(item._id).remove()
+        ))
+      );
+      const summary = {
+        skipped: false,
+        removed: deletable.length,
+        truncated: rows.length >= AUTO_FACE_FAILURE_CLEANUP_BATCH_SIZE
+      };
+      if (deletable.length) {
+        log("info", "auto-face-failure.cleanup", {
+          cutoff: cutoff.toISOString(),
+          removed: deletable.length,
+          truncated: summary.truncated
+        });
+      }
+      return summary;
+    } catch (error) {
+      log("warn", "auto-face-failure.cleanup-failed", {
+        cutoff: cutoff.toISOString(),
+        error: error && error.message
+      });
+      return {
+        skipped: false,
+        removed: 0,
+        truncated: false,
+        unavailable: true
+      };
+    } finally {
+      autoFaceFailureCleanupPromise = null;
+    }
+  })();
+  return autoFaceFailureCleanupPromise;
+}
+
 async function reportAutoFaceFailure(event = {}) {
   const report = normalizeAutoFaceFailureReport(
     event && event.payload,
@@ -914,6 +991,7 @@ async function reportAutoFaceFailure(event = {}) {
   }
   try {
     await db.collection(AUTO_FACE_FAILURE_LOG_COLLECTION).add({ data: report });
+    cleanupAutoFaceFailureLogs(new Date());
     return jsonResponse(true, {
       accepted: true,
       requestId: report.requestId
@@ -954,6 +1032,7 @@ async function getAutoFaceFailureStats(event, context) {
   const startKey = shiftDateKey(todayKey, -29);
   const startDate = new Date(`${startKey}T00:00:00+08:00`);
   try {
+    await cleanupAutoFaceFailureLogs(baseDate);
     const events = await loadAutoFaceFailureEvents(startDate);
     const stats = buildAutoFaceFailureStats(events, baseDate);
     return jsonResponse(true, Object.assign(stats, {
@@ -5191,6 +5270,8 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     formatAutoFaceFailureType,
     autoFaceFailureDisplayEvent,
     buildAutoFaceFailureStats,
+    autoFaceFailureCleanupCutoff,
+    shouldRunAutoFaceFailureCleanup,
     dateKeyForTimeZone,
     shiftDateKey,
     shiftMonthKey,

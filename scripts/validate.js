@@ -695,7 +695,10 @@ if (
   || !workbenchWxss.includes("flex: 1 1 0")
   || !workbenchWxss.includes("gap: 12rpx")
   || !workbenchWxss.includes(".interaction-log-primary-button")
-  || !workbenchWxml.includes("diagnosticEvents")
+  || (
+    !workbenchWxml.includes("diagnosticEvents")
+    && !workbenchWxml.includes("diagnosticGroups")
+  )
   || !workbenchWxss.includes(".interaction-log-card")
   || !workbenchWxss.includes(".interaction-log-list")
   || !workbenchWxss.includes(".diagnostic-toggle-head")

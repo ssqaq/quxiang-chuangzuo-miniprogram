@@ -89,16 +89,86 @@ function formatDiagnosticEvent(item) {
   const details = item && item.details && Object.keys(item.details).length
     ? JSON.stringify(item.details)
     : "";
+  const level = item && item.level || "info";
+  const categoryLabels = {
+    app: "应用启动",
+    navigation: "页面操作",
+    cloud: "云端服务",
+    points: "积分服务",
+    admin: "管理员",
+    diagnostic: "排查记录"
+  };
   return Object.assign({}, item, {
     title: `${item.category || "app"} · ${item.event || "unknown"}`,
+    categoryLabel: categoryLabels[item.category] || "运行记录",
+    levelLabel: level === "error" ? "错误" : (level === "warn" ? "提醒" : "正常"),
     errorText: item.error && item.error.message || "",
     detailText: details.slice(0, 800),
     metaText: [
       item.requestId ? `请求 ${item.requestId}` : "",
       item.code ? `代码 ${item.code}` : "",
       Number.isFinite(Number(item.durationMs)) ? `${item.durationMs} ms` : ""
-    ].filter(Boolean).join(" · ")
+    ].filter(Boolean).join(" · "),
+    expanded: level !== "info"
   });
+}
+
+function buildDiagnosticGroups(events = []) {
+  const abnormal = [];
+  const normal = [];
+  events.forEach((item) => {
+    if (item.level === "error" || item.level === "warn") {
+      abnormal.push(item);
+    } else {
+      normal.push(item);
+    }
+  });
+  const errorCount = abnormal.filter((item) => item.level === "error").length;
+  const warnCount = abnormal.filter((item) => item.level === "warn").length;
+  return [
+    abnormal.length
+      ? {
+        key: "abnormal",
+        title: "异常记录",
+        note: `${errorCount} 个错误 · ${warnCount} 个提醒`,
+        count: abnormal.length,
+        tone: "abnormal",
+        events: abnormal
+      }
+      : null,
+    normal.length
+      ? {
+        key: "normal",
+        title: "正常记录",
+        note: "启动和服务过程",
+        count: normal.length,
+        tone: "normal",
+        events: normal
+      }
+      : null
+  ].filter(Boolean);
+}
+
+function buildDiagnosticSummary(stats = {}) {
+  const errorCount = Number(stats.errorCount) || 0;
+  const warnCount = Number(stats.warnCount) || 0;
+  if (errorCount || warnCount) {
+    const issueCount = errorCount + warnCount;
+    return {
+      title: `发现 ${issueCount} 条异常记录`,
+      description: errorCount
+        ? "有错误需要优先排查，点开异常记录查看详情。"
+        : "有提醒信息，点开异常记录查看具体原因。",
+      tone: errorCount ? "error" : "warn",
+      icon: errorCount ? "!" : "!"
+    };
+  }
+  return {
+    title: "本次运行正常",
+    description: "没有发现错误，可以继续使用。",
+    tone: "ok",
+    icon: "✓"
+  };
 }
 
 function buildCheckInToast(result = {}) {
@@ -129,11 +199,18 @@ Page({
     hasDraft: false,
     records: [],
     diagnosticEvents: [],
+    diagnosticGroups: [],
     diagnosticExpanded: false,
     diagnosticStats: {
       eventCount: 0,
       errorCount: 0,
       warnCount: 0
+    },
+    diagnosticSummary: {
+      title: "本次运行正常",
+      description: "没有发现错误，可以继续使用。",
+      tone: "ok",
+      icon: "✓"
     },
     diagnosticSession: {
       startedAt: ""
@@ -201,11 +278,15 @@ Page({
   },
 
   refreshDiagnostics() {
+    const diagnosticEvents = diagnosticLog
+      .read({ limit: diagnosticLog.DISPLAY_LIMIT, newestFirst: true })
+      .map(formatDiagnosticEvent);
+    const diagnosticStats = diagnosticLog.getStats();
     this.setData({
-      diagnosticEvents: diagnosticLog
-        .read({ limit: diagnosticLog.DISPLAY_LIMIT, newestFirst: true })
-        .map(formatDiagnosticEvent),
-      diagnosticStats: diagnosticLog.getStats(),
+      diagnosticEvents,
+      diagnosticGroups: buildDiagnosticGroups(diagnosticEvents),
+      diagnosticStats,
+      diagnosticSummary: buildDiagnosticSummary(diagnosticStats),
       diagnosticSession: diagnosticLog.getSession()
     });
   },
@@ -341,6 +422,20 @@ Page({
   toggleDiagnosticPanel() {
     this.setData({
       diagnosticExpanded: !this.data.diagnosticExpanded
+    });
+  },
+
+  toggleDiagnosticEvent(event) {
+    const sequence = Number(event && event.currentTarget && event.currentTarget.dataset
+      ? event.currentTarget.dataset.sequence
+      : 0);
+    if (!sequence) return;
+    this.setData({
+      diagnosticGroups: (this.data.diagnosticGroups || []).map((group) => Object.assign({}, group, {
+        events: (group.events || []).map((item) => item.sequence === sequence
+          ? Object.assign({}, item, { expanded: !item.expanded })
+          : item)
+      }))
     });
   },
 

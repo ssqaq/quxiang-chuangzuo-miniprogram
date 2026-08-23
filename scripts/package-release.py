@@ -91,6 +91,8 @@ def main() -> None:
             "CloudBase 环境 ID：需在 config.js 中填写后再部署",
             "自动贴脸策略：直接调用云端 detectFaceCircle；云端失败保留手动圈选",
             "模型用量统计：部署前请创建 CloudBase 集合 model_usage_events，并设置为仅云函数读写",
+            "自动贴脸失败日志：部署前请创建 auto_face_failure_logs，并设置为仅云函数读写",
+            "自动贴脸失败日志保留 90 天，api 云函数按天懒清理，每次最多清理 100 条",
             "微信开发者工具 CLI：若服务端口关闭，请在 设置 → 安全设置 中开启",
             "注意：发布包不含 node_modules、AppSecret、AI API Key",
         ]

@@ -1159,11 +1159,7 @@ button.diagnostic-copy-button.button-hover {
   right: 0;
   bottom: 0;
   left: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   box-sizing: border-box;
-  padding: 96rpx 32rpx 112rpx;
   overflow: hidden;
   background: rgba(0, 0, 0, 0.94);
 }
@@ -1180,16 +1176,22 @@ button.diagnostic-copy-button.button-hover {
 }
 
 .author-qr-preview-image {
+  position: absolute;
+  top: 50%;
+  left: 50%;
   display: block;
   width: 86vw;
   height: 74vh;
-  flex: none;
   border-radius: 12rpx;
   background: #ffffff;
+  transform: translate(-50%, -50%);
 }
 
 .author-qr-preview-loading,
 .author-qr-preview-error {
+  position: absolute;
+  top: 50%;
+  left: 50%;
   display: flex;
   width: 86vw;
   min-height: 120rpx;
@@ -1200,6 +1202,7 @@ button.diagnostic-copy-button.button-hover {
   font-size: 25rpx;
   line-height: 38rpx;
   text-align: center;
+  transform: translate(-50%, -50%);
 }
 
 .author-qr-preview-error {

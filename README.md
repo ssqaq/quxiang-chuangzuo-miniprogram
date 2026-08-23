@@ -268,9 +268,15 @@ PowerShell -ExecutionPolicy Bypass -File .\scripts\check-devtools.ps1
 ```text
 generation_records
 user_quotas
+auto_face_failure_logs
 ```
 
-集合权限建议设置为“仅云函数可读写”。前端不直接读写数据库，统一通过 `api` 云函数处理。
+以上集合权限统一设置为“仅云函数可读写”。前端不直接读写数据库，统一通过 `api`
+云函数处理；微信开发者工具 CLI 目前没有提供数据库权限规则修改命令，所以这一步需要
+在 CloudBase 控制台的“数据库 → 集合 → 权限设置”里完成。
+
+`auto_face_failure_logs` 只保留最近 90 天的数据。`api` 云函数在失败上报或管理员刷新统计
+时触发一次懒清理，每次最多删除 100 条过期记录，清理失败不会影响用户上报或管理员查看统计。
 
 ## 调试顺序
 

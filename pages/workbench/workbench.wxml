@@ -205,8 +205,18 @@
       </view>
     </view>
     <view wx:if="{{diagnosticExpanded}}" class="diagnostic-expanded-content">
-      <view class="interaction-log-description">
-        记录启动、跳转和云端异常。
+      <view class="diagnostic-summary diagnostic-summary-{{diagnosticSummary.tone}}">
+        <view class="diagnostic-summary-main">
+          <view class="diagnostic-summary-icon">{{diagnosticSummary.icon}}</view>
+          <view class="diagnostic-summary-copy">
+            <view class="diagnostic-summary-title">{{diagnosticSummary.title}}</view>
+            <view class="diagnostic-summary-description">{{diagnosticSummary.description}}</view>
+          </view>
+        </view>
+        <view class="diagnostic-summary-count">
+          <text class="diagnostic-summary-count-number">{{diagnosticStats.eventCount}}</text>
+          <text>条记录</text>
+        </view>
       </view>
       <view class="interaction-log-actions interaction-log-actions-primary">
         <button
@@ -231,34 +241,64 @@
           清空
         </button>
       </view>
-      <view class="interaction-log-list">
+      <view class="interaction-log-list" data-diagnostic-events="{{diagnosticEvents}}">
         <view class="diagnostic-session-summary">
           本次会话：{{diagnosticSession.startedAt || '刚刚'}}
         </view>
-        <view wx:if="{{!diagnosticEvents.length}}" class="interaction-log-empty">
+        <view wx:if="{{!diagnosticGroups.length}}" class="interaction-log-empty">
           本次启动还没有排查日志
         </view>
         <view
-          wx:for="{{diagnosticEvents}}"
-          wx:key="sequence"
-          class="interaction-log-item {{item.level === 'error' ? 'interaction-log-item-error' : (item.level === 'warn' ? 'interaction-log-item-warn' : '')}}"
+          wx:for="{{diagnosticGroups}}"
+          wx:for-item="group"
+          wx:key="key"
+          class="diagnostic-group diagnostic-group-{{group.tone}}"
         >
-          <view class="interaction-log-item-head">
-            <text>{{item.title}}</text>
-            <text>{{item.time}}</text>
+          <view class="diagnostic-group-head">
+            <view class="diagnostic-group-title-wrap">
+              <view class="diagnostic-group-dot"></view>
+              <view>
+                <view class="diagnostic-group-title">{{group.title}}</view>
+                <view class="diagnostic-group-note">{{group.note}}</view>
+              </view>
+            </view>
+            <view class="diagnostic-group-count">{{group.count}} 条</view>
           </view>
-          <view class="interaction-log-message">{{item.message}}</view>
-          <view wx:if="{{item.metaText}}" class="interaction-log-detail">
-            {{item.metaText}}
-          </view>
-          <view wx:if="{{item.route}}" class="interaction-log-detail">
-            页面：{{item.route}}
-          </view>
-          <view wx:if="{{item.detailText}}" class="interaction-log-detail">
-            {{item.detailText}}
-          </view>
-          <view wx:if="{{item.errorText}}" class="interaction-log-error">
-            {{item.errorText}}
+          <view
+            wx:for="{{group.events}}"
+            wx:for-item="item"
+            wx:key="sequence"
+            class="diagnostic-event diagnostic-event-{{item.level}} {{item.expanded ? 'diagnostic-event-expanded' : ''}}"
+            data-sequence="{{item.sequence}}"
+            bindtap="toggleDiagnosticEvent"
+          >
+            <view class="diagnostic-event-head">
+              <view class="diagnostic-event-leading">
+                <view class="diagnostic-event-status">{{item.levelLabel}}</view>
+                <view class="diagnostic-event-title-wrap">
+                  <view class="diagnostic-event-title">{{item.message}}</view>
+                  <view class="diagnostic-event-meta">
+                    {{item.categoryLabel}} · {{item.time}}
+                  </view>
+                </view>
+              </view>
+              <view class="diagnostic-event-arrow {{item.expanded ? 'diagnostic-event-arrow-expanded' : ''}}">›</view>
+            </view>
+            <view wx:if="{{item.expanded}}" class="diagnostic-event-detail">
+              <view class="diagnostic-event-detail-title">{{item.title}}</view>
+              <view wx:if="{{item.metaText}}" class="diagnostic-log-detail">
+                {{item.metaText}}
+              </view>
+              <view wx:if="{{item.route}}" class="diagnostic-log-detail">
+                页面：{{item.route}}
+              </view>
+              <view wx:if="{{item.detailText}}" class="diagnostic-log-detail">
+                {{item.detailText}}
+              </view>
+              <view wx:if="{{item.errorText}}" class="diagnostic-log-error">
+                {{item.errorText}}
+              </view>
+            </view>
           </view>
         </view>
       </view>

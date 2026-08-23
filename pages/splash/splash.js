@@ -1,4 +1,5 @@
-const REDIRECT_DELAY = 1200;
+const REDIRECT_DELAY = 450;
+const WORKBENCH_URL = "/pages/workbench/workbench";
 
 Page({
   data: {
@@ -7,10 +8,27 @@ Page({
 
   onLoad() {
     this._redirectTimer = setTimeout(() => {
-      wx.reLaunch({
-        url: "/pages/workbench/workbench"
-      });
+      this._redirectTimer = null;
+      this.openWorkbench();
     }, REDIRECT_DELAY);
+  },
+
+  openWorkbench() {
+    if (this._navigating) return;
+    this._navigating = true;
+    const fallback = () => {
+      wx.reLaunch({
+        url: WORKBENCH_URL
+      });
+    };
+    if (typeof wx.redirectTo !== "function") {
+      fallback();
+      return;
+    }
+    wx.redirectTo({
+      url: WORKBENCH_URL,
+      fail: fallback
+    });
   },
 
   onUnload() {

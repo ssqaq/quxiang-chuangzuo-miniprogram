@@ -330,9 +330,11 @@ if (
   appJson.pages[0] !== "pages/splash/splash"
   || appJson.pages[1] !== "pages/workbench/workbench"
   || !splashJs.includes("setTimeout")
-  || !splashJs.includes("1200")
+  || !splashJs.includes("REDIRECT_DELAY = 450")
+  || !splashJs.includes("openWorkbench()")
+  || !splashJs.includes("wx.redirectTo")
   || !splashJs.includes('wx.reLaunch')
-  || !splashJs.includes('url: "/pages/workbench/workbench"')
+  || !splashJs.includes('WORKBENCH_URL = "/pages/workbench/workbench"')
   || !splashWxml.includes('src="/assets/brand/brand-icon.png"')
   || !splashWxml.includes("圈定想改的，创作想要的。")
   || !splashWxml.includes("局部创作，整体可控")

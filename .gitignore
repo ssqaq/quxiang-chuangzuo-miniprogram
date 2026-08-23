@@ -12,6 +12,7 @@ project.private.config.json
 # 临时文件和日志
 _tmp_*/
 *.log
+.superpowers/
 
 # 系统文件
 .DS_Store

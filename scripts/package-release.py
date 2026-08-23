@@ -36,6 +36,7 @@ def should_include(path: Path) -> bool:
     if (
         "node_modules" in relative.parts
         or ".git" in relative.parts
+        or ".superpowers" in relative.parts
         or "__pycache__" in relative.parts
     ):
         return False

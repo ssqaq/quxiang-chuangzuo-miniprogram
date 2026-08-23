@@ -332,3 +332,66 @@ node .\scripts\ai-provider-smoke.js --real --allow-paid --edits
 ```
 
 没有 `AI_SMOKE_API_KEY`、endpoint、模型或测试图片时，脚本会安全停止，不会伪造“真实接口通过”。
+
+## GitHub 自动同步与恢复
+
+GitHub 私有仓库：
+
+```text
+https://github.com/ssqaq/quxiang-chuangzuo-miniprogram
+```
+
+### 手动立即同步
+
+在 PowerShell 执行：
+
+```powershell
+PowerShell -ExecutionPolicy Bypass -File `
+  "D:\aips小程序\wechat-miniapp\scripts\sync-to-github.ps1"
+```
+
+脚本会先拉取远端更新，再提交当前文件变化并推送到 `main`。没有变化时不会创建空提交。
+
+### 自动同步
+
+Windows 任务计划程序中的任务：
+
+```text
+圈像创作自动同步GitHub
+```
+
+登录当前 Windows 账号后，该任务每 10 分钟执行一次同步脚本。
+
+同步日志保存在项目目录外，不会上传到 GitHub：
+
+```text
+D:\aips小程序\wechat-miniapp-sync-logs\sync-YYYY-MM-DD.log
+```
+
+如果自动任务失败，先打开当天日志看最后一段错误，再手动运行同步脚本复现。
+
+### 换电脑恢复
+
+先安装 Git 和微信开发者工具，再执行：
+
+```powershell
+git clone https://github.com/ssqaq/quxiang-chuangzuo-miniprogram.git `
+  "D:\aips小程序\wechat-miniapp"
+```
+
+然后：
+
+1. 用微信开发者工具导入 `D:\aips小程序\wechat-miniapp`；
+2. 重新填写本机 `project.private.config.json`；
+3. 在云函数后台重新配置 API Key 等环境变量；
+4. 在 `cloudfunctions\api` 中安装依赖；
+5. 重新部署 `api` 云函数；
+6. 按上面的方式重新创建 Windows 自动同步任务。
+
+### 常见故障
+
+- `git push` 要求登录：按 Git Credential Manager 提示完成 GitHub 网页登录；
+- 提示远端有新提交：先运行 `git pull --rebase --autostash origin main`；
+- 提示冲突：不要强制覆盖，先处理冲突再运行同步脚本；
+- 自动任务结果不是 `0x0`：查看项目外的当天同步日志；
+- 云函数密钥不会保存在 GitHub，换电脑后必须在云开发后台重新配置。

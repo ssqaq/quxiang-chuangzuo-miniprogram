@@ -115,18 +115,15 @@
       <view class="auto-face-diagnostics-head">
         <view class="auto-face-diagnostics-leading">
           <view class="auto-face-diagnostics-title">自动识别人脸</view>
-          <view class="auto-face-diagnostics-message">{{autoFaceStatus.message}}</view>
         </view>
-        <view class="auto-face-diagnostics-state state-{{autoFaceStatus.state}}">
-          {{autoFaceStatus.stateLabel}}
+        <view class="auto-face-diagnostics-status">
+          <text wx:if="{{autoFaceStatus.durationText}}" class="auto-face-diagnostics-duration">
+            {{autoFaceStatus.durationText}}
+          </text>
+          <view class="auto-face-diagnostics-state state-{{autoFaceStatus.state}}">
+            {{autoFaceStatus.stateLabel}}
+          </view>
         </view>
-      </view>
-      <view class="auto-face-diagnostics-meta">
-        <text wx:if="{{autoFaceStatus.durationText}}">{{autoFaceStatus.durationText}}</text>
-        <text>详细链路已写入故障排查报告</text>
-      </view>
-      <view class="auto-face-diagnostics-hint">
-        到工作台打开“故障排查报告”，可以复制完整运行链路。
       </view>
     </view>
   </view>

@@ -164,10 +164,11 @@ AI_VISION_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 AI_VISION_MODEL=qwen3-vl-flash
 AI_FACE_MODEL=qwen3-vl-flash
 
-# 生图专用：可换成其他供应商或其他模型
-AI_API_KEY=你的生图服务 API Key
-AI_BASE_URL=https://你的生图服务/v1
-AI_IMAGE_MODEL=实际可用的生图模型
+# 生图专用：和人脸识别、视频模型完全分开
+AI_IMAGE_API_KEY=你的生图服务 API Key
+AI_IMAGE_BASE_URL=https://api.pandatk.com/v1
+AI_IMAGE_ENDPOINT=https://api.pandatk.com/v1/images/generations
+AI_IMAGE_MODEL=image2超分高质量1-4k
 AI_IMAGE_SIZE=1024x1024
 DAILY_GENERATION_LIMIT=5
 AI_IMAGE_MODE=generations
@@ -189,6 +190,17 @@ AI_VIDEO_QUERY_PATH=
 ```
 
 真实密钥只放云函数环境变量，不写进小程序前端。
+
+当前 PandaTK 生图配置：
+
+- 中转站根地址：`https://api.pandatk.com`
+- OpenAI 兼容生图接口：`POST https://api.pandatk.com/v1/images/generations`
+- 模型：`image2超分高质量1-4k`
+- 价格：1K 约 0.015、2K 约 0.025、4K 约 0.035
+
+Key 只填写到云函数环境变量 `AI_IMAGE_API_KEY`，不要写进源码、README、
+日志或发布 ZIP。自动识别人脸继续使用 `AI_VISION_API_KEY` 的 DashScope，
+不会被 PandaTK 生图配置替换。
 
 部署前可以在工程根目录执行：
 

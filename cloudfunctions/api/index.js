@@ -1,4 +1,4 @@
-console.log("[api] build=0.13.1 marker=API_BUILD_TAG_20260823_52");
+console.log("[api] build=0.13.6 marker=API_BUILD_TAG_20260823_54");
 
 const cloud = require("wx-server-sdk");
 
@@ -57,6 +57,19 @@ function resolveVisionConfig() {
         Number(env("AI_VISION_MAX_IMAGE_BYTES", String(5 * 1024 * 1024))) || 5 * 1024 * 1024
       )
     )
+  };
+}
+
+function resolveImageConfig() {
+  return {
+    baseUrl: firstEnv(
+      ["AI_IMAGE_BASE_URL", "AI_BASE_URL"],
+      "https://api.openai.com/v1"
+    ),
+    endpoint: env("AI_IMAGE_ENDPOINT"),
+    apiKey: firstEnv(["AI_IMAGE_API_KEY", "AI_API_KEY"]),
+    model: env("AI_IMAGE_MODEL", "gpt-image-2"),
+    size: env("AI_IMAGE_SIZE", "1024x1024")
   };
 }
 
@@ -965,7 +978,7 @@ function invertMask(buffer, requestId) {
   }
 }
 
-async function requestImageEdits(payload, apiKey, requestId) {
+async function requestImageEdits(payload, apiKey, requestId, imageConfig = resolveImageConfig()) {
   if (!payload.mainFileID || !payload.maskFileID) {
     const error = new Error("编辑模式需要主图和 mask 文件。");
     error.code = "missing-edit-asset";
@@ -1047,8 +1060,7 @@ async function requestImageEdits(payload, apiKey, requestId) {
   });
 
   const multipart = createMultipart(fields, files);
-  const baseUrl = env("AI_BASE_URL", "https://api.openai.com/v1");
-  const url = env("AI_IMAGE_EDIT_ENDPOINT") || endpoint(baseUrl, "images/edits");
+  const url = env("AI_IMAGE_EDIT_ENDPOINT") || endpoint(imageConfig.baseUrl, "images/edits");
   const response = await requestWithRetry(url, {
     method: "POST",
     headers: {
@@ -1120,8 +1132,12 @@ async function generate(event, context) {
   const payload = event.payload || {};
   const openid = getOpenId(context);
   if (!payload.prompt || !String(payload.prompt).trim()) return fail("提示词不能为空。", "empty-prompt");
-  const apiKey = env("AI_API_KEY");
-  if (!apiKey) return fail("云函数还没有配置 AI_API_KEY。", "missing-api-key");
+  const imageConfig = resolveImageConfig();
+  const apiKey = imageConfig.apiKey;
+  if (!apiKey) return fail(
+    "云函数还没有配置 AI_IMAGE_API_KEY（兼容旧配置 AI_API_KEY）。",
+    "missing-api-key"
+  );
 
   const mode = env("AI_IMAGE_MODE", "generations").trim().toLowerCase();
   if (!["generations", "edits"].includes(mode)) {
@@ -1132,8 +1148,8 @@ async function generate(event, context) {
   }
 
   const requestId = event.requestId;
-  const model = env("AI_IMAGE_MODEL", "gpt-image-2");
-  const size = payload.size || env("AI_IMAGE_SIZE", "1024x1024");
+  const model = imageConfig.model;
+  const size = payload.size || imageConfig.size;
   const prompt = `${String(payload.prompt).trim()}${
     payload.negativePrompt ? `\n\n负面约束：${String(payload.negativePrompt).trim()}` : ""
   }`;
@@ -1169,10 +1185,14 @@ async function generate(event, context) {
   const quota = await consumeQuota(openid);
   let response;
   if (mode === "edits") {
-    response = await requestImageEdits(Object.assign({}, payload, { prompt }), apiKey, requestId);
+    response = await requestImageEdits(
+      Object.assign({}, payload, { prompt }),
+      apiKey,
+      requestId,
+      imageConfig
+    );
   } else {
-    const baseUrl = env("AI_BASE_URL", "https://api.openai.com/v1");
-    const url = env("AI_IMAGE_ENDPOINT") || endpoint(baseUrl, "images/generations");
+    const url = imageConfig.endpoint || endpoint(imageConfig.baseUrl, "images/generations");
     const body = {
       model,
       prompt,

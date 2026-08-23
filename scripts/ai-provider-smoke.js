@@ -6,8 +6,10 @@
  * 默认只做本地 retry/multipart 检查，不会产生费用。
  * 真实接口测试需要显式传 --real，并从环境变量读取密钥：
  *
- *   $env:AI_BASE_URL = "https://你的中转站/v1"
- *   $env:AI_SMOKE_API_KEY = "只在当前终端临时设置，不写入文件"
+ *   $env:AI_BASE_URL = "https://视觉服务/v1"
+ *   $env:AI_IMAGE_BASE_URL = "https://api.pandatk.com/v1"
+ *   $env:AI_SMOKE_VISION_API_KEY = "只在当前终端临时设置，不写入文件"
+ *   $env:AI_SMOKE_IMAGE_API_KEY = "只在当前终端临时设置，不写入文件"
  *   $env:AI_VISION_MODEL = "实际视觉模型"
  *   $env:AI_IMAGE_MODEL = "实际生图模型"
  *   $env:AI_SMOKE_IMAGE = "D:\\path\\main.jpg"
@@ -281,11 +283,21 @@ async function runMockChecks() {
 function getRealConfig() {
   const keyName = process.env.AI_SMOKE_API_KEY
     ? "AI_SMOKE_API_KEY"
-    : (process.env.AI_API_KEY ? "AI_API_KEY" : "");
+    : (process.env.AI_IMAGE_API_KEY
+      ? "AI_IMAGE_API_KEY"
+      : (process.env.AI_API_KEY ? "AI_API_KEY" : ""));
+  const sharedKey = process.env.AI_SMOKE_API_KEY || process.env.AI_API_KEY || "";
   return {
     keyName,
-    apiKey: process.env.AI_SMOKE_API_KEY || process.env.AI_API_KEY || "",
+    apiKey: sharedKey,
+    visionApiKey: process.env.AI_SMOKE_VISION_API_KEY
+      || process.env.AI_VISION_API_KEY
+      || sharedKey,
+    imageApiKey: process.env.AI_SMOKE_IMAGE_API_KEY
+      || process.env.AI_IMAGE_API_KEY
+      || sharedKey,
     baseUrl: env("AI_BASE_URL", DEFAULT_BASE_URL),
+    imageBaseUrl: env("AI_IMAGE_BASE_URL", env("AI_BASE_URL", DEFAULT_BASE_URL)),
     visionEndpoint: env("AI_VISION_ENDPOINT", ""),
     imageEndpoint: env("AI_IMAGE_ENDPOINT", ""),
     editEndpoint: env("AI_IMAGE_EDIT_ENDPOINT", ""),
@@ -307,11 +319,14 @@ function getRealConfig() {
 function printConfig(config) {
   console.log(JSON.stringify({
     apiKey: config.apiKey ? "已设置（不显示内容）" : "未设置",
+    visionApiKey: config.visionApiKey ? "已设置（不显示内容）" : "未设置",
+    imageApiKey: config.imageApiKey ? "已设置（不显示内容）" : "未设置",
     apiKeyVariable: config.keyName || "无",
     baseUrl: safeUrl(config.baseUrl),
+    imageBaseUrl: safeUrl(config.imageBaseUrl),
     visionEndpoint: safeUrl(config.visionEndpoint || endpoint(config.baseUrl, "chat/completions")),
-    imageEndpoint: safeUrl(config.imageEndpoint || endpoint(config.baseUrl, "images/generations")),
-    editEndpoint: safeUrl(config.editEndpoint || endpoint(config.baseUrl, "images/edits")),
+    imageEndpoint: safeUrl(config.imageEndpoint || endpoint(config.imageBaseUrl, "images/generations")),
+    editEndpoint: safeUrl(config.editEndpoint || endpoint(config.imageBaseUrl, "images/edits")),
     visionModel: config.visionModel,
     imageModel: config.imageModel,
     size: config.size,
@@ -323,6 +338,7 @@ function printConfig(config) {
 }
 
 async function runVision(config) {
+  if (!config.visionApiKey) throw new Error("没有视觉接口密钥，不能运行视觉真实测试。");
   const image = readRequiredFile(config.imagePath, "视觉主图");
   const mime = detectMime(config.imagePath, image);
   const payload = {
@@ -344,7 +360,7 @@ async function runVision(config) {
   const body = JSON.stringify(payload);
   const response = await requestWithRetry(
     endpoint(config.baseUrl, "chat/completions", config.visionEndpoint),
-    { method: "POST", headers: jsonHeaders(config.apiKey, body) },
+    { method: "POST", headers: jsonHeaders(config.visionApiKey, body) },
     body,
     { maxRetries: config.maxRetries, allowRetry: true, timeoutMs: config.timeoutMs }
   );
@@ -357,6 +373,7 @@ async function runVision(config) {
 }
 
 async function runGeneration(config) {
+  if (!config.imageApiKey) throw new Error("没有生图接口密钥，不能运行生图真实测试。");
   const payload = {
     model: config.imageModel,
     prompt: "只做接口连通性测试：生成一张简单的白色方形图。",
@@ -365,8 +382,8 @@ async function runGeneration(config) {
   };
   const body = JSON.stringify(payload);
   const response = await requestWithRetry(
-    endpoint(config.baseUrl, "images/generations", config.imageEndpoint),
-    { method: "POST", headers: jsonHeaders(config.apiKey, body) },
+    endpoint(config.imageBaseUrl, "images/generations", config.imageEndpoint),
+    { method: "POST", headers: jsonHeaders(config.imageApiKey, body) },
     body,
     {
       maxRetries: config.maxRetries,
@@ -386,6 +403,7 @@ async function runGeneration(config) {
 }
 
 async function runEdits(config) {
+  if (!config.imageApiKey) throw new Error("没有生图接口密钥，不能运行编辑真实测试。");
   const main = readRequiredFile(config.mainPath, "编辑主图");
   const mask = readRequiredFile(config.maskPath, "编辑 mask");
   const files = [
@@ -418,13 +436,13 @@ async function runEdits(config) {
     { name: "size", value: config.size }
   ], files.concat(references));
   const response = await requestWithRetry(
-    endpoint(config.baseUrl, "images/edits", config.editEndpoint),
+    endpoint(config.imageBaseUrl, "images/edits", config.editEndpoint),
     {
       method: "POST",
       headers: Object.assign({
         "Content-Type": multipart.contentType,
         "Content-Length": multipart.body.length,
-        Authorization: `Bearer ${config.apiKey}`
+        Authorization: `Bearer ${config.imageApiKey}`
       })
     },
     multipart.body,
@@ -445,8 +463,13 @@ async function runEdits(config) {
 }
 
 async function runReal(config, args) {
-  if (!config.apiKey) {
-    const error = new Error("没有 AI_SMOKE_API_KEY 或 AI_API_KEY，不能运行真实接口。");
+  if (!config.visionApiKey && config.imagePath && !args.images && !args.edits) {
+    const error = new Error("没有视觉接口密钥，不能运行视觉真实接口。");
+    error.code = "missing-api-key";
+    throw error;
+  }
+  if (!config.imageApiKey && (args.images || args.edits)) {
+    const error = new Error("没有生图接口密钥，不能运行生图真实接口。");
     error.code = "missing-api-key";
     throw error;
   }

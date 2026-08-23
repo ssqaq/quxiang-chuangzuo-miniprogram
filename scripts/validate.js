@@ -650,6 +650,30 @@ if (
   );
 }
 if (
+  indexWxml.includes("云端自动贴脸完成")
+  || indexWxml.includes("详细链路已写入故障排查报告")
+  || indexWxml.includes("到工作台打开“故障排查报告”")
+  || indexWxml.includes("auto-face-diagnostics-message")
+  || indexWxml.includes("auto-face-diagnostics-meta")
+  || indexWxml.includes("auto-face-diagnostics-hint")
+  || !indexWxml.includes('class="auto-face-diagnostics-status"')
+  || !indexWxml.includes('class="auto-face-diagnostics-duration"')
+  || !indexWxml.includes("autoFaceStatus.durationText")
+  || indexWxml.indexOf("auto-face-diagnostics-duration") > indexWxml.indexOf("auto-face-diagnostics-state")
+) {
+  throw new Error("自动贴脸卡片仍显示说明文字，或“用时”没有放到“已完成”左侧。");
+}
+const autoFaceStatusStyle = indexWxss.match(/\.auto-face-diagnostics-status\s*\{([^}]*)\}/);
+const autoFaceDurationStyle = indexWxss.match(/\.auto-face-diagnostics-duration\s*\{([^}]*)\}/);
+if (
+  !autoFaceStatusStyle
+  || !/display:\s*flex/.test(autoFaceStatusStyle[1])
+  || !/align-items:\s*center/.test(autoFaceStatusStyle[1])
+  || !autoFaceDurationStyle
+) {
+  throw new Error("自动贴脸卡片状态和耗时没有使用横向排列布局。");
+}
+if (
   indexWxml.includes('class="asset-name"')
   || (indexWxml.match(/<textarea class="asset-note"/g) || []).length !== 2
   || (indexWxml.match(/class="asset-card-main"/g) || []).length !== 2
@@ -840,6 +864,7 @@ if (
 }
 const lockPanelControlStyle = indexWxss.match(/\.lock-panel-control\s*\{([^}]*)\}/);
 const lockPanelHeadStyle = indexWxss.match(/\.lock-panel-head\s*\{([^}]*)\}/);
+const lockPanelTitleStyle = indexWxss.match(/\.lock-panel-title\s*\{([^}]*)\}/);
 const lockPanelToolbarStyle = indexWxss.match(/\.lock-panel-toolbar\s*\{([^}]*)\}/);
 if (
   !indexWxml.includes('catchtap="selectAllLockedElements"')
@@ -851,6 +876,8 @@ if (
   || !indexJs.includes("const lockedElements = LOCKED_ELEMENTS.slice()")
   || !lockPanelHeadStyle
   || !/flex-direction:\s*column/.test(lockPanelHeadStyle[1])
+  || !lockPanelTitleStyle
+  || !/font-size:\s*36rpx/.test(lockPanelTitleStyle[1])
   || !lockPanelToolbarStyle
   || !/display:\s*flex/.test(lockPanelToolbarStyle[1])
   || !/justify-content:\s*space-between/.test(lockPanelToolbarStyle[1])
@@ -861,7 +888,7 @@ if (
   || !/height:\s*44rpx/.test(lockPanelControlStyle[1])
   || !/font-size:\s*22rpx/.test(lockPanelControlStyle[1])
 ) {
-  throw new Error("全选和收起按钮没有使用相同宽度、高度、字号或全选逻辑。");
+  throw new Error("保护选项标题字号、全选和收起按钮样式或全选逻辑不完整。");
 }
 const finalPrevStyle = indexWxss.match(/\.nav-actions\s+\.final-prev-button\s*\{([^}]*)\}/);
 if (

@@ -445,7 +445,7 @@
 .lock-panel-title {
   overflow: hidden;
   color: #25324a;
-  font-size: 28rpx;
+  font-size: 36rpx;
   font-weight: 700;
   line-height: 1.35;
   text-overflow: ellipsis;
@@ -753,7 +753,7 @@
 
 .auto-face-diagnostics-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 16rpx;
 }
@@ -769,14 +769,17 @@
   font-weight: 700;
 }
 
-.auto-face-diagnostics-message {
-  margin-top: 6rpx;
-  overflow: hidden;
+.auto-face-diagnostics-status {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 12rpx;
+}
+
+.auto-face-diagnostics-duration {
   color: #627086;
   font-size: 22rpx;
-  line-height: 32rpx;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 28rpx;
 }
 
 .auto-face-diagnostics-state {
@@ -806,15 +809,6 @@
 .auto-face-diagnostics-state.state-idle {
   color: #718096;
   background: #eef2f7;
-}
-
-.auto-face-diagnostics-meta {
-  display: flex;
-  gap: 18rpx;
-  margin-top: 12rpx;
-  color: #4e6a8a;
-  font-size: 20rpx;
-  line-height: 28rpx;
 }
 
 .auto-face-log-actions {

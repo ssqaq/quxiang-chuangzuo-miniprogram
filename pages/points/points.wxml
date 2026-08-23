@@ -1,2 +1,88 @@
-<!--pages/points/points.wxml-->
-<text>pages/points/points.wxml</text>
+<view class="points-page">
+  <view class="points-hero card">
+    <view class="points-hero-head">
+      <view>
+        <view class="points-kicker">POINTS CENTER</view>
+        <view class="points-title">连续签到，攒积分</view>
+        <view class="points-subtitle">{{points.boundMessage}}</view>
+      </view>
+      <view class="points-balance">
+        <text class="points-balance-number">{{points.pointsBalance}}</text>
+        <text class="points-balance-label">当前积分</text>
+      </view>
+    </view>
+    <view wx:if="{{points.promoActive}}" class="points-promo">
+      8月23日—8月24日，生图和视频不限次数免费，不扣积分。
+    </view>
+  </view>
+
+  <view class="card streak-card">
+    <view class="streak-head">
+      <view>
+        <view class="section-title">连续签到进度</view>
+        <view class="section-subtitle">连续满 {{points.streakDays}} 天，额外奖励 {{points.streakBonus}} 积分</view>
+      </view>
+      <view class="streak-count">
+        <text>{{points.currentStreak}}</text>
+        <text>天</text>
+      </view>
+    </view>
+    <view class="streak-progress-track">
+      <view
+        class="streak-progress-fill"
+        style="width: {{(points.progress / points.streakDays) * 100}}%;"
+      ></view>
+    </view>
+    <view class="streak-progress-foot">
+      <text>本轮已连续 {{points.progress}} 天</text>
+      <text>目标 {{points.streakDays}} 天</text>
+    </view>
+    <button
+      class="primary-btn checkin-button"
+      bindtap="checkIn"
+      loading="{{checkingIn}}"
+      disabled="{{checkingIn || points.checkedInToday}}"
+    >
+      {{points.checkedInToday ? '今天已签到' : (points.accountBound ? '今日签到 +5 积分' : '微信授权并签到')}}
+    </button>
+    <view class="checkin-hint">
+      每日签到 {{points.checkinPoints}} 积分；积分永久有效。
+    </view>
+  </view>
+
+  <view class="card usage-card">
+    <view class="section-title">使用说明</view>
+    <view class="usage-grid">
+      <view class="usage-item">
+        <text class="usage-label">今日免费</text>
+        <text class="usage-value">{{points.freeRemaining}} / {{points.freeLimit}}</text>
+      </view>
+      <view class="usage-item">
+        <text class="usage-label">生图扣除</text>
+        <text class="usage-value">{{points.imageCost}} 积分</text>
+      </view>
+      <view class="usage-item">
+        <text class="usage-label">视频扣除</text>
+        <text class="usage-value">{{points.videoCost}} 积分</text>
+      </view>
+    </view>
+    <view class="usage-note">每日免费次数用完后，提交时会提示并自动从积分中扣除。</view>
+  </view>
+
+  <view class="card ledger-card">
+    <view class="ledger-head">
+      <view class="section-title">积分明细</view>
+      <text class="ledger-total">累计获得 {{points.totalEarned}}</text>
+    </view>
+    <view wx:if="{{!ledger.length}}" class="empty-ledger">还没有积分记录，今天先签到吧。</view>
+    <view wx:for="{{ledger}}" wx:key="id" class="ledger-row">
+      <view class="ledger-copy">
+        <view class="ledger-description">{{item.description}}</view>
+        <view class="ledger-time">{{item.createdAt}}</view>
+      </view>
+      <text class="ledger-amount {{item.amountClass}}">{{item.amountText}}</text>
+    </view>
+  </view>
+
+  <button class="plain-btn back-button" bindtap="backToWorkbench">返回工作台</button>
+</view>

@@ -24,6 +24,42 @@
     </view>
   </view>
 
+  <view
+    class="card points-entry-card home-feature-card workbench-link-card"
+    bindtap="openPoints"
+    hover-class="workbench-link-card-hover"
+    hover-start-time="0"
+    hover-stay-time="70"
+  >
+    <view class="points-entry-copy">
+      <view class="points-entry-topline">
+        <view class="points-entry-title">每日签到</view>
+        <view class="points-entry-balance">{{points.pointsBalance}} 积分</view>
+      </view>
+      <view class="points-entry-subtitle">
+        连续签到 {{points.streakDays}} 天有额外奖励
+      </view>
+      <view class="points-entry-track">
+        <view
+          class="points-entry-fill"
+          style="width: {{(points.progress / points.streakDays) * 100}}%;"
+        ></view>
+      </view>
+      <view class="points-entry-foot">
+        <text>已连续 {{points.currentStreak}} 天 · {{points.checkedInToday ? '今天已签到' : '今天还没签到'}}</text>
+        <text>{{points.promoActive ? '活动期间免费' : '今天还可免费用 ' + points.freeRemaining + ' 次'}}</text>
+      </view>
+    </view>
+    <button
+      class="points-checkin-button"
+      catchtap="checkIn"
+      disabled="{{points.checkedInToday}}"
+    >
+      {{points.checkedInToday ? '已签到' : '签到'}}
+    </button>
+    <view class="home-feature-arrow points-entry-arrow">›</view>
+  </view>
+
   <view class="workbench-feature-stack">
   <view class="common-feature-panel">
     <view class="feature-group-heading common-feature-heading">
@@ -137,9 +173,9 @@
   <view class="feature-group-heading diagnostic-feature-heading">
     <view class="feature-group-title">
       <view class="feature-group-dot"></view>
-      <text>常用功能</text>
+      <text>其他服务</text>
     </view>
-    <view class="feature-group-subtitle">开始创作、查看记录、导出图片</view>
+    <view class="feature-group-subtitle">作品记录、图片优化和问题反馈</view>
   </view>
 
   <view class="card interaction-log-card">
@@ -151,8 +187,8 @@
       <view class="feature-card-leading">
         <view class="feature-card-icon interaction-log-icon">查</view>
         <view class="feature-card-copy">
-          <view class="section-kicker">排查工具</view>
-          <view class="section-title">故障排查报告</view>
+          <view class="section-kicker">服务记录</view>
+          <view class="section-title">查看问题报告</view>
         </view>
       </view>
       <view class="diagnostic-toggle-summary">
@@ -252,8 +288,8 @@
     >
       <view class="contact-author-icon">联</view>
       <view class="contact-author-copy">
-        <view class="section-kicker">联系作者</view>
-        <view class="contact-author-title">添加作者微信</view>
+        <view class="section-kicker">作者微信</view>
+        <view class="contact-author-title">添加微信咨询</view>
         <view wx:if="{{contactAuthorExpanded}}" class="contact-author-description">
           点击二维码可放大，长按识别添加好友
         </view>

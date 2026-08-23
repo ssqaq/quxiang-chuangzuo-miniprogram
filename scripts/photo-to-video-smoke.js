@@ -27,7 +27,8 @@ const required = [
   ["视频触摸事件由覆盖层独占", pageWxml.includes('class="live-preview-touch-layer"')
     && !pageWxml.includes('bindtouchstart="onPreviewTouchStart"')
     && !pageWxml.includes('bindtouchend="onPreviewTouchEnd"')],
-  ["入口明确普通动态视频", workbenchWxml.includes("生成普通动态视频，照片和视频分别保存")]
+  ["入口明确普通动态视频", workbenchWxml.includes("照片转实况图")
+    && workbenchWxml.includes("生成动态视频，照片也会保留")]
   ,["临时云文件进入延迟清理队列", pageJs.includes("enqueuePhotoToVideoCleanup")
     && pageJs.includes("flushPhotoToVideoCleanup")
     && configJs.includes("gracePeriodMs")]

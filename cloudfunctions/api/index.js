@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.17.0";
-const API_BUILD_MARKER = "API_BUILD_TAG_20260823_POINTS";
+const API_BUILD_VERSION = "0.18.0";
+const API_BUILD_MARKER = "API_BUILD_TAG_20260823_MODEL_COST_STATS";
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
 const cloud = require("wx-server-sdk");
@@ -12,17 +12,24 @@ const https = require("https");
 const http = require("http");
 const crypto = require("crypto");
 const { PNG } = require("pngjs");
+const XLSX = require("xlsx");
 
 // CloudBase 某些部署实例会丢失自定义相对模块，入口必须可以单文件启动。
 const DEFAULT_RETRY_STATUSES = new Set([408, 409, 425, 429, 500, 502, 503, 504]);
 const ADMIN_RUNTIME_CONFIG_COLLECTION = "admin_runtime_config";
 const ADMIN_RUNTIME_CONFIG_ID = "global";
 const ADMIN_DEPLOYMENT_LOG_COLLECTION = "admin_deployment_logs";
+const MODEL_USAGE_EVENT_COLLECTION = "model_usage_events";
+const MODEL_USAGE_TIME_ZONE = "Asia/Shanghai";
+const MODEL_USAGE_TYPES = ["image", "face", "video"];
+const MODEL_COST_CONFIG_VERSION = "2026-08-23-v1";
 const ADMIN_RUNTIME_CACHE_TTL_MS = 15000;
 const POINTS_ACCOUNT_COLLECTION = "user_accounts";
 const POINTS_LEDGER_COLLECTION = "point_ledger";
 const USER_QUOTA_COLLECTION = "user_quotas";
+const GENERATION_OPERATION_COLLECTION = "generation_operations";
 const POINTS_TIME_ZONE = "Asia/Shanghai";
+const GENERATION_OPERATION_STALE_MS = 10 * 60 * 1000;
 let adminRuntimeCache = {
   value: null,
   expiresAt: 0
@@ -95,6 +102,11 @@ function resolveImageConfig(overrides = {}) {
   const image = overrides && overrides.image ? overrides.image : overrides;
   const mode = overrideString(image, "mode", env("AI_IMAGE_MODE", "generations")).toLowerCase();
   return {
+    provider: overrideString(
+      image,
+      "provider",
+      firstEnv(["AI_IMAGE_PROVIDER", "AI_PROVIDER"], "openai-compatible")
+    ),
     baseUrl: overrideString(image, "baseUrl", firstEnv(
       ["AI_IMAGE_BASE_URL", "AI_BASE_URL"],
       "https://api.openai.com/v1"
@@ -226,14 +238,250 @@ function resolvePointsConfig(overrides = {}) {
   };
 }
 
-function visionRequestMeta(requestId, action, vision) {
+function resolveCostConfig(overrides = {}) {
+  const costs = overrides && overrides.costs ? overrides.costs : overrides;
+  const face = costs && costs.face ? costs.face : {};
+  const image = costs && costs.image ? costs.image : {};
+  const video = costs && costs.video ? costs.video : {};
+  const imagePrices = image.perImage && typeof image.perImage === "object"
+    ? image.perImage
+    : {};
+  const videoPrices = video.perSecond && typeof video.perSecond === "object"
+    ? video.perSecond
+    : {};
+  return {
+    currency: "CNY",
+    version: MODEL_COST_CONFIG_VERSION,
+    face: {
+      inputPerMillionTokens: clampNumber(
+        face.inputPerMillionTokens,
+        0.15,
+        0,
+        100000
+      ),
+      outputPerMillionTokens: clampNumber(
+        face.outputPerMillionTokens,
+        1.5,
+        0,
+        100000
+      )
+    },
+    image: {
+      defaultResolution: normalizeImageResolution(
+        image.defaultResolution,
+        "1K"
+      ),
+      perImage: {
+        "1K": clampNumber(imagePrices["1K"], 0.015, 0, 100000),
+        "2K": clampNumber(imagePrices["2K"], 0.025, 0, 100000),
+        "4K": clampNumber(imagePrices["4K"], 0.035, 0, 100000)
+      }
+    },
+    video: {
+      defaultResolution: normalizeVideoResolution(
+        video.defaultResolution,
+        "720p"
+      ),
+      perSecond: {
+        "480p": clampNumber(videoPrices["480p"], 0.2, 0, 100000),
+        "720p": clampNumber(videoPrices["720p"], 0.3, 0, 100000),
+        "1080p": clampNumber(videoPrices["1080p"], 1.8, 0, 100000)
+      },
+      defaultDurationSeconds: clampNumber(
+        video.defaultDurationSeconds,
+        3,
+        0.1,
+        3600
+      )
+    }
+  };
+}
+
+function normalizeImageResolution(value, fallback = "1K") {
+  const text = String(value || "").trim().toUpperCase();
+  if (text === "1K" || text === "2K" || text === "4K") return text;
+  const match = text.match(/(\d{3,5})\s*[X×]\s*(\d{3,5})/);
+  if (match) {
+    const longest = Math.max(Number(match[1]), Number(match[2]));
+    if (longest <= 1536) return "1K";
+    if (longest <= 3072) return "2K";
+    return "4K";
+  }
+  if (text.includes("4K")) return "4K";
+  if (text.includes("2K")) return "2K";
+  if (text.includes("1K")) return "1K";
+  if (fallback === "") return "";
+  return ["1K", "2K", "4K"].includes(String(fallback)) ? String(fallback) : "1K";
+}
+
+function normalizeVideoResolution(value, fallback = "720p") {
+  const text = String(value || "").trim().toLowerCase();
+  if (text === "480p" || text === "720p" || text === "1080p") return text;
+  const match = text.match(/(480|720|1080)/);
+  if (match) return `${match[1]}p`;
+  if (fallback === "") return "";
+  return ["480p", "720p", "1080p"].includes(String(fallback))
+    ? String(fallback)
+    : "720p";
+}
+
+function roundCost(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) return 0;
+  return Math.round(number * 1000000) / 1000000;
+}
+
+function firstFiniteNumber(values) {
+  for (const value of values) {
+    const number = Number(value);
+    if (Number.isFinite(number) && number >= 0) return number;
+  }
+  return null;
+}
+
+function extractModelUsage(payload = {}) {
+  const candidates = [
+    payload && payload.usage,
+    payload && payload.data && payload.data.usage,
+    payload && payload.output && payload.output.usage
+  ].filter((item) => item && typeof item === "object");
+  const usage = candidates[0] || {};
+  const inputTokens = firstFiniteNumber([
+    usage.prompt_tokens,
+    usage.input_tokens,
+    usage.promptTokens,
+    usage.inputTokens
+  ]);
+  const outputTokens = firstFiniteNumber([
+    usage.completion_tokens,
+    usage.output_tokens,
+    usage.completionTokens,
+    usage.outputTokens
+  ]);
+  const totalTokens = firstFiniteNumber([
+    usage.total_tokens,
+    usage.totalTokens
+  ]);
+  return {
+    inputTokens,
+    outputTokens,
+    totalTokens: totalTokens === null
+      ? (inputTokens === null && outputTokens === null
+        ? null
+        : (inputTokens || 0) + (outputTokens || 0))
+      : totalTokens
+  };
+}
+
+function extractVideoDuration(payload = {}) {
+  const data = payload && payload.data;
+  const output = payload && payload.output;
+  return firstFiniteNumber([
+    payload.duration,
+    payload.duration_seconds,
+    payload.durationSeconds,
+    data && data.duration,
+    data && data.duration_seconds,
+    data && data.durationSeconds,
+    output && output.duration,
+    output && output.duration_seconds,
+    output && output.durationSeconds
+  ]);
+}
+
+function buildUsageBilling(meta = {}, response = {}, costs = resolveCostConfig()) {
+  const usageType = modelUsageTypeForAction(meta.action);
+  const payload = response && response.json ? response.json : {};
+  const base = {
+    currency: costs.currency,
+    billingSource: "unavailable",
+    inputTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
+    imageResolution: "",
+    videoResolution: "",
+    videoDurationSeconds: 0,
+    unitPrice: 0,
+    estimatedCost: 0,
+    costBreakdown: {},
+    costConfigVersion: costs.version
+  };
+  if (usageType === "face") {
+    const usage = extractModelUsage(payload);
+    if (usage.inputTokens === null || usage.outputTokens === null) return base;
+    const inputCost = roundCost(
+      usage.inputTokens / 1000000 * costs.face.inputPerMillionTokens
+    );
+    const outputCost = roundCost(
+      usage.outputTokens / 1000000 * costs.face.outputPerMillionTokens
+    );
+    return Object.assign(base, {
+      billingSource: "actual",
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      totalTokens: usage.totalTokens || 0,
+      estimatedCost: roundCost(inputCost + outputCost),
+      costBreakdown: { inputCost, outputCost }
+    });
+  }
+  if (usageType === "image") {
+    const resolution = normalizeImageResolution(
+      meta.imageResolution || meta.size,
+      costs.image.defaultResolution
+    );
+    const unitPrice = costs.image.perImage[resolution];
+    return Object.assign(base, {
+      billingSource: "estimated",
+      imageResolution: resolution,
+      unitPrice,
+      estimatedCost: roundCost(unitPrice),
+      costBreakdown: {
+        resolution,
+        unitPrice,
+        quantity: 1
+      }
+    });
+  }
+  if (usageType === "video") {
+    const resolution = normalizeVideoResolution(
+      meta.videoResolution,
+      costs.video.defaultResolution
+    );
+    const upstreamDuration = extractVideoDuration(payload);
+    const durationSeconds = upstreamDuration === null
+      ? firstFiniteNumber([meta.videoDurationSeconds, costs.video.defaultDurationSeconds])
+      : upstreamDuration;
+    if (durationSeconds === null) return base;
+    const unitPrice = costs.video.perSecond[resolution];
+    return Object.assign(base, {
+      billingSource: upstreamDuration === null ? "estimated" : "actual",
+      videoResolution: resolution,
+      videoDurationSeconds: durationSeconds,
+      unitPrice,
+      estimatedCost: roundCost(durationSeconds * unitPrice),
+      costBreakdown: {
+        resolution,
+        unitPrice,
+        durationSeconds
+      }
+    });
+  }
+  return base;
+}
+
+function visionRequestMeta(requestId, action, vision, costs) {
   return {
     requestId,
     action,
+    provider: vision.provider || "",
+    model: action === "detectFaceCircle"
+      ? vision.faceModel || vision.model || ""
+      : vision.model || "",
     allowRetry: true,
     maxAttempts: 2,
     retryStatuses: [429, 500, 502, 503, 504],
-    timeoutMs: vision.timeoutMs
+    timeoutMs: vision.timeoutMs,
+    costs
   };
 }
 
@@ -453,6 +701,296 @@ function normalizeWebPoseSuggestions(value) {
 }
 
 const db = cloud.database();
+const modelUsageTestEvents = [];
+
+function modelUsageTypeForAction(action) {
+  if (action === "generate") return "image";
+  if (action === "detectFaceCircle") return "face";
+  if (action === "video.create") return "video";
+  return "";
+}
+
+function compactUsageText(value, maxLength = 120) {
+  return String(value || "").replace(/\s+/g, " ").trim().slice(0, maxLength);
+}
+
+function usageUserHash(openid) {
+  const value = String(openid || "").trim();
+  if (!value || value === "anonymous") return "anonymous";
+  return crypto.createHash("sha256").update(`usage-user:${value}`).digest("hex").slice(0, 12);
+}
+
+function normalizeModelUsageEvent(value = {}) {
+  const usageType = MODEL_USAGE_TYPES.includes(value.usageType)
+    ? value.usageType
+    : modelUsageTypeForAction(value.action);
+  if (!usageType) return null;
+  const createdAt = value.createdAt instanceof Date
+    ? value.createdAt
+    : new Date(value.createdAt || Date.now());
+  const status = Math.max(0, Number(value.status) || 0);
+  const billingSource = ["actual", "estimated", "unavailable"].includes(value.billingSource)
+    ? value.billingSource
+    : "unavailable";
+  const inputTokens = Math.max(0, Number(value.inputTokens) || 0);
+  const outputTokens = Math.max(0, Number(value.outputTokens) || 0);
+  const totalTokens = Math.max(
+    0,
+    Number(value.totalTokens) || inputTokens + outputTokens
+  );
+  const videoDurationSeconds = Math.max(0, Number(value.videoDurationSeconds) || 0);
+  const estimatedCost = Math.max(0, Number(value.estimatedCost) || 0);
+  return {
+    requestId: compactUsageText(value.requestId, 100),
+    userHash: compactUsageText(value.userHash, 40) || "anonymous",
+    usageType,
+    action: compactUsageText(value.action, 40),
+    provider: compactUsageText(value.provider, 80),
+    model: compactUsageText(value.model, 120),
+    dateKey: /^\d{4}-\d{2}-\d{2}$/.test(String(value.dateKey || ""))
+      ? String(value.dateKey)
+      : dateKeyForTimeZone(createdAt, MODEL_USAGE_TIME_ZONE),
+    success: Boolean(value.success),
+    status,
+    durationMs: Math.max(0, Math.round(Number(value.durationMs) || 0)),
+    attempt: Math.max(1, Math.round(Number(value.attempt) || 1)),
+    billingSource,
+    currency: compactUsageText(value.currency, 8) || "CNY",
+    inputTokens,
+    outputTokens,
+    totalTokens,
+    imageResolution: normalizeImageResolution(value.imageResolution, ""),
+    videoResolution: value.videoResolution
+      ? normalizeVideoResolution(value.videoResolution, "")
+      : "",
+    videoDurationSeconds,
+    unitPrice: Math.max(0, Number(value.unitPrice) || 0),
+    estimatedCost,
+    costBreakdown: value.costBreakdown && typeof value.costBreakdown === "object"
+      ? value.costBreakdown
+      : {},
+    costConfigVersion: compactUsageText(value.costConfigVersion, 40) || MODEL_COST_CONFIG_VERSION,
+    createdAt
+  };
+}
+
+async function recordModelUsageEvent(value = {}) {
+  const event = normalizeModelUsageEvent(value);
+  if (!event) return false;
+  if (process.env.WECHAT_MINIAPP_TEST === "1") {
+    modelUsageTestEvents.push(event);
+    return true;
+  }
+  try {
+    await db.collection(MODEL_USAGE_EVENT_COLLECTION).add({ data: event });
+    return true;
+  } catch (error) {
+    log("warn", "model-usage.write-failed", {
+      requestId: event.requestId,
+      usageType: event.usageType,
+      action: event.action,
+      error: error && error.message
+    });
+    return false;
+  }
+}
+
+function emptyUsageCounters() {
+  return {
+    total: 0,
+    success: 0,
+    failure: 0,
+    estimatedCost: 0,
+    pricedCost: 0,
+    unavailableCostCount: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
+    videoDurationSeconds: 0,
+    imageResolutions: {
+      "1K": { count: 0, cost: 0 },
+      "2K": { count: 0, cost: 0 },
+      "4K": { count: 0, cost: 0 }
+    },
+    videoResolutions: {
+      "480p": { seconds: 0, cost: 0 },
+      "720p": { seconds: 0, cost: 0 },
+      "1080p": { seconds: 0, cost: 0 }
+    }
+  };
+}
+
+function createUsageTypeMap() {
+  return {
+    image: emptyUsageCounters(),
+    face: emptyUsageCounters(),
+    video: emptyUsageCounters()
+  };
+}
+
+function addUsageCount(target, event) {
+  if (!target || !event) return;
+  target.total += 1;
+  if (event.success) target.success += 1;
+  else target.failure += 1;
+}
+
+function addUsageCost(target, event) {
+  if (!target || !event) return;
+  const cost = Math.max(0, Number(event.estimatedCost) || 0);
+  target.estimatedCost = roundCost(target.estimatedCost + cost);
+  if (event.billingSource === "unavailable") target.unavailableCostCount += 1;
+  else target.pricedCost = roundCost(target.pricedCost + cost);
+  target.inputTokens += Math.max(0, Number(event.inputTokens) || 0);
+  target.outputTokens += Math.max(0, Number(event.outputTokens) || 0);
+  target.totalTokens += Math.max(0, Number(event.totalTokens) || 0);
+  target.videoDurationSeconds = roundCost(
+    target.videoDurationSeconds + Math.max(0, Number(event.videoDurationSeconds) || 0)
+  );
+  if (event.imageResolution && target.imageResolutions[event.imageResolution]) {
+    target.imageResolutions[event.imageResolution].count += 1;
+    target.imageResolutions[event.imageResolution].cost = roundCost(
+      target.imageResolutions[event.imageResolution].cost + cost
+    );
+  }
+  if (event.videoResolution && target.videoResolutions[event.videoResolution]) {
+    target.videoResolutions[event.videoResolution].seconds = roundCost(
+      target.videoResolutions[event.videoResolution].seconds
+      + Math.max(0, Number(event.videoDurationSeconds) || 0)
+    );
+    target.videoResolutions[event.videoResolution].cost = roundCost(
+      target.videoResolutions[event.videoResolution].cost + cost
+    );
+  }
+}
+
+function addUsageEvent(target, event) {
+  addUsageCount(target, event);
+  addUsageCost(target, event);
+}
+
+function monthKeyFromDateKey(dateKey) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(dateKey || ""))
+    ? String(dateKey).slice(0, 7)
+    : "";
+}
+
+function shiftMonthKey(monthKey, months) {
+  const match = String(monthKey || "").match(/^(\d{4})-(\d{2})$/);
+  if (!match) return "";
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1 + Number(months || 0), 1));
+  return date.toISOString().slice(0, 7);
+}
+
+function aggregateModelUsageEvents(events = [], days = 30, now = new Date()) {
+  const rangeDays = Math.max(1, Math.min(90, Number(days) || 30));
+  const todayKey = dateKeyForTimeZone(now, MODEL_USAGE_TIME_ZONE);
+  const rangeStartKey = shiftDateKey(todayKey, -(rangeDays - 1));
+  const monthlyStartKey = shiftDateKey(todayKey, -364);
+  const last7StartKey = shiftDateKey(todayKey, -6);
+  const last30StartKey = shiftDateKey(todayKey, -29);
+  const summary = createUsageTypeMap();
+  const today = emptyUsageCounters();
+  const last7d = emptyUsageCounters();
+  const last30d = emptyUsageCounters();
+  const dailyMap = {};
+  const monthlyMap = {};
+  const modelMap = {};
+  const userMap = {};
+
+  for (let offset = 0; offset < rangeDays; offset += 1) {
+    const dateKey = shiftDateKey(todayKey, -offset);
+    dailyMap[dateKey] = Object.assign(emptyUsageCounters(), {
+      dateKey,
+      total: 0,
+      success: 0,
+      failure: 0
+    }, createUsageTypeMap());
+  }
+  const currentMonthKey = monthKeyFromDateKey(todayKey);
+  for (let offset = 0; offset < 12; offset += 1) {
+    const monthKey = shiftMonthKey(currentMonthKey, -offset);
+    monthlyMap[monthKey] = Object.assign(emptyUsageCounters(), {
+      monthKey,
+      total: 0,
+      success: 0,
+      failure: 0
+    }, createUsageTypeMap());
+  }
+
+  (Array.isArray(events) ? events : []).forEach((source) => {
+    const event = normalizeModelUsageEvent(source);
+    if (!event || event.dateKey < monthlyStartKey || event.dateKey > todayKey) return;
+    const daily = dailyMap[event.dateKey];
+    const inDailyRange = event.dateKey >= rangeStartKey;
+    if (inDailyRange) {
+      const typeCounter = summary[event.usageType];
+      addUsageEvent(typeCounter, event);
+    }
+    if (daily) {
+      addUsageEvent(daily, event);
+      addUsageEvent(daily[event.usageType], event);
+    }
+    const month = monthlyMap[monthKeyFromDateKey(event.dateKey)];
+    if (month) {
+      addUsageEvent(month, event);
+      addUsageEvent(month[event.usageType], event);
+    }
+    if (event.dateKey === todayKey) addUsageEvent(today, event);
+    if (event.dateKey >= last7StartKey) addUsageEvent(last7d, event);
+    if (event.dateKey >= last30StartKey) addUsageEvent(last30d, event);
+
+    if (inDailyRange) {
+      const modelKey = [
+        event.usageType,
+        event.provider || "未填写",
+        event.model || "未填写"
+      ].join("|");
+      if (!modelMap[modelKey]) {
+        modelMap[modelKey] = Object.assign(emptyUsageCounters(), {
+          usageType: event.usageType,
+          provider: event.provider || "",
+          model: event.model || ""
+        });
+      }
+      addUsageEvent(modelMap[modelKey], event);
+      const userKey = event.userHash || "anonymous";
+      if (!userMap[userKey]) {
+        userMap[userKey] = Object.assign(emptyUsageCounters(), {
+          userHash: userKey,
+          byType: createUsageTypeMap()
+        });
+      }
+      addUsageEvent(userMap[userKey], event);
+      addUsageEvent(userMap[userKey].byType[event.usageType], event);
+    }
+  });
+
+  return {
+    timeZone: MODEL_USAGE_TIME_ZONE,
+    days: rangeDays,
+    todayKey,
+    today,
+    last7d,
+    last30d,
+    summary,
+    monthly: Object.keys(monthlyMap)
+      .sort((left, right) => right.localeCompare(left))
+      .map((monthKey) => monthlyMap[monthKey]),
+    users: Object.values(userMap)
+      .sort((left, right) => {
+        if (right.estimatedCost !== left.estimatedCost) {
+          return right.estimatedCost - left.estimatedCost;
+        }
+        return right.total - left.total;
+      })
+      .slice(0, 100),
+    daily: Object.keys(dailyMap)
+      .sort((left, right) => right.localeCompare(left))
+      .map((dateKey) => dailyMap[dateKey]),
+    models: Object.values(modelMap).sort((left, right) => right.total - left.total)
+  };
+}
 
 function jsonResponse(ok, value) {
   return ok ? Object.assign({ ok: true }, value || {}) : Object.assign({ ok: false }, value || {});
@@ -555,15 +1093,33 @@ async function requestWithRetry(url, options = {}, body = null, meta = {}) {
         Object.assign({}, options, { timeoutMs: meta.timeoutMs }),
         body
       );
+      const durationMs = Date.now() - startedAt;
       const retryable = retryStatuses
         ? retryStatuses.has(Number(response.status))
         : shouldRetryStatus(response.status);
+      const billing = buildUsageBilling(
+        meta,
+        response,
+        meta.costs || resolveCostConfig()
+      );
+      await recordModelUsageEvent({
+        requestId: meta.requestId,
+        userHash: meta.userHash,
+        action: meta.action,
+        provider: meta.provider,
+        model: meta.model,
+        success: response.status >= 200 && response.status < 300,
+        status: response.status,
+        durationMs,
+        attempt,
+        ...billing
+      });
       log("info", "upstream.response", {
         requestId: meta.requestId,
         action: meta.action,
         attempt,
         status: response.status,
-        durationMs: Date.now() - startedAt,
+        durationMs,
         endpoint: safeUrl(url),
         retryable,
         imageGeneration
@@ -577,14 +1133,32 @@ async function requestWithRetry(url, options = {}, body = null, meta = {}) {
       await sleep(waitMs);
     } catch (error) {
       lastError = error;
+      const durationMs = Date.now() - startedAt;
       const retryable = error && error.retryable !== undefined
         ? Boolean(error.retryable)
         : true;
+      const billing = buildUsageBilling(
+        meta,
+        { json: error && error.payload },
+        meta.costs || resolveCostConfig()
+      );
+      await recordModelUsageEvent({
+        requestId: meta.requestId,
+        userHash: meta.userHash,
+        action: meta.action,
+        provider: meta.provider,
+        model: meta.model,
+        success: false,
+        status: error && error.status,
+        durationMs,
+        attempt,
+        ...billing
+      });
       log("warn", "upstream.error", {
         requestId: meta.requestId,
         action: meta.action,
         attempt,
-        durationMs: Date.now() - startedAt,
+        durationMs,
         endpoint: safeUrl(url),
         error: error && error.message,
         retryable,
@@ -891,6 +1465,16 @@ function normalizeRuntimePatch(input = {}) {
   const imageSource = source.image && typeof source.image === "object" ? source.image : {};
   const videoSource = source.video && typeof source.video === "object" ? source.video : {};
   const pointsSource = source.points && typeof source.points === "object" ? source.points : {};
+  const costsSource = source.costs && typeof source.costs === "object" ? source.costs : {};
+  const faceCostSource = costsSource.face && typeof costsSource.face === "object"
+    ? costsSource.face
+    : {};
+  const imageCostSource = costsSource.image && typeof costsSource.image === "object"
+    ? costsSource.image
+    : {};
+  const videoCostSource = costsSource.video && typeof costsSource.video === "object"
+    ? costsSource.video
+    : {};
   const imageKeys = [
     "provider",
     "baseUrl",
@@ -925,9 +1509,27 @@ function normalizeRuntimePatch(input = {}) {
     "promoEndDate",
     "timeZone"
   ];
+  const costKeys = [
+    "currency"
+  ];
+  const faceCostKeys = [
+    "inputPerMillionTokens",
+    "outputPerMillionTokens"
+  ];
+  const imageCostKeys = [
+    "defaultResolution"
+  ];
+  const videoCostKeys = [
+    "defaultResolution",
+    "defaultDurationSeconds"
+  ];
   const image = {};
   const video = {};
   const points = {};
+  const costs = {};
+  const face = {};
+  const imagePricing = {};
+  const videoPricing = {};
   imageKeys.forEach((key) => {
     if (hasOwn(imageSource, key)) image[key] = imageSource[key];
   });
@@ -937,7 +1539,36 @@ function normalizeRuntimePatch(input = {}) {
   pointsKeys.forEach((key) => {
     if (hasOwn(pointsSource, key)) points[key] = pointsSource[key];
   });
-  return { image, video, points };
+  costKeys.forEach((key) => {
+    if (hasOwn(costsSource, key)) costs[key] = costsSource[key];
+  });
+  faceCostKeys.forEach((key) => {
+    if (hasOwn(faceCostSource, key)) face[key] = faceCostSource[key];
+  });
+  imageCostKeys.forEach((key) => {
+    if (hasOwn(imageCostSource, key)) imagePricing[key] = imageCostSource[key];
+  });
+  videoCostKeys.forEach((key) => {
+    if (hasOwn(videoCostSource, key)) videoPricing[key] = videoCostSource[key];
+  });
+  ["1K", "2K", "4K"].forEach((key) => {
+    if (hasOwn(imageCostSource.perImage, key)) {
+      imagePricing.perImage = Object.assign({}, imagePricing.perImage, {
+        [key]: imageCostSource.perImage[key]
+      });
+    }
+  });
+  ["480p", "720p", "1080p"].forEach((key) => {
+    if (hasOwn(videoCostSource.perSecond, key)) {
+      videoPricing.perSecond = Object.assign({}, videoPricing.perSecond, {
+        [key]: videoCostSource.perSecond[key]
+      });
+    }
+  });
+  if (Object.keys(face).length) costs.face = face;
+  if (Object.keys(imagePricing).length) costs.image = imagePricing;
+  if (Object.keys(videoPricing).length) costs.video = videoPricing;
+  return { image, video, points, costs };
 }
 
 function isValidHttpUrl(value) {
@@ -961,6 +1592,10 @@ function validateRuntimePatch(patch) {
   const image = patch.image || {};
   const video = patch.video || {};
   const points = patch.points || {};
+  const costs = patch.costs || {};
+  const faceCosts = costs.face || {};
+  const imageCosts = costs.image || {};
+  const videoCosts = costs.video || {};
   [
     ["image.baseUrl", image.baseUrl],
     ["image.endpoint", image.endpoint],
@@ -1033,15 +1668,70 @@ function validateRuntimePatch(patch) {
   ) {
     errors.push("积分活动开始日期不能晚于结束日期");
   }
+  [
+    ["costs.face.inputPerMillionTokens", faceCosts.inputPerMillionTokens],
+    ["costs.face.outputPerMillionTokens", faceCosts.outputPerMillionTokens],
+    ["costs.image.perImage.1K", imageCosts.perImage && imageCosts.perImage["1K"]],
+    ["costs.image.perImage.2K", imageCosts.perImage && imageCosts.perImage["2K"]],
+    ["costs.image.perImage.4K", imageCosts.perImage && imageCosts.perImage["4K"]],
+    ["costs.video.perSecond.480p", videoCosts.perSecond && videoCosts.perSecond["480p"]],
+    ["costs.video.perSecond.720p", videoCosts.perSecond && videoCosts.perSecond["720p"]],
+    ["costs.video.perSecond.1080p", videoCosts.perSecond && videoCosts.perSecond["1080p"]],
+    ["costs.video.defaultDurationSeconds", videoCosts.defaultDurationSeconds]
+  ].forEach(([field, value]) => {
+    if (
+      value !== undefined
+      && (!Number.isFinite(Number(value)) || Number(value) < 0 || Number(value) > 100000)
+    ) {
+      errors.push(`${field} 必须在 0～100000 之间`);
+    }
+  });
+  if (
+    costs.currency !== undefined
+    && String(costs.currency).trim().toUpperCase() !== "CNY"
+  ) {
+    errors.push("costs.currency 目前只能使用 CNY（人民币）");
+  }
+  if (
+    imageCosts.defaultResolution !== undefined
+    && !["1K", "2K", "4K"].includes(normalizeImageResolution(imageCosts.defaultResolution))
+  ) {
+    errors.push("costs.image.defaultResolution 只能是 1K、2K 或 4K");
+  }
+  if (
+    videoCosts.defaultResolution !== undefined
+    && !["480p", "720p", "1080p"].includes(normalizeVideoResolution(videoCosts.defaultResolution))
+  ) {
+    errors.push("costs.video.defaultResolution 只能是 480p、720p 或 1080p");
+  }
   return errors;
 }
 
 function mergeRuntimeConfig(current, patch) {
   const existing = current && typeof current === "object" ? current : {};
+  const existingCosts = existing.costs || {};
+  const patchCosts = patch.costs || {};
   return {
     image: Object.assign({}, existing.image || {}, patch.image || {}),
     video: Object.assign({}, existing.video || {}, patch.video || {}),
-    points: Object.assign({}, existing.points || {}, patch.points || {})
+    points: Object.assign({}, existing.points || {}, patch.points || {}),
+    costs: Object.assign({}, existingCosts, patchCosts, {
+      face: Object.assign({}, existingCosts.face || {}, patchCosts.face || {}),
+      image: Object.assign({}, existingCosts.image || {}, patchCosts.image || {}, {
+        perImage: Object.assign(
+          {},
+          existingCosts.image && existingCosts.image.perImage || {},
+          patchCosts.image && patchCosts.image.perImage || {}
+        )
+      }),
+      video: Object.assign({}, existingCosts.video || {}, patchCosts.video || {}, {
+        perSecond: Object.assign(
+          {},
+          existingCosts.video && existingCosts.video.perSecond || {},
+          patchCosts.video && patchCosts.video.perSecond || {}
+        )
+      })
+    })
   };
 }
 
@@ -1049,6 +1739,7 @@ function redactConfig(config, defaults) {
   const image = config.image || {};
   const video = config.video || {};
   const points = config.points || {};
+  const costs = resolveCostConfig(config.costs || {});
   return {
     image: {
       provider: image.provider || "",
@@ -1085,6 +1776,20 @@ function redactConfig(config, defaults) {
       promoStartDate: points.promoStartDate || "",
       promoEndDate: points.promoEndDate || "",
       timeZone: points.timeZone || POINTS_TIME_ZONE
+    },
+    costs: {
+      currency: costs.currency,
+      version: costs.version,
+      face: Object.assign({}, costs.face),
+      image: {
+        defaultResolution: costs.image.defaultResolution,
+        perImage: Object.assign({}, costs.image.perImage)
+      },
+      video: {
+        defaultResolution: costs.video.defaultResolution,
+        perSecond: Object.assign({}, costs.video.perSecond),
+        defaultDurationSeconds: costs.video.defaultDurationSeconds
+      }
     }
   };
 }
@@ -1129,40 +1834,48 @@ async function loadAdminRuntimeConfig(force = false) {
 async function resolveEffectiveConfigs() {
   const runtime = await loadAdminRuntimeConfig();
   return {
-    runtime: runtime || { image: {}, video: {}, points: {} },
+    runtime: runtime || { image: {}, video: {}, points: {}, costs: {} },
     image: resolveImageConfig(runtime && runtime.image),
     video: resolveVideoConfig(runtime && runtime.video),
-    points: resolvePointsConfig(runtime && runtime.points)
+    points: resolvePointsConfig(runtime && runtime.points),
+    costs: resolveCostConfig(runtime && runtime.costs)
   };
 }
 
 function adminConfigView(configs, runtime, metadata = {}) {
   const imageDefaults = resolveImageConfig();
   const videoDefaults = resolveVideoConfig();
-  const overrides = runtime || { image: {}, video: {}, points: {} };
+  const pointDefaults = resolvePointsConfig();
+  const costDefaults = resolveCostConfig();
+  const overrides = runtime || { image: {}, video: {}, points: {}, costs: {} };
   return {
     defaults: redactConfig({
       image: imageDefaults,
       video: videoDefaults,
-      points: resolvePointsConfig()
+      points: pointDefaults,
+      costs: costDefaults
     }, {
       image: imageDefaults,
       video: videoDefaults,
-      points: resolvePointsConfig()
+      points: pointDefaults,
+      costs: costDefaults
     }),
     overrides: redactConfig(overrides, {
       image: imageDefaults,
       video: videoDefaults,
-      points: resolvePointsConfig()
+      points: pointDefaults,
+      costs: costDefaults
     }),
     effective: redactConfig({
       image: configs.image,
       video: configs.video,
-      points: configs.points
+      points: configs.points,
+      costs: configs.costs
     }, {
       image: configs.image,
       video: configs.video,
-      points: configs.points
+      points: configs.points,
+      costs: configs.costs
     }),
     updatedAt: metadata.updatedAt || "",
     version: Number(metadata.version || 0),
@@ -1209,13 +1922,14 @@ async function saveAdminConfig(event, context) {
     image: next.image,
     video: next.video,
     points: next.points,
+    costs: next.costs,
     version: previousVersion + 1,
     updatedAt: new Date(),
     updatedBy: getOpenId(context)
   };
   await db.collection(ADMIN_RUNTIME_CONFIG_COLLECTION).doc(ADMIN_RUNTIME_CONFIG_ID).set({ data });
   adminRuntimeCache = {
-    value: { image: next.image, video: next.video },
+    value: { image: next.image, video: next.video, costs: next.costs },
     expiresAt: Date.now() + ADMIN_RUNTIME_CACHE_TTL_MS
   };
   log("info", "admin.runtime-config.saved", {
@@ -1223,7 +1937,8 @@ async function saveAdminConfig(event, context) {
     version: data.version,
     imageFields: Object.keys(patch.image),
     videoFields: Object.keys(patch.video),
-    pointsFields: Object.keys(patch.points)
+    pointsFields: Object.keys(patch.points),
+    costFields: Object.keys(patch.costs)
   });
   const configs = await resolveEffectiveConfigs();
   return jsonResponse(true, adminConfigView(configs, next, data));
@@ -1314,6 +2029,240 @@ async function listDeploymentLogs(context) {
   }
 }
 
+async function loadModelUsageEvents(startKey) {
+  if (process.env.WECHAT_MINIAPP_TEST === "1") {
+    return modelUsageTestEvents.slice();
+  }
+  const events = [];
+  const pageSize = 100;
+  const maxEvents = 5000;
+  let offset = 0;
+  const command = db.command;
+  while (offset < maxEvents) {
+    const result = await db
+      .collection(MODEL_USAGE_EVENT_COLLECTION)
+      .where({ dateKey: command.gte(startKey) })
+      .skip(offset)
+      .limit(Math.min(pageSize, maxEvents - offset))
+      .get();
+    const rows = result && Array.isArray(result.data) ? result.data : [];
+    events.push(...rows);
+    if (rows.length < pageSize) break;
+    offset += rows.length;
+  }
+  return events;
+}
+
+async function getModelUsageStats(event, context) {
+  if (!isAdminContext(context)) return adminForbidden();
+  const days = Math.max(1, Math.min(90, Number(event && event.days) || 30));
+  const todayKey = dateKeyForTimeZone(new Date(), MODEL_USAGE_TIME_ZONE);
+  const startKey = shiftDateKey(todayKey, -(days - 1));
+  const monthlyStartKey = shiftDateKey(todayKey, -364);
+  try {
+    const events = await loadModelUsageEvents(monthlyStartKey);
+    const stats = aggregateModelUsageEvents(events, days);
+    return jsonResponse(true, Object.assign(stats, {
+      eventCount: events.length,
+      truncated: events.length >= 5000,
+      message: events.length >= 5000
+        ? "统计记录较多，本次最多读取 5000 条。"
+        : ""
+    }));
+  } catch (error) {
+    log("warn", "model-usage.read-failed", {
+      startKey,
+      days,
+      error: error && error.message
+    });
+    return jsonResponse(true, Object.assign(
+      aggregateModelUsageEvents([], days),
+      {
+        eventCount: 0,
+        truncated: false,
+        unavailable: true,
+        message: "统计数据暂时读取失败，请稍后刷新。"
+      }
+    ));
+  }
+}
+
+function formatExportNumber(value, digits = 6) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return 0;
+  return Number(number.toFixed(digits));
+}
+
+function buildModelUsageExportWorkbook(stats = {}) {
+  const workbook = XLSX.utils.book_new();
+  const dailyRows = [[
+    "日期",
+    "总调用次数",
+    "成功",
+    "失败",
+    "预计成本（元）",
+    "人脸成本（元）",
+    "生图成本（元）",
+    "视频成本（元）",
+    "输入Token",
+    "输出Token",
+    "总Token",
+    "视频秒数",
+    "1K张数",
+    "2K张数",
+    "4K张数",
+    "480p秒数",
+    "720p秒数",
+    "1080p秒数",
+    "未计算次数"
+  ]];
+  (Array.isArray(stats.daily) ? stats.daily : []).forEach((item) => {
+    const image = item.image || {};
+    const face = item.face || {};
+    const video = item.video || {};
+    const imageResolutions = item.imageResolutions || image.imageResolutions || {};
+    const videoResolutions = item.videoResolutions || video.videoResolutions || {};
+    dailyRows.push([
+      item.dateKey || "",
+      Number(item.total) || 0,
+      Number(item.success) || 0,
+      Number(item.failure) || 0,
+      formatExportNumber(item.estimatedCost),
+      formatExportNumber(face.estimatedCost),
+      formatExportNumber(image.estimatedCost),
+      formatExportNumber(video.estimatedCost),
+      Number(item.inputTokens) || 0,
+      Number(item.outputTokens) || 0,
+      Number(item.totalTokens) || 0,
+      formatExportNumber(item.videoDurationSeconds, 3),
+      Number(imageResolutions["1K"] && imageResolutions["1K"].count) || 0,
+      Number(imageResolutions["2K"] && imageResolutions["2K"].count) || 0,
+      Number(imageResolutions["4K"] && imageResolutions["4K"].count) || 0,
+      formatExportNumber(videoResolutions["480p"] && videoResolutions["480p"].seconds, 3),
+      formatExportNumber(videoResolutions["720p"] && videoResolutions["720p"].seconds, 3),
+      formatExportNumber(videoResolutions["1080p"] && videoResolutions["1080p"].seconds, 3),
+      Number(item.unavailableCostCount) || 0
+    ]);
+  });
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(dailyRows), "每日明细");
+
+  const userRows = [[
+    "用户标识",
+    "调用次数",
+    "成功",
+    "失败",
+    "预计成本（元）",
+    "输入Token",
+    "输出Token",
+    "总Token",
+    "视频秒数",
+    "未计算次数"
+  ]];
+  (Array.isArray(stats.users) ? stats.users : []).forEach((item) => {
+    userRows.push([
+      item.userHash || "anonymous",
+      Number(item.total) || 0,
+      Number(item.success) || 0,
+      Number(item.failure) || 0,
+      formatExportNumber(item.estimatedCost),
+      Number(item.inputTokens) || 0,
+      Number(item.outputTokens) || 0,
+      Number(item.totalTokens) || 0,
+      formatExportNumber(item.videoDurationSeconds, 3),
+      Number(item.unavailableCostCount) || 0
+    ]);
+  });
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(userRows), "按用户");
+
+  const modelRows = [[
+    "功能",
+    "Provider",
+    "模型",
+    "调用次数",
+    "成功",
+    "失败",
+    "预计成本（元）",
+    "输入Token",
+    "输出Token",
+    "总Token",
+    "视频秒数",
+    "未计算次数"
+  ]];
+  (Array.isArray(stats.models) ? stats.models : []).forEach((item) => {
+    modelRows.push([
+      item.usageType || "",
+      item.provider || "",
+      item.model || "",
+      Number(item.total) || 0,
+      Number(item.success) || 0,
+      Number(item.failure) || 0,
+      formatExportNumber(item.estimatedCost),
+      Number(item.inputTokens) || 0,
+      Number(item.outputTokens) || 0,
+      Number(item.totalTokens) || 0,
+      formatExportNumber(item.videoDurationSeconds, 3),
+      Number(item.unavailableCostCount) || 0
+    ]);
+  });
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(modelRows), "按模型");
+
+  const monthlyRows = [[
+    "月份",
+    "总调用次数",
+    "成功",
+    "失败",
+    "预计成本（元）",
+    "人脸成本（元）",
+    "生图成本（元）",
+    "视频成本（元）",
+    "总Token",
+    "视频秒数",
+    "未计算次数"
+  ]];
+  (Array.isArray(stats.monthly) ? stats.monthly : []).forEach((item) => {
+    monthlyRows.push([
+      item.monthKey || "",
+      Number(item.total) || 0,
+      Number(item.success) || 0,
+      Number(item.failure) || 0,
+      formatExportNumber(item.estimatedCost),
+      formatExportNumber(item.face && item.face.estimatedCost),
+      formatExportNumber(item.image && item.image.estimatedCost),
+      formatExportNumber(item.video && item.video.estimatedCost),
+      Number(item.totalTokens) || 0,
+      formatExportNumber(item.videoDurationSeconds, 3),
+      Number(item.unavailableCostCount) || 0
+    ]);
+  });
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(monthlyRows), "按月份");
+
+  return XLSX.write(workbook, {
+    bookType: "xlsx",
+    type: "buffer"
+  });
+}
+
+async function exportModelUsageStats(event, context) {
+  if (!isAdminContext(context)) return adminForbidden();
+  const days = Math.max(1, Math.min(90, Number(event && event.days) || 30));
+  const stats = await getModelUsageStats({ days }, context);
+  if (!stats || stats.ok === false) return stats;
+  const buffer = buildModelUsageExportWorkbook(stats);
+  const dateKey = dateKeyForTimeZone(new Date(), MODEL_USAGE_TIME_ZONE);
+  const fileName = `模型用量统计-${dateKey}.xlsx`;
+  const uploaded = await cloud.uploadFile({
+    cloudPath: `exports/model-usage/${Date.now()}-${crypto.randomBytes(4).toString("hex")}.xlsx`,
+    fileContent: buffer
+  });
+  return jsonResponse(true, {
+    fileID: uploaded && uploaded.fileID ? uploaded.fileID : "",
+    fileName,
+    sizeBytes: buffer.length,
+    days,
+    message: "Excel 文件已生成，可以下载。"
+  });
+}
+
 async function analyze(event) {
   const payload = event.payload || {};
   const vision = resolveVisionConfig();
@@ -1369,10 +2318,12 @@ async function analyze(event) {
   });
 }
 
-async function detectFaceCircle(event) {
+async function detectFaceCircle(event, context) {
   const detectionStartedAt = Date.now();
   const payload = event.payload || {};
   const vision = resolveVisionConfig();
+  const configs = await resolveEffectiveConfigs();
+  const costs = configs.costs;
   if (!vision.apiKey) {
     return fail(
       "云函数还没有配置 AI_VISION_API_KEY（兼容 AI_API_KEY）。",
@@ -1427,9 +2378,12 @@ async function detectFaceCircle(event) {
   const visionRequestStartedAt = Date.now();
   try {
     try {
-      response = await requestJson(url, Object.assign({}, requestPayload, {
-        response_format: { type: "json_object" }
-      }), vision.apiKey, {}, visionRequestMeta(event.requestId, "detectFaceCircle", vision));
+        response = await requestJson(url, Object.assign({}, requestPayload, {
+          response_format: { type: "json_object" }
+        }), vision.apiKey, {}, Object.assign(
+          visionRequestMeta(event.requestId, "detectFaceCircle", vision, costs),
+          { userHash: usageUserHash(getOpenId(context)) }
+        ));
     } catch (error) {
       if (error.status !== 400) throw error;
       response = await requestJson(
@@ -1437,7 +2391,10 @@ async function detectFaceCircle(event) {
         requestPayload,
         vision.apiKey,
         {},
-        visionRequestMeta(event.requestId, "detectFaceCircle", vision)
+        Object.assign(
+          visionRequestMeta(event.requestId, "detectFaceCircle", vision, costs),
+          { userHash: usageUserHash(getOpenId(context)) }
+        )
       );
     }
   } catch (error) {
@@ -1590,7 +2547,14 @@ function invertMask(buffer, requestId) {
   }
 }
 
-async function requestImageEdits(payload, apiKey, requestId, imageConfig = resolveImageConfig()) {
+async function requestImageEdits(
+  payload,
+  apiKey,
+  requestId,
+  imageConfig = resolveImageConfig(),
+  costs = resolveCostConfig(),
+  userHash = "anonymous"
+) {
   if (!payload.mainFileID || !payload.maskFileID) {
     const error = new Error("编辑模式需要主图和 mask 文件。");
     error.code = "missing-edit-asset";
@@ -1683,10 +2647,15 @@ async function requestImageEdits(payload, apiKey, requestId, imageConfig = resol
   }, multipart.body, {
     requestId,
     action: "generate",
+    provider: imageConfig.provider || "",
+    model: imageConfig.model || "",
     imageGeneration: true,
     allowRetry: imageConfig.retryEnabled,
     maxAttempts: imageConfig.retryEnabled ? imageConfig.maxRetries + 1 : 1,
-    timeoutMs: imageConfig.timeoutMs
+    timeoutMs: imageConfig.timeoutMs,
+    costs,
+    userHash,
+    imageResolution: imageConfig.size || payload.size
   });
   if (response.status < 200 || response.status >= 300) {
     throw upstreamError(response, "图片编辑接口请求失败");
@@ -1739,6 +2708,13 @@ function pointsLedgerId(openid, requestId) {
     .slice(0, 32);
 }
 
+function generationOperationId(openid, requestId) {
+  return crypto.createHash("sha256")
+    .update(`operation:${openid}:${requestId}`)
+    .digest("hex")
+    .slice(0, 32);
+}
+
 function defaultPointsAccount(openid) {
   return {
     _id: pointsAccountId(openid),
@@ -1753,32 +2729,37 @@ function defaultPointsAccount(openid) {
   };
 }
 
-async function ensurePointsAccount(openid) {
-  const ref = db.collection(POINTS_ACCOUNT_COLLECTION).doc(pointsAccountId(openid));
+async function readDocument(ref) {
   try {
     const result = await ref.get();
-    if (result && result.data) return result.data;
+    return result && result.data ? result.data : null;
   } catch (_) {
-    // 首次使用时集合可能还没有记录，下面直接创建。
+    return null;
   }
+}
+
+async function readPointsAccount(openid, store = db) {
+  return readDocument(
+    store.collection(POINTS_ACCOUNT_COLLECTION).doc(pointsAccountId(openid))
+  );
+}
+
+async function ensurePointsAccount(openid, store = db) {
+  const ref = store.collection(POINTS_ACCOUNT_COLLECTION).doc(pointsAccountId(openid));
+  const existing = await readDocument(ref);
+  if (existing) return existing;
   const data = defaultPointsAccount(openid);
   await ref.set({ data });
   return data;
 }
 
-async function readDailyQuota(openid, dateKey, dailyFreeLimit) {
+async function readDailyQuota(openid, dateKey, dailyFreeLimit, store = db) {
   const quotaId = crypto.createHash("sha256")
     .update(`quota:${openid}:${dateKey}`)
     .digest("hex")
     .slice(0, 32);
-  const ref = db.collection(USER_QUOTA_COLLECTION).doc(quotaId);
-  let existing = null;
-  try {
-    const result = await ref.get();
-    existing = result && result.data;
-  } catch (_) {
-    existing = null;
-  }
+  const ref = store.collection(USER_QUOTA_COLLECTION).doc(quotaId);
+  const existing = await readDocument(ref);
   return {
     ref,
     data: Object.assign({
@@ -1795,20 +2776,15 @@ async function readDailyQuota(openid, dateKey, dailyFreeLimit) {
   };
 }
 
-async function findPointLedger(openid, requestId) {
+async function findPointLedger(openid, requestId, store = db) {
   if (!openid || !requestId) return null;
   const id = pointsLedgerId(openid, requestId);
-  try {
-    const result = await db.collection(POINTS_LEDGER_COLLECTION).doc(id).get();
-    return result && result.data ? result.data : null;
-  } catch (_) {
-    return null;
-  }
+  return readDocument(store.collection(POINTS_LEDGER_COLLECTION).doc(id));
 }
 
-async function savePointLedger(openid, requestId, data) {
+async function savePointLedger(openid, requestId, data, store = db) {
   const ledgerId = pointsLedgerId(openid, requestId);
-  const ref = db.collection(POINTS_LEDGER_COLLECTION).doc(ledgerId);
+  const ref = store.collection(POINTS_LEDGER_COLLECTION).doc(ledgerId);
   const record = Object.assign({
     _id: ledgerId,
     openid,
@@ -1817,6 +2793,55 @@ async function savePointLedger(openid, requestId, data) {
   }, data);
   await ref.set({ data: record });
   return record;
+}
+
+async function findGenerationOperation(openid, requestId, store = db) {
+  if (!openid || !requestId) return null;
+  return readDocument(
+    store
+      .collection(GENERATION_OPERATION_COLLECTION)
+      .doc(generationOperationId(openid, requestId))
+  );
+}
+
+async function saveGenerationOperation(openid, requestId, data, store = db) {
+  const operationId = generationOperationId(openid, requestId);
+  const ref = store.collection(GENERATION_OPERATION_COLLECTION).doc(operationId);
+  const existing = await readDocument(ref);
+  const now = new Date();
+  const record = Object.assign({
+    _id: operationId,
+    openid,
+    requestId,
+    status: "reserved",
+    createdAt: now
+  }, existing || {}, data, {
+    _id: operationId,
+    openid,
+    requestId,
+    updatedAt: now
+  });
+  await ref.set({ data: record });
+  return record;
+}
+
+function operationStateError(operation, message) {
+  const status = String(operation && operation.status || "");
+  const error = new Error(message || (
+    status === "refunded"
+      ? "本次请求已退款，请重新发起并使用新的请求编号。"
+      : status === "refunding"
+        ? "本次请求正在退款，请稍后查看积分明细。"
+        : "本次请求正在处理中，请稍后重试。"
+  ));
+  error.code = status === "refunded"
+    ? "request-refunded"
+    : status === "refunding"
+      ? "request-refunding"
+      : "request-processing";
+  error.operationStatus = status;
+  error.retryable = status === "processing";
+  return error;
 }
 
 function pointsSummary(account, quota, points, dateKey) {
@@ -1855,131 +2880,248 @@ async function reserveUsage(openid, requestId, kind) {
   const configs = await resolveEffectiveConfigs();
   const points = configs.points;
   const dateKey = dateKeyForTimeZone(new Date(), points.timeZone);
-  const existingLedger = await findPointLedger(openid, requestId);
-  if (existingLedger) {
-    const quota = await readDailyQuota(openid, dateKey, points.dailyFreeLimit);
-    return Object.assign({
+  if (openid === "anonymous" && process.env.WECHAT_MINIAPP_TEST === "1") {
+    return {
       requestId,
       dateKey,
       kind,
-      alreadyReserved: true
-    }, existingLedger.billing || {}, {
-      pointsCharged: Math.max(0, Number(existingLedger.amount) < 0 ? -Number(existingLedger.amount) : 0),
-      quota: pointsSummary(await ensurePointsAccount(openid), quota, points, dateKey)
-    });
+      source: "test-free",
+      pointsCharged: 0,
+      cost: 0,
+      quota: {
+        freeUsed: 0,
+        freeLimit: points.dailyFreeLimit,
+        freeRemaining: points.dailyFreeLimit,
+        billingMode: "test-free"
+      },
+      alreadyReserved: false,
+      untracked: true
+    };
   }
-
   const cost = kind === "video" ? Number(points.videoCost) || 0 : Number(points.imageCost) || 0;
-  const quota = await readDailyQuota(openid, dateKey, points.dailyFreeLimit);
-  const account = await ensurePointsAccount(openid);
-  let source = "points";
-  let pointsCharged = cost;
-  if (isPromoDate(dateKey, points)) {
-    source = "promo-free";
-    pointsCharged = 0;
-    quota.data.promoFree = (Number(quota.data.promoFree) || 0) + 1;
-  } else if ((Number(quota.data.freeUsed) || Number(quota.data.used) || 0) < Number(points.dailyFreeLimit)) {
-    source = "daily-free";
-    pointsCharged = 0;
-    quota.data.freeUsed = (Number(quota.data.freeUsed) || Number(quota.data.used) || 0) + 1;
-    quota.data.used = quota.data.freeUsed;
-  } else {
-    const balance = Math.max(0, Number(account.pointsBalance) || 0);
-    if (balance < cost) {
-      const error = new Error(`积分不足，本次需要 ${cost} 积分，请先签到。`);
-      error.code = "points-insufficient";
-      error.pointsRequired = cost;
-      error.pointsBalance = balance;
-      throw error;
+  return db.runTransaction(async (transaction) => {
+    const operation = await findGenerationOperation(openid, requestId, transaction);
+    if (operation) {
+      if (["refunding", "refunded"].includes(String(operation.status || ""))) {
+        throw operationStateError(operation);
+      }
+      const account = await readPointsAccount(openid, transaction);
+      const quota = await readDailyQuota(openid, dateKey, points.dailyFreeLimit, transaction);
+      const billing = operation.billing || {};
+      return Object.assign({
+        requestId,
+        dateKey: billing.dateKey || dateKey,
+        kind: operation.kind || kind,
+        alreadyReserved: true,
+        operation
+      }, billing, {
+        pointsCharged: Math.max(0, Number(billing.pointsCharged) || 0),
+        quota: pointsSummary(account, quota, points, dateKey)
+      });
     }
-    account.pointsBalance = balance - cost;
-    account.totalSpent = (Number(account.totalSpent) || 0) + cost;
-    account.updatedAt = new Date();
-    await db.collection(POINTS_ACCOUNT_COLLECTION).doc(account._id).set({ data: account });
-  }
 
-  quota.data.freeLimit = Number(points.dailyFreeLimit) || 0;
-  quota.data.dailyLimit = quota.data.freeLimit;
-  quota.data.updatedAt = new Date();
-  await quota.ref.set({ data: quota.data });
-  const ledger = await savePointLedger(openid, requestId, {
-    type: source === "points" ? "spend" : source,
-    kind,
-    amount: source === "points" ? -cost : 0,
-    balanceAfter: source === "points"
-      ? Math.max(0, Number(account.pointsBalance) || 0)
-      : Math.max(0, Number(account.pointsBalance) || 0),
-    dateKey,
-    description: source === "promo-free"
-      ? "活动期间免费使用"
-      : source === "daily-free"
-        ? "每日免费次数"
-        : `${kind === "video" ? "照片转视频" : "生图"}扣除积分`,
-    billing: {
+    const existingLedger = await findPointLedger(openid, requestId, transaction);
+    const existingRefund = existingLedger
+      ? await findPointLedger(openid, `refund:${requestId}`, transaction)
+      : null;
+    if (existingRefund) {
+      throw operationStateError({ status: "refunded" });
+    }
+
+    const quota = await readDailyQuota(openid, dateKey, points.dailyFreeLimit, transaction);
+    let account = await readPointsAccount(openid, transaction);
+
+    if (existingLedger) {
+      const legacyBilling = Object.assign({}, existingLedger.billing || {}, {
+        pointsCharged: Math.max(
+          0,
+          Number(existingLedger.amount) < 0 ? -Number(existingLedger.amount) : 0
+        )
+      });
+      const legacyOperation = await saveGenerationOperation(openid, requestId, {
+        kind: existingLedger.kind || kind,
+        status: "reserved",
+        billing: legacyBilling,
+        ledgerId: existingLedger._id,
+        legacyRecovered: true
+      }, transaction);
+      return Object.assign({
+        requestId,
+        dateKey,
+        kind,
+        alreadyReserved: true,
+        operation: legacyOperation
+      }, legacyBilling, {
+        quota: pointsSummary(account, quota, points, dateKey)
+      });
+    }
+
+    let source = "points";
+    let pointsCharged = cost;
+    if (isPromoDate(dateKey, points)) {
+      source = "promo-free";
+      pointsCharged = 0;
+      quota.data.promoFree = (Number(quota.data.promoFree) || 0) + 1;
+    } else if (
+      (Number(quota.data.freeUsed) || Number(quota.data.used) || 0)
+      < Number(points.dailyFreeLimit)
+    ) {
+      source = "daily-free";
+      pointsCharged = 0;
+      quota.data.freeUsed = (
+        Number(quota.data.freeUsed) || Number(quota.data.used) || 0
+      ) + 1;
+      quota.data.used = quota.data.freeUsed;
+    } else {
+      const balance = Math.max(0, Number(account && account.pointsBalance) || 0);
+      if (balance < cost) {
+        const error = new Error(`积分不足，本次需要 ${cost} 积分，请先签到。`);
+        error.code = "points-insufficient";
+        error.pointsRequired = cost;
+        error.pointsBalance = balance;
+        throw error;
+      }
+      account.pointsBalance = balance - cost;
+      account.totalSpent = (Number(account.totalSpent) || 0) + cost;
+      account.updatedAt = new Date();
+      await transaction
+        .collection(POINTS_ACCOUNT_COLLECTION)
+        .doc(account._id)
+        .set({ data: account });
+    }
+
+    quota.data.freeLimit = Number(points.dailyFreeLimit) || 0;
+    quota.data.dailyLimit = quota.data.freeLimit;
+    quota.data.updatedAt = new Date();
+    await quota.ref.set({ data: quota.data });
+    const billing = {
       source,
       kind,
       cost,
+      pointsCharged,
       dateKey
-    }
-  });
-  return {
-    requestId,
-    dateKey,
-    kind,
-    source,
-    pointsCharged,
-    cost,
-    quota: pointsSummary(account, quota, points, dateKey),
-    ledgerId: ledger._id,
-    alreadyReserved: false
-  };
+    };
+    const ledger = await savePointLedger(openid, requestId, {
+      type: source === "points" ? "spend" : source,
+      kind,
+      amount: source === "points" ? -cost : 0,
+      balanceAfter: Math.max(0, Number(account && account.pointsBalance) || 0),
+      dateKey,
+      description: source === "promo-free"
+        ? "活动期间免费使用"
+        : source === "daily-free"
+          ? "每日免费次数"
+          : `${kind === "video" ? "照片转视频" : "生图"}扣除积分`,
+      billing
+    }, transaction);
+    const newOperation = await saveGenerationOperation(openid, requestId, {
+      kind,
+      status: "reserved",
+      billing,
+      ledgerId: ledger._id
+    }, transaction);
+    return {
+      requestId,
+      dateKey,
+      kind,
+      source,
+      pointsCharged,
+      cost,
+      quota: pointsSummary(account, quota, points, dateKey),
+      ledgerId: ledger._id,
+      operation: newOperation,
+      alreadyReserved: false
+    };
+  }, 5);
 }
 
 async function refundUsage(openid, requestId, reason) {
-  const original = await findPointLedger(openid, requestId);
-  if (!original) return null;
-  const refundRequestId = `refund:${requestId}`;
-  if (await findPointLedger(openid, refundRequestId)) return original;
   const configs = await resolveEffectiveConfigs();
   const points = configs.points;
-  const dateKey = String(original.dateKey || dateKeyForTimeZone(new Date(), points.timeZone));
-  if (original.type === "spend" && Number(original.amount) < 0) {
-    const account = await ensurePointsAccount(openid);
-    const amount = -Number(original.amount);
-    account.pointsBalance = (Number(account.pointsBalance) || 0) + amount;
-    account.totalSpent = Math.max(0, (Number(account.totalSpent) || 0) - amount);
-    account.updatedAt = new Date();
-    await db.collection(POINTS_ACCOUNT_COLLECTION).doc(account._id).set({ data: account });
-    await savePointLedger(openid, refundRequestId, {
+  return db.runTransaction(async (transaction) => {
+    const original = await findPointLedger(openid, requestId, transaction);
+    if (!original) return null;
+    const refundRequestId = `refund:${requestId}`;
+    const existingRefund = await findPointLedger(openid, refundRequestId, transaction);
+    const operation = await findGenerationOperation(openid, requestId, transaction);
+    if (existingRefund || (operation && operation.status === "refunded")) {
+      return {
+        duplicate: true,
+        ledger: existingRefund,
+        operation
+      };
+    }
+    if (operation && operation.status === "succeeded") {
+      return {
+        skipped: true,
+        reason: "operation-succeeded",
+        operation
+      };
+    }
+
+    const dateKey = String(
+      original.dateKey || dateKeyForTimeZone(new Date(), points.timeZone)
+    );
+    let account = await readPointsAccount(openid, transaction);
+    const quota = await readDailyQuota(
+      openid,
+      dateKey,
+      points.dailyFreeLimit,
+      transaction
+    );
+    let amount = 0;
+    if (original.type === "spend" && Number(original.amount) < 0) {
+      account = account || defaultPointsAccount(openid);
+      amount = -Number(original.amount);
+      account.pointsBalance = (Number(account.pointsBalance) || 0) + amount;
+      account.totalSpent = Math.max(0, (Number(account.totalSpent) || 0) - amount);
+      account.updatedAt = new Date();
+      await transaction
+        .collection(POINTS_ACCOUNT_COLLECTION)
+        .doc(account._id)
+        .set({ data: account });
+    } else if (original.type === "daily-free") {
+      quota.data.freeUsed = Math.max(0, (Number(quota.data.freeUsed) || 0) - 1);
+      quota.data.used = quota.data.freeUsed;
+      quota.data.updatedAt = new Date();
+      await quota.ref.set({ data: quota.data });
+    } else if (original.type === "promo-free") {
+      quota.data.promoFree = Math.max(0, (Number(quota.data.promoFree) || 0) - 1);
+      quota.data.updatedAt = new Date();
+      await quota.ref.set({ data: quota.data });
+    }
+
+    const refundLedger = await savePointLedger(openid, refundRequestId, {
       type: "refund",
       kind: original.kind || "",
       amount,
-      balanceAfter: account.pointsBalance,
+      balanceAfter: Math.max(0, Number(account && account.pointsBalance) || 0),
       dateKey,
-      description: reason || "生成失败，积分已退回",
-      billing: { source: "refund", originalRequestId: requestId }
-    });
-    return account;
-  }
-  const quota = await readDailyQuota(openid, dateKey, points.dailyFreeLimit);
-  if (original.type === "daily-free") {
-    quota.data.freeUsed = Math.max(0, (Number(quota.data.freeUsed) || 0) - 1);
-    quota.data.used = quota.data.freeUsed;
-  } else if (original.type === "promo-free") {
-    quota.data.promoFree = Math.max(0, (Number(quota.data.promoFree) || 0) - 1);
-  }
-  quota.data.updatedAt = new Date();
-  await quota.ref.set({ data: quota.data });
-  await savePointLedger(openid, refundRequestId, {
-    type: "refund",
-    kind: original.kind || "",
-    amount: 0,
-    balanceAfter: 0,
-    dateKey,
-    description: reason || "生成失败，免费次数已退回",
-    billing: { source: "refund", originalRequestId: requestId }
-  });
-  return quota.data;
+      description: reason || (
+        amount > 0 ? "生成失败，积分已退回" : "生成失败，免费次数已退回"
+      ),
+      billing: {
+        source: "refund",
+        originalRequestId: requestId,
+        originalLedgerId: original._id
+      }
+    }, transaction);
+    const refundedOperation = operation
+      ? await saveGenerationOperation(openid, requestId, {
+          status: "refunded",
+          refundLedgerId: refundLedger._id,
+          refundReason: reason || "",
+          refundedAt: new Date()
+        }, transaction)
+      : null;
+    return {
+      duplicate: false,
+      account,
+      quota: quota.data,
+      ledger: refundLedger,
+      operation: refundedOperation
+    };
+  }, 5);
 }
 
 async function getUserPoints(context) {
@@ -1992,12 +3134,17 @@ async function getUserPoints(context) {
   }
   const configs = await resolveEffectiveConfigs();
   const dateKey = dateKeyForTimeZone(new Date(), configs.points.timeZone);
-  const account = await ensurePointsAccount(openid);
+  const account = await readPointsAccount(openid);
   const quota = await readDailyQuota(openid, dateKey, configs.points.dailyFreeLimit);
   return jsonResponse(true, Object.assign({
-    accountBound: true,
-    boundMessage: "已绑定当前微信"
-  }, pointsSummary(account, quota, configs.points, dateKey)));
+    accountBound: Boolean(account),
+    boundMessage: account ? "已绑定当前微信" : "点击签到后绑定微信身份"
+  }, pointsSummary(
+    account || defaultPointsAccount("anonymous"),
+    quota,
+    configs.points,
+    dateKey
+  )));
 }
 
 async function checkIn(context) {
@@ -2006,45 +3153,63 @@ async function checkIn(context) {
   const configs = await resolveEffectiveConfigs();
   const points = configs.points;
   const dateKey = dateKeyForTimeZone(new Date(), points.timeZone);
-  const account = await ensurePointsAccount(openid);
   const requestId = `checkin:${dateKey}`;
-  const existingLedger = await findPointLedger(openid, requestId);
-  if (existingLedger) {
-    const quota = await readDailyQuota(openid, dateKey, points.dailyFreeLimit);
-    return jsonResponse(true, Object.assign({
-      accountBound: true,
-      duplicate: true,
-      earnedToday: 0
-    }, pointsSummary(account, quota, points, dateKey)));
-  }
-  const nextStreak = calculateNextStreak(account.lastCheckinDate, account.currentStreak, dateKey);
-  const bonus = nextStreak > 0 && nextStreak % Number(points.streakDays) === 0
-    ? Number(points.streakBonus) || 0
-    : 0;
-  const earned = (Number(points.checkinPoints) || 0) + bonus;
-  account.pointsBalance = (Number(account.pointsBalance) || 0) + earned;
-  account.totalEarned = (Number(account.totalEarned) || 0) + earned;
-  account.currentStreak = nextStreak;
-  account.lastCheckinDate = dateKey;
-  account.boundAt = account.boundAt || new Date();
-  account.updatedAt = new Date();
-  await db.collection(POINTS_ACCOUNT_COLLECTION).doc(account._id).set({ data: account });
-  await savePointLedger(openid, requestId, {
-    type: "checkin",
-    kind: "checkin",
-    amount: earned,
-    balanceAfter: account.pointsBalance,
-    dateKey,
-    description: bonus ? `连续签到 ${points.streakDays} 天奖励` : "每日签到奖励",
-    billing: { base: points.checkinPoints, bonus }
-  });
+  const checkin = await db.runTransaction(async (transaction) => {
+    const existingLedger = await findPointLedger(openid, requestId, transaction);
+    let account = await readPointsAccount(openid, transaction);
+    if (existingLedger) {
+      return {
+        duplicate: true,
+        earned: 0,
+        bonus: 0,
+        account: account || defaultPointsAccount(openid)
+      };
+    }
+    account = account || defaultPointsAccount(openid);
+    const nextStreak = calculateNextStreak(
+      account.lastCheckinDate,
+      account.currentStreak,
+      dateKey
+    );
+    const bonus = nextStreak > 0 && nextStreak % Number(points.streakDays) === 0
+      ? Number(points.streakBonus) || 0
+      : 0;
+    const earned = (Number(points.checkinPoints) || 0) + bonus;
+    account.pointsBalance = (Number(account.pointsBalance) || 0) + earned;
+    account.totalEarned = (Number(account.totalEarned) || 0) + earned;
+    account.currentStreak = nextStreak;
+    account.lastCheckinDate = dateKey;
+    account.boundAt = account.boundAt || new Date();
+    account.updatedAt = new Date();
+    await transaction
+      .collection(POINTS_ACCOUNT_COLLECTION)
+      .doc(account._id)
+      .set({ data: account });
+    await savePointLedger(openid, requestId, {
+      type: "checkin",
+      kind: "checkin",
+      amount: earned,
+      balanceAfter: account.pointsBalance,
+      dateKey,
+      description: bonus
+        ? `连续签到 ${points.streakDays} 天奖励`
+        : "每日签到奖励",
+      billing: { base: points.checkinPoints, bonus }
+    }, transaction);
+    return {
+      duplicate: false,
+      earned,
+      bonus,
+      account
+    };
+  }, 5);
   const quota = await readDailyQuota(openid, dateKey, points.dailyFreeLimit);
   return jsonResponse(true, Object.assign({
     accountBound: true,
-    duplicate: false,
-    earnedToday: earned,
-    streakBonus: bonus
-  }, pointsSummary(account, quota, points, dateKey)));
+    duplicate: checkin.duplicate,
+    earnedToday: checkin.earned,
+    streakBonus: checkin.bonus
+  }, pointsSummary(checkin.account, quota, points, dateKey)));
 }
 
 async function getPointLedger(context) {
@@ -2090,6 +3255,7 @@ async function generate(event, context) {
   if (!payload.prompt || !String(payload.prompt).trim()) return fail("提示词不能为空。", "empty-prompt");
   const configs = await resolveEffectiveConfigs();
   const imageConfig = configs.image;
+  const costs = configs.costs;
   const apiKey = imageConfig.apiKey;
   if (!apiKey) return fail(
     "云函数还没有配置 AI_IMAGE_API_KEY（兼容旧配置 AI_API_KEY）。",
@@ -2148,7 +3314,9 @@ async function generate(event, context) {
         Object.assign({}, payload, { prompt }),
         apiKey,
         requestId,
-        imageConfig
+        imageConfig,
+        costs,
+        usageUserHash(openid)
       );
     } else {
       const url = imageConfig.endpoint || endpoint(imageConfig.baseUrl, "images/generations");
@@ -2161,10 +3329,15 @@ async function generate(event, context) {
       response = await requestJson(url, body, apiKey, {}, {
         requestId,
         action: "generate",
+        provider: imageConfig.provider || "",
+        model,
         imageGeneration: true,
         allowRetry: imageConfig.retryEnabled,
         maxAttempts: imageConfig.retryEnabled ? imageConfig.maxRetries + 1 : 1,
-        timeoutMs: imageConfig.timeoutMs
+        timeoutMs: imageConfig.timeoutMs,
+        costs,
+        userHash: usageUserHash(openid),
+        imageResolution: size
       });
     }
     const image = extractImageItem(response);
@@ -2412,14 +3585,20 @@ function normalizeVideoQueryResponse(payload = {}) {
   };
 }
 
-function videoRequestMeta(requestId, action, video, allowRetry) {
+function videoRequestMeta(requestId, action, video, allowRetry, options = {}) {
   return {
     requestId,
     action,
+    provider: video.provider || "",
+    model: video.model || "",
     allowRetry,
     maxAttempts: allowRetry ? Math.max(2, maxRetries() + 1) : 1,
     retryStatuses: [408, 425, 429, 500, 502, 503, 504],
-    timeoutMs: video.timeoutMs
+    timeoutMs: video.timeoutMs,
+    costs: options.costs,
+    userHash: options.userHash,
+    videoResolution: options.videoResolution,
+    videoDurationSeconds: options.videoDurationSeconds
   };
 }
 
@@ -2487,7 +3666,12 @@ async function createVideoTask(event, context) {
       video.apiKey,
       "POST",
       {},
-      videoRequestMeta(requestId, "video.create", video, false)
+      videoRequestMeta(requestId, "video.create", video, false, {
+        costs: configs.costs,
+        userHash: usageUserHash(openid),
+        videoResolution: requestPayload.resolution,
+        videoDurationSeconds: requestPayload.duration
+      })
     );
     const normalized = normalizeVideoCreateResponse(response);
     log("info", "video.create.finish", {
@@ -2577,6 +3761,9 @@ exports.main = async (event = {}, context) => {
     else if (action === "detectFaceCircle") result = await detectFaceCircle(requestEvent, context);
     else if (action === "analyzeWebPoses") result = await analyzeWebPoses(requestEvent, context);
     else if (action === "generate") result = await generate(requestEvent, context);
+    else if (action === "getUserPoints") result = await getUserPoints(context);
+    else if (action === "checkIn") result = await checkIn(context);
+    else if (action === "getPointLedger") result = await getPointLedger(context);
     else if (action === "listRecords") result = await listRecords(context);
     else if (action === "deleteRecord") result = await deleteRecord(requestEvent, context);
     else if (action === "videoProviderStatus") result = await videoProviderStatus();
@@ -2587,6 +3774,8 @@ exports.main = async (event = {}, context) => {
     else if (action === "saveAdminConfig") result = await saveAdminConfig(requestEvent, context);
     else if (action === "checkDeployment") result = await checkDeployment(requestEvent, context);
     else if (action === "listDeploymentLogs") result = await listDeploymentLogs(context);
+    else if (action === "getModelUsageStats") result = await getModelUsageStats(requestEvent, context);
+    else if (action === "exportModelUsageStats") result = await exportModelUsageStats(requestEvent, context);
     else result = fail(`不支持的操作：${action || "空"}`, "unsupported-action");
     log("info", "function.finish", {
       requestId,
@@ -2637,6 +3826,27 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     normalizeFaceDetections,
     normalizeWebPoseSuggestions,
     resolveVideoConfig,
+    resolvePointsConfig,
+    resolveCostConfig,
+    normalizeImageResolution,
+    normalizeVideoResolution,
+    extractModelUsage,
+    extractVideoDuration,
+    buildUsageBilling,
+    dateKeyForTimeZone,
+    shiftDateKey,
+    shiftMonthKey,
+    modelUsageTypeForAction,
+    normalizeModelUsageEvent,
+    aggregateModelUsageEvents,
+    buildModelUsageExportWorkbook,
+    recordModelUsageEvent,
+    getModelUsageTestEvents: () => modelUsageTestEvents.slice(),
+    resetModelUsageTestEvents: () => {
+      modelUsageTestEvents.splice(0, modelUsageTestEvents.length);
+    },
+    isPromoDate,
+    calculateNextStreak,
     videoProviderStatus,
     buildVideoGenerationPayload,
     normalizeVideoCreateResponse,
@@ -2654,6 +3864,9 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     saveAdminConfig,
     checkDeployment,
     listDeploymentLogs
+    ,
+    exportModelUsageStats
   };
 }
+
 

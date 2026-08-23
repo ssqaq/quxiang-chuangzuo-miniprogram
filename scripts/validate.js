@@ -13,6 +13,7 @@ const jsonFiles = [
   "pages/workbench/workbench.json",
   "pages/publish-export/publish-export.json",
   "pages/photo-to-video/photo-to-video.json",
+  "pages/points/points.json",
   "pages/admin/admin.json",
   "cloudfunctions/api/package.json"
 ];
@@ -34,6 +35,7 @@ const jsFiles = [
   "pages/workbench/workbench.js",
   "pages/publish-export/publish-export.js",
   "pages/photo-to-video/photo-to-video.js",
+  "pages/points/points.js",
   "pages/admin/admin.js",
   "pages/index/index.js",
   "pages/records/records.js",
@@ -58,7 +60,10 @@ const jsFiles = [
   "scripts/photo-to-video-smoke.js",
   "scripts/video-provider-smoke.js",
   "scripts/admin-config-smoke.js",
-  "scripts/workbench-interaction-smoke.js"
+  "scripts/points-checkin-smoke.js",
+  "scripts/workbench-interaction-smoke.js",
+  "scripts/model-usage-stats-smoke.js",
+  "scripts/model-cost-stats-smoke.js"
 ];
 const pythonFiles = ["scripts/package-release.py"];
 const powerShellFiles = [
@@ -132,6 +137,10 @@ const required = [
   "pages/photo-to-video/photo-to-video.json",
   "pages/photo-to-video/photo-to-video.wxml",
   "pages/photo-to-video/photo-to-video.wxss",
+  "pages/points/points.js",
+  "pages/points/points.json",
+  "pages/points/points.wxml",
+  "pages/points/points.wxss",
   "pages/admin/admin.js",
   "pages/admin/admin.json",
   "pages/admin/admin.wxml",
@@ -143,6 +152,8 @@ const required = [
   "scripts/canvas-gesture-smoke.js",
   "scripts/circle-gesture-smoke.js",
   "scripts/auto-face-fallback-smoke.js",
+  "scripts/points-checkin-smoke.js",
+  "scripts/model-cost-stats-smoke.js",
   "cloudfunctions/api/index.js"
 ];
 for (const relative of required) {
@@ -216,6 +227,9 @@ const webPoseJs = fs.readFileSync(path.join(root, "utils/web-pose.js"), "utf8");
 const adminJs = fs.readFileSync(path.join(root, "pages/admin/admin.js"), "utf8");
 const adminWxml = fs.readFileSync(path.join(root, "pages/admin/admin.wxml"), "utf8");
 const adminWxss = fs.readFileSync(path.join(root, "pages/admin/admin.wxss"), "utf8");
+const pointsJs = fs.readFileSync(path.join(root, "pages/points/points.js"), "utf8");
+const pointsWxml = fs.readFileSync(path.join(root, "pages/points/points.wxml"), "utf8");
+const pointsWxss = fs.readFileSync(path.join(root, "pages/points/points.wxss"), "utf8");
 if (!projectConfig.setting || projectConfig.setting.minified !== true) {
   throw new Error("微信开发者工具 JS 压缩没有开启，请确认 project.config.json 的 setting.minified 为 true。");
 }
@@ -245,6 +259,77 @@ if (
   || !adminWxss.includes(".deployment-grid")
 ) {
   throw new Error("管理员配置页或部署检查日志入口不完整。");
+}
+if (
+  !clientCloudJs.includes('action: "getModelUsageStats"')
+  || !adminJs.includes("cloud.getModelUsageStats(30)")
+  || !adminJs.includes("refreshModelUsage")
+  || !adminWxml.includes("模型用量统计")
+  || !adminWxml.includes("最近7天")
+  || !adminWxml.includes("天每日明细")
+  || !adminWxss.includes(".usage-summary-grid")
+  || !adminWxss.includes(".usage-type-grid")
+  || !adminWxss.includes(".usage-daily-list")
+  || !cloudJs.includes("MODEL_USAGE_EVENT_COLLECTION")
+  || !cloudJs.includes("getModelUsageStats")
+  || !cloudJs.includes("video.create")
+  || !cloudJs.includes("video.query")
+  || !cloudJs.includes("aggregateModelUsageEvents")
+) {
+  throw new Error("三类模型用量统计入口或统计规则不完整。");
+}
+if (
+  !clientCloudJs.includes("exportModelUsageStats")
+  || !adminJs.includes("exportModelUsage")
+  || !adminWxml.includes("按用户统计")
+  || !adminWxml.includes("按模型名称分组")
+  || !adminWxml.includes("按月份统计")
+  || !adminWxml.includes("模型成本配置（人民币）")
+  || !adminWxml.includes("导出 Excel")
+  || !adminWxss.includes(".usage-cost-summary")
+  || !adminWxss.includes(".usage-user-list")
+  || !adminWxss.includes(".usage-monthly-list")
+  || !cloudJs.includes("exportModelUsageStats")
+  || !cloudJs.includes("buildModelUsageExportWorkbook")
+  || !cloudJs.includes("resolveCostConfig")
+  || !cloudJs.includes("userHash")
+  || !cloudJs.includes("shiftMonthKey")
+  || !cloudJs.includes("MODEL_COST_CONFIG_VERSION")
+) {
+  throw new Error("模型成本、按用户/模型、月度统计或 Excel 导出功能不完整。");
+}
+if (
+  !appJson.pages.includes("pages/points/points")
+  || !workbenchJs.includes("refreshPoints()")
+  || !workbenchJs.includes("openPoints()")
+  || !workbenchJs.includes("checkIn()")
+  || !workbenchWxml.includes("每日签到")
+  || !workbenchWxml.includes("连续签到 ")
+  || !workbenchWxml.includes("今天还没签到")
+  || !workbenchWxml.includes("今天已签到")
+  || !workbenchWxml.includes("今天还可免费用")
+  || !workbenchWxml.includes("活动期间免费")
+  || !workbenchWxml.includes('bindtap="openPoints"')
+  || !workbenchWxml.includes('catchtap="checkIn"')
+  || !workbenchWxss.includes(".points-entry-card")
+  || !workbenchWxss.includes("justify-content: flex-start")
+  || !workbenchWxss.includes("font-size: 18rpx")
+  || !pointsJs.includes("cloud.getUserPoints()")
+  || !pointsJs.includes("cloud.checkIn()")
+  || !pointsJs.includes("cloud.getPointLedger()")
+  || !pointsWxml.includes("连续签到进度")
+  || !pointsWxml.includes("积分明细")
+  || !pointsWxml.includes("微信授权并签到")
+  || !pointsWxss.includes(".streak-progress-fill")
+  || !pointsWxss.includes(".ledger-row")
+  || !cloudJs.includes('action === "getUserPoints"')
+  || !cloudJs.includes('action === "checkIn"')
+  || !cloudJs.includes('action === "getPointLedger"')
+  || !clientCloudJs.includes("getUserPoints")
+  || !clientCloudJs.includes("checkIn")
+  || !clientCloudJs.includes("getPointLedger")
+) {
+  throw new Error("积分签到入口、明细页或云函数路由不完整。");
 }
 if (
   !indexWxml.includes('class="hero-heading"')
@@ -349,7 +434,7 @@ const commonFeatureHeadingCount = (
 const commonFeatureSubtitleCount = (
   workbenchWxml.match(/class="feature-group-subtitle"/g) || []
 ).length;
-const workbenchEntryCardCount = workbenchWxml.includes('wx:if="{{adminVisible}}"') ? 5 : 4;
+const workbenchEntryCardCount = workbenchWxml.includes('wx:if="{{adminVisible}}"') ? 6 : 5;
 const diagnosticFeatureHeadingStyle = workbenchWxss.match(
   /\.diagnostic-feature-heading\s*\{([^}]*)\}/
 );
@@ -387,7 +472,7 @@ if (
   || !workbenchWxml.includes("workbench-feature-stack")
   || !workbenchWxml.includes("feature-group-heading")
   || !workbenchWxml.includes("feature-group-dot")
-  || commonFeatureHeadingCount !== 2
+  || commonFeatureHeadingCount !== 1
   || commonFeatureSubtitleCount !== 2
   || !workbenchWxml.includes('class="feature-group-heading diagnostic-feature-heading"')
   || workbenchWxml.indexOf("diagnostic-feature-heading") > workbenchWxml.indexOf('class="card interaction-log-card"')
@@ -518,7 +603,13 @@ if (
   || !workbenchJs.includes("adminVisible")
   || !workbenchJs.includes("new-creation-navigation-timeout")
   || !workbenchJs.includes("draft-auto-clear")
-  || !workbenchWxml.includes("故障排查报告")
+  || !workbenchWxml.includes("查看问题报告")
+  || !workbenchWxml.includes("<text>其他服务</text>")
+  || !workbenchWxml.includes("作品记录、图片优化和问题反馈")
+  || !workbenchWxml.includes("服务记录")
+  || !workbenchWxml.includes("查看问题报告")
+  || !workbenchWxml.includes("作者微信")
+  || !workbenchWxml.includes("添加微信咨询")
   || !workbenchWxml.includes("diagnosticStats.eventCount")
   || !workbenchWxml.includes('catchtap="toggleDiagnosticPanel"')
   || !workbenchWxml.includes("diagnosticExpanded ? '收起' : '展开'")

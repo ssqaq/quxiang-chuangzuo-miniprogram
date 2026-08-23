@@ -506,6 +506,18 @@ module.exports = {
   listDeploymentLogs() {
     return callApi({ action: "listDeploymentLogs" });
   },
+  getModelUsageStats(days = 30) {
+    return callApi({
+      action: "getModelUsageStats",
+      days: Math.max(1, Math.min(90, Number(days) || 30))
+    });
+  },
+  exportModelUsageStats(days = 30) {
+    return callApi({
+      action: "exportModelUsageStats",
+      days: Math.max(1, Math.min(90, Number(days) || 30))
+    });
+  },
   createVideoTask(payload, options = {}) {
     return callApi({
       action: "createVideoTask",

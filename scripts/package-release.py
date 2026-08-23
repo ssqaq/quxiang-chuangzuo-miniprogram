@@ -90,6 +90,7 @@ def main() -> None:
             "云函数依赖：部署时可选择云端安装依赖",
             "CloudBase 环境 ID：需在 config.js 中填写后再部署",
             "自动贴脸策略：直接调用云端 detectFaceCircle；云端失败保留手动圈选",
+            "模型用量统计：部署前请创建 CloudBase 集合 model_usage_events，并设置为仅云函数读写",
             "微信开发者工具 CLI：若服务端口关闭，请在 设置 → 安全设置 中开启",
             "注意：发布包不含 node_modules、AppSecret、AI API Key",
         ]

@@ -377,6 +377,122 @@ page {
   gap: 14rpx;
 }
 
+.points-entry-card {
+  position: relative;
+  display: flex;
+  min-height: 164rpx;
+  margin-top: 16rpx;
+  padding: 22rpx 22rpx 20rpx;
+  overflow: hidden;
+  box-sizing: border-box;
+  align-items: stretch;
+  gap: 16rpx;
+  background: linear-gradient(135deg, #edf6ff 0%, #ffffff 80%);
+  border-color: #cfe3ff;
+}
+
+.points-entry-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.points-entry-topline,
+.points-entry-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12rpx;
+}
+
+.points-entry-title {
+  overflow: hidden;
+  color: #243047;
+  font-size: 28rpx;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.points-entry-balance {
+  flex: none;
+  color: #1f6feb;
+  font-size: 24rpx;
+  font-weight: 800;
+}
+
+.points-entry-subtitle {
+  margin-top: 7rpx;
+  overflow: hidden;
+  color: #718096;
+  font-size: 21rpx;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.points-entry-track {
+  height: 14rpx;
+  margin-top: 16rpx;
+  overflow: hidden;
+  border-radius: 999rpx;
+  background: #dfeaf8;
+}
+
+.points-entry-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #76b2ff, #1f6feb);
+}
+
+.points-entry-foot {
+  margin-top: 8rpx;
+  color: #7b879a;
+  font-size: 18rpx;
+  justify-content: flex-start;
+  gap: 8rpx;
+}
+
+.points-entry-foot text {
+  flex: none;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.points-entry-foot text:last-child {
+  flex: none;
+  text-align: right;
+}
+
+.points-checkin-button {
+  flex: none;
+  width: 116rpx;
+  height: 58rpx;
+  margin: 34rpx 14rpx 0 0;
+  padding: 0;
+  border: 0;
+  border-radius: 14rpx;
+  color: #ffffff !important;
+  background: #1f6feb !important;
+  font-size: 23rpx;
+  line-height: 58rpx;
+}
+
+.points-checkin-button[disabled] {
+  color: #718096 !important;
+  background: #e2eaf4 !important;
+}
+
+.points-checkin-button::after {
+  border: 0;
+}
+
+.points-entry-arrow {
+  right: 12rpx;
+  top: 50%;
+  margin-top: -18rpx;
+  color: #7c9ed5;
+}
+
 .recent-record-top {
   display: flex;
   align-items: flex-start;

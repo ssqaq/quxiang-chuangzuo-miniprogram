@@ -18,6 +18,149 @@
   <view wx:if="{{!loading && isAdmin}}" class="admin-content">
     <view wx:if="{{message}}" class="admin-message">{{message}}</view>
 
+    <view class="card admin-section usage-section">
+      <view class="admin-section-head">
+        <view>
+          <view class="admin-section-title">模型用量统计</view>
+          <view class="admin-section-help">按北京时间统计调用次数、Token、视频秒数和预计成本。</view>
+        </view>
+        <view class="usage-toolbar">
+          <button class="usage-refresh-button" bindtap="refreshModelUsage" loading="{{usageLoading}}" disabled="{{usageLoading}}">
+            {{usageLoading ? '刷新中' : '刷新统计'}}
+          </button>
+          <button class="usage-export-button" bindtap="exportModelUsage" loading="{{usageExporting}}" disabled="{{usageExporting}}">
+            {{usageExporting ? '生成中' : '导出 Excel'}}
+          </button>
+        </view>
+      </view>
+
+      <view wx:if="{{usageStats.message}}" class="usage-message {{usageStats.unavailable ? 'is-warn' : ''}}">
+        {{usageStats.message}}
+      </view>
+
+      <view class="usage-summary-grid">
+        <view class="usage-summary-item">
+          <text>今天</text>
+          <text>{{usageStats.today.total}}</text>
+          <text>成功 {{usageStats.today.success}} · 失败 {{usageStats.today.failure}}</text>
+        </view>
+        <view class="usage-summary-item">
+          <text>最近7天</text>
+          <text>{{usageStats.last7d.total}}</text>
+          <text>成功 {{usageStats.last7d.success}} · 失败 {{usageStats.last7d.failure}}</text>
+        </view>
+        <view class="usage-summary-item">
+          <text>最近30天</text>
+          <text>{{usageStats.last30d.total}}</text>
+          <text>成功 {{usageStats.last30d.success}} · 失败 {{usageStats.last30d.failure}}</text>
+        </view>
+      </view>
+
+      <view class="usage-cost-summary">
+        <view class="usage-cost-item">
+          <text>今日预计成本</text>
+          <text>¥{{usageStats.today.estimatedCost}}</text>
+          <text>已计算 {{usageStats.today.pricedCost}} 元 · 未计算 {{usageStats.today.unavailableCostCount}} 条</text>
+        </view>
+        <view class="usage-cost-item">
+          <text>最近7天预计成本</text>
+          <text>¥{{usageStats.last7d.estimatedCost}}</text>
+          <text>Token {{usageStats.last7d.totalTokens}} · 视频 {{usageStats.last7d.videoDurationSeconds}} 秒</text>
+        </view>
+        <view class="usage-cost-item">
+          <text>最近30天预计成本</text>
+          <text>¥{{usageStats.last30d.estimatedCost}}</text>
+          <text>Token {{usageStats.last30d.totalTokens}} · 视频 {{usageStats.last30d.videoDurationSeconds}} 秒</text>
+        </view>
+      </view>
+
+      <view class="usage-type-grid">
+        <view wx:for="{{usageStats.cards}}" wx:key="key" class="usage-type-card usage-type-{{item.key}}">
+          <view class="usage-type-top">
+            <view class="usage-type-icon">{{item.icon}}</view>
+            <view class="usage-type-title">{{item.title}}</view>
+          </view>
+          <view class="usage-type-total">{{item.total}}</view>
+          <view class="usage-type-label">总调用次数</view>
+          <view class="usage-type-result">
+            <text>成功 {{item.success}}</text>
+            <text>失败 {{item.failure}}</text>
+          </view>
+          <view class="usage-model-text">{{item.modelText}}</view>
+        </view>
+      </view>
+
+      <view class="usage-daily-title">最近{{usageStats.days}}天每日明细</view>
+      <scroll-view wx:if="{{usageStats.daily.length}}" class="usage-daily-list" scroll-y>
+        <view wx:for="{{usageStats.daily}}" wx:key="dateKey" class="usage-daily-row">
+          <view class="usage-daily-date">
+            <text>{{item.dateLabel}}</text>
+            <text>合计 {{item.total}} 次</text>
+          </view>
+          <view class="usage-daily-values">
+            <text>生图 {{item.image.total}}</text>
+            <text>人脸 {{item.face.total}}</text>
+            <text>视频 {{item.video.total}}</text>
+          </view>
+          <view class="usage-daily-result">成功 {{item.success}} · 失败 {{item.failure}}</view>
+        </view>
+      </scroll-view>
+      <view wx:else class="admin-empty usage-empty">还没有模型调用记录，部署后有调用就会自动统计。</view>
+
+      <view class="usage-subsection-title">按用户统计</view>
+      <view wx:if="{{usageStats.users.length}}" class="usage-user-list">
+        <view wx:for="{{usageStats.users}}" wx:key="userHash" class="usage-user-row">
+          <view class="usage-user-top">
+            <text>用户 {{item.userHash}}</text>
+            <text>¥{{item.estimatedCost}} · {{item.total}} 次</text>
+          </view>
+          <view class="usage-user-detail">
+            <text>生图 {{item.byType.image.total}}</text>
+            <text>人脸 {{item.byType.face.total}}</text>
+            <text>视频 {{item.byType.video.total}}</text>
+            <text>Token {{item.totalTokens}}</text>
+            <text>视频 {{item.videoDurationSeconds}} 秒</text>
+          </view>
+        </view>
+      </view>
+      <view wx:else class="admin-empty usage-empty">还没有按用户统计的数据。</view>
+
+      <view class="usage-subsection-title">按模型名称分组</view>
+      <view wx:if="{{usageStats.models.length}}" class="usage-model-list">
+        <view wx:for="{{usageStats.models}}" wx:key="model" class="usage-model-row">
+          <view class="usage-model-top">
+            <text>{{item.provider}} / {{item.model}}</text>
+            <text>¥{{item.estimatedCost}} · {{item.total}} 次</text>
+          </view>
+          <view class="usage-user-detail">
+            <text>{{item.usageType}}</text>
+            <text>成功 {{item.success}}</text>
+            <text>失败 {{item.failure}}</text>
+            <text>Token {{item.totalTokens}}</text>
+            <text>视频 {{item.videoDurationSeconds}} 秒</text>
+          </view>
+        </view>
+      </view>
+      <view wx:else class="admin-empty usage-empty">还没有按模型分组的数据。</view>
+
+      <view class="usage-subsection-title">按月份统计</view>
+      <scroll-view wx:if="{{usageStats.monthly.length}}" class="usage-monthly-list" scroll-y>
+        <view wx:for="{{usageStats.monthly}}" wx:key="monthKey" class="usage-monthly-row">
+          <view class="usage-daily-date">
+            <text>{{item.monthKey}}</text>
+            <text>预计 ¥{{item.estimatedCost}} · {{item.total}} 次</text>
+          </view>
+          <view class="usage-daily-values">
+            <text>人脸 ¥{{item.face.estimatedCost}}</text>
+            <text>生图 ¥{{item.image.estimatedCost}}</text>
+            <text>视频 ¥{{item.video.estimatedCost}}</text>
+          </view>
+          <view class="usage-daily-result">Token {{item.totalTokens}} · 视频 {{item.videoDurationSeconds}} 秒</view>
+        </view>
+      </scroll-view>
+      <view wx:else class="admin-empty usage-empty">还没有月度统计数据。</view>
+    </view>
+
     <view class="card admin-section">
       <view class="admin-section-head">
         <view>
@@ -65,6 +208,48 @@
         <view class="admin-field"><text>清晰度</text><input value="{{form.video.resolution}}" data-section="video" data-key="resolution" bindinput="onInput" /></view>
         <view class="admin-field"><text>宽高比（可空）</text><input value="{{form.video.aspectRatio}}" data-section="video" data-key="aspectRatio" bindinput="onInput" /></view>
         <view class="admin-field"><text>超时毫秒</text><input type="number" value="{{form.video.timeoutMs}}" data-section="video" data-key="timeoutMs" bindinput="onInput" /></view>
+      </view>
+    </view>
+
+    <view class="card admin-section">
+      <view class="admin-section-head">
+        <view>
+          <view class="admin-section-title">模型成本配置（人民币）</view>
+          <view class="admin-section-help">用于计算预计成本；供应商没有返回真实用量时会标记为估算。</view>
+        </view>
+        <view class="admin-config-state is-ready">CNY</view>
+      </view>
+      <view class="admin-grid">
+        <view class="admin-field"><text>人脸输入 / 百万Token</text><input type="digit" value="{{form.costs.faceInputPerMillionTokens}}" data-section="costs" data-key="faceInputPerMillionTokens" bindinput="onInput" /></view>
+        <view class="admin-field"><text>人脸输出 / 百万Token</text><input type="digit" value="{{form.costs.faceOutputPerMillionTokens}}" data-section="costs" data-key="faceOutputPerMillionTokens" bindinput="onInput" /></view>
+        <view class="admin-field"><text>生图 1K / 张</text><input type="digit" value="{{form.costs.image1K}}" data-section="costs" data-key="image1K" bindinput="onInput" /></view>
+        <view class="admin-field"><text>生图 2K / 张</text><input type="digit" value="{{form.costs.image2K}}" data-section="costs" data-key="image2K" bindinput="onInput" /></view>
+        <view class="admin-field"><text>生图 4K / 张</text><input type="digit" value="{{form.costs.image4K}}" data-section="costs" data-key="image4K" bindinput="onInput" /></view>
+        <view class="admin-field"><text>视频 480p / 秒</text><input type="digit" value="{{form.costs.video480p}}" data-section="costs" data-key="video480p" bindinput="onInput" /></view>
+        <view class="admin-field"><text>视频 720p / 秒</text><input type="digit" value="{{form.costs.video720p}}" data-section="costs" data-key="video720p" bindinput="onInput" /></view>
+        <view class="admin-field"><text>视频 1080p / 秒</text><input type="digit" value="{{form.costs.video1080p}}" data-section="costs" data-key="video1080p" bindinput="onInput" /></view>
+        <view class="admin-field"><text>视频默认秒数</text><input type="digit" value="{{form.costs.videoDefaultDuration}}" data-section="costs" data-key="videoDefaultDuration" bindinput="onInput" /></view>
+      </view>
+    </view>
+
+    <view class="card admin-section">
+      <view class="admin-section-head">
+        <view>
+          <view class="admin-section-title">签到与积分规则</view>
+          <view class="admin-section-help">活动日期按上海时间判断；积分扣除在提交时执行。</view>
+        </view>
+        <view class="admin-config-state is-ready">已启用</view>
+      </view>
+      <view class="admin-grid">
+        <view class="admin-field"><text>每日免费次数</text><input type="number" value="{{form.points.dailyFreeLimit}}" data-section="points" data-key="dailyFreeLimit" bindinput="onInput" /></view>
+        <view class="admin-field"><text>生图积分</text><input type="number" value="{{form.points.imageCost}}" data-section="points" data-key="imageCost" bindinput="onInput" /></view>
+        <view class="admin-field"><text>视频积分</text><input type="number" value="{{form.points.videoCost}}" data-section="points" data-key="videoCost" bindinput="onInput" /></view>
+        <view class="admin-field"><text>每日签到积分</text><input type="number" value="{{form.points.checkinPoints}}" data-section="points" data-key="checkinPoints" bindinput="onInput" /></view>
+        <view class="admin-field"><text>连续奖励积分</text><input type="number" value="{{form.points.streakBonus}}" data-section="points" data-key="streakBonus" bindinput="onInput" /></view>
+        <view class="admin-field"><text>连续奖励天数</text><input type="number" value="{{form.points.streakDays}}" data-section="points" data-key="streakDays" bindinput="onInput" /></view>
+        <view class="admin-field"><text>活动开始日期</text><input value="{{form.points.promoStartDate}}" data-section="points" data-key="promoStartDate" placeholder="2026-08-23" bindinput="onInput" /></view>
+        <view class="admin-field"><text>活动结束日期</text><input value="{{form.points.promoEndDate}}" data-section="points" data-key="promoEndDate" placeholder="2026-08-24" bindinput="onInput" /></view>
+        <view class="admin-field admin-field-wide"><text>时区</text><input value="{{form.points.timeZone}}" data-section="points" data-key="timeZone" placeholder="Asia/Shanghai" bindinput="onInput" /></view>
       </view>
     </view>
 

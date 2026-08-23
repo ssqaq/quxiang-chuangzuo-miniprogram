@@ -120,6 +120,18 @@ Page({
     },
     diagnosticSession: {
       startedAt: ""
+    },
+    points: {
+      accountBound: false,
+      pointsBalance: 0,
+      currentStreak: 0,
+      progress: 0,
+      streakDays: config.points.streakDays,
+      checkedInToday: false,
+      freeRemaining: config.points.dailyFreeLimit,
+      freeLimit: config.points.dailyFreeLimit,
+      promoActive: false,
+      billingMode: "daily-free"
     }
   },
 
@@ -133,6 +145,7 @@ Page({
     const refreshSecondary = () => {
       this.refreshDiagnostics();
       this.refreshAdminAccess();
+      this.refreshPoints();
     };
     if (typeof wx.nextTick === "function") {
       wx.nextTick(refreshSecondary);
@@ -164,6 +177,48 @@ Page({
       diagnosticStats: diagnosticLog.getStats(),
       diagnosticSession: diagnosticLog.getSession()
     });
+  },
+
+  normalizePoints(result = {}) {
+    const streakDays = Number(result.streakDays) || config.points.streakDays;
+    const currentStreak = Math.max(0, Number(result.currentStreak) || 0);
+    return Object.assign({
+      accountBound: false,
+      pointsBalance: 0,
+      currentStreak: 0,
+      progress: 0,
+      streakDays,
+      checkedInToday: false,
+      freeRemaining: config.points.dailyFreeLimit,
+      freeLimit: config.points.dailyFreeLimit,
+      promoActive: false,
+      billingMode: "daily-free"
+    }, result, {
+      pointsBalance: Math.max(0, Number(result.pointsBalance) || 0),
+      currentStreak,
+      progress: currentStreak % streakDays,
+      streakDays
+    });
+  },
+
+  async refreshPoints() {
+    if (!cloud.isCloudReady()) {
+      this.setData({
+        points: this.normalizePoints({
+          accountBound: false,
+          boundMessage: "连接云端后可以签到"
+        })
+      });
+      return;
+    }
+    try {
+      const result = await cloud.getUserPoints({ silent: true });
+      if (result && !result.unavailable) {
+        this.setData({ points: this.normalizePoints(result) });
+      }
+    } catch (error) {
+      diagnosticLog.warn("points", "workbench-load-failed", "工作台积分卡读取失败", { error });
+    }
   },
 
   async refreshAdminAccess() {
@@ -523,6 +578,33 @@ Page({
       "动态视频页打开失败",
       "已打开照片转动态视频"
     );
+  },
+
+  openPoints() {
+    this.openPage("/pages/points/points", "积分中心打开失败", "已打开积分中心");
+  },
+
+  async checkIn() {
+    if (this.data.points && this.data.points.checkedInToday) return;
+    if (!cloud.isCloudReady()) {
+      wx.showToast({ title: "连接云端后才能签到", icon: "none" });
+      return;
+    }
+    try {
+      const result = await cloud.checkIn();
+      this.setData({ points: this.normalizePoints(result) });
+      wx.showToast({
+        title: result.duplicate ? "今天已签到" : `签到 +${result.earnedToday || 0}`,
+        icon: result.duplicate ? "none" : "success"
+      });
+    } catch (error) {
+      const payload = error && error.payload;
+      wx.showModal({
+        title: "签到失败",
+        content: String(payload && payload.message || error && error.message || "请稍后再试"),
+        showCancel: false
+      });
+    }
   },
 
   toggleAuthorQr() {

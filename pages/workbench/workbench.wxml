@@ -100,10 +100,6 @@
         </view>
       </view>
 
-      <view wx:if="{{!records.length}}" class="recent-card-guide common-feature-record-note">
-        制作记录：以前做过的图片都在这里，点进去可以查看。
-      </view>
-
       <view
         class="card publish-export-entry common-feature-row home-feature-card workbench-link-card"
         bindtap="openPublishExport"
@@ -135,10 +131,6 @@
         <view class="common-feature-action">制作</view>
         <view class="home-feature-arrow photo-to-video-arrow">›</view>
       </view>
-    </view>
-
-    <view class="common-feature-note">
-      说明：标题、说明、操作分成清楚的层级，第一次使用也知道每个功能是干什么的。
     </view>
   </view>
 

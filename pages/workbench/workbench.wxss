@@ -1365,12 +1365,13 @@ button.recent-more-c.small-btn {
 }
 
 .common-feature-panel .common-feature-row {
+  position: relative;
   display: flex;
   width: 100%;
   min-height: 148rpx;
   height: auto;
   margin: 0;
-  padding: 18rpx;
+  padding: 18rpx 166rpx 18rpx 18rpx;
   flex-direction: row;
   flex-wrap: nowrap;
   align-items: center;
@@ -1471,38 +1472,52 @@ button.recent-more-c.small-btn {
 }
 
 .common-feature-action {
-  display: inline-flex;
-  flex: none;
-  min-width: 104rpx;
+  position: absolute;
+  top: 50%;
+  right: 46rpx;
+  display: flex;
+  width: 118rpx;
+  min-width: 118rpx;
   height: 60rpx;
   align-items: center;
   justify-content: center;
-  padding: 0 14rpx;
+  padding: 0;
   border-radius: 16rpx;
   color: #287762;
   background: #e2f5ee;
   font-size: 22rpx;
   font-weight: 700;
   line-height: 60rpx;
+  transform: translateY(-50%);
   white-space: nowrap;
 }
 
 .common-feature-action-button {
-  min-width: 104rpx !important;
-  width: auto !important;
+  position: absolute !important;
+  top: 50% !important;
+  right: 46rpx !important;
+  width: 118rpx !important;
+  min-width: 118rpx !important;
   height: 60rpx !important;
   min-height: 60rpx !important;
   margin: 0 !important;
-  padding: 0 14rpx !important;
+  padding: 0 !important;
   border-radius: 16rpx !important;
   color: #287762 !important;
   background: #e2f5ee !important;
   font-size: 22rpx !important;
   line-height: 60rpx !important;
+  transform: translateY(-50%) !important;
 }
 
 .common-feature-panel .home-feature-arrow {
+  position: absolute;
+  top: 50%;
+  right: 18rpx;
+  bottom: auto;
   flex: none;
+  width: 14rpx;
+  margin: -17rpx 0 0;
   color: #9bb0c3;
   font-size: 34rpx;
   line-height: 1;

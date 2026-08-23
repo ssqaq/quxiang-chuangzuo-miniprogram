@@ -107,7 +107,7 @@ Page({
     adminVisible: false,
     authorQrPath: AUTHOR_QR_PATH,
     savingAuthorQr: false,
-    contactAuthorExpanded: true,
+    contactAuthorExpanded: false,
     entryModes: ENTRY_MODES,
     hasDraft: false,
     records: [],

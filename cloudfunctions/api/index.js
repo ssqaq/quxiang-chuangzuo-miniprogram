@@ -2957,13 +2957,24 @@ function pointsSummary(account, quota, points, dateKey) {
   const freeLimit = Math.max(0, Number(points.dailyFreeLimit) || 0);
   const freeUsed = Math.max(0, Number(quotaData.freeUsed !== undefined ? quotaData.freeUsed : quotaData.used) || 0);
   const promoActive = isPromoDate(dateKey, points);
+  const checkedInToday = value.lastCheckinDate === dateKey;
+  const nextStreak = checkedInToday
+    ? Math.max(0, Number(value.currentStreak) || 0)
+    : calculateNextStreak(value.lastCheckinDate, value.currentStreak, dateKey);
+  const nextCheckinReward = checkedInToday
+    ? 0
+    : (Number(points.checkinPoints) || 0)
+      + (nextStreak > 0 && nextStreak % Number(points.streakDays) === 0
+        ? Number(points.streakBonus) || 0
+        : 0);
   return {
     pointsBalance: Math.max(0, Number(value.pointsBalance) || 0),
     totalEarned: Math.max(0, Number(value.totalEarned) || 0),
     totalSpent: Math.max(0, Number(value.totalSpent) || 0),
     currentStreak: Math.max(0, Number(value.currentStreak) || 0),
     lastCheckinDate: value.lastCheckinDate || "",
-    checkedInToday: value.lastCheckinDate === dateKey,
+    checkedInToday,
+    nextCheckinReward,
     freeUsed,
     freeLimit,
     freeRemaining: Math.max(0, freeLimit - freeUsed),

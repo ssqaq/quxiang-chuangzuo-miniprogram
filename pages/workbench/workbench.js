@@ -127,6 +127,8 @@ Page({
       currentStreak: 0,
       progress: 0,
       streakDays: config.points.streakDays,
+      nextCheckinReward: config.points.checkinPoints,
+      checkingIn: false,
       checkedInToday: false,
       freeRemaining: config.points.dailyFreeLimit,
       freeLimit: config.points.dailyFreeLimit,
@@ -182,12 +184,17 @@ Page({
   normalizePoints(result = {}) {
     const streakDays = Number(result.streakDays) || config.points.streakDays;
     const currentStreak = Math.max(0, Number(result.currentStreak) || 0);
+    const progress = currentStreak > 0 && currentStreak % streakDays === 0
+      ? streakDays
+      : currentStreak % streakDays;
     return Object.assign({
       accountBound: false,
       pointsBalance: 0,
       currentStreak: 0,
       progress: 0,
       streakDays,
+      nextCheckinReward: Number(config.points.checkinPoints) || 0,
+      checkingIn: false,
       checkedInToday: false,
       freeRemaining: config.points.dailyFreeLimit,
       freeLimit: config.points.dailyFreeLimit,
@@ -196,7 +203,14 @@ Page({
     }, result, {
       pointsBalance: Math.max(0, Number(result.pointsBalance) || 0),
       currentStreak,
-      progress: currentStreak % streakDays,
+      progress,
+      progressPercent: Math.min(100, Math.max(0, progress / streakDays * 100)),
+      nextCheckinReward: Math.max(
+        0,
+        Number(result.nextCheckinReward)
+          || Number(result.checkinPoints)
+          || Number(config.points.checkinPoints)
+      ),
       streakDays
     });
   },
@@ -585,19 +599,27 @@ Page({
   },
 
   async checkIn() {
-    if (this.data.points && this.data.points.checkedInToday) return;
+    if (
+      this.data.checkingIn
+      || (this.data.points && this.data.points.checkedInToday)
+    ) return;
     if (!cloud.isCloudReady()) {
       wx.showToast({ title: "连接云端后才能签到", icon: "none" });
       return;
     }
+    this.setData({ checkingIn: true });
     try {
       const result = await cloud.checkIn();
-      this.setData({ points: this.normalizePoints(result) });
+      this.setData({
+        checkingIn: false,
+        points: this.normalizePoints(result)
+      });
       wx.showToast({
         title: result.duplicate ? "今天已签到" : `签到 +${result.earnedToday || 0}`,
         icon: result.duplicate ? "none" : "success"
       });
     } catch (error) {
+      this.setData({ checkingIn: false });
       const payload = error && error.payload;
       wx.showModal({
         title: "签到失败",

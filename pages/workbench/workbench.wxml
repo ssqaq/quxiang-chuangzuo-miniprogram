@@ -42,7 +42,7 @@
       <view class="points-entry-track">
         <view
           class="points-entry-fill"
-          style="width: {{(points.progress / points.streakDays) * 100}}%;"
+          style="width: {{points.progressPercent}}%;"
         ></view>
       </view>
       <view class="points-entry-foot">
@@ -53,9 +53,10 @@
     <button
       class="points-checkin-button"
       catchtap="checkIn"
-      disabled="{{points.checkedInToday}}"
+      loading="{{checkingIn}}"
+      disabled="{{checkingIn || points.checkedInToday}}"
     >
-      {{points.checkedInToday ? '已签到' : '签到'}}
+      {{points.checkedInToday ? '已签到' : ('签到 +' + points.nextCheckinReward + ' 积分')}}
     </button>
     <view class="home-feature-arrow points-entry-arrow">›</view>
   </view>

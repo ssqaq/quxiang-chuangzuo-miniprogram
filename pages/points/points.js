@@ -5,6 +5,10 @@ const diagnosticLog = require("../../utils/diagnostic-log");
 function normalizePoints(result = {}) {
   const source = result && typeof result === "object" ? result : {};
   const streak = Math.max(0, Number(source.currentStreak) || 0);
+  const streakDays = Number(source.streakDays) || config.points.streakDays;
+  const progress = streak > 0 && streak % streakDays === 0
+    ? streakDays
+    : streak % streakDays;
   return {
     accountBound: Boolean(source.accountBound),
     boundMessage: source.boundMessage || "点击签到后绑定微信身份",
@@ -20,10 +24,15 @@ function normalizePoints(result = {}) {
     promoEndDate: source.promoEndDate || config.points.promoEndDate,
     checkinPoints: Number(source.checkinPoints) || config.points.checkinPoints,
     streakBonus: Number(source.streakBonus) || config.points.streakBonus,
-    streakDays: Number(source.streakDays) || config.points.streakDays,
-    progress: streak % (Number(source.streakDays) || config.points.streakDays) === 0 && streak
-      ? Number(source.streakDays) || config.points.streakDays
-      : streak % (Number(source.streakDays) || config.points.streakDays),
+    streakDays,
+    progress,
+    progressPercent: Math.min(100, Math.max(0, progress / streakDays * 100)),
+    nextCheckinReward: Math.max(
+      0,
+      Number(source.nextCheckinReward)
+        || Number(source.checkinPoints)
+        || Number(config.points.checkinPoints)
+    ),
     billingMode: source.billingMode || "daily-free"
   };
 }

@@ -126,6 +126,62 @@ function emptyUsageStats() {
   };
 }
 
+function emptyAutoFaceFailureStats() {
+  return {
+    timeZone: "Asia/Shanghai",
+    todayKey: "",
+    today: 0,
+    last7d: 0,
+    total30d: 0,
+    byType: [],
+    recent: [],
+    eventCount: 0,
+    truncated: false,
+    unavailable: false,
+    message: ""
+  };
+}
+
+function formatAdminDate(value) {
+  const date = new Date(value || 0);
+  if (Number.isNaN(date.getTime())) return "未知时间";
+  const shanghai = new Date(date.getTime() + 8 * 60 * 60 * 1000);
+  const pad = (number) => String(number).padStart(2, "0");
+  return `${shanghai.getUTCFullYear()}-${pad(shanghai.getUTCMonth() + 1)}-${pad(shanghai.getUTCDate())} `
+    + `${pad(shanghai.getUTCHours())}:${pad(shanghai.getUTCMinutes())}`;
+}
+
+function formatAutoFaceFailureStats(result) {
+  const source = result || {};
+  return Object.assign(emptyAutoFaceFailureStats(), source, {
+    today: Number(source.today) || 0,
+    last7d: Number(source.last7d) || 0,
+    total30d: Number(source.total30d) || 0,
+    eventCount: Number(source.eventCount) || 0,
+    truncated: Boolean(source.truncated),
+    unavailable: Boolean(source.unavailable),
+    byType: (Array.isArray(source.byType) ? source.byType : []).map((item) => ({
+      type: item.type || "unknown",
+      label: item.label || "其他失败",
+      count: Number(item.count) || 0,
+      lastSeenText: item.lastSeen ? formatAdminDate(item.lastSeen) : "暂无"
+    })),
+    recent: (Array.isArray(source.recent) ? source.recent : []).map((item) => ({
+      requestId: item.requestId || "",
+      failureType: item.failureType || "unknown",
+      failureTypeLabel: item.failureTypeLabel || item.failureType || "其他失败",
+      errorCode: item.errorCode || "unknown",
+      message: item.message || "未提供错误摘要",
+      status: Number(item.status) || 0,
+      retryable: Boolean(item.retryable),
+      stage: item.stage || "",
+      durationMs: Number(item.durationMs) || 0,
+      appVersion: item.appVersion || "unknown",
+      createdAtText: formatAdminDate(item.createdAt)
+    }))
+  });
+}
+
 function formatUsageStats(result) {
   const source = result || {};
   const summary = source.summary || {};
@@ -385,7 +441,9 @@ Page({
     message: "",
     usageLoading: false,
     usageExporting: false,
-    usageStats: emptyUsageStats()
+    usageStats: emptyUsageStats(),
+    autoFaceFailureLoading: false,
+    autoFaceFailureStats: emptyAutoFaceFailureStats()
   },
 
   onLoad() {
@@ -428,6 +486,23 @@ Page({
         });
         diagnosticLog.warn("admin", "usage-load-failed", "模型用量统计读取失败", { error });
       }
+      let autoFaceFailureStats = emptyAutoFaceFailureStats();
+      try {
+        autoFaceFailureStats = formatAutoFaceFailureStats(
+          await cloud.getAutoFaceFailureStats()
+        );
+      } catch (error) {
+        autoFaceFailureStats = Object.assign(autoFaceFailureStats, {
+          unavailable: true,
+          message: "自动贴脸失败统计暂时读取失败，请点击刷新。"
+        });
+        diagnosticLog.warn(
+          "admin",
+          "auto-face-failure-load-failed",
+          "自动贴脸失败统计读取失败",
+          { error }
+        );
+      }
       this.setData({
         loading: false,
         isAdmin: true,
@@ -436,6 +511,7 @@ Page({
         effective: result.effective || null,
         logs: (logs.logs || []).map(displayLog),
         usageStats,
+        autoFaceFailureStats,
         message: ""
       });
       diagnosticLog.info("admin", "config-loaded", "管理员配置读取完成", {
@@ -465,6 +541,32 @@ Page({
       });
       diagnosticLog.error("admin", "usage-refresh-failed", "模型用量统计刷新失败", { error });
       this.showError("统计刷新失败", error);
+    }
+  },
+
+  async refreshAutoFaceFailureStats() {
+    if (this.data.autoFaceFailureLoading) return;
+    this.setData({ autoFaceFailureLoading: true });
+    try {
+      const result = await cloud.getAutoFaceFailureStats();
+      this.setData({
+        autoFaceFailureLoading: false,
+        autoFaceFailureStats: formatAutoFaceFailureStats(result)
+      });
+      wx.showToast({ title: "失败统计已刷新", icon: "success" });
+    } catch (error) {
+      this.setData({
+        autoFaceFailureLoading: false,
+        "autoFaceFailureStats.unavailable": true,
+        "autoFaceFailureStats.message": "统计读取失败，请稍后重试。"
+      });
+      diagnosticLog.error(
+        "admin",
+        "auto-face-failure-refresh-failed",
+        "自动贴脸失败统计刷新失败",
+        { error }
+      );
+      this.showError("失败统计刷新失败", error);
     }
   },
 

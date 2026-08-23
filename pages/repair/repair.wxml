@@ -57,7 +57,12 @@
       <view class="asset-status-row"><text>红圈 mask</text><text class="{{maskConfirmed ? 'asset-ok' : 'asset-missing'}}">{{maskConfirmed ? '已重新确认，生成时导出' : '必须重新确认'}}</text></view>
       <view class="asset-status-row"><text>人脸参考</text><text>{{faceRefs.length ? faceRefs.length + ' 张' : '未使用'}}</text></view>
       <view class="asset-status-row"><text>穿搭参考</text><text>{{wardrobeRefs.length ? wardrobeRefs.length + ' 张' : '未使用'}}</text></view>
-      <view wx:if="{{!referencesReady}}" class="hint danger-text">旧记录的参考素材没有登记凭证，不能直接复用，请重新补选。</view>
+      <view wx:if="{{!referencesReady}}" class="hint danger-text">
+        旧记录的参考素材没有登记凭证：
+        <text wx:if="{{legacyFacePending}}">人脸参考需重新补选；</text>
+        <text wx:if="{{legacyWardrobePending}}">穿搭参考需重新补选；</text>
+        也可以明确选择不再沿用旧参考。
+      </view>
       <button
         wx:if="{{legacyReferencesPending}}"
         class="secondary-btn"

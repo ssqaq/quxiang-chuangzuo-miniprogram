@@ -70,7 +70,8 @@ const jsFiles = [
   "scripts/workbench-interaction-smoke.js",
   "scripts/model-usage-stats-smoke.js",
   "scripts/model-cost-stats-smoke.js",
-  "scripts/model-failure-stats-smoke.js"
+  "scripts/model-failure-stats-smoke.js",
+  "scripts/auto-face-failure-stats-smoke.js"
 ];
 const pythonFiles = ["scripts/package-release.py"];
 const powerShellFiles = [
@@ -162,6 +163,7 @@ const required = [
   "scripts/auto-face-fallback-smoke.js",
   "scripts/points-checkin-smoke.js",
   "scripts/model-cost-stats-smoke.js",
+  "scripts/auto-face-failure-stats-smoke.js",
   "cloudfunctions/api/index.js"
 ];
 for (const relative of required) {
@@ -324,6 +326,25 @@ if (
   || !cloudJs.includes('XLSX.utils.aoa_to_sheet(failureRows)')
 ) {
   throw new Error("模型调用失败统计、Top 5 原因或 Excel 失败明细功能不完整。");
+}
+if (
+  !clientCloudJs.includes('action: "reportAutoFaceFailure"')
+  || !clientCloudJs.includes('action: "getAutoFaceFailureStats"')
+  || !adminJs.includes("cloud.getAutoFaceFailureStats()")
+  || !adminJs.includes("refreshAutoFaceFailureStats")
+  || !adminWxml.includes("自动贴脸失败统计")
+  || !adminWxml.includes("最近 30 天")
+  || !adminWxml.includes("最近失败记录")
+  || !adminWxss.includes(".auto-face-failure-summary")
+  || !adminWxss.includes(".auto-face-failure-type-list")
+  || !adminWxss.includes(".auto-face-failure-recent-list")
+  || !cloudJs.includes("AUTO_FACE_FAILURE_LOG_COLLECTION")
+  || !cloudJs.includes("normalizeAutoFaceFailureReport")
+  || !cloudJs.includes("buildAutoFaceFailureStats")
+  || !cloudJs.includes("ADMIN_FORBIDDEN")
+  || !fs.existsSync(path.join(root, "scripts/auto-face-failure-stats-smoke.js"))
+) {
+  throw new Error("自动贴脸失败日志上报、管理员30天统计或脱敏测试不完整。");
 }
 if (
   !appJson.pages.includes("pages/points/points")

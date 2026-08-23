@@ -201,6 +201,75 @@
       <view wx:else class="admin-empty usage-empty">还没有月度统计数据。</view>
     </view>
 
+    <view class="card admin-section auto-face-failure-section">
+      <view class="admin-section-head">
+        <view>
+          <view class="admin-section-title">自动贴脸失败统计</view>
+          <view class="admin-section-help">只看最近 30 天的失败数量和脱敏原因，不保存主图和用户身份。</view>
+        </view>
+        <button
+          class="usage-refresh-button"
+          bindtap="refreshAutoFaceFailureStats"
+          loading="{{autoFaceFailureLoading}}"
+          disabled="{{autoFaceFailureLoading}}"
+        >
+          {{autoFaceFailureLoading ? '刷新中' : '刷新统计'}}
+        </button>
+      </view>
+
+      <view wx:if="{{autoFaceFailureStats.message}}" class="usage-message {{autoFaceFailureStats.unavailable ? 'is-warn' : ''}}">
+        {{autoFaceFailureStats.message}}
+      </view>
+
+      <view class="auto-face-failure-summary">
+        <view class="auto-face-failure-summary-item">
+          <text>今天</text>
+          <text>{{autoFaceFailureStats.today}}</text>
+          <text>失败次数</text>
+        </view>
+        <view class="auto-face-failure-summary-item">
+          <text>最近 7 天</text>
+          <text>{{autoFaceFailureStats.last7d}}</text>
+          <text>失败次数</text>
+        </view>
+        <view class="auto-face-failure-summary-item">
+          <text>最近 30 天</text>
+          <text>{{autoFaceFailureStats.total30d}}</text>
+          <text>失败次数</text>
+        </view>
+      </view>
+
+      <view class="auto-face-failure-subtitle">失败类型</view>
+      <view wx:if="{{autoFaceFailureStats.byType.length}}" class="auto-face-failure-type-list">
+        <view wx:for="{{autoFaceFailureStats.byType}}" wx:key="type" class="auto-face-failure-type-row">
+          <view>
+            <text class="auto-face-failure-type-label">{{item.label}}</text>
+            <text class="auto-face-failure-type-last">最近 {{item.lastSeenText}}</text>
+          </view>
+          <text class="auto-face-failure-type-count">{{item.count}} 次</text>
+        </view>
+      </view>
+      <view wx:else class="admin-empty usage-empty">最近 30 天没有自动贴脸失败记录。</view>
+
+      <view class="auto-face-failure-subtitle">最近失败记录</view>
+      <view wx:if="{{autoFaceFailureStats.recent.length}}" class="auto-face-failure-recent-list">
+        <view wx:for="{{autoFaceFailureStats.recent}}" wx:key="createdAtText" class="auto-face-failure-recent-row">
+          <view class="auto-face-failure-recent-top">
+            <text>{{item.createdAtText}} · {{item.failureTypeLabel}}</text>
+            <text>{{item.retryable ? '可重试' : '不可重试'}}</text>
+          </view>
+          <view class="auto-face-failure-recent-meta">
+            <text>错误码 {{item.errorCode}}</text>
+            <text wx:if="{{item.status}}">HTTP {{item.status}}</text>
+            <text wx:if="{{item.durationMs}}">用时 {{item.durationMs}}ms</text>
+            <text wx:if="{{item.requestId}}">请求 {{item.requestId}}</text>
+          </view>
+          <view class="auto-face-failure-recent-message">{{item.message}}</view>
+        </view>
+      </view>
+      <view wx:else class="admin-empty usage-empty">还没有最近失败记录。</view>
+    </view>
+
     <view class="card admin-section">
       <view class="admin-section-head">
         <view>

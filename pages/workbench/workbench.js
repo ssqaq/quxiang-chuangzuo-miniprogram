@@ -122,6 +122,8 @@ Page({
     authorQrPath: AUTHOR_QR_PATH,
     savingAuthorQr: false,
     authorQrPreviewVisible: false,
+    authorQrPreviewLoading: false,
+    authorQrPreviewError: false,
     contactAuthorExpanded: false,
     entryModes: ENTRY_MODES,
     hasDraft: false,
@@ -728,13 +730,33 @@ Page({
     }
 
     this.setData({
-      authorQrPreviewVisible: true
+      authorQrPreviewVisible: true,
+      authorQrPreviewLoading: true,
+      authorQrPreviewError: false
     });
+  },
+
+  onAuthorQrPreviewLoad() {
+    this.setData({
+      authorQrPreviewLoading: false,
+      authorQrPreviewError: false
+    });
+  },
+
+  onAuthorQrPreviewError() {
+    this.setData({
+      authorQrPreviewVisible: false,
+      authorQrPreviewLoading: false,
+      authorQrPreviewError: true
+    });
+    wx.showToast({ title: "二维码加载失败，请重新编译后再试", icon: "none" });
   },
 
   closeAuthorQrPreview() {
     this.setData({
-      authorQrPreviewVisible: false
+      authorQrPreviewVisible: false,
+      authorQrPreviewLoading: false,
+      authorQrPreviewError: false
     });
   },
 

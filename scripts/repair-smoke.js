@@ -4,7 +4,9 @@ process.env.WECHAT_MINIAPP_TEST = "1";
 
 const {
   createIssueOptions,
+  createSelectableIssueOptions,
   normalizeIssueKeys,
+  canRepairRecord,
   buildRepairPrompt
 } = require("../utils/repair");
 const api = require("../cloudfunctions/api/index.js");
@@ -20,6 +22,27 @@ async function main() {
 
   const normalized = normalizeIssueKeys(["identity"], false);
   assert.deepStrictEqual(normalized, ["outsideChanged", "identity"]);
+  const selectable = createSelectableIssueOptions(false, ["identity"]);
+  const identityItem = selectable
+    .flatMap((group) => group.items)
+    .find((item) => item.key === "identity");
+  const outsideItem = selectable
+    .flatMap((group) => group.items)
+    .find((item) => item.key === "outsideChanged");
+  assert.strictEqual(identityItem.checked, true);
+  assert.strictEqual(outsideItem.checked, true);
+  assert.strictEqual(
+    canRepairRecord({ id: "local-1", fileID: "cloud://local" }, true),
+    false
+  );
+  assert.strictEqual(
+    canRepairRecord({ id: "record-1", fileID: "cloud://result", revisionNumber: 9 }, true),
+    true
+  );
+  assert.strictEqual(
+    canRepairRecord({ id: "record-1", fileID: "cloud://result", revisionNumber: 10 }, true),
+    false
+  );
 
   const prompt = buildRepairPrompt({
     projectName: "smoke",

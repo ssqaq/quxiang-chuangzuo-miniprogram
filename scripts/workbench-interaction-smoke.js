@@ -111,8 +111,16 @@ async function main() {
     false
   );
   assert.strictEqual(page.data.authorQrPreviewVisible, true);
+  assert.strictEqual(page.data.authorQrPreviewLoading, true);
+  page.onAuthorQrPreviewLoad();
+  assert.strictEqual(page.data.authorQrPreviewLoading, false);
   page.closeAuthorQrPreview();
   assert.strictEqual(page.data.authorQrPreviewVisible, false);
+  assert.strictEqual(page.data.authorQrPreviewError, false);
+  page.previewAuthorQr();
+  page.onAuthorQrPreviewError({ errMsg: "image:fail smoke" });
+  assert.strictEqual(page.data.authorQrPreviewVisible, false);
+  assert.strictEqual(page.data.authorQrPreviewError, true);
   page.saveAuthorQr();
   assert.ok(events.some((item) => (
     item.type === "saveImageToPhotosAlbum"

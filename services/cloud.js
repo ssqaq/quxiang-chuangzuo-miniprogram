@@ -577,6 +577,20 @@ module.exports = {
       days: Math.max(1, Math.min(90, Number(days) || 30))
     });
   },
+  reportAutoFaceFailure(payload) {
+    return callApi({
+      action: "reportAutoFaceFailure",
+      payload: payload && typeof payload === "object" ? payload : {},
+      retryLimit: 0,
+      silent: true
+    });
+  },
+  getAutoFaceFailureStats() {
+    return callApi({
+      action: "getAutoFaceFailureStats",
+      retryLimit: 0
+    });
+  },
   exportModelUsageStats(days = 30) {
     return callApi({
       action: "exportModelUsageStats",

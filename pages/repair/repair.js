@@ -55,6 +55,7 @@ Page({
     projectName: "未命名项目",
     sourceImage: null,
     sourceFileID: "",
+    parentSourceFileID: "",
     cloudReady: false,
     imageWidth: 0,
     imageHeight: 0,
@@ -71,6 +72,8 @@ Page({
     wardrobeRefs: [],
     referencesReady: true,
     legacyReferencesPending: false,
+    legacyFacePending: false,
+    legacyWardrobePending: false,
     uploading: "",
     generating: false,
     loading: false,
@@ -160,6 +163,10 @@ Page({
       (repairContext.faceFileIDs || []).length
       || (repairContext.wardrobeFileIDs || []).length
     ) && !hasRegisteredReferences;
+    const legacyFacePending = !hasRegisteredReferences
+      && (repairContext.faceFileIDs || []).length > 0;
+    const legacyWardrobePending = !hasRegisteredReferences
+      && (repairContext.wardrobeFileIDs || []).length > 0;
     const next = {
       record,
       projectName: record.projectName || "未命名项目",
@@ -167,12 +174,15 @@ Page({
         ? Object.assign({}, info, { path: sourcePath, fileID: sourceFileID })
         : null,
       sourceFileID,
+      parentSourceFileID: sourceFileID,
       imageWidth: info.width,
       imageHeight: info.height,
       faceRefs,
       wardrobeRefs,
       referencesReady: !hasOldAssets,
       legacyReferencesPending: hasOldAssets,
+      legacyFacePending,
+      legacyWardrobePending,
       maskCircle: initialCircle,
       maskConfirmed: false,
       issueGroups: createSelectableIssueOptions(wardrobeRefs.length > 0, ["outsideChanged"]),
@@ -403,8 +413,13 @@ Page({
       );
       this.setData({
         [kind === "face" ? "faceRefs" : "wardrobeRefs"]: next,
-        referencesReady: true,
-        legacyReferencesPending: false,
+        referencesReady: kind === "face"
+          ? !this.data.legacyWardrobePending
+          : !this.data.legacyFacePending,
+        legacyReferencesPending: kind === "face"
+          ? this.data.legacyWardrobePending
+          : this.data.legacyFacePending,
+        [kind === "face" ? "legacyFacePending" : "legacyWardrobePending"]: false,
         selectedIssueKeys,
         issueGroups: createSelectableIssueOptions(hasWardrobe, selectedIssueKeys)
       });
@@ -448,6 +463,8 @@ Page({
   discardLegacyReferences() {
     this.setData({
       legacyReferencesPending: false,
+      legacyFacePending: false,
+      legacyWardrobePending: false,
       referencesReady: true,
       faceRefs: [],
       wardrobeRefs: [],
@@ -505,7 +522,8 @@ Page({
       });
       const result = await cloud.repairImage({
         projectName: this.data.projectName,
-        sourceFileID: this.data.sourceFileID,
+        sourceFileID: this.data.parentSourceFileID || this.data.record.fileID,
+        mainFileID: this.data.sourceFileID,
         maskFileID: maskUpload.fileID,
         faceFileIDs: this.data.faceRefs.map((item) => item.fileID).filter(Boolean),
         wardrobeFileIDs: this.data.wardrobeRefs.map((item) => item.fileID).filter(Boolean),

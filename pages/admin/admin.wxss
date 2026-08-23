@@ -527,6 +527,136 @@ page {
   padding-bottom: 0;
 }
 
+.auto-face-failure-section {
+  overflow: hidden;
+}
+
+.auto-face-failure-summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12rpx;
+  margin-top: 18rpx;
+}
+
+.auto-face-failure-summary-item {
+  min-width: 0;
+  padding: 16rpx 12rpx;
+  border: 1rpx solid #f1d8d8;
+  border-radius: 16rpx;
+  background: #fff9f9;
+  text-align: center;
+}
+
+.auto-face-failure-summary-item text {
+  display: block;
+  color: #9a6d74;
+  font-size: 19rpx;
+  line-height: 28rpx;
+}
+
+.auto-face-failure-summary-item text + text {
+  margin-top: 4rpx;
+  color: #b43e4b;
+  font-size: 34rpx;
+  font-weight: 800;
+  line-height: 42rpx;
+}
+
+.auto-face-failure-summary-item text:last-child {
+  color: #a7838a;
+  font-size: 18rpx;
+  line-height: 26rpx;
+}
+
+.auto-face-failure-subtitle {
+  margin-top: 22rpx;
+  padding-top: 18rpx;
+  border-top: 1rpx solid #edf0f5;
+  color: #6f3e47;
+  font-size: 24rpx;
+  font-weight: 800;
+  line-height: 34rpx;
+}
+
+.auto-face-failure-type-list,
+.auto-face-failure-recent-list {
+  margin-top: 8rpx;
+}
+
+.auto-face-failure-type-row,
+.auto-face-failure-recent-row {
+  padding: 14rpx 0;
+  border-bottom: 1rpx solid #f2e4e4;
+}
+
+.auto-face-failure-type-row:last-child,
+.auto-face-failure-recent-row:last-child {
+  border-bottom: 0;
+}
+
+.auto-face-failure-type-row,
+.auto-face-failure-recent-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12rpx;
+}
+
+.auto-face-failure-type-label {
+  display: block;
+  color: #4a2f35;
+  font-size: 21rpx;
+  font-weight: 700;
+  line-height: 30rpx;
+}
+
+.auto-face-failure-type-last {
+  display: block;
+  margin-top: 3rpx;
+  color: #a36c74;
+  font-size: 18rpx;
+  line-height: 26rpx;
+}
+
+.auto-face-failure-type-count,
+.auto-face-failure-recent-top text:last-child {
+  flex: none;
+  color: #b43e4b;
+  font-size: 20rpx;
+  font-weight: 700;
+}
+
+.auto-face-failure-recent-top text:first-child {
+  min-width: 0;
+  overflow: hidden;
+  color: #4a2f35;
+  font-size: 20rpx;
+  font-weight: 700;
+  line-height: 28rpx;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.auto-face-failure-recent-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6rpx 16rpx;
+  margin-top: 5rpx;
+  color: #a36c74;
+  font-size: 18rpx;
+  line-height: 26rpx;
+}
+
+.auto-face-failure-recent-message {
+  margin-top: 5rpx;
+  overflow: hidden;
+  color: #6f4a51;
+  font-size: 19rpx;
+  line-height: 28rpx;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .usage-subsection-title {
   margin-top: 24rpx;
   padding-top: 18rpx;
@@ -765,7 +895,8 @@ page {
   .usage-summary-grid,
   .usage-type-grid,
   .usage-cost-summary,
-  .usage-failure-summary {
+  .usage-failure-summary,
+  .auto-face-failure-summary {
     grid-template-columns: 1fr;
   }
 

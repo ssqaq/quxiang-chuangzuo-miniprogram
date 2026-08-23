@@ -1,5 +1,5 @@
 const API_BUILD_VERSION = "0.20.2";
-const API_BUILD_MARKER = "API_BUILD_TAG_20260823_ASSET_UPLOAD_V201";
+const API_BUILD_MARKER = "API_BUILD_TAG_20260823_AUTO_FACE_FAILURE_V202";
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
 const cloud = require("wx-server-sdk");
@@ -759,6 +759,222 @@ function normalizeFailureCode(value, status = 0) {
     .replace(/^-+|-+$/g, "");
   if (code) return code;
   return Number(status) > 0 ? `http-${Number(status)}` : "model-request-failed";
+}
+
+function normalizeAutoFaceFailureType(value) {
+  const type = compactUsageText(value, 40).toLowerCase();
+  return AUTO_FACE_FAILURE_TYPES.includes(type) ? type : "unknown";
+}
+
+function sanitizeAutoFaceFailureMessage(value) {
+  return sanitizeFailureMessage(value, 240)
+    .replace(
+      /((?:prompt|file(?:id|path)|image(?:id|path|url)|api[_-]?key|authorization|token)\s*[:=]\s*)[^,;]+/gi,
+      "$1[已隐藏]"
+    )
+    .replace(/\bsk-[A-Za-z0-9._~-]+\b/gi, "[Key已隐藏]")
+    .replace(
+      /(?:[A-Za-z]:[\\/]|\/(?:tmp|var|home|Users|private|data)\/)[^\s,;]+/g,
+      "[路径已隐藏]"
+    )
+    .slice(0, 240);
+}
+
+function normalizeAutoFaceFailureReport(payload = {}, fallbackRequestId = "") {
+  const source = payload && typeof payload === "object" ? payload : {};
+  const status = Math.max(0, Math.min(599, Math.round(Number(source.status) || 0)));
+  const durationMs = Math.max(
+    0,
+    Math.min(10 * 60 * 1000, Math.round(Number(source.durationMs) || 0))
+  );
+  const requestId = compactUsageText(source.requestId || fallbackRequestId, 100)
+    .replace(/[^A-Za-z0-9._:-]+/g, "-");
+  const errorCodeSource = compactUsageText(source.errorCode || source.code, 80)
+    .replace(/\bsk-[A-Za-z0-9._~-]+\b/gi, "redacted-key");
+  return {
+    requestId,
+    failureType: normalizeAutoFaceFailureType(source.failureType),
+    errorCode: normalizeFailureCode(errorCodeSource, status),
+    message: sanitizeAutoFaceFailureMessage(source.message || source.errorMessage),
+    status,
+    retryable: Boolean(source.retryable),
+    stage: compactUsageText(source.stage, 40) || "cloud-failed",
+    durationMs,
+    appVersion: compactUsageText(source.appVersion, 40) || "unknown",
+    createdAt: new Date()
+  };
+}
+
+function formatAutoFaceFailureType(type) {
+  const normalized = normalizeAutoFaceFailureType(type);
+  return AUTO_FACE_FAILURE_TYPE_LABELS[normalized] || AUTO_FACE_FAILURE_TYPE_LABELS.unknown;
+}
+
+function autoFaceFailureDisplayEvent(event = {}) {
+  const source = event && typeof event === "object" ? event : {};
+  const createdAt = source.createdAt instanceof Date
+    ? source.createdAt
+    : new Date(source.createdAt || 0);
+  const createdAtIso = Number.isNaN(createdAt.getTime()) ? "" : createdAt.toISOString();
+  const normalized = normalizeAutoFaceFailureReport(source, source.requestId);
+  return {
+    requestId: normalized.requestId,
+    failureType: normalized.failureType,
+    failureTypeLabel: formatAutoFaceFailureType(normalized.failureType),
+    errorCode: normalized.errorCode,
+    message: normalized.message,
+    status: normalized.status,
+    retryable: normalized.retryable,
+    stage: normalized.stage,
+    durationMs: normalized.durationMs,
+    appVersion: normalized.appVersion,
+    createdAt: createdAtIso
+  };
+}
+
+function buildAutoFaceFailureStats(events = [], baseDate = new Date()) {
+  const todayKey = dateKeyForTimeZone(baseDate, AUTO_FACE_FAILURE_TIME_ZONE);
+  const last7StartKey = shiftDateKey(todayKey, -6);
+  const last30StartKey = shiftDateKey(todayKey, -29);
+  const byType = {};
+  const recent = [];
+  let today = 0;
+  let last7d = 0;
+  let total30d = 0;
+
+  (Array.isArray(events) ? events : [])
+    .map((event) => {
+      const createdAt = event && event.createdAt instanceof Date
+        ? event.createdAt
+        : new Date(event && event.createdAt || 0);
+      return {
+        event,
+        createdAt,
+        dateKey: Number.isNaN(createdAt.getTime())
+          ? ""
+          : dateKeyForTimeZone(createdAt, AUTO_FACE_FAILURE_TIME_ZONE)
+      };
+    })
+    .filter((item) => (
+      item.dateKey
+      && item.dateKey >= last30StartKey
+      && item.dateKey <= todayKey
+    ))
+    .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())
+    .forEach((item) => {
+      total30d += 1;
+      if (item.dateKey === todayKey) today += 1;
+      if (item.dateKey >= last7StartKey) last7d += 1;
+      const type = normalizeAutoFaceFailureType(item.event && item.event.failureType);
+      if (!byType[type]) {
+        byType[type] = {
+          type,
+          label: formatAutoFaceFailureType(type),
+          count: 0,
+          lastSeen: ""
+        };
+      }
+      byType[type].count += 1;
+      if (!byType[type].lastSeen) {
+        byType[type].lastSeen = item.createdAt.toISOString();
+      }
+      if (recent.length < 20) {
+        recent.push(autoFaceFailureDisplayEvent(item.event));
+      }
+    });
+
+  return {
+    timeZone: AUTO_FACE_FAILURE_TIME_ZONE,
+    todayKey,
+    today,
+    last7d,
+    total30d,
+    byType: Object.values(byType).sort((left, right) => {
+      if (right.count !== left.count) return right.count - left.count;
+      return left.type.localeCompare(right.type);
+    }),
+    recent,
+    eventCount: total30d,
+    unavailable: false,
+    message: ""
+  };
+}
+
+async function reportAutoFaceFailure(event = {}) {
+  const report = normalizeAutoFaceFailureReport(
+    event && event.payload,
+    event && event.requestId
+  );
+  if (process.env.WECHAT_MINIAPP_TEST === "1") {
+    autoFaceFailureTestEvents.push(report);
+    return jsonResponse(true, {
+      accepted: true,
+      requestId: report.requestId
+    });
+  }
+  try {
+    await db.collection(AUTO_FACE_FAILURE_LOG_COLLECTION).add({ data: report });
+    return jsonResponse(true, {
+      accepted: true,
+      requestId: report.requestId
+    });
+  } catch (error) {
+    log("warn", "auto-face-failure.write-failed", {
+      requestId: report.requestId,
+      failureType: report.failureType,
+      error: error && error.message
+    });
+    return jsonResponse(true, {
+      accepted: false,
+      unavailable: true,
+      requestId: report.requestId,
+      message: "失败日志暂时无法保存。"
+    });
+  }
+}
+
+async function loadAutoFaceFailureEvents(startDate) {
+  if (process.env.WECHAT_MINIAPP_TEST === "1") {
+    return autoFaceFailureTestEvents.slice();
+  }
+  const command = db.command;
+  const result = await db
+    .collection(AUTO_FACE_FAILURE_LOG_COLLECTION)
+    .where({ createdAt: command.gte(startDate) })
+    .orderBy("createdAt", "desc")
+    .limit(500)
+    .get();
+  return result && Array.isArray(result.data) ? result.data : [];
+}
+
+async function getAutoFaceFailureStats(event, context) {
+  if (!isAdminContext(context)) return adminForbidden();
+  const baseDate = new Date();
+  const todayKey = dateKeyForTimeZone(baseDate, AUTO_FACE_FAILURE_TIME_ZONE);
+  const startKey = shiftDateKey(todayKey, -29);
+  const startDate = new Date(`${startKey}T00:00:00+08:00`);
+  try {
+    const events = await loadAutoFaceFailureEvents(startDate);
+    const stats = buildAutoFaceFailureStats(events, baseDate);
+    return jsonResponse(true, Object.assign(stats, {
+      eventCount: stats.total30d,
+      truncated: events.length >= 500
+    }));
+  } catch (error) {
+    log("warn", "auto-face-failure.read-failed", {
+      startKey,
+      error: error && error.message
+    });
+    return jsonResponse(true, Object.assign(
+      buildAutoFaceFailureStats([], baseDate),
+      {
+        eventCount: 0,
+        truncated: false,
+        unavailable: true,
+        message: "自动贴脸失败统计暂时读取失败，请稍后刷新。"
+      }
+    ));
+  }
 }
 
 function failureReasonKey(event = {}) {
@@ -4148,9 +4364,10 @@ async function repairImage(event, context) {
   const repairPrompt = String(payload.prompt || "").trim();
   if (!repairPrompt) return fail("修正指令不能为空。", "empty-repair-prompt");
   const parentRecordId = String(payload.parentRecordId || "").trim();
-  const sourceFileID = String(payload.sourceFileID || payload.mainFileID || "").trim();
+  const sourceFileID = String(payload.sourceFileID || "").trim();
+  const mainFileID = String(payload.mainFileID || sourceFileID).trim();
   const maskFileID = String(payload.maskFileID || "").trim();
-  if (!parentRecordId || !sourceFileID || !maskFileID) {
+  if (!parentRecordId || !sourceFileID || !mainFileID || !maskFileID) {
     return fail("局部修正需要父记录、当前结果图和重新确认的 mask。", "missing-edit-asset");
   }
   const configs = await resolveEffectiveConfigs();
@@ -4193,6 +4410,9 @@ async function repairImage(event, context) {
   if (String(parentRecord.fileID) !== sourceFileID) {
     const error = revisionConflictError("当前结果不是这条修正链的最新结果，请刷新后重试。");
     return fail(error.message, error.code);
+  }
+  if (mainFileID !== sourceFileID) {
+    await findUserAsset(openid, mainFileID, "main");
   }
 
   const faceFileIDs = Array.from(new Set(
@@ -4243,7 +4463,7 @@ async function repairImage(event, context) {
     });
     const response = await requestImageEdits(
       {
-        mainFileID: sourceFileID,
+        mainFileID,
         maskFileID,
         faceFileIDs,
         wardrobeFileIDs,
@@ -4300,6 +4520,7 @@ async function repairImage(event, context) {
         : [],
       repairContext: {
         sourceFileID: uploaded.fileID,
+        mainInputFileID: mainFileID,
         maskFileID,
         maskGeometry: payload.maskGeometry && typeof payload.maskGeometry === "object"
           ? payload.maskGeometry
@@ -4345,13 +4566,22 @@ async function repairImage(event, context) {
         })
       });
       const referenced = Array.from(new Set(
-        [maskFileID].concat(faceFileIDs, wardrobeFileIDs).filter(Boolean)
+        [maskFileID]
+          .concat(mainFileID !== sourceFileID ? [mainFileID] : [])
+          .concat(faceFileIDs, wardrobeFileIDs)
+          .filter(Boolean)
       ));
       for (const fileID of referenced) {
         const asset = await findUserAsset(
           openid,
           fileID,
-          fileID === maskFileID ? "mask" : faceFileIDs.includes(fileID) ? "face" : "wardrobe",
+          fileID === maskFileID
+            ? "mask"
+            : fileID === mainFileID && mainFileID !== sourceFileID
+              ? "main"
+              : faceFileIDs.includes(fileID)
+                ? "face"
+                : "wardrobe",
           transaction
         );
         await transaction.collection(USER_ASSET_COLLECTION).doc(asset._id).update({
@@ -4892,6 +5122,8 @@ exports.main = async (event = {}, context) => {
     else if (action === "listDeploymentLogs") result = await listDeploymentLogs(context);
     else if (action === "getModelUsageStats") result = await getModelUsageStats(requestEvent, context);
     else if (action === "exportModelUsageStats") result = await exportModelUsageStats(requestEvent, context);
+    else if (action === "reportAutoFaceFailure") result = await reportAutoFaceFailure(requestEvent);
+    else if (action === "getAutoFaceFailureStats") result = await getAutoFaceFailureStats(requestEvent, context);
     else result = fail(`不支持的操作：${action || "空"}`, "unsupported-action");
     log("info", "function.finish", {
       requestId,
@@ -4953,6 +5185,12 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     extractModelUsage,
     extractVideoDuration,
     buildUsageBilling,
+    normalizeAutoFaceFailureType,
+    sanitizeAutoFaceFailureMessage,
+    normalizeAutoFaceFailureReport,
+    formatAutoFaceFailureType,
+    autoFaceFailureDisplayEvent,
+    buildAutoFaceFailureStats,
     dateKeyForTimeZone,
     shiftDateKey,
     shiftMonthKey,
@@ -4964,6 +5202,10 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     getModelUsageTestEvents: () => modelUsageTestEvents.slice(),
     resetModelUsageTestEvents: () => {
       modelUsageTestEvents.splice(0, modelUsageTestEvents.length);
+    },
+    getAutoFaceFailureTestEvents: () => autoFaceFailureTestEvents.slice(),
+    resetAutoFaceFailureTestEvents: () => {
+      autoFaceFailureTestEvents.splice(0, autoFaceFailureTestEvents.length);
     },
     isPromoDate,
     calculateNextStreak,

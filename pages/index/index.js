@@ -62,9 +62,9 @@ function createClientRequestId() {
   return `mini-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
 }
 
-function decorateRecordForRepair(record) {
+function decorateRecordForRepair(record, cloudReady = true) {
   return Object.assign({}, record, {
-    canRepair: canRepairRecord(record, true)
+    canRepair: canRepairRecord(record, cloudReady)
   });
 }
 
@@ -346,6 +346,46 @@ function getAutoFaceFailureGuide(errorInfo, cloudReady = true) {
   };
 }
 
+function getAutoFaceFailureType(errorInfo) {
+  const info = errorInfo && typeof errorInfo === "object" ? errorInfo : {};
+  const code = String(info.code || "").toLowerCase();
+  const message = String(info.message || "").toLowerCase();
+  const searchText = `${code} ${message}`;
+  if (code === "cloud-unavailable") return "cloud-unavailable";
+  if (
+    code === "missing-api-key"
+    || /api[_ -]?key|没有配置.*视觉|未配置.*视觉/.test(searchText)
+  ) return "missing-api-key";
+  if (code === "missing-main-image" || code === "empty-main-image") {
+    return "missing-main-image";
+  }
+  if (
+    code === "image-too-large"
+    || /图片过大|主图文件过大|too large|payload too large/.test(searchText)
+  ) return "image-too-large";
+  if (
+    code === "empty-face-detection"
+    || /没有识别到|没有返回人脸|清晰人脸|face detection/.test(searchText)
+  ) return "empty-face-detection";
+  if (
+    Number(info.status) === 408
+    || Number(info.status) === 504
+    || /timeout|timed out|超时/.test(searchText)
+  ) return "timeout";
+  if (/network|request:fail|fail to fetch|socket|网络|连接失败/.test(searchText)) {
+    return "network";
+  }
+  if (
+    Boolean(info.retryable)
+    || Number(info.status) >= 500
+    || code === "rate-limited"
+    || code === "upstream-unavailable"
+    || code === "vision-upstream-failed"
+    || code === "retry-exhausted"
+  ) return "upstream";
+  return "unknown";
+}
+
 function getCanvasGestureTip(zoomed, manualGuideActive) {
   if (manualGuideActive) {
     return zoomed
@@ -498,7 +538,8 @@ Page({
         lockedElementOptions: createLockedElementOptions(project.lockedElements),
         customLockText: project.customLockedElements.join("\n"),
         lockedSelectionCount: project.lockedElements.length + project.customLockedElements.length,
-        generatedResults: (project.results || []).map(decorateRecordForRepair)
+        generatedResults: (project.results || [])
+          .map((record) => decorateRecordForRepair(record, this.data.cloudReady))
       });
       if (project.mainImage && project.mainImage.path) {
         this.prepareCanvas(project.mainImage);
@@ -776,6 +817,9 @@ Page({
         failureGuide
       }
     );
+    if (cloudInfo) {
+      this.reportAutoFaceFailure(cloudInfo, "cloud-failed");
+    }
     const requestId = cloudInfo && cloudInfo.requestId;
     const modalContent = [
       `原因：${failureGuide.reason}`,
@@ -788,6 +832,44 @@ Page({
       content: modalContent,
       showCancel: false
     });
+  },
+
+  reportAutoFaceFailure(cloudError, stage) {
+    const info = cloudError && typeof cloudError === "object" ? cloudError : null;
+    if (
+      !info
+      || !cloud.isCloudReady()
+      || typeof cloud.reportAutoFaceFailure !== "function"
+    ) return;
+    const payload = {
+      requestId: String(info.requestId || ""),
+      failureType: getAutoFaceFailureType(info),
+      errorCode: String(info.code || ""),
+      message: String(info.message || "").slice(0, 240),
+      status: Number(info.status) || 0,
+      retryable: Boolean(info.retryable),
+      stage: String(stage || "cloud-failed"),
+      durationMs: Math.max(0, Number(info.clientTotalMs) || 0),
+      appVersion: String(config.appVersion || "")
+    };
+    try {
+      const pending = cloud.reportAutoFaceFailure(payload);
+      if (pending && typeof pending.catch === "function") {
+        pending.catch((error) => {
+          diagnosticLog.warn("auto-face", "failure-report-failed", "自动贴脸失败日志上报失败", {
+            requestId: payload.requestId,
+            failureType: payload.failureType,
+            error
+          });
+        });
+      }
+    } catch (error) {
+      diagnosticLog.warn("auto-face", "failure-report-failed", "自动贴脸失败日志上报失败", {
+        requestId: payload.requestId,
+        failureType: payload.failureType,
+        error
+      });
+    }
   },
 
   refreshCloudState() {
@@ -2187,7 +2269,7 @@ Page({
           faceFileIDs: project.faceRefs.map((item) => item.fileID).filter(Boolean),
           wardrobeFileIDs: project.wardrobeRefs.map((item) => item.fileID).filter(Boolean)
         }, result.record && result.record.repairContext || {})
-      }));
+      }), this.data.cloudReady);
       const records = [record].concat(this.data.records || []).slice(0, 50);
       const nextProject = Object.assign({}, project, {
         results: [record].concat(project.results || []).slice(0, 20)
@@ -2230,7 +2312,8 @@ Page({
   },
 
   async loadRecords() {
-    const localRecords = (storage.loadRecords() || []).map(decorateRecordForRepair);
+    const localRecords = (storage.loadRecords() || [])
+      .map((record) => decorateRecordForRepair(record, this.data.cloudReady));
     diagnosticLog.info("records", "load-start", "开始读取制作记录", {
       localCount: localRecords.length
     });
@@ -2238,7 +2321,7 @@ Page({
       try {
         const result = await cloud.listRecords();
         const remoteRecords = ((result && result.records) || [])
-          .map(decorateRecordForRepair);
+          .map((record) => decorateRecordForRepair(record, this.data.cloudReady));
         const records = remoteRecords.length ? remoteRecords : localRecords;
         this.setData({ records });
         if (remoteRecords.length) {

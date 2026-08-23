@@ -104,9 +104,7 @@
           <view class="auto-face-diagnostics-title">自动识别人脸</view>
         </view>
         <view class="auto-face-diagnostics-status">
-          <text wx:if="{{autoFaceStatus.durationText}}" class="auto-face-diagnostics-duration">
-            {{autoFaceStatus.durationText}}
-          </text>
+          <view wx:if="{{autoFaceStatus.durationText}}" class="auto-face-diagnostics-duration">{{autoFaceStatus.durationText}}</view>
           <view class="auto-face-diagnostics-state state-{{autoFaceStatus.state}}">
             {{autoFaceStatus.stateLabel}}
           </view>

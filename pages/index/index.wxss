@@ -783,7 +783,8 @@
   align-items: center;
   color: #627086;
   font-size: 22rpx;
-  line-height: 1;
+  line-height: 42rpx;
+  white-space: nowrap;
 }
 
 .auto-face-diagnostics-state {

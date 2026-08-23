@@ -991,7 +991,7 @@ async function reportAutoFaceFailure(event = {}) {
   }
   try {
     await db.collection(AUTO_FACE_FAILURE_LOG_COLLECTION).add({ data: report });
-    cleanupAutoFaceFailureLogs(new Date());
+    await cleanupAutoFaceFailureLogs(new Date());
     return jsonResponse(true, {
       accepted: true,
       requestId: report.requestId

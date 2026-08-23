@@ -961,6 +961,99 @@ page {
   white-space: nowrap;
 }
 
+.diagnostic-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18rpx;
+  margin: 16rpx 0 14rpx 94rpx;
+  padding: 18rpx;
+  border: 1rpx solid #dce8f8;
+  border-radius: 20rpx;
+  background: linear-gradient(135deg, #f1f7ff 0%, #fbfdff 100%);
+}
+
+.diagnostic-summary-warn {
+  border-color: #f2dfb6;
+  background: linear-gradient(135deg, #fff8e9 0%, #fffdf8 100%);
+}
+
+.diagnostic-summary-error {
+  border-color: #f0ccd1;
+  background: linear-gradient(135deg, #fff1f2 0%, #fffafb 100%);
+}
+
+.diagnostic-summary-main {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+}
+
+.diagnostic-summary-icon {
+  display: flex;
+  flex: none;
+  width: 52rpx;
+  height: 52rpx;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: #ffffff;
+  background: #2a9b7d;
+  font-size: 28rpx;
+  font-weight: 800;
+}
+
+.diagnostic-summary-warn .diagnostic-summary-icon {
+  background: #d79632;
+}
+
+.diagnostic-summary-error .diagnostic-summary-icon {
+  background: #d65c69;
+}
+
+.diagnostic-summary-copy {
+  min-width: 0;
+  margin-left: 14rpx;
+}
+
+.diagnostic-summary-title {
+  overflow: hidden;
+  color: #283750;
+  font-size: 25rpx;
+  font-weight: 800;
+  line-height: 34rpx;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diagnostic-summary-description {
+  margin-top: 4rpx;
+  overflow: hidden;
+  color: #7e8b9f;
+  font-size: 20rpx;
+  line-height: 30rpx;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diagnostic-summary-count {
+  display: flex;
+  flex: none;
+  align-items: baseline;
+  color: #8390a3;
+  font-size: 19rpx;
+  white-space: nowrap;
+}
+
+.diagnostic-summary-count-number {
+  margin-right: 5rpx;
+  color: #3d6fc9;
+  font-size: 34rpx;
+  font-weight: 800;
+  line-height: 1;
+}
+
 .diagnostic-session-summary {
   margin: 0 0 12rpx;
   padding-bottom: 12rpx;
@@ -1236,6 +1329,7 @@ button.diagnostic-copy-button.button-hover {
 .interaction-log-list {
   max-height: 520rpx;
   margin-top: 18rpx;
+  margin-left: 94rpx;
   padding: 14rpx;
   overflow-y: auto;
   border-radius: 16rpx;
@@ -1249,53 +1343,210 @@ button.diagnostic-copy-button.button-hover {
   text-align: center;
 }
 
-.interaction-log-item {
-  padding: 14rpx 0;
-  border-bottom: 1rpx solid #e8ebf3;
+.diagnostic-group {
+  margin-bottom: 14rpx;
+  overflow: hidden;
+  border: 1rpx solid #e2e9f2;
+  border-radius: 16rpx;
+  background: #ffffff;
 }
 
-.interaction-log-item-error {
-  margin: 4rpx -8rpx;
-  padding: 14rpx 8rpx;
-  border-radius: 10rpx;
-  background: #fff1f3;
+.diagnostic-group:last-child {
+  margin-bottom: 0;
 }
 
-.interaction-log-item-warn {
-  margin: 4rpx -8rpx;
-  padding: 14rpx 8rpx;
-  border-radius: 10rpx;
-  background: #fff8e8;
+.diagnostic-group-abnormal {
+  border-color: #f0d3d7;
 }
 
-.interaction-log-item:last-child {
-  border-bottom: 0;
+.diagnostic-group-normal {
+  border-color: #dfe8f4;
 }
 
-.interaction-log-item-head {
+.diagnostic-group-head {
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  gap: 12rpx;
-  color: #69758c;
+  min-height: 72rpx;
+  padding: 12rpx 16rpx;
+  background: #f7faff;
+}
+
+.diagnostic-group-abnormal .diagnostic-group-head {
+  background: #fff5f5;
+}
+
+.diagnostic-group-title-wrap {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+}
+
+.diagnostic-group-dot {
+  flex: none;
+  width: 12rpx;
+  height: 12rpx;
+  margin-right: 10rpx;
+  border-radius: 50%;
+  background: #3e77db;
+  box-shadow: 0 0 0 5rpx rgba(62, 119, 219, 0.12);
+}
+
+.diagnostic-group-abnormal .diagnostic-group-dot {
+  background: #db6672;
+  box-shadow: 0 0 0 5rpx rgba(219, 102, 114, 0.12);
+}
+
+.diagnostic-group-title {
+  color: #30415d;
+  font-size: 23rpx;
+  font-weight: 800;
+  line-height: 30rpx;
+}
+
+.diagnostic-group-note {
+  margin-top: 2rpx;
+  color: #8997aa;
+  font-size: 18rpx;
+  line-height: 26rpx;
+}
+
+.diagnostic-group-count {
+  flex: none;
+  color: #6f83a8;
   font-size: 19rpx;
 }
 
-.interaction-log-message {
-  margin-top: 6rpx;
-  color: #2f3d55;
-  font-size: 22rpx;
-  line-height: 1.45;
+.diagnostic-group-abnormal .diagnostic-group-count {
+  color: #c35d6a;
 }
 
-.interaction-log-detail,
-.interaction-log-error {
+.diagnostic-event {
+  padding: 14rpx 16rpx;
+  border-top: 1rpx solid #edf1f6;
+  background: #ffffff;
+}
+
+.diagnostic-event-warn {
+  background: #fffdf8;
+}
+
+.diagnostic-event-error {
+  background: #fffafb;
+}
+
+.diagnostic-event-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12rpx;
+}
+
+.diagnostic-event-leading {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+}
+
+.diagnostic-event-status {
+  display: flex;
+  flex: none;
+  width: 52rpx;
+  height: 34rpx;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999rpx;
+  color: #2c73bf;
+  background: #edf5ff;
+  font-size: 17rpx;
+  line-height: 34rpx;
+}
+
+.diagnostic-event-warn .diagnostic-event-status {
+  color: #a96d19;
+  background: #fff1d4;
+}
+
+.diagnostic-event-error .diagnostic-event-status {
+  color: #c24f5d;
+  background: #ffe3e6;
+}
+
+.diagnostic-event-title-wrap {
+  min-width: 0;
+  margin-left: 12rpx;
+}
+
+.diagnostic-event-title {
+  overflow: hidden;
+  color: #2f3d55;
+  font-size: 22rpx;
+  line-height: 32rpx;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diagnostic-event-meta {
+  margin-top: 3rpx;
+  overflow: hidden;
+  color: #8e9aac;
+  font-size: 18rpx;
+  line-height: 26rpx;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diagnostic-event-arrow {
+  flex: none;
+  color: #98a6b8;
+  font-size: 32rpx;
+  line-height: 1;
+  transform: rotate(0);
+  transition: transform 160ms ease;
+}
+
+.diagnostic-event-arrow-expanded {
+  transform: rotate(90deg);
+}
+
+.diagnostic-event-detail {
+  margin: 12rpx 0 0 64rpx;
+  padding: 12rpx 14rpx;
+  border-left: 3rpx solid #b8d4fb;
+  border-radius: 0 12rpx 12rpx 0;
+  background: #f7faff;
+}
+
+.diagnostic-event-warn .diagnostic-event-detail {
+  border-left-color: #e8c47b;
+  background: #fffaf0;
+}
+
+.diagnostic-event-error .diagnostic-event-detail {
+  border-left-color: #e2a5ad;
+  background: #fff5f6;
+}
+
+.diagnostic-event-detail-title {
+  color: #576981;
+  font-size: 18rpx;
+  font-weight: 700;
+  line-height: 28rpx;
+}
+
+.diagnostic-log-detail,
+.diagnostic-log-error {
   margin-top: 5rpx;
   overflow: hidden;
   color: #8490a5;
   font-size: 18rpx;
-  line-height: 1.4;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 28rpx;
+  word-break: break-all;
+}
+
+.diagnostic-log-error {
+  color: #c45d69;
 }
 
 .interaction-log-error {

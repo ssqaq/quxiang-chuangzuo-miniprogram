@@ -1,5 +1,6 @@
 const PROJECT_KEY = "display-tool-miniapp-project-v1";
 const RECORDS_KEY = "display-tool-miniapp-records-v1";
+const PHOTO_TO_VIDEO_CLEANUP_KEY = "display-tool-photo-to-video-cleanup-v1";
 
 function read(key, fallback) {
   try {
@@ -36,6 +37,14 @@ module.exports = {
 
   saveRecords(records) {
     return write(RECORDS_KEY, records);
+  },
+
+  loadPhotoToVideoCleanup() {
+    return read(PHOTO_TO_VIDEO_CLEANUP_KEY, []);
+  },
+
+  savePhotoToVideoCleanup(items) {
+    return write(PHOTO_TO_VIDEO_CLEANUP_KEY, items);
   },
 
   clearProject() {

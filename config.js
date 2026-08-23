@@ -16,13 +16,18 @@ module.exports = {
     quality: 82,
     minBytes: 262144
   },
-  appVersion: "0.12.4",
+  appVersion: "0.13.0",
   photoToVideo: {
     durationSeconds: 3,
     maxBatch: 9,
     maxConcurrent: 2,
     pollIntervalMs: 2500,
-    maxPolls: 120
+    maxPolls: 120,
+    cleanup: {
+      enabled: true,
+      gracePeriodMs: 24 * 60 * 60 * 1000,
+      maxQueueItems: 100
+    }
   }
 };
 

@@ -195,6 +195,8 @@ const recordsJs = fs.readFileSync(path.join(root, "pages/records/records.js"), "
 const recordsWxml = fs.readFileSync(path.join(root, "pages/records/records.wxml"), "utf8");
 const recordsWxss = fs.readFileSync(path.join(root, "pages/records/records.wxss"), "utf8");
 const cloudJs = fs.readFileSync(path.join(root, "cloudfunctions/api/index.js"), "utf8");
+const clientCloudJs = fs.readFileSync(path.join(root, "services/cloud.js"), "utf8");
+const storageJs = fs.readFileSync(path.join(root, "utils/storage.js"), "utf8");
 const webPoseJs = fs.readFileSync(path.join(root, "utils/web-pose.js"), "utf8");
 if (!projectConfig.setting || projectConfig.setting.minified !== true) {
   throw new Error("微信开发者工具 JS 压缩没有开启，请确认 project.config.json 的 setting.minified 为 true。");
@@ -507,6 +509,11 @@ if (
   || !photoToVideoJs.includes("maxConcurrent")
   || !photoToVideoJs.includes("PHOTO_TO_VIDEO_CANCELLED")
   || !photoToVideoJs.includes("resultFileID")
+  || !photoToVideoJs.includes("flushPhotoToVideoCleanup")
+  || !photoToVideoJs.includes("enqueuePhotoToVideoCleanup")
+  || !storageJs.includes("loadPhotoToVideoCleanup")
+  || !storageJs.includes("savePhotoToVideoCleanup")
+  || !clientCloudJs.includes("function deleteFile")
 ) {
   throw new Error("照片转动态视频入口、长按预览或云函数接口骨架不完整。");
 }

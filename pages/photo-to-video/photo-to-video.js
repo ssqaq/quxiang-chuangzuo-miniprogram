@@ -160,6 +160,7 @@ Page({
       });
     }
     diagnosticLog.info("video", "page-show", "打开照片转动态视频页面");
+    this.flushPhotoToVideoCleanup();
     this.loadLocalRecords();
     this.refreshCloudRecords();
     this.checkVideoProvider();
@@ -218,6 +219,110 @@ Page({
 
   finishRun(run) {
     if (this._activeRun === run) this._activeRun = null;
+  },
+
+  getCleanupConfig() {
+    const cleanup = config.photoToVideo && config.photoToVideo.cleanup;
+    return {
+      enabled: cleanup ? cleanup.enabled !== false : true,
+      gracePeriodMs: Math.max(
+        60 * 60 * 1000,
+        Number(cleanup && cleanup.gracePeriodMs) || 24 * 60 * 60 * 1000
+      ),
+      maxQueueItems: Math.max(
+        1,
+        Number(cleanup && cleanup.maxQueueItems) || 100
+      )
+    };
+  },
+
+  enqueuePhotoToVideoCleanup(fileID, kind) {
+    const cleanupConfig = this.getCleanupConfig();
+    if (!cleanupConfig.enabled || !fileID || !cloud.isCloudReady()) return;
+    const now = Date.now();
+    const queue = Array.isArray(storage.loadPhotoToVideoCleanup())
+      ? storage.loadPhotoToVideoCleanup()
+      : [];
+    const key = `${kind || "file"}:${fileID}`;
+    const existing = queue.find((item) => item.key === key);
+    if (existing) {
+      existing.cleanupAfter = Math.min(
+        Number(existing.cleanupAfter) || now + cleanupConfig.gracePeriodMs,
+        now + cleanupConfig.gracePeriodMs
+      );
+      existing.updatedAt = now;
+    } else {
+      queue.push({
+        key,
+        fileID,
+        kind: kind || "file",
+        createdAt: now,
+        updatedAt: now,
+        cleanupAfter: now + cleanupConfig.gracePeriodMs,
+        attempts: 0,
+        lastError: ""
+      });
+    }
+    storage.savePhotoToVideoCleanup(queue);
+  },
+
+  isCleanupNotFoundError(error) {
+    return /not.?found|不存在|不存在该文件|file.?not.?exist|no such file/i
+      .test(String(error && (error.errMsg || error.message) || error || ""));
+  },
+
+  async flushPhotoToVideoCleanup() {
+    const cleanupConfig = this.getCleanupConfig();
+    if (
+      !cleanupConfig.enabled
+      || !cloud.isCloudReady()
+      || this._cleanupPromise
+    ) {
+      return this._cleanupPromise || null;
+    }
+    this._cleanupPromise = (async () => {
+      const now = Date.now();
+      const queue = Array.isArray(storage.loadPhotoToVideoCleanup())
+        ? storage.loadPhotoToVideoCleanup()
+        : [];
+      const due = queue
+        .filter((item) => item && item.fileID && Number(item.cleanupAfter) <= now)
+        .slice(0, cleanupConfig.maxQueueItems);
+      if (!due.length) return;
+      const dueKeys = new Set(due.map((item) => item.key));
+      const retained = queue.filter((item) => !dueKeys.has(item.key));
+      for (const item of due) {
+        try {
+          await cloud.deleteFile(item.fileID);
+          diagnosticLog.info("video", "cleanup-success", "照片转视频临时云文件已清理", {
+            fileID: item.fileID,
+            kind: item.kind
+          });
+        } catch (error) {
+          if (this.isCleanupNotFoundError(error)) {
+            diagnosticLog.info("video", "cleanup-already-gone", "照片转视频临时云文件已不存在", {
+              fileID: item.fileID,
+              kind: item.kind
+            });
+            continue;
+          }
+          retained.push(Object.assign({}, item, {
+            attempts: (Number(item.attempts) || 0) + 1,
+            updatedAt: Date.now(),
+            lastError: this.formatError(error)
+          }));
+          diagnosticLog.warn("video", "cleanup-failed", "照片转视频临时云文件清理失败，将稍后重试", {
+            fileID: item.fileID,
+            kind: item.kind,
+            error
+          });
+        }
+      }
+      storage.savePhotoToVideoCleanup(retained);
+    })().finally(() => {
+      this._cleanupPromise = null;
+    });
+    return this._cleanupPromise;
   },
 
   assertRunActive(run) {
@@ -549,6 +654,7 @@ Page({
     const sourcePath = await publishExport.resolveImageSource(record);
     this.assertRunActive(run);
     const upload = await cloud.uploadFile(sourcePath, "photo-to-video-input");
+    this.enqueuePhotoToVideoCleanup(upload.fileID, "source");
     this.assertRunActive(run);
     const created = await cloud.createVideoTask({
       imageFileID: upload.fileID,
@@ -566,6 +672,9 @@ Page({
     });
     const result = await this.pollVideoTask(created.taskId, run);
     const resultFileID = result && (result.resultFileID || result.videoFileID || "");
+    if (resultFileID) {
+      this.enqueuePhotoToVideoCleanup(resultFileID, "result");
+    }
     const videoPath = await this.resolveVideoPath(result);
     this.assertRunActive(run);
     await saveImageToAlbum(sourcePath);

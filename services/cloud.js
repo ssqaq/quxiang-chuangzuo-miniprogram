@@ -325,12 +325,59 @@ function downloadFile(fileID) {
   });
 }
 
+function deleteFile(fileID) {
+  return new Promise((resolve, reject) => {
+    if (!isCloudReady() || !fileID || !wx.cloud || typeof wx.cloud.deleteFile !== "function") {
+      const error = new Error("当前环境不支持清理云文件。");
+      diagnosticLog.warn("cloud-file", "delete-blocked", "云文件清理被阻止", {
+        fileID: fileID || "",
+        error
+      });
+      reject(error);
+      return;
+    }
+    const startedAt = Date.now();
+    wx.cloud.deleteFile({
+      fileList: [fileID],
+      success(response) {
+        const failed = response && Array.isArray(response.fileList)
+          ? response.fileList.find((item) => item.fileID === fileID && item.status !== 0)
+          : null;
+        if (failed) {
+          const error = new Error(failed.errMsg || "云文件清理失败。");
+          diagnosticLog.warn("cloud-file", "delete-failed", "云文件清理返回失败", {
+            fileID,
+            durationMs: Date.now() - startedAt,
+            error
+          });
+          reject(error);
+          return;
+        }
+        diagnosticLog.info("cloud-file", "delete-success", "云文件清理完成", {
+          fileID,
+          durationMs: Date.now() - startedAt
+        });
+        resolve(response);
+      },
+      fail(error) {
+        diagnosticLog.warn("cloud-file", "delete-failed", "云文件清理失败", {
+          fileID,
+          durationMs: Date.now() - startedAt,
+          error
+        });
+        reject(error);
+      }
+    });
+  });
+}
+
 module.exports = {
   isCloudReady,
   callApi,
   uploadFile,
   getTempUrl,
   downloadFile,
+  deleteFile,
   analyzeImage(payload) {
     return callApi({ action: "analyze", payload });
   },

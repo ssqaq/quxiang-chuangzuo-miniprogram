@@ -14,6 +14,9 @@ const workbenchWxml = fs.readFileSync(
   path.join(root, "pages/workbench/workbench.wxml"),
   "utf8"
 );
+const configJs = fs.readFileSync(path.join(root, "config.js"), "utf8");
+const cloudJs = fs.readFileSync(path.join(root, "services/cloud.js"), "utf8");
+const storageJs = fs.readFileSync(path.join(root, "utils/storage.js"), "utf8");
 
 const required = [
   ["页面隐藏取消当前批次", pageJs.includes("cancelActiveRun()") && pageJs.includes("PHOTO_TO_VIDEO_CANCELLED")],
@@ -25,6 +28,13 @@ const required = [
     && !pageWxml.includes('bindtouchstart="onPreviewTouchStart"')
     && !pageWxml.includes('bindtouchend="onPreviewTouchEnd"')],
   ["入口明确普通动态视频", workbenchWxml.includes("生成普通动态视频，照片和视频分别保存")]
+  ,["临时云文件进入延迟清理队列", pageJs.includes("enqueuePhotoToVideoCleanup")
+    && pageJs.includes("flushPhotoToVideoCleanup")
+    && configJs.includes("gracePeriodMs")]
+  ,["清理失败保留并重试", pageJs.includes("cleanup-failed")
+    && pageJs.includes("retained.push")]
+  ,["云文件清理 API 已接入", cloudJs.includes("function deleteFile")
+    && storageJs.includes("PHOTO_TO_VIDEO_CLEANUP_KEY")]
 ];
 
 const failed = required.filter((item) => !item[1]).map((item) => item[0]);

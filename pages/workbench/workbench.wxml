@@ -194,7 +194,7 @@
       </view>
       <view class="diagnostic-toggle-summary">
         <view class="interaction-log-count">
-          {{diagnosticStats.eventCount}} 条 · {{diagnosticStats.errorCount}} 错误
+          {{diagnosticStats.eventCount}} 条 · {{diagnosticStats.errorCount}} 错误 · {{diagnosticStats.warnCount}} 提醒
         </view>
         <view class="diagnostic-toggle-indicator">
           <text>{{diagnosticExpanded ? '收起' : '展开'}}</text>
@@ -278,7 +278,7 @@
                 <view class="diagnostic-event-title-wrap">
                   <view class="diagnostic-event-title">{{item.message}}</view>
                   <view class="diagnostic-event-meta">
-                    {{item.categoryLabel}} · {{item.time}}
+                    {{item.categoryLabel}} · {{item.displayTime}}
                   </view>
                 </view>
               </view>

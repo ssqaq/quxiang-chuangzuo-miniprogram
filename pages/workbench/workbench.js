@@ -98,10 +98,16 @@ function formatDiagnosticEvent(item) {
     admin: "管理员",
     diagnostic: "排查记录"
   };
+  const date = new Date(item.time);
+  const pad = (value) => String(value).padStart(2, "0");
+  const displayTime = Number.isNaN(date.getTime())
+    ? String(item.time || "")
+    : `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
   return Object.assign({}, item, {
     title: `${item.category || "app"} · ${item.event || "unknown"}`,
     categoryLabel: categoryLabels[item.category] || "运行记录",
     levelLabel: level === "error" ? "错误" : (level === "warn" ? "提醒" : "正常"),
+    displayTime,
     errorText: item.error && item.error.message || "",
     detailText: details.slice(0, 800),
     metaText: [

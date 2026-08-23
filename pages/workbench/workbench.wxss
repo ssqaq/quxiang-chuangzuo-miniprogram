@@ -1672,6 +1672,11 @@ button.recent-more-c.small-btn {
     margin-left: 78rpx;
   }
 
+  .diagnostic-summary,
+  .interaction-log-list {
+    margin-left: 78rpx;
+  }
+
   .interaction-log-button {
     padding-right: 8rpx;
     padding-left: 8rpx;
@@ -1839,6 +1844,11 @@ button.recent-more-c.small-btn {
 
   .diagnostic-feature-heading {
     margin-top: 32rpx;
+  }
+
+  .diagnostic-summary,
+  .interaction-log-list {
+    margin-left: 94rpx;
   }
 }
 

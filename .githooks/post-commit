@@ -1,0 +1,15 @@
+#!/bin/sh
+set -eu
+
+if [ "${MINIPROGRAM_SYNC_SKIP_POST_COMMIT:-}" = "1" ]; then
+  exit 0
+fi
+
+branch="$(git symbolic-ref --quiet --short HEAD || true)"
+if [ -z "$branch" ]; then
+  echo "post-commit: 当前不是分支，跳过自动推送。" >&2
+  exit 0
+fi
+
+echo "post-commit: 自动推送 origin/$branch"
+git push origin "$branch"

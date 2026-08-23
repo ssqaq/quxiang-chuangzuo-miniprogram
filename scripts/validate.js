@@ -542,11 +542,14 @@ if (
   throw new Error("主图清除按钮或红圈分层绘制结构不完整。");
 }
 if (
-  !indexWxml.includes('<page-meta page-style="{{pageScrollLocked ? \'overflow: hidden;\' : \'\'}}"></page-meta>')
+  !indexWxml.includes('<page-meta page-style="{{pageScrollStyle}}"></page-meta>')
   || !indexJs.includes("pageScrollLocked: false")
+  || !indexJs.includes('pageScrollStyle: ""')
   || !indexJs.includes("setPageScrollLock(locked)")
   || !indexJs.includes("setPageScrollLock(true)")
   || !indexJs.includes("setPageScrollLock(false)")
+  || !indexJs.includes("position: fixed")
+  || !indexJs.includes("top: -${scrollTop}px")
   || !indexJs.includes("getActiveTouchCount(event)")
   || !indexJs.includes("this.getActiveTouchCount(event) > 0")
 ) {
@@ -620,6 +623,8 @@ if (
 }
 if (
   !indexWxml.includes('bindtap="autoFaceCircle"')
+  || !indexWxml.includes("自动识别人脸")
+  || indexWxml.includes("红圈自动贴脸")
   || !indexWxml.includes('class="mask-action-row"')
   || (indexWxml.match(/class="primary-btn main-image-action-button mask-action-button"/g) || []).length !== 2
   || indexWxml.includes('class="circle-info"')

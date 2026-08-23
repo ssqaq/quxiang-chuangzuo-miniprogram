@@ -1,4 +1,4 @@
-<page-meta page-style="{{pageScrollLocked ? 'overflow: hidden;' : ''}}"></page-meta>
+<page-meta page-style="{{pageScrollStyle}}"></page-meta>
 
 <view class="page">
   <canvas
@@ -64,7 +64,7 @@
         bindtap="autoFaceCircle"
         loading="{{analysisAction === 'faceCircle'}}"
         disabled="{{analysisAction === 'faceCircle'}}"
-      >{{analysisAction === 'faceCircle' ? '识别中...' : '红圈自动贴脸'}}</button>
+      >{{analysisAction === 'faceCircle' ? '识别中...' : '自动识别人脸'}}</button>
       <button
         class="primary-btn main-image-action-button mask-action-button"
         bindtap="clearCircle"
@@ -78,6 +78,10 @@
         catchtouchmove="onCanvasTouchMove"
         catchtouchend="onCanvasTouchEnd"
         catchtouchcancel="onCanvasTouchCancel"
+        capture-catchtouchstart="onCanvasTouchStart"
+        capture-catchtouchmove="onCanvasTouchMove"
+        capture-catchtouchend="onCanvasTouchEnd"
+        capture-catchtouchcancel="onCanvasTouchCancel"
       >
         <view
           class="canvas-stage"
@@ -110,7 +114,7 @@
     <view wx:if="{{project.mainImage && autoFaceStatus.state !== 'idle'}}" class="auto-face-diagnostics">
       <view class="auto-face-diagnostics-head">
         <view class="auto-face-diagnostics-leading">
-          <view class="auto-face-diagnostics-title">自动贴脸</view>
+          <view class="auto-face-diagnostics-title">自动识别人脸</view>
           <view class="auto-face-diagnostics-message">{{autoFaceStatus.message}}</view>
         </view>
         <view class="auto-face-diagnostics-state state-{{autoFaceStatus.state}}">

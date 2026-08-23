@@ -285,6 +285,7 @@ Page({
     canvasZoomed: false,
     canvasGestureTip: "双指捏合缩放，单指从任意位置拖到任意方向绘制红圈",
     pageScrollLocked: false,
+    pageScrollStyle: "",
     drawing: false,
     loading: false,
     loadingText: "",
@@ -436,6 +437,7 @@ Page({
       canvasZoomPercent: 100,
       canvasZoomed: false,
       pageScrollLocked: false,
+      pageScrollStyle: "",
       drawing: false,
       loading: false,
       loadingText: "",
@@ -470,23 +472,43 @@ Page({
 
   setPageScrollLock(locked) {
     const nextLocked = Boolean(locked);
-    if (nextLocked && !this._pageScrollLocked) {
-      this._pinchScrollTop = this.getCurrentPageScrollTop();
-      this.restorePageScrollPosition();
-    }
-    if (!nextLocked && this._pageScrollLocked) {
-      this.restorePageScrollPosition();
-    }
-    this._pageScrollLocked = nextLocked;
-    if (
-      this._pageDestroyed
-      || this.data.pageScrollLocked === nextLocked
-    ) {
-      if (!nextLocked) this._pinchScrollTop = null;
+    if (nextLocked) {
+      if (this._pageScrollLocked) return;
+      const scrollTop = this.getCurrentPageScrollTop();
+      this._pinchScrollTop = scrollTop;
+      this._pageScrollLocked = true;
+      this._pageScrollRestorePending = false;
+      const pageScrollStyle = [
+        "position: fixed",
+        `top: -${scrollTop}px`,
+        "left: 0",
+        "right: 0",
+        "width: 100%",
+        "height: 100vh",
+        "overflow: hidden",
+        "overscroll-behavior: none"
+      ].join(";");
+      if (!this._pageDestroyed) {
+        this.setData({
+          pageScrollLocked: true,
+          pageScrollStyle
+        }, () => {
+          this.restorePageScrollPosition(scrollTop);
+        });
+      }
       return;
     }
-    this.setData({ pageScrollLocked: nextLocked });
-    if (!nextLocked) this._pinchScrollTop = null;
+    if (!this._pageScrollLocked) return;
+    const restoreTop = this._pinchScrollTop;
+    this._pageScrollLocked = false;
+    this._pinchScrollTop = null;
+    if (this._pageDestroyed) return;
+    this.setData({
+      pageScrollLocked: false,
+      pageScrollStyle: ""
+    }, () => {
+      this.restorePageScrollPosition(restoreTop);
+    });
   },
 
   getCurrentPageScrollTop() {
@@ -508,7 +530,6 @@ Page({
       !Number.isFinite(target)
       || target < 0
       || typeof wx.pageScrollTo !== "function"
-      || this._pageScrollRestorePending
     ) {
       return;
     }
@@ -1065,7 +1086,7 @@ Page({
 
   onCanvasTouchMove(event) {
     if (this._gestureMode === "pinch" || this._gestureMode === "draw") {
-      this.restorePageScrollPosition();
+      this.restorePageScrollPosition(this._pinchScrollTop);
     }
     const touches = this.getViewportTouches(event);
     if (touches.length >= 2) {

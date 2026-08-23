@@ -43,7 +43,7 @@ D:\aips小程序\wechat-miniapp
 - 本地 Ollama；
 - 桌面端 MediaPipe 本地自动蒙脸（小程序已改为云函数调用阿里云百炼视觉模型）。
 
-“红圈自动贴脸”现在只走云端：小程序先上传主图，再由 `api` 云函数调用百炼识别人脸位置。云端不可用或没有识别到清晰人脸时，会自动进入手动画圈，不再下载或运行本地模型、MediaPipe、WASM。
+“自动识别人脸”现在只走云端：小程序先上传主图，再由 `api` 云函数调用百炼识别人脸位置。云端不可用或没有识别到清晰人脸时，会自动进入手动画圈，不再下载或运行本地模型、MediaPipe、WASM。
 
 ## 用微信开发者工具打开
 
@@ -157,12 +157,16 @@ imageCompression: {
 在云函数 `api` 的配置中填写环境变量：
 
 ```text
+# 人脸识别专用：和生图、视频使用不同的配置
+AI_VISION_PROVIDER=dashscope
 AI_VISION_API_KEY=你的阿里云百炼 API Key
-
-# 以下均为可选覆盖项；不填就使用代码里的百炼默认值
+AI_VISION_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 AI_VISION_MODEL=qwen3-vl-flash
 AI_FACE_MODEL=qwen3-vl-flash
-AI_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+
+# 生图专用：可换成其他供应商或其他模型
+AI_API_KEY=你的生图服务 API Key
+AI_BASE_URL=https://你的生图服务/v1
 AI_IMAGE_MODEL=实际可用的生图模型
 AI_IMAGE_SIZE=1024x1024
 DAILY_GENERATION_LIMIT=5
@@ -175,7 +179,7 @@ AI_MASK_INVERT=false
 AI_MAX_RETRIES=2
 AI_IMAGE_RETRY_ENABLED=false
 
-# 照片转动态视频（当前只做接口占位，未配置不会伪造成功）
+# 转实况/动态视频专用：可换成第三个供应商
 AI_VIDEO_PROVIDER=
 AI_VIDEO_ENDPOINT=
 AI_VIDEO_MODEL=
@@ -226,7 +230,7 @@ user_quotas
 1. 确认 `config.js` 已填写 CloudBase 环境 ID；
 2. 部署 `cloudfunctions/api`；
 3. 在云函数环境变量里配置 `AI_VISION_API_KEY`；
-4. 点“红圈自动贴脸”，确认百炼返回人脸位置；
+4. 点“自动识别人脸”，确认百炼返回人脸位置；
 5. 临时断开云端或制造错误，确认页面会进入手动画圈；
 6. 点“AI 分析主图”测试视觉接口；
 7. 测试“提交生图并归档”；

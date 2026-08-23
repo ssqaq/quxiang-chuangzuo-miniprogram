@@ -1,4 +1,4 @@
-console.log("[api] build=0.13.0 marker=API_BUILD_TAG_20260823_51");
+console.log("[api] build=0.13.1 marker=API_BUILD_TAG_20260823_52");
 
 const cloud = require("wx-server-sdk");
 

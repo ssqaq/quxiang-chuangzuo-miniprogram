@@ -365,6 +365,108 @@ page {
   white-space: nowrap;
 }
 
+.usage-failure-panel {
+  margin-top: 18rpx;
+  padding-top: 2rpx;
+}
+
+.usage-failure-heading {
+  margin-top: 0;
+}
+
+.usage-failure-summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12rpx;
+  margin-top: 10rpx;
+}
+
+.usage-failure-summary-item {
+  min-width: 0;
+  padding: 14rpx 12rpx;
+  border: 1rpx solid #f1d8d8;
+  border-radius: 16rpx;
+  background: #fff9f9;
+}
+
+.usage-failure-summary-item text {
+  display: block;
+  overflow: hidden;
+  color: #9a6d74;
+  font-size: 18rpx;
+  line-height: 26rpx;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usage-failure-summary-item text + text {
+  margin-top: 4rpx;
+  color: #b43e4b;
+  font-size: 30rpx;
+  font-weight: 800;
+}
+
+.usage-failure-summary-model text + text {
+  color: #8d5560;
+  font-size: 20rpx;
+  font-weight: 700;
+}
+
+.usage-failure-list {
+  margin-top: 14rpx;
+  padding: 14rpx 16rpx;
+  border-radius: 16rpx;
+  background: #fffafa;
+}
+
+.usage-failure-list-title {
+  color: #7f3c47;
+  font-size: 21rpx;
+  font-weight: 800;
+}
+
+.usage-failure-row {
+  padding: 12rpx 0;
+  border-bottom: 1rpx solid #f2e4e4;
+}
+
+.usage-failure-row:last-child {
+  border-bottom: 0;
+}
+
+.usage-failure-row-top,
+.usage-failure-row-detail {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12rpx;
+}
+
+.usage-failure-label {
+  min-width: 0;
+  overflow: hidden;
+  color: #4a2f35;
+  font-size: 20rpx;
+  font-weight: 700;
+  line-height: 28rpx;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usage-failure-count,
+.usage-failure-row-detail text {
+  flex: none;
+  color: #a36c74;
+  font-size: 18rpx;
+  line-height: 26rpx;
+}
+
+.usage-failure-row-detail {
+  justify-content: flex-start;
+  margin-top: 4rpx;
+  flex-wrap: wrap;
+}
+
 .usage-daily-title {
   margin-top: 22rpx;
   color: #334258;
@@ -662,7 +764,8 @@ page {
 
   .usage-summary-grid,
   .usage-type-grid,
-  .usage-cost-summary {
+  .usage-cost-summary,
+  .usage-failure-summary {
     grid-template-columns: 1fr;
   }
 

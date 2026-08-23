@@ -4,6 +4,7 @@
     "pages/workbench/workbench",
     "pages/index/index",
     "pages/records/records",
+    "pages/repair/repair",
     "pages/publish-export/publish-export",
     "pages/photo-to-video/photo-to-video",
     "pages/points/points",

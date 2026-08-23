@@ -83,6 +83,16 @@ function emptyUsageCounter() {
   };
 }
 
+function emptyFailureStats() {
+  return {
+    total: 0,
+    failureRate: 0,
+    topFailureReasons: [],
+    failedModels: [],
+    failureDetails: []
+  };
+}
+
 function emptyUsageStats() {
   return {
     timeZone: "Asia/Shanghai",
@@ -109,6 +119,7 @@ function emptyUsageStats() {
     monthly: [],
     users: [],
     models: [],
+    failureStats: emptyFailureStats(),
     pricing: null,
     unavailable: false,
     message: ""
@@ -179,6 +190,41 @@ function formatUsageStats(result) {
     videoDurationSeconds: Number(item.videoDurationSeconds) || 0,
     byType: item.byType || {}
   }));
+  const failureSource = source.failureStats || {};
+  const failureStats = Object.assign(emptyFailureStats(), {
+    total: Number(failureSource.total) || 0,
+    failureRate: Number(failureSource.failureRate) || 0,
+    topFailureReasons: (Array.isArray(failureSource.topFailureReasons)
+      ? failureSource.topFailureReasons
+      : []
+    ).map((item) => ({
+      key: item.key || "",
+      code: item.code || "",
+      label: item.label || "未提供错误原因",
+      count: Number(item.count) || 0,
+      rate: Number(item.rate) || 0,
+      lastSeen: item.lastSeen || "",
+      usageType: item.usageType || "",
+      provider: item.provider || "",
+      model: item.model || "",
+      status: Number(item.status) || 0,
+      retryable: Boolean(item.retryable)
+    })),
+    failedModels: (Array.isArray(failureSource.failedModels)
+      ? failureSource.failedModels
+      : []
+    ).map((item) => ({
+      usageType: item.usageType || "",
+      provider: item.provider || "未知 Provider",
+      model: item.model || "未知模型",
+      total: Number(item.total) || 0,
+      failure: Number(item.failure) || 0,
+      failureRate: Number(item.failureRate) || 0
+    })),
+    failureDetails: Array.isArray(failureSource.failureDetails)
+      ? failureSource.failureDetails
+      : []
+  });
   return Object.assign(emptyUsageStats(), source, {
     today: Object.assign(emptyUsageCounter(), source.today || {}),
     last7d: Object.assign(emptyUsageCounter(), source.last7d || {}),
@@ -186,7 +232,8 @@ function formatUsageStats(result) {
     cards,
     daily,
     monthly,
-    users
+    users,
+    failureStats
   });
 }
 

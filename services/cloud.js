@@ -309,6 +309,56 @@ function uploadFile(filePath, folder) {
   });
 }
 
+function safeAssetFileName(filePath) {
+  return String(filePath || "image.jpg")
+    .split(/[\\/]/)
+    .pop()
+    .replace(/[^\w.\-\u4e00-\u9fa5]/g, "_");
+}
+
+function prepareAssetUpload(kind, filePath, options = {}) {
+  return callApi({
+    action: "prepareAssetUpload",
+    kind,
+    fileName: options.fileName || safeAssetFileName(filePath),
+    contentType: options.contentType || options.mime || "image/jpeg"
+  });
+}
+
+function registerAsset(ticket, fileID, kind) {
+  return callApi({
+    action: "registerAsset",
+    ticketId: ticket && (ticket.ticketId || ticket.id) || "",
+    fileID,
+    kind
+  });
+}
+
+async function uploadAsset(filePath, kind, options = {}) {
+  const ticket = await prepareAssetUpload(kind, filePath, options);
+  if (!ticket || !ticket.cloudPath) {
+    throw new Error("云端没有返回素材上传路径。");
+  }
+  const uploaded = await new Promise((resolve, reject) => {
+    wx.cloud.uploadFile({
+      cloudPath: ticket.cloudPath,
+      filePath,
+      success: resolve,
+      fail: reject
+    });
+  });
+  if (!uploaded || !uploaded.fileID) {
+    throw new Error("素材上传完成但没有返回 fileID。");
+  }
+  const registered = await registerAsset(ticket, uploaded.fileID, kind);
+  return Object.assign({}, uploaded, registered && registered.asset ? {
+    asset: registered.asset
+  } : {}, {
+    ticketId: ticket.ticketId || ticket.id || "",
+    kind
+  });
+}
+
 function getTempUrl(fileID) {
   return new Promise((resolve, reject) => {
     if (!isCloudReady() || !fileID) {
@@ -441,6 +491,9 @@ module.exports = {
   isCloudReady,
   callApi,
   uploadFile,
+  uploadAsset,
+  prepareAssetUpload,
+  registerAsset,
   getTempUrl,
   downloadFile,
   deleteFile,
@@ -458,6 +511,18 @@ module.exports = {
       action: "generate",
       payload,
       requestId: options.requestId || "",
+      retryLimit: options.maxRetries,
+      onRetry: options.onRetry
+    });
+  },
+  repairImage(payload, options = {}) {
+    return callApi({
+      action: "repairImage",
+      payload: Object.assign({}, payload, {
+        generationType: "repair",
+        mode: "edits"
+      }),
+      requestId: options.requestId || (payload && payload.requestId) || "",
       retryLimit: options.maxRetries,
       onRetry: options.onRetry
     });

@@ -90,6 +90,46 @@
         </view>
       </view>
 
+      <view class="usage-failure-panel">
+        <view class="usage-subsection-title usage-failure-heading">失败情况</view>
+        <view class="usage-failure-summary">
+          <view class="usage-failure-summary-item">
+            <text>失败次数</text>
+            <text>{{usageStats.failureStats.total}}</text>
+          </view>
+          <view class="usage-failure-summary-item">
+            <text>失败率</text>
+            <text>{{usageStats.failureStats.failureRate}}%</text>
+          </view>
+          <view class="usage-failure-summary-item usage-failure-summary-model">
+            <text>失败最多的模型</text>
+            <text wx:if="{{usageStats.failureStats.failedModels.length}}">
+              {{usageStats.failureStats.failedModels[0].provider}} / {{usageStats.failureStats.failedModels[0].model}}
+            </text>
+            <text wx:else>暂无失败</text>
+          </view>
+        </view>
+        <view wx:if="{{usageStats.failureStats.topFailureReasons.length}}" class="usage-failure-list">
+          <view class="usage-failure-list-title">失败原因前 5 名</view>
+          <view
+            wx:for="{{usageStats.failureStats.topFailureReasons}}"
+            wx:key="key"
+            class="usage-failure-row"
+          >
+            <view class="usage-failure-row-top">
+              <text class="usage-failure-label">{{index + 1}}. {{item.label}}</text>
+              <text class="usage-failure-count">{{item.count}} 次 · {{item.rate}}%</text>
+            </view>
+            <view class="usage-failure-row-detail">
+              <text>{{item.provider || '未知 Provider'}} / {{item.model || '未知模型'}}</text>
+              <text wx:if="{{item.status}}">HTTP {{item.status}}</text>
+              <text>{{item.retryable ? '可重试' : '不可重试'}}</text>
+            </view>
+          </view>
+        </view>
+        <view wx:else class="admin-empty usage-empty">最近统计范围内没有失败记录。</view>
+      </view>
+
       <view class="usage-daily-title">最近{{usageStats.days}}天每日明细</view>
       <scroll-view wx:if="{{usageStats.daily.length}}" class="usage-daily-list" scroll-y>
         <view wx:for="{{usageStats.daily}}" wx:key="dateKey" class="usage-daily-row">

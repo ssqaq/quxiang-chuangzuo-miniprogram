@@ -25,6 +25,7 @@ const jsFiles = [
   "utils/prompt.js",
   "utils/web-pose.js",
   "utils/mask.js",
+  "utils/repair.js",
   "utils/image.js",
   "utils/canvas-gesture.js",
   "utils/circle-gesture.js",
@@ -64,7 +65,8 @@ const jsFiles = [
   "scripts/generation-concurrency-smoke.js",
   "scripts/workbench-interaction-smoke.js",
   "scripts/model-usage-stats-smoke.js",
-  "scripts/model-cost-stats-smoke.js"
+  "scripts/model-cost-stats-smoke.js",
+  "scripts/model-failure-stats-smoke.js"
 ];
 const pythonFiles = ["scripts/package-release.py"];
 const powerShellFiles = [
@@ -302,6 +304,21 @@ if (
   || !cloudJs.includes("MODEL_COST_CONFIG_VERSION")
 ) {
   throw new Error("模型成本、按用户/模型、月度统计或 Excel 导出功能不完整。");
+}
+if (
+  !adminWxml.includes("失败情况")
+  || !adminWxml.includes("失败原因前 5 名")
+  || !adminWxml.includes("失败最多的模型")
+  || !adminWxss.includes(".usage-failure-panel")
+  || !adminWxss.includes(".usage-failure-summary")
+  || !adminWxss.includes(".usage-failure-row")
+  || !cloudJs.includes("failureStats")
+  || !cloudJs.includes("topFailureReasons")
+  || !cloudJs.includes("failureDetails")
+  || !cloudJs.includes("sanitizeFailureMessage")
+  || !cloudJs.includes('XLSX.utils.aoa_to_sheet(failureRows)')
+) {
+  throw new Error("模型调用失败统计、Top 5 原因或 Excel 失败明细功能不完整。");
 }
 if (
   !appJson.pages.includes("pages/points/points")

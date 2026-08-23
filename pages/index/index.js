@@ -106,6 +106,15 @@ function basename(path) {
   return String(path || "图片").split(/[\\/]/).pop() || "图片";
 }
 
+function assetKindForFolder(folder) {
+  const value = String(folder || "");
+  if (value === "main") return "main";
+  if (value === "masks") return "mask";
+  if (value.includes("faces")) return "face";
+  if (value.includes("wardrobe")) return "wardrobe";
+  return "";
+}
+
 function chooseImages(count) {
   return new Promise((resolve, reject) => {
     wx.chooseMedia({
@@ -1805,7 +1814,13 @@ Page({
         return currentState.promise;
       }
       const state = { key, promise: null };
-      state.promise = cloud.uploadFile(prepared.path, folder)
+      const upload = typeof cloud.uploadAsset === "function" && assetKindForFolder(folder)
+        ? cloud.uploadAsset(prepared.path, assetKindForFolder(folder), {
+          fileName: prepared.name || basename(prepared.path),
+          contentType: prepared.type || "image/jpeg"
+        })
+        : cloud.uploadFile(prepared.path, folder);
+      state.promise = Promise.resolve(upload)
         .then((upload) => Object.assign({}, prepared, { fileID: upload.fileID }))
         .catch((error) => {
           if (this._mainImageUploadState === state) this._mainImageUploadState = null;
@@ -1814,7 +1829,12 @@ Page({
       this._mainImageUploadState = state;
       return state.promise;
     }
-    const upload = await cloud.uploadFile(prepared.path, folder);
+    const upload = typeof cloud.uploadAsset === "function" && assetKindForFolder(folder)
+      ? await cloud.uploadAsset(prepared.path, assetKindForFolder(folder), {
+        fileName: prepared.name || basename(prepared.path),
+        contentType: prepared.type || "image/jpeg"
+      })
+      : await cloud.uploadFile(prepared.path, folder);
     return Object.assign({}, prepared, { fileID: upload.fileID });
   },
 
@@ -2078,11 +2098,14 @@ Page({
       });
       const result = await cloud.generateImage(
         {
+          generationType: "normal",
+          mode: "generations",
           projectName: project.projectName,
           prompt: submittedPrompt,
           negativePrompt: project.negativePrompt,
           mainFileID: project.mainImage && project.mainImage.fileID,
           maskFileID: project.maskFileID || "",
+          maskGeometry: project.maskCircle || {},
           faceFileIDs: project.faceRefs.map((item) => item.fileID).filter(Boolean),
           wardrobeFileIDs: project.wardrobeRefs.map((item) => item.fileID).filter(Boolean),
           size: "1024x1024"
@@ -2121,7 +2144,17 @@ Page({
         tempFileURL: result.tempFileURL || "",
         projectName: project.projectName,
         prompt: submittedPrompt,
-        createdAt: result.createdAt || new Date().toISOString()
+        createdAt: result.createdAt || new Date().toISOString(),
+        generationType: "normal",
+        revisionNumber: 0,
+        repairContext: Object.assign({
+          sourceFileID: result.fileID || "",
+          mainInputFileID: project.mainImage && project.mainImage.fileID || "",
+          maskFileID: project.maskFileID || "",
+          maskGeometry: project.maskCircle || {},
+          faceFileIDs: project.faceRefs.map((item) => item.fileID).filter(Boolean),
+          wardrobeFileIDs: project.wardrobeRefs.map((item) => item.fileID).filter(Boolean)
+        }, result.record && result.record.repairContext || {})
       });
       const records = [record].concat(this.data.records || []).slice(0, 50);
       const nextProject = Object.assign({}, project, {

@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.19.0";
-const API_BUILD_MARKER = "API_BUILD_TAG_20260823_GENERATION_STATE_MACHINE_V190";
+const API_BUILD_VERSION = "0.20.0";
+const API_BUILD_MARKER = "API_BUILD_TAG_20260823_LOCAL_REPAIR_V200";
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
 const cloud = require("wx-server-sdk");
@@ -30,6 +30,12 @@ const USER_QUOTA_COLLECTION = "user_quotas";
 const GENERATION_OPERATION_COLLECTION = "generation_operations";
 const POINTS_TIME_ZONE = "Asia/Shanghai";
 const GENERATION_OPERATION_STALE_MS = 10 * 60 * 1000;
+const ASSET_UPLOAD_TICKET_COLLECTION = "asset_upload_tickets";
+const USER_ASSET_COLLECTION = "user_assets";
+const REPAIR_CHAIN_COLLECTION = "repair_chains";
+const REPAIR_MAX_REVISIONS = 10;
+const ASSET_TICKET_TTL_MS = 10 * 60 * 1000;
+const REPAIR_ASSET_KINDS = new Set(["main", "mask", "face", "wardrobe"]);
 let adminRuntimeCache = {
   value: null,
   expiresAt: 0
@@ -714,6 +720,82 @@ function compactUsageText(value, maxLength = 120) {
   return String(value || "").replace(/\s+/g, " ").trim().slice(0, maxLength);
 }
 
+function sanitizeFailureMessage(value, maxLength = 180) {
+  return compactUsageText(value, maxLength)
+    .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [已隐藏]")
+    .replace(/https?:\/\/\S+/gi, "[地址已隐藏]")
+    .replace(/((?:api[_-]?key|authorization|token)\s*[:=]\s*)\S+/gi, "$1[已隐藏]")
+    .slice(0, maxLength);
+}
+
+function normalizeFailureCode(value, status = 0) {
+  const code = compactUsageText(value, 80)
+    .replace(/[^A-Za-z0-9._:-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  if (code) return code;
+  return Number(status) > 0 ? `http-${Number(status)}` : "model-request-failed";
+}
+
+function failureReasonKey(event = {}) {
+  if (event.errorCode) return `code:${event.errorCode}`;
+  if (event.errorStatus) return `http:${event.errorStatus}`;
+  if (event.errorMessage) return `message:${event.errorMessage}`;
+  return "unknown";
+}
+
+function failureReasonLabel(event = {}) {
+  if (event.errorMessage && event.errorCode) {
+    return `${event.errorCode}：${event.errorMessage}`;
+  }
+  if (event.errorMessage) return event.errorMessage;
+  if (event.errorCode) return event.errorCode;
+  if (event.errorStatus) return `HTTP ${event.errorStatus}`;
+  return "未提供错误原因";
+}
+
+function failureDetailsFromResponse(response = {}, retryable = false) {
+  const payload = response && response.json ? response.json : {};
+  const nestedError = payload && payload.error;
+  return {
+    errorCode: normalizeFailureCode(
+      (nestedError && (nestedError.code || nestedError.type))
+        || (payload && (payload.code || payload.error_code)),
+      response && response.status
+    ),
+    errorMessage: sanitizeFailureMessage(
+      (nestedError && nestedError.message)
+        || (payload && payload.message)
+        || (response && response.raw)
+        || ""
+    ),
+    errorStatus: Math.max(0, Number(response && response.status) || 0),
+    retryable: Boolean(retryable),
+    failedAt: new Date()
+  };
+}
+
+function failureDetailsFromError(error = {}, retryable = false) {
+  const payload = error && error.payload ? error.payload : {};
+  const nestedError = payload && payload.error;
+  return {
+    errorCode: normalizeFailureCode(
+      error && error.code
+        || (nestedError && (nestedError.code || nestedError.type))
+        || (payload && (payload.code || payload.error_code)),
+      error && error.status
+    ),
+    errorMessage: sanitizeFailureMessage(
+      error && error.message
+        || (nestedError && nestedError.message)
+        || (payload && payload.message)
+        || ""
+    ),
+    errorStatus: Math.max(0, Number(error && error.status) || 0),
+    retryable: Boolean(retryable),
+    failedAt: new Date()
+  };
+}
+
 function usageUserHash(openid) {
   const value = String(openid || "").trim();
   if (!value || value === "anonymous") return "anonymous";
@@ -740,6 +822,7 @@ function normalizeModelUsageEvent(value = {}) {
   );
   const videoDurationSeconds = Math.max(0, Number(value.videoDurationSeconds) || 0);
   const estimatedCost = Math.max(0, Number(value.estimatedCost) || 0);
+  const success = Boolean(value.success);
   return {
     requestId: compactUsageText(value.requestId, 100),
     userHash: compactUsageText(value.userHash, 40) || "anonymous",
@@ -750,10 +833,19 @@ function normalizeModelUsageEvent(value = {}) {
     dateKey: /^\d{4}-\d{2}-\d{2}$/.test(String(value.dateKey || ""))
       ? String(value.dateKey)
       : dateKeyForTimeZone(createdAt, MODEL_USAGE_TIME_ZONE),
-    success: Boolean(value.success),
+    success,
     status,
     durationMs: Math.max(0, Math.round(Number(value.durationMs) || 0)),
     attempt: Math.max(1, Math.round(Number(value.attempt) || 1)),
+    errorCode: success ? "" : normalizeFailureCode(value.errorCode, value.errorStatus || status),
+    errorMessage: success ? "" : sanitizeFailureMessage(value.errorMessage),
+    errorStatus: success
+      ? 0
+      : Math.max(0, Number(value.errorStatus || status) || 0),
+    retryable: !success && Boolean(value.retryable),
+    failedAt: !success
+      ? (value.failedAt instanceof Date ? value.failedAt : new Date(value.failedAt || createdAt))
+      : null,
     billingSource,
     currency: compactUsageText(value.currency, 8) || "CNY",
     inputTokens,
@@ -869,6 +961,58 @@ function addUsageEvent(target, event) {
   addUsageCost(target, event);
 }
 
+function failureDetailFromEvent(event = {}) {
+  return {
+    dateKey: event.dateKey || "",
+    createdAt: event.createdAt instanceof Date
+      ? event.createdAt.toISOString()
+      : String(event.createdAt || ""),
+    usageType: event.usageType || "",
+    provider: event.provider || "",
+    model: event.model || "",
+    requestId: event.requestId || "",
+    errorCode: event.errorCode || "",
+    errorMessage: event.errorMessage || "",
+    errorStatus: Number(event.errorStatus) || 0,
+    retryable: Boolean(event.retryable),
+    attempt: Math.max(1, Number(event.attempt) || 1),
+    durationMs: Math.max(0, Number(event.durationMs) || 0)
+  };
+}
+
+function buildFailureStats(reasonMap, modelMap, details, total, failure) {
+  const failureCount = Math.max(0, Number(failure) || 0);
+  const totalCount = Math.max(0, Number(total) || 0);
+  const reasons = Object.values(reasonMap || {})
+    .map((item) => Object.assign({}, item, {
+      rate: failureCount ? Number((item.count / failureCount * 100).toFixed(2)) : 0
+    }))
+    .sort((left, right) => {
+      if (right.count !== left.count) return right.count - left.count;
+      return String(right.lastSeen || "").localeCompare(String(left.lastSeen || ""));
+    });
+  const failedModels = Object.values(modelMap || {})
+    .map((item) => Object.assign({}, item, {
+      failureRate: item.total
+        ? Number((item.failure / item.total * 100).toFixed(2))
+        : 0
+    }))
+    .filter((item) => item.failure > 0)
+    .sort((left, right) => {
+      if (right.failure !== left.failure) return right.failure - left.failure;
+      return right.total - left.total;
+    })
+    .slice(0, 20);
+  return {
+    total: failureCount,
+    failureRate: totalCount ? Number((failureCount / totalCount * 100).toFixed(2)) : 0,
+    topFailureReasons: reasons.slice(0, 5),
+    failedModels,
+    failureDetails: (Array.isArray(details) ? details : [])
+      .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)))
+  };
+}
+
 function monthKeyFromDateKey(dateKey) {
   return /^\d{4}-\d{2}-\d{2}$/.test(String(dateKey || ""))
     ? String(dateKey).slice(0, 7)
@@ -897,6 +1041,8 @@ function aggregateModelUsageEvents(events = [], days = 30, now = new Date()) {
   const monthlyMap = {};
   const modelMap = {};
   const userMap = {};
+  const failureReasonMap = {};
+  const failureDetails = [];
 
   for (let offset = 0; offset < rangeDays; offset += 1) {
     const dateKey = shiftDateKey(todayKey, -offset);
@@ -963,9 +1109,40 @@ function aggregateModelUsageEvents(events = [], days = 30, now = new Date()) {
       }
       addUsageEvent(userMap[userKey], event);
       addUsageEvent(userMap[userKey].byType[event.usageType], event);
+      if (!event.success) {
+        const reasonKey = failureReasonKey(event);
+        if (!failureReasonMap[reasonKey]) {
+          failureReasonMap[reasonKey] = {
+            key: reasonKey,
+            code: event.errorCode || "",
+            label: failureReasonLabel(event),
+            count: 0,
+            lastSeen: "",
+            usageType: event.usageType || "",
+            provider: event.provider || "",
+            model: event.model || "",
+            status: Number(event.errorStatus) || 0,
+            retryable: Boolean(event.retryable)
+          };
+        }
+        const reason = failureReasonMap[reasonKey];
+        reason.count += 1;
+        reason.lastSeen = event.createdAt instanceof Date
+          ? event.createdAt.toISOString()
+          : String(event.createdAt || "");
+        if (!reason.label || reason.label === "未提供错误原因") {
+          reason.label = failureReasonLabel(event);
+        }
+        failureDetails.push(failureDetailFromEvent(event));
+      }
     }
   });
 
+  const models = Object.values(modelMap).sort((left, right) => right.total - left.total);
+  const rangeTotal = Object.values(summary)
+    .reduce((total, counter) => total + counter.total, 0);
+  const rangeFailure = Object.values(summary)
+    .reduce((total, counter) => total + counter.failure, 0);
   return {
     timeZone: MODEL_USAGE_TIME_ZONE,
     days: rangeDays,
@@ -988,7 +1165,14 @@ function aggregateModelUsageEvents(events = [], days = 30, now = new Date()) {
     daily: Object.keys(dailyMap)
       .sort((left, right) => right.localeCompare(left))
       .map((dateKey) => dailyMap[dateKey]),
-    models: Object.values(modelMap).sort((left, right) => right.total - left.total)
+    models,
+    failureStats: buildFailureStats(
+      failureReasonMap,
+      modelMap,
+      failureDetails,
+      rangeTotal,
+      rangeFailure
+    )
   };
 }
 
@@ -1097,23 +1281,28 @@ async function requestWithRetry(url, options = {}, body = null, meta = {}) {
       const retryable = retryStatuses
         ? retryStatuses.has(Number(response.status))
         : shouldRetryStatus(response.status);
-      const billing = buildUsageBilling(
-        meta,
-        response,
-        meta.costs || resolveCostConfig()
-      );
-      await recordModelUsageEvent({
-        requestId: meta.requestId,
-        userHash: meta.userHash,
-        action: meta.action,
-        provider: meta.provider,
-        model: meta.model,
-        success: response.status >= 200 && response.status < 300,
-        status: response.status,
-        durationMs,
-        attempt,
-        ...billing
-      });
+      const success = response.status >= 200 && response.status < 300;
+      const shouldRetry = !success && retryable && attempt < maxAttempts;
+      if (!shouldRetry) {
+        const billing = buildUsageBilling(
+          meta,
+          response,
+          meta.costs || resolveCostConfig()
+        );
+        await recordModelUsageEvent({
+          requestId: meta.requestId,
+          userHash: meta.userHash,
+          action: meta.action,
+          provider: meta.provider,
+          model: meta.model,
+          success,
+          status: response.status,
+          durationMs,
+          attempt,
+          ...(success ? {} : failureDetailsFromResponse(response, retryable)),
+          ...billing
+        });
+      }
       log("info", "upstream.response", {
         requestId: meta.requestId,
         action: meta.action,
@@ -1137,23 +1326,27 @@ async function requestWithRetry(url, options = {}, body = null, meta = {}) {
       const retryable = error && error.retryable !== undefined
         ? Boolean(error.retryable)
         : true;
-      const billing = buildUsageBilling(
-        meta,
-        { json: error && error.payload },
-        meta.costs || resolveCostConfig()
-      );
-      await recordModelUsageEvent({
-        requestId: meta.requestId,
-        userHash: meta.userHash,
-        action: meta.action,
-        provider: meta.provider,
-        model: meta.model,
-        success: false,
-        status: error && error.status,
-        durationMs,
-        attempt,
-        ...billing
-      });
+      const shouldRetry = allowRetry && retryable && attempt < maxAttempts;
+      if (!shouldRetry) {
+        const billing = buildUsageBilling(
+          meta,
+          { json: error && error.payload },
+          meta.costs || resolveCostConfig()
+        );
+        await recordModelUsageEvent({
+          requestId: meta.requestId,
+          userHash: meta.userHash,
+          action: meta.action,
+          provider: meta.provider,
+          model: meta.model,
+          success: false,
+          status: error && error.status,
+          durationMs,
+          attempt,
+          ...failureDetailsFromError(error, retryable),
+          ...billing
+        });
+      }
       log("warn", "upstream.error", {
         requestId: meta.requestId,
         action: meta.action,
@@ -2236,6 +2429,41 @@ function buildModelUsageExportWorkbook(stats = {}) {
   });
   XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(monthlyRows), "按月份");
 
+  const failureRows = [[
+    "日期",
+    "时间",
+    "功能",
+    "Provider",
+    "模型",
+    "请求编号",
+    "错误代码",
+    "失败原因",
+    "HTTP状态码",
+    "是否可重试",
+    "尝试次数",
+    "耗时（毫秒）"
+  ]];
+  (Array.isArray(stats.failureStats && stats.failureStats.failureDetails)
+    ? stats.failureStats.failureDetails
+    : []
+  ).forEach((item) => {
+    failureRows.push([
+      item.dateKey || "",
+      item.createdAt || "",
+      item.usageType || "",
+      item.provider || "",
+      item.model || "",
+      item.requestId || "",
+      item.errorCode || "",
+      item.errorMessage || "未提供错误原因",
+      Number(item.errorStatus) || 0,
+      item.retryable ? "是" : "否",
+      Math.max(1, Number(item.attempt) || 1),
+      Math.max(0, Number(item.durationMs) || 0)
+    ]);
+  });
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(failureRows), "失败明细");
+
   return XLSX.write(workbook, {
     bookType: "xlsx",
     type: "buffer"
@@ -2647,7 +2875,7 @@ async function requestImageEdits(
     }
   }, multipart.body, {
     requestId,
-    action: "generate",
+    action: payload.__action || "repairImage",
     provider: imageConfig.provider || "",
     model: imageConfig.model || "",
     imageGeneration: true,
@@ -2716,6 +2944,56 @@ function generationOperationId(openid, requestId) {
     .slice(0, 32);
 }
 
+function repairRecordId(openid, requestId) {
+  return crypto.createHash("sha256")
+    .update(`repair-record:${openid}:${requestId}`)
+    .digest("hex")
+    .slice(0, 32);
+}
+
+function repairChainId(openid, rootRecordId) {
+  return crypto.createHash("sha256")
+    .update(`repair-chain:${openid}:${rootRecordId}`)
+    .digest("hex")
+    .slice(0, 32);
+}
+
+function assetTicketId(openid, ticketId) {
+  return crypto.createHash("sha256")
+    .update(`asset-ticket:${openid}:${ticketId}`)
+    .digest("hex")
+    .slice(0, 32);
+}
+
+function userAssetId(openid, fileID) {
+  return crypto.createHash("sha256")
+    .update(`user-asset:${openid}:${fileID}`)
+    .digest("hex")
+    .slice(0, 32);
+}
+
+function normalizeAssetKind(kind) {
+  const value = String(kind || "").trim().toLowerCase();
+  return REPAIR_ASSET_KINDS.has(value) ? value : "";
+}
+
+function normalizeCloudPath(fileID) {
+  return String(fileID || "")
+    .replace(/^cloud:\/\/[^/]+\/?/, "")
+    .replace(/^\/+/, "");
+}
+
+function safeAssetName(value) {
+  const name = String(value || "image.jpg").split(/[\\/]/).pop();
+  return name.replace(/[^\w.\-\u4e00-\u9fa5]/g, "_").slice(-120) || "image.jpg";
+}
+
+function assetPathMatches(fileID, cloudPath) {
+  const actual = normalizeCloudPath(fileID);
+  const expected = String(cloudPath || "").replace(/^\/+/, "");
+  return Boolean(actual && expected && (actual === expected || actual.endsWith(`/${expected}`)));
+}
+
 function defaultPointsAccount(openid) {
   return {
     _id: pointsAccountId(openid),
@@ -2748,6 +3026,127 @@ async function readDocument(ref) {
   } catch (error) {
     if (isDocumentNotFoundError(error)) return null;
     throw error;
+  }
+}
+
+async function prepareAssetUpload(event, context) {
+  const openid = getOpenId(context);
+  if (openid === "anonymous") return fail("请先完成微信授权后再上传素材。", "wechat-binding-required");
+  const kind = normalizeAssetKind(event.kind);
+  if (!kind) return fail("不支持的素材类型。", "invalid-asset-kind");
+  const ticketId = `${Date.now().toString(36)}-${crypto.randomBytes(8).toString("hex")}`;
+  const ownerHash = crypto.createHash("sha256").update(openid).digest("hex").slice(0, 24);
+  const fileName = safeAssetName(event.fileName);
+  const cloudPath = `assets/${ownerHash}/${kind}/${Date.now()}-${crypto.randomBytes(4).toString("hex")}-${fileName}`;
+  const expiresAt = new Date(Date.now() + ASSET_TICKET_TTL_MS);
+  const data = {
+    _id: assetTicketId(openid, ticketId),
+    ticketId,
+    openid,
+    kind,
+    cloudPath,
+    contentType: String(event.contentType || "image/jpeg").slice(0, 80),
+    createdAt: new Date(),
+    expiresAt,
+    used: false
+  };
+  await db.collection(ASSET_UPLOAD_TICKET_COLLECTION).doc(data._id).set({ data });
+  return jsonResponse(true, {
+    ticketId,
+    kind,
+    cloudPath,
+    expiresAt: expiresAt.toISOString()
+  });
+}
+
+async function registerAsset(event, context) {
+  const openid = getOpenId(context);
+  if (openid === "anonymous") return fail("请先完成微信授权后再登记素材。", "wechat-binding-required");
+  const ticketId = String(event.ticketId || "").trim();
+  const fileID = String(event.fileID || "").trim();
+  const kind = normalizeAssetKind(event.kind);
+  if (!ticketId || !fileID || !kind) return fail("素材登记参数不完整。", "invalid-asset-registration");
+  const ticketDocId = assetTicketId(openid, ticketId);
+  const asset = await db.runTransaction(async (transaction) => {
+    const ticketRef = transaction.collection(ASSET_UPLOAD_TICKET_COLLECTION).doc(ticketDocId);
+    const ticket = await readDocument(ticketRef);
+    if (!ticket || ticket.openid !== openid) {
+      const error = new Error("素材上传票据不存在或已失效。");
+      error.code = "asset-ticket-invalid";
+      throw error;
+    }
+    if (ticket.used) {
+      const error = new Error("素材上传票据已经使用过。");
+      error.code = "asset-ticket-used";
+      throw error;
+    }
+    if (ticket.expiresAt && new Date(ticket.expiresAt).getTime() < Date.now()) {
+      const error = new Error("素材上传票据已过期，请重新选择图片。");
+      error.code = "asset-ticket-expired";
+      throw error;
+    }
+    if (ticket.kind !== kind || !assetPathMatches(fileID, ticket.cloudPath)) {
+      const error = new Error("上传文件与素材票据不匹配。");
+      error.code = "asset-file-mismatch";
+      throw error;
+    }
+    const assetId = userAssetId(openid, fileID);
+    const assetRef = transaction.collection(USER_ASSET_COLLECTION).doc(assetId);
+    const existing = await readDocument(assetRef);
+    const next = Object.assign({}, existing || {}, {
+      _id: assetId,
+      openid,
+      fileID,
+      kind,
+      cloudPath: ticket.cloudPath,
+      refCount: Math.max(0, Number(existing && existing.refCount) || 0),
+      temporary: false,
+      createdAt: existing && existing.createdAt || new Date(),
+      updatedAt: new Date()
+    });
+    await assetRef.set({ data: next });
+    await ticketRef.update({
+      data: {
+        used: true,
+        fileID,
+        assetId,
+        registeredAt: new Date()
+      }
+    });
+    return next;
+  }, 5);
+  return jsonResponse(true, { asset });
+}
+
+async function findUserAsset(openid, fileID, kind, store = db) {
+  const normalizedKind = normalizeAssetKind(kind);
+  const asset = await readDocument(
+    store.collection(USER_ASSET_COLLECTION).doc(userAssetId(openid, fileID))
+  );
+  if (
+    !asset
+    || asset.openid !== openid
+    || asset.fileID !== fileID
+    || (normalizedKind && asset.kind !== normalizedKind)
+  ) {
+    const error = new Error("参考素材尚未完成云端登记，请重新选择后再试。");
+    error.code = "asset-not-registered";
+    throw error;
+  }
+  return asset;
+}
+
+async function retainUserAssets(openid, fileIDs, kind, store = db) {
+  const ids = Array.from(new Set((Array.isArray(fileIDs) ? fileIDs : []).filter(Boolean)));
+  for (const fileID of ids) {
+    const asset = await findUserAsset(openid, fileID, kind, store);
+    const ref = store.collection(USER_ASSET_COLLECTION).doc(asset._id);
+    await ref.update({
+      data: {
+        refCount: Math.max(0, Number(asset.refCount) || 0) + 1,
+        updatedAt: new Date()
+      }
+    });
   }
 }
 
@@ -3367,10 +3766,126 @@ async function findGenerationRecord(openid, requestId) {
   }
 }
 
+async function readGenerationRecord(recordId, store = db) {
+  if (!recordId) return null;
+  return readDocument(store.collection("generation_records").doc(String(recordId)));
+}
+
+function revisionConflictError(message = "这条结果已经被其他修正任务更新，请刷新后从最新结果继续。") {
+  const error = new Error(message);
+  error.code = "REVISION_CONFLICT";
+  error.retryable = false;
+  return error;
+}
+
+async function claimRepairChain(openid, parentRecord, requestId) {
+  const parentId = String(parentRecord && (parentRecord._id || parentRecord.id) || "");
+  const parentRevision = Math.max(0, Number(parentRecord && parentRecord.revisionNumber) || 0);
+  const rootRecordId = parentRecord && parentRecord.generationType === "repair"
+    ? String(parentRecord.rootRecordId || parentRecord.parentRecordId || parentId)
+    : parentId;
+  const chainId = repairChainId(openid, rootRecordId);
+  const revisionNumber = parentRevision + 1;
+  if (revisionNumber > REPAIR_MAX_REVISIONS) {
+    const error = new Error(`单条修正链最多支持 ${REPAIR_MAX_REVISIONS} 次修正。`);
+    error.code = "repair-limit-reached";
+    throw error;
+  }
+  return db.runTransaction(async (transaction) => {
+    const ref = transaction.collection(REPAIR_CHAIN_COLLECTION).doc(chainId);
+    const existing = await readDocument(ref);
+    const chain = Object.assign({
+      _id: chainId,
+      openid,
+      rootRecordId,
+      tailRecordId: parentId,
+      tailRevision: parentRevision,
+      pendingRequestId: "",
+      pendingParentId: "",
+      pendingRevision: 0,
+      createdAt: new Date()
+    }, existing || {});
+    if (chain.pendingRequestId && chain.pendingRequestId !== requestId) {
+      throw revisionConflictError("这条结果正在被其他修正任务处理，请稍后刷新。");
+    }
+    if (
+      chain.tailRecordId !== parentId
+      || Number(chain.tailRevision) !== parentRevision
+    ) {
+      throw revisionConflictError();
+    }
+    const next = Object.assign({}, chain, {
+      rootRecordId,
+      pendingRequestId: requestId,
+      pendingParentId: parentId,
+      pendingRevision: revisionNumber,
+      updatedAt: new Date()
+    });
+    await ref.set({ data: next });
+    return {
+      chainId,
+      rootRecordId,
+      parentRecordId: parentId,
+      revisionNumber,
+      requestId
+    };
+  }, 5);
+}
+
+async function completeRepairChain(slot, recordId) {
+  if (!slot || !slot.chainId) return;
+  await db.runTransaction(async (transaction) => {
+    const ref = transaction.collection(REPAIR_CHAIN_COLLECTION).doc(slot.chainId);
+    const chain = await readDocument(ref);
+    if (!chain) return;
+    if (chain.pendingRequestId && chain.pendingRequestId !== slot.requestId) {
+      throw revisionConflictError("修正链状态已被其他请求占用。");
+    }
+    await ref.set({
+      data: Object.assign({}, chain, {
+        tailRecordId: recordId,
+        tailRevision: slot.revisionNumber,
+        pendingRequestId: "",
+        pendingParentId: "",
+        pendingRevision: 0,
+        updatedAt: new Date()
+      })
+    });
+  }, 5);
+}
+
+async function releaseRepairChain(slot) {
+  if (!slot || !slot.chainId) return;
+  try {
+    await db.runTransaction(async (transaction) => {
+      const ref = transaction.collection(REPAIR_CHAIN_COLLECTION).doc(slot.chainId);
+      const chain = await readDocument(ref);
+      if (!chain || chain.pendingRequestId !== slot.requestId) return;
+      await ref.set({
+        data: Object.assign({}, chain, {
+          pendingRequestId: "",
+          pendingParentId: "",
+          pendingRevision: 0,
+          updatedAt: new Date()
+        })
+      });
+    }, 5);
+  } catch (error) {
+    log("warn", "repair.chain_release_failed", {
+      requestId: slot.requestId,
+      chainId: slot.chainId,
+      message: error && error.message
+    });
+  }
+}
+
 async function generate(event, context) {
   const payload = event.payload || {};
   const openid = getOpenId(context);
   if (!payload.prompt || !String(payload.prompt).trim()) return fail("提示词不能为空。", "empty-prompt");
+  if (payload.generationType === "repair" || payload.mode === "edits") {
+    return fail("普通生图接口不接受局部修正请求，请改用 repairImage。", "repair-action-required");
+  }
   const configs = await resolveEffectiveConfigs();
   const imageConfig = configs.image;
   const costs = configs.costs;
@@ -3380,13 +3895,7 @@ async function generate(event, context) {
     "missing-api-key"
   );
 
-  const mode = imageConfig.mode.trim().toLowerCase();
-  if (!["generations", "edits"].includes(mode)) {
-    return fail(`不支持的图片模式：${mode}`, "unsupported-image-mode");
-  }
-  if (mode === "edits" && (!payload.mainFileID || !payload.maskFileID)) {
-    return fail("编辑模式需要主图和 mask 文件，请重新圈选后再提交。", "missing-edit-asset");
-  }
+  const mode = "generations";
 
   const requestId = event.requestId;
   const model = imageConfig.model;
@@ -3442,39 +3951,28 @@ async function generate(event, context) {
     }
     claimed = true;
     let response;
-    if (mode === "edits") {
-      response = await requestImageEdits(
-        Object.assign({}, payload, { prompt }),
-        apiKey,
-        requestId,
-        imageConfig,
-        costs,
-        usageUserHash(openid)
-      );
-    } else {
-      const url = imageConfig.endpoint || endpoint(imageConfig.baseUrl, "images/generations");
-      const body = {
-        model,
-        prompt,
-        size,
-        n: 1
-      };
-      response = await requestJson(url, body, apiKey, {
-        "Idempotency-Key": requestId
-      }, {
-        requestId,
-        action: "generate",
-        provider: imageConfig.provider || "",
-        model,
-        imageGeneration: true,
-        allowRetry: imageConfig.retryEnabled,
-        maxAttempts: imageConfig.retryEnabled ? imageConfig.maxRetries + 1 : 1,
-        timeoutMs: imageConfig.timeoutMs,
-        costs,
-        userHash: usageUserHash(openid),
-        imageResolution: size
-      });
-    }
+    const url = imageConfig.endpoint || endpoint(imageConfig.baseUrl, "images/generations");
+    const body = {
+      model,
+      prompt,
+      size,
+      n: 1
+    };
+    response = await requestJson(url, body, apiKey, {
+      "Idempotency-Key": requestId
+    }, {
+      requestId,
+      action: "generate",
+      provider: imageConfig.provider || "",
+      model,
+      imageGeneration: true,
+      allowRetry: imageConfig.retryEnabled,
+      maxAttempts: imageConfig.retryEnabled ? imageConfig.maxRetries + 1 : 1,
+      timeoutMs: imageConfig.timeoutMs,
+      costs,
+      userHash: usageUserHash(openid),
+      imageResolution: size
+    });
     const image = extractImageItem(response);
     if (!image) {
       const error = new Error("图片接口没有返回图片。");
@@ -3508,7 +4006,23 @@ async function generate(event, context) {
       quotaUsed: billing.quota.freeUsed,
       dailyLimit: billing.quota.freeLimit,
       billingSource: billing.source,
-      pointsCharged: billing.pointsCharged
+      pointsCharged: billing.pointsCharged,
+      generationType: "normal",
+      revisionNumber: 0,
+      repairContext: {
+        sourceFileID: fileID.fileID,
+        mainInputFileID: String(payload.mainFileID || ""),
+        maskFileID: String(payload.maskFileID || ""),
+        maskGeometry: payload.maskGeometry && typeof payload.maskGeometry === "object"
+          ? payload.maskGeometry
+          : {},
+        faceFileIDs: Array.isArray(payload.faceFileIDs)
+          ? payload.faceFileIDs.filter(Boolean).slice(0, 6)
+          : [],
+        wardrobeFileIDs: Array.isArray(payload.wardrobeFileIDs)
+          ? payload.wardrobeFileIDs.filter(Boolean).slice(0, 12)
+          : []
+      }
     };
     const saved = await db.collection("generation_records").add({ data: recordData });
     resultPersisted = true;
@@ -3536,6 +4050,253 @@ async function generate(event, context) {
           await refundUsage(openid, requestId, "生图失败，已退回本次使用额度");
         }
       }
+    }
+    throw error;
+  }
+}
+
+async function repairImage(event, context) {
+  const payload = event.payload || {};
+  const openid = getOpenId(context);
+  if (payload.generationType !== "repair" || payload.mode !== "edits") {
+    return fail("局部修正请求必须使用 generationType=repair 和 mode=edits。", "invalid-repair-request");
+  }
+  const repairPrompt = String(payload.prompt || "").trim();
+  if (!repairPrompt) return fail("修正指令不能为空。", "empty-repair-prompt");
+  const parentRecordId = String(payload.parentRecordId || "").trim();
+  const sourceFileID = String(payload.sourceFileID || payload.mainFileID || "").trim();
+  const maskFileID = String(payload.maskFileID || "").trim();
+  if (!parentRecordId || !sourceFileID || !maskFileID) {
+    return fail("局部修正需要父记录、当前结果图和重新确认的 mask。", "missing-edit-asset");
+  }
+  const configs = await resolveEffectiveConfigs();
+  const imageConfig = Object.assign({}, configs.image, {
+    mode: "edits",
+    endpoint: env("AI_IMAGE_EDIT_ENDPOINT") || configs.image.endpoint
+  });
+  const costs = configs.costs;
+  if (!imageConfig.apiKey) {
+    return fail(
+      "云函数还没有配置 AI_IMAGE_API_KEY（兼容旧配置 AI_API_KEY）。",
+      "missing-api-key"
+    );
+  }
+
+  const requestId = event.requestId;
+  const existingRecord = await findGenerationRecord(openid, requestId);
+  if (existingRecord) {
+    return jsonResponse(true, {
+      recordId: existingRecord._id || existingRecord.id,
+      fileID: existingRecord.fileID || "",
+      tempFileURL: existingRecord.tempFileURL || "",
+      createdAt: existingRecord.createdAt instanceof Date
+        ? existingRecord.createdAt.toISOString()
+        : String(existingRecord.createdAt || ""),
+      record: Object.assign({}, existingRecord, {
+        id: existingRecord._id || existingRecord.id
+      }),
+      deduplicated: true
+    });
+  }
+
+  const parentRecord = await readGenerationRecord(parentRecordId);
+  if (!parentRecord || parentRecord.openid !== openid) {
+    return fail("找不到可修正的父记录。", "parent-record-not-found");
+  }
+  if (parentRecord.isTombstone || !parentRecord.fileID) {
+    return fail("父记录的结果图已被删除，无法继续修正。", "parent-result-deleted");
+  }
+  if (String(parentRecord.fileID) !== sourceFileID) {
+    const error = revisionConflictError("当前结果不是这条修正链的最新结果，请刷新后重试。");
+    return fail(error.message, error.code);
+  }
+
+  const faceFileIDs = Array.from(new Set(
+    (Array.isArray(payload.faceFileIDs) ? payload.faceFileIDs : [])
+      .filter(Boolean)
+      .slice(0, 6)
+  ));
+  const wardrobeFileIDs = Array.from(new Set(
+    (Array.isArray(payload.wardrobeFileIDs) ? payload.wardrobeFileIDs : [])
+      .filter(Boolean)
+      .slice(0, 12)
+  ));
+  await findUserAsset(openid, maskFileID, "mask");
+  for (const fileID of faceFileIDs) await findUserAsset(openid, fileID, "face");
+  for (const fileID of wardrobeFileIDs) await findUserAsset(openid, fileID, "wardrobe");
+
+  let billing = null;
+  let claimed = false;
+  let chainSlot = null;
+  let resultPersisted = false;
+  try {
+    billing = await reserveUsage(openid, requestId, "image");
+    const claim = billing.untracked
+      ? { claimed: true, operation: null, completed: false }
+      : await claimGenerationOperation(openid, requestId, "image");
+    if (claim.completed && claim.operation && claim.operation.result) {
+      return jsonResponse(true, Object.assign({}, claim.operation.result, {
+        deduplicated: true,
+        billing
+      }));
+    }
+    if (!claim.claimed) throw operationStateError(claim.operation);
+    claimed = true;
+    chainSlot = await claimRepairChain(openid, parentRecord, requestId);
+
+    const negativePrompt = String(
+      payload.negativePrompt || parentRecord.negativePrompt || ""
+    ).trim();
+    const actualPrompt = `${repairPrompt}${
+      negativePrompt ? `\n\n负面约束：${negativePrompt}` : ""
+    }`;
+    log("info", "repair.start", {
+      requestId,
+      parentRecordId,
+      revisionNumber: chainSlot.revisionNumber,
+      faceRefs: faceFileIDs.length,
+      wardrobeRefs: wardrobeFileIDs.length
+    });
+    const response = await requestImageEdits(
+      {
+        mainFileID: sourceFileID,
+        maskFileID,
+        faceFileIDs,
+        wardrobeFileIDs,
+        prompt: actualPrompt,
+        size: imageConfig.size || payload.size,
+        __action: "repairImage"
+      },
+      imageConfig.apiKey,
+      requestId,
+      imageConfig,
+      costs,
+      usageUserHash(openid)
+    );
+    const image = extractImageItem(response);
+    if (!image) {
+      const error = new Error("图片编辑接口没有返回修正版图片。");
+      error.code = "empty-repair-result";
+      throw error;
+    }
+    const buffer = image.buffer || await downloadUrl(image.url, {
+      requestId,
+      action: "repair-result"
+    });
+    const extension = imageExtension(image.mime);
+    const uploaded = await cloud.uploadFile({
+      cloudPath: `results/${openid}/repair-${Date.now()}-${crypto.randomBytes(4).toString("hex")}.${extension}`,
+      fileContent: buffer
+    });
+    const tempResult = await cloud.getTempFileURL({ fileList: [uploaded.fileID] });
+    const tempFileURL = tempResult.fileList
+      && tempResult.fileList[0]
+      && tempResult.fileList[0].tempFileURL;
+    const createdAt = new Date();
+    const recordId = repairRecordId(openid, requestId);
+    const recordData = {
+      _id: recordId,
+      openid,
+      projectName: parentRecord.projectName || "未命名项目",
+      prompt: actualPrompt,
+      repairPrompt,
+      negativePrompt,
+      fileID: uploaded.fileID,
+      tempFileURL: tempFileURL || "",
+      model: imageConfig.model,
+      createdAt,
+      size: imageConfig.size || payload.size || "1024x1024",
+      imageMode: "edits",
+      generationType: "repair",
+      parentRecordId,
+      rootRecordId: chainSlot.rootRecordId,
+      revisionNumber: chainSlot.revisionNumber,
+      repairIssues: Array.isArray(payload.repairIssues)
+        ? payload.repairIssues.map((item) => String(item || "").trim()).filter(Boolean).slice(0, 30)
+        : [],
+      repairContext: {
+        sourceFileID: uploaded.fileID,
+        maskFileID,
+        maskGeometry: payload.maskGeometry && typeof payload.maskGeometry === "object"
+          ? payload.maskGeometry
+          : {},
+        faceFileIDs,
+        wardrobeFileIDs
+      },
+      requestId,
+      quotaUsed: billing.quota.freeUsed,
+      dailyLimit: billing.quota.freeLimit,
+      billingSource: billing.source,
+      pointsCharged: billing.pointsCharged
+    };
+
+    await db.runTransaction(async (transaction) => {
+      const chainRef = transaction.collection(REPAIR_CHAIN_COLLECTION).doc(chainSlot.chainId);
+      const chain = await readDocument(chainRef);
+      if (!chain || chain.pendingRequestId !== requestId) {
+        throw revisionConflictError("修正链状态已变化，请刷新后从最新结果继续。");
+      }
+      const currentParent = await readGenerationRecord(parentRecordId, transaction);
+      if (!currentParent || currentParent.fileID !== sourceFileID) {
+        throw revisionConflictError();
+      }
+      await transaction.collection("generation_records").doc(recordId).set({
+        data: recordData
+      });
+      await transaction.collection("generation_records").doc(parentRecordId).update({
+        data: {
+          hasChildren: true,
+          updatedAt: new Date()
+        }
+      });
+      await chainRef.set({
+        data: Object.assign({}, chain, {
+          tailRecordId: recordId,
+          tailRevision: chainSlot.revisionNumber,
+          pendingRequestId: "",
+          pendingParentId: "",
+          pendingRevision: 0,
+          updatedAt: new Date()
+        })
+      });
+      const referenced = Array.from(new Set(
+        [maskFileID].concat(faceFileIDs, wardrobeFileIDs).filter(Boolean)
+      ));
+      for (const fileID of referenced) {
+        const asset = await findUserAsset(
+          openid,
+          fileID,
+          fileID === maskFileID ? "mask" : faceFileIDs.includes(fileID) ? "face" : "wardrobe",
+          transaction
+        );
+        await transaction.collection(USER_ASSET_COLLECTION).doc(asset._id).update({
+          data: {
+            refCount: Math.max(0, Number(asset.refCount) || 0) + 1,
+            updatedAt: new Date()
+          }
+        });
+      }
+    }, 5);
+    resultPersisted = true;
+    const result = {
+      recordId,
+      fileID: uploaded.fileID,
+      tempFileURL: tempFileURL || "",
+      createdAt: createdAt.toISOString(),
+      record: Object.assign({}, recordData, {
+        id: recordId,
+        createdAt: createdAt.toISOString()
+      }),
+      quota: billing.quota,
+      billing
+    };
+    if (!billing.untracked) await completeGenerationOperation(openid, requestId, result);
+    return jsonResponse(true, result);
+  } catch (error) {
+    if (chainSlot && !resultPersisted) await releaseRepairChain(chainSlot);
+    if (claimed && billing && !billing.untracked && !resultPersisted) {
+      await failGenerationOperation(openid, requestId, error);
+      await refundUsage(openid, requestId, "局部修正失败，已退回本次使用额度");
     }
     throw error;
   }
@@ -3579,8 +4340,24 @@ async function deleteRecord(event, context) {
       // 文件已经不存在时，仍然允许清理数据库记录。
     }
   }
+  const children = await db.collection("generation_records")
+    .where({ openid, parentRecordId: recordId })
+    .limit(1)
+    .get();
+  if (children && Array.isArray(children.data) && children.data.length) {
+    await db.collection("generation_records").doc(recordId).update({
+      data: {
+        fileID: "",
+        tempFileURL: "",
+        isTombstone: true,
+        deletedAt: new Date(),
+        updatedAt: new Date()
+      }
+    });
+    return jsonResponse(true, { recordId, tombstone: true });
+  }
   await db.collection("generation_records").doc(recordId).remove();
-  return jsonResponse(true, { recordId });
+  return jsonResponse(true, { recordId, removed: true });
 }
 
 function replaceVideoTaskId(path, taskId) {
@@ -3978,7 +4755,10 @@ exports.main = async (event = {}, context) => {
     if (action === "analyze") result = await analyze(requestEvent, context);
     else if (action === "detectFaceCircle") result = await detectFaceCircle(requestEvent, context);
     else if (action === "analyzeWebPoses") result = await analyzeWebPoses(requestEvent, context);
+    else if (action === "prepareAssetUpload") result = await prepareAssetUpload(requestEvent, context);
+    else if (action === "registerAsset") result = await registerAsset(requestEvent, context);
     else if (action === "generate") result = await generate(requestEvent, context);
+    else if (action === "repairImage") result = await repairImage(requestEvent, context);
     else if (action === "getUserPoints") result = await getUserPoints(context);
     else if (action === "checkIn") result = await checkIn(context);
     else if (action === "getPointLedger") result = await getPointLedger(context);
@@ -4034,6 +4814,10 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
   exports.__test = {
     requestWithRetry,
     requestImageEdits,
+    buildRepairRecordId: repairRecordId,
+    buildRepairChainId: repairChainId,
+    normalizeAssetKind,
+    assetPathMatches,
     extractImageItem,
     detectMime,
     invertMask,
@@ -4095,5 +4879,3 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     getAdminRuntimeCache: () => adminRuntimeCache
   };
 }
-
-

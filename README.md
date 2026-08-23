@@ -32,6 +32,7 @@ D:\aips小程序\wechat-miniapp
 - 每个微信用户每日生成次数限制。
 - 主图、人脸参考图、穿搭参考图上传前自动压缩；
 - 压缩失败或压缩后变大时自动回退原图，mask 保留 PNG 透明通道。
+- 照片转动态视频入口、相册/制作记录选图和小程序内长按预览骨架；
 
 ## 和桌面版的差异
 
@@ -173,6 +174,14 @@ AI_IMAGE_REFERENCE_FIELD=image[]
 AI_MASK_INVERT=false
 AI_MAX_RETRIES=2
 AI_IMAGE_RETRY_ENABLED=false
+
+# 照片转动态视频（当前只做接口占位，未配置不会伪造成功）
+AI_VIDEO_PROVIDER=
+AI_VIDEO_ENDPOINT=
+AI_VIDEO_MODEL=
+AI_VIDEO_API_KEY=
+AI_VIDEO_CREATE_PATH=
+AI_VIDEO_QUERY_PATH=
 ```
 
 真实密钥只放云函数环境变量，不写进小程序前端。
@@ -222,6 +231,24 @@ user_quotas
 6. 点“AI 分析主图”测试视觉接口；
 7. 测试“提交生图并归档”；
 8. 到“制作记录”检查云端记录和删除功能。
+
+## 照片转动态视频
+
+首页“照片转实况图”入口当前交付的是小程序内的动态视频体验：
+
+- 可从手机相册或制作记录选择照片；
+- 计划由云函数异步调用视频 provider 生成约 2–3 秒无声 MP4；
+- 生成后分别保存静态照片和普通视频；
+- 生成成功后，小程序内支持按住预览视频、松开回到静态图；
+- 单张任务独立记录，失败项可以单独重试。
+
+当前没有接入真实视频 provider。`videoProviderStatus`、`createVideoTask`、
+`queryVideoTask` 已预留，但未配置或未完成 provider 适配时会返回明确错误，
+不会伪造“已生成”。
+
+重要边界：普通 MP4 和静态照片不是 iPhone 原生 Live Photo，也不保证 Android
+系统相册按住播放。若要做真正的 Live Photo/Motion Photo，需要原生照片库或按
+厂商分别验证的后续实验，不能只依赖微信小程序的相册保存 API。
 
 ## 当前生图接口约定
 

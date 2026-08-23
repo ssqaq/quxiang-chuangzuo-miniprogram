@@ -5,7 +5,7 @@
       生成约 2–3 秒的无声普通视频，并在小程序内长按预览动态效果。
     </view>
     <view class="photo-to-video-notice">
-      说明：保存到相册的是一张照片和一个普通视频，二者独立，不会自动变成系统原生实况照片。
+      说明：保存到相册的是一张照片和一个普通视频，二者独立，不会自动变成系统实况照片。
     </view>
     <view class="provider-status {{providerReady ? 'provider-status-ready' : 'provider-status-pending'}}">
       <view class="provider-status-dot"></view>

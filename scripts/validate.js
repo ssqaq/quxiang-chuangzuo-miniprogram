@@ -450,6 +450,35 @@ if (
   throw new Error("“最新一张/全部记录”按钮没有和主图操作按钮统一字号、高度或居中规则。");
 }
 if (
+  !appJson.pages.includes("pages/photo-to-video/photo-to-video")
+  || !workbenchWxml.includes("照片转实况图")
+  || !workbenchWxml.includes("小程序内长按预览效果")
+  || !workbenchWxml.includes('bindtap="openPhotoToVideo"')
+  || !workbenchJs.includes("openPhotoToVideo()")
+  || !workbenchJs.includes('"/pages/photo-to-video/photo-to-video"')
+  || !workbenchWxss.includes(".photo-to-video-entry")
+  || !photoToVideoJs.includes("cloud.getVideoProviderStatus()")
+  || !photoToVideoJs.includes("cloud.createVideoTask")
+  || !photoToVideoJs.includes("cloud.queryVideoTask")
+  || !photoToVideoJs.includes("wx.saveImageToPhotosAlbum")
+  || !photoToVideoJs.includes("wx.saveVideoToPhotosAlbum")
+  || !photoToVideoJs.includes("onPreviewTouchStart()")
+  || !photoToVideoJs.includes("retryOne(event = {})")
+  || !photoToVideoWxml.includes("照片转动态视频")
+  || !photoToVideoWxml.includes("不会自动变成系统实况照片")
+  || !photoToVideoWxml.includes('bindtouchstart="onPreviewTouchStart"')
+  || !photoToVideoWxml.includes('id="photo-to-video-preview"')
+  || !photoToVideoWxss.includes(".live-preview-image")
+  || !photoToVideoWxss.includes(".live-preview-video-visible")
+  || !cloudJs.includes('action === "videoProviderStatus"')
+  || !cloudJs.includes('action === "createVideoTask"')
+  || !cloudJs.includes('action === "queryVideoTask"')
+  || !cloudJs.includes("VIDEO_PROVIDER_NOT_CONFIGURED")
+  || !cloudJs.includes("VIDEO_PROVIDER_PROTOCOL_PENDING")
+) {
+  throw new Error("照片转动态视频入口、长按预览或云函数接口骨架不完整。");
+}
+if (
   indexWxml.includes("<text>项目设置</text>")
   || indexWxml.includes('bindtap="clearProject"')
   || indexWxml.includes('bindinput="onProjectNameInput"')

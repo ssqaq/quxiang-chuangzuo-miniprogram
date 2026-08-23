@@ -81,6 +81,7 @@ global.Page = (definition) => {
 };
 
 const cloudService = require("../services/cloud");
+const diagnosticLog = require("../utils/diagnostic-log");
 require("../pages/workbench/workbench.js");
 
 page.setData = (next) => {
@@ -98,6 +99,25 @@ function hasEvent(event) {
 async function main() {
   page.onShow();
   assert.strictEqual(page.data.diagnosticExpanded, false);
+  diagnosticLog.info("app", "smoke-ok", "启动成功", {
+    route: "pages/workbench/workbench"
+  });
+  diagnosticLog.warn("cloud", "smoke-warn", "云端响应较慢", {
+    durationMs: 1200
+  });
+  page.refreshDiagnostics();
+  assert.strictEqual(page.data.diagnosticGroups.length, 2);
+  assert.strictEqual(page.data.diagnosticGroups[0].key, "abnormal");
+  assert.strictEqual(page.data.diagnosticGroups[0].events[0].level, "warn");
+  assert.strictEqual(page.data.diagnosticGroups[1].key, "normal");
+  assert.strictEqual(page.data.diagnosticGroups[1].events[0].expanded, false);
+  const warnSequence = page.data.diagnosticGroups[0].events[0].sequence;
+  page.toggleDiagnosticEvent({
+    currentTarget: {
+      dataset: { sequence: warnSequence }
+    }
+  });
+  assert.strictEqual(page.data.diagnosticGroups[0].events[0].expanded, false);
   page.toggleDiagnosticPanel();
   assert.strictEqual(page.data.diagnosticExpanded, true);
   page.toggleDiagnosticPanel();

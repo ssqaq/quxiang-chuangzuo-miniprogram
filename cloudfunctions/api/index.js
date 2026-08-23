@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.14.3";
-const API_BUILD_MARKER = "API_BUILD_TAG_20260823_58";
+const API_BUILD_VERSION = "0.15.0";
+const API_BUILD_MARKER = "API_BUILD_TAG_20260823_59";
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
 const cloud = require("wx-server-sdk");
@@ -1091,6 +1091,7 @@ async function saveAdminConfig(event, context) {
 }
 
 async function writeDeploymentLog(entry) {
+  if (process.env.WECHAT_MINIAPP_TEST === "1") return true;
   try {
     await db.collection(ADMIN_DEPLOYMENT_LOG_COLLECTION).add({
       data: Object.assign({}, entry, {
@@ -1151,6 +1152,9 @@ async function checkDeployment(event, context) {
 
 async function listDeploymentLogs(context) {
   if (!isAdminContext(context)) return adminForbidden();
+  if (process.env.WECHAT_MINIAPP_TEST === "1") {
+    return jsonResponse(true, { logs: [] });
+  }
   try {
     const result = await db
       .collection(ADMIN_DEPLOYMENT_LOG_COLLECTION)

@@ -79,6 +79,15 @@ api.main({
     false
   );
   return api.main({
+    action: "checkDeployment",
+    requestId: "admin-smoke-deployment"
+  }, { OPENID: "admin-openid-001" });
+}).then((result) => {
+  assert.strictEqual(result.ok, true);
+  assert.ok(result.buildVersion);
+  assert.ok(result.buildMarker);
+  assert.strictEqual(result.logWritten, true);
+  return api.main({
     action: "getAdminConfig",
     requestId: "admin-smoke-forbidden"
   }, { OPENID: "normal-openid" });

@@ -83,6 +83,21 @@
   min-width: 144rpx;
 }
 
+.repair-record-button {
+  min-width: 144rpx;
+  margin-bottom: 12rpx;
+  border: 1rpx solid #cfe0fb;
+  color: #1f6feb;
+  background: #f3f7ff;
+}
+
+.record-tombstone {
+  margin: 12rpx 0;
+  color: #b76b00;
+  font-size: 22rpx;
+  line-height: 1.4;
+}
+
 @media (min-width: 360px) and (max-width: 389px) {
   .records-head {
     gap: 10rpx;

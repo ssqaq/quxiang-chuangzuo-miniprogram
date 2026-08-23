@@ -31,6 +31,7 @@ const {
   normalizeWebPoseSuggestion,
   normalizeWebPoseSuggestions
 } = require("../../utils/web-pose");
+const { canRepairRecord } = require("../../utils/repair");
 
 const CLOTHING_TARGETS = ["整套穿搭", "上装", "外套", "下装", "连衣裙/连体装", "鞋靴"];
 const ACCESSORY_TARGETS = [
@@ -59,6 +60,12 @@ const GENERATION_PHASES = [
 
 function createClientRequestId() {
   return `mini-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+}
+
+function decorateRecordForRepair(record) {
+  return Object.assign({}, record, {
+    canRepair: canRepairRecord(record, true)
+  });
 }
 
 function createProject() {
@@ -491,7 +498,7 @@ Page({
         lockedElementOptions: createLockedElementOptions(project.lockedElements),
         customLockText: project.customLockedElements.join("\n"),
         lockedSelectionCount: project.lockedElements.length + project.customLockedElements.length,
-        generatedResults: project.results || []
+        generatedResults: (project.results || []).map(decorateRecordForRepair)
       });
       if (project.mainImage && project.mainImage.path) {
         this.prepareCanvas(project.mainImage);
@@ -1754,8 +1761,22 @@ Page({
     wx.navigateTo({ url: "/pages/records/records" });
   },
 
+  openRepair(event) {
+    const recordId = String(event.currentTarget.dataset.id || "");
+    const record = (this.data.generatedResults || []).find(
+      (item) => String(item.id) === recordId
+    );
+    if (!recordId || !record || !record.canRepair) {
+      wx.showToast({ title: "这条结果暂时不能进行局部修正", icon: "none" });
+      return;
+    }
+    wx.navigateTo({
+      url: `/pages/repair/repair?recordId=${encodeURIComponent(recordId)}`
+    });
+  },
+
   async ensureUploaded(asset, folder, options = {}) {
-    if (!asset || asset.fileID) return asset;
+    if (!asset || (asset.fileID && asset.assetRegistered === true)) return asset;
     let prepared = asset;
     if (asset.path && asset.compressionChecked !== true && options.skipCompression !== true) {
       const isMainImage = folder === "main";
@@ -1821,7 +1842,12 @@ Page({
         })
         : cloud.uploadFile(prepared.path, folder);
       state.promise = Promise.resolve(upload)
-        .then((upload) => Object.assign({}, prepared, { fileID: upload.fileID }))
+        .then((upload) => Object.assign({}, prepared, {
+          fileID: upload.fileID,
+          assetRegistered: Boolean(
+            typeof cloud.uploadAsset === "function" && assetKindForFolder(folder)
+          )
+        }))
         .catch((error) => {
           if (this._mainImageUploadState === state) this._mainImageUploadState = null;
           throw error;
@@ -1835,11 +1861,16 @@ Page({
         contentType: prepared.type || "image/jpeg"
       })
       : await cloud.uploadFile(prepared.path, folder);
-    return Object.assign({}, prepared, { fileID: upload.fileID });
+    return Object.assign({}, prepared, {
+      fileID: upload.fileID,
+      assetRegistered: Boolean(
+        typeof cloud.uploadAsset === "function" && assetKindForFolder(folder)
+      )
+    });
   },
 
   preloadMainImageUpload(image) {
-    if (!image || image.fileID || !cloud.isCloudReady()) return null;
+    if (!image || (image.fileID && image.assetRegistered === true) || !cloud.isCloudReady()) return null;
     const key = this.getMainImageKey(image);
     const promise = this.ensureUploaded(image, "main");
     promise.then(
@@ -2106,6 +2137,7 @@ Page({
           mainFileID: project.mainImage && project.mainImage.fileID,
           maskFileID: project.maskFileID || "",
           maskGeometry: project.maskCircle || {},
+          assetRegistrationVersion: 1,
           faceFileIDs: project.faceRefs.map((item) => item.fileID).filter(Boolean),
           wardrobeFileIDs: project.wardrobeRefs.map((item) => item.fileID).filter(Boolean),
           size: "1024x1024"
@@ -2138,7 +2170,7 @@ Page({
         "正在保存生成结果...",
         "图片已经生成，正在保存到制作记录。"
       );
-      const record = Object.assign({}, result.record || {}, {
+      const record = decorateRecordForRepair(Object.assign({}, result.record || {}, {
         id: result.recordId || `local-${Date.now()}`,
         fileID: result.fileID || "",
         tempFileURL: result.tempFileURL || "",
@@ -2155,7 +2187,7 @@ Page({
           faceFileIDs: project.faceRefs.map((item) => item.fileID).filter(Boolean),
           wardrobeFileIDs: project.wardrobeRefs.map((item) => item.fileID).filter(Boolean)
         }, result.record && result.record.repairContext || {})
-      });
+      }));
       const records = [record].concat(this.data.records || []).slice(0, 50);
       const nextProject = Object.assign({}, project, {
         results: [record].concat(project.results || []).slice(0, 20)
@@ -2198,14 +2230,15 @@ Page({
   },
 
   async loadRecords() {
-    const localRecords = storage.loadRecords() || [];
+    const localRecords = (storage.loadRecords() || []).map(decorateRecordForRepair);
     diagnosticLog.info("records", "load-start", "开始读取制作记录", {
       localCount: localRecords.length
     });
     if (cloud.isCloudReady()) {
       try {
         const result = await cloud.listRecords();
-        const remoteRecords = (result && result.records) || [];
+        const remoteRecords = ((result && result.records) || [])
+          .map(decorateRecordForRepair);
         const records = remoteRecords.length ? remoteRecords : localRecords;
         this.setData({ records });
         if (remoteRecords.length) {

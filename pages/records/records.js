@@ -1,6 +1,13 @@
 const cloud = require("../../services/cloud");
 const storage = require("../../utils/storage");
 const diagnosticLog = require("../../utils/diagnostic-log");
+const { canRepairRecord } = require("../../utils/repair");
+
+function decorateRecord(record, cloudReady) {
+  return Object.assign({}, record, {
+    canRepair: canRepairRecord(record, cloudReady)
+  });
+}
 
 Page({
   data: {
@@ -29,7 +36,8 @@ Page({
 
   async loadRecords() {
     const ready = cloud.isCloudReady();
-    const localRecords = storage.loadRecords() || [];
+    const localRecords = (storage.loadRecords() || [])
+      .map((record) => decorateRecord(record, ready));
     diagnosticLog.info("records", "page-load-start", "开始加载制作记录页", {
       cloudReady: ready,
       localCount: localRecords.length
@@ -38,7 +46,8 @@ Page({
     try {
       if (ready) {
         const result = await cloud.listRecords();
-        const remoteRecords = (result && result.records) || [];
+        const remoteRecords = ((result && result.records) || [])
+          .map((record) => decorateRecord(record, ready));
         const records = remoteRecords.length ? remoteRecords : localRecords;
         this.setData({ records });
         if (remoteRecords.length) {
@@ -74,6 +83,19 @@ Page({
   preview(event) {
     const url = event.currentTarget.dataset.url;
     if (url) wx.previewImage({ current: url, urls: [url] });
+  },
+
+  openRepair(event) {
+    const id = String(event.currentTarget.dataset.id || "");
+    if (!id) return;
+    const item = (this.data.records || []).find((record) => String(record.id) === id);
+    if (!item || !item.canRepair) {
+      wx.showToast({ title: "这条记录暂时不能进行局部修正", icon: "none" });
+      return;
+    }
+    wx.navigateTo({
+      url: `/pages/repair/repair?recordId=${encodeURIComponent(id)}`
+    });
   },
 
   async remove(event) {

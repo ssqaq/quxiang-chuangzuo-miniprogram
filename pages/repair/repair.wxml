@@ -1,0 +1,102 @@
+<view class="page">
+  <canvas
+    canvas-id="maskExportCanvas"
+    class="mask-export-canvas"
+    width="{{imageWidth}}"
+    height="{{imageHeight}}"
+    style="width: {{imageWidth}}px; height: {{imageHeight}}px;"
+  ></canvas>
+
+  <view class="hero card">
+    <view class="hero-title">局部修正</view>
+    <view class="hero-subtitle">{{projectName}} · 原图保留，修正版追加保存</view>
+  </view>
+
+  <view wx:if="{{loading}}" class="card empty">正在读取结果...</view>
+  <view wx:elif="{{loadError}}" class="card empty">{{loadError}}</view>
+  <block wx:else>
+    <view class="card">
+      <view class="section-title">
+        <text>当前结果图</text>
+        <text class="badge">{{revisionText}}</text>
+      </view>
+      <view wx:if="{{sourceImage}}" class="repair-canvas-wrap">
+        <view
+          class="repair-canvas-viewport"
+          style="width: {{canvasWidth}}px; height: {{canvasHeight}}px;"
+          catchtouchstart="onCanvasTouchStart"
+          catchtouchmove="onCanvasTouchMove"
+          catchtouchend="onCanvasTouchEnd"
+          catchtouchcancel="onCanvasTouchCancel"
+        >
+          <image
+            class="repair-canvas-image"
+            src="{{sourceImage.path}}"
+            mode="scaleToFill"
+            style="width: {{canvasWidth}}px; height: {{canvasHeight}}px;"
+          ></image>
+          <canvas
+            canvas-id="repairMaskCanvas"
+            class="repair-mask-canvas"
+            width="{{canvasWidth}}"
+            height="{{canvasHeight}}"
+            style="width: {{canvasWidth}}px; height: {{canvasHeight}}px;"
+            disable-scroll="{{true}}"
+          ></canvas>
+        </view>
+        <view class="canvas-tip">必须在当前结果图上重新拖动确认红圈；背景或构图问题要把目标区域一起圈进去。</view>
+      </view>
+      <view wx:else class="empty">当前结果图没有可预览地址，请先补选主图。</view>
+      <view class="repair-status {{maskConfirmed ? 'status-ok' : 'status-warn'}}">{{statusText}}</view>
+      <button class="secondary-btn" bindtap="chooseMainImage" loading="{{uploading === 'main'}}" disabled="{{generating || uploading}}">重新选择主图</button>
+    </view>
+
+    <view class="card">
+      <view class="section-title">编辑素材状态</view>
+      <view class="asset-status-row"><text>主图</text><text class="{{sourceFileID ? 'asset-ok' : 'asset-missing'}}">{{sourceFileID ? '已准备' : '缺少'}}</text></view>
+      <view class="asset-status-row"><text>红圈 mask</text><text class="{{maskConfirmed ? 'asset-ok' : 'asset-missing'}}">{{maskConfirmed ? '已重新确认，生成时导出' : '必须重新确认'}}</text></view>
+      <view class="asset-status-row"><text>人脸参考</text><text>{{faceRefs.length ? faceRefs.length + ' 张' : '未使用'}}</text></view>
+      <view class="asset-status-row"><text>穿搭参考</text><text>{{wardrobeRefs.length ? wardrobeRefs.length + ' 张' : '未使用'}}</text></view>
+      <view wx:if="{{!referencesReady}}" class="hint danger-text">旧记录的参考素材没有登记凭证，不能直接复用，请重新补选。</view>
+      <button
+        wx:if="{{legacyReferencesPending}}"
+        class="secondary-btn"
+        bindtap="discardLegacyReferences"
+        disabled="{{generating || uploading}}"
+      >不再沿用旧参考</button>
+      <view class="reference-actions">
+        <button class="secondary-btn" bindtap="chooseFaceImages" loading="{{uploading === 'face'}}" disabled="{{generating || uploading}}">补选人脸参考</button>
+        <button class="secondary-btn" bindtap="chooseWardrobeImages" loading="{{uploading === 'wardrobe'}}" disabled="{{generating || uploading}}">补选穿搭参考</button>
+      </view>
+      <view wx:for="{{faceRefs}}" wx:key="fileID" class="reference-line">
+        <text>人脸：{{item.name}}</text><button class="plain-btn small-btn" data-kind="face" data-index="{{index}}" bindtap="removeReference">移除</button>
+      </view>
+      <view wx:for="{{wardrobeRefs}}" wx:key="fileID" class="reference-line">
+        <text>穿搭：{{item.name}}</text><button class="plain-btn small-btn" data-kind="wardrobe" data-index="{{index}}" bindtap="removeReference">移除</button>
+      </view>
+    </view>
+
+    <view class="card">
+      <view class="section-title">勾选这次要修正的问题</view>
+      <view wx:for="{{issueGroups}}" wx:key="key" class="issue-group">
+        <view class="subsection-title">{{item.title}}</view>
+        <view class="issue-grid">
+          <view wx:for="{{item.items}}" wx:key="key" class="issue-item" data-key="{{item.key}}" bindtap="toggleIssue">
+            <checkbox checked="{{item.checked}}" />
+            <text>{{item.label}}</text>
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <view class="card">
+      <view class="section-title">自动生成的修正指令</view>
+      <textarea class="prompt-area" value="{{prompt}}" disabled="{{true}}" maxlength="-1"></textarea>
+      <view class="prompt-actions">
+        <button class="secondary-btn" bindtap="copyPrompt">复制修正指令</button>
+        <button class="primary-btn" bindtap="generateRepair" loading="{{generating}}" disabled="{{generating || repairLimitReached || !cloudReady || !sourceFileID || !maskConfirmed || !referencesReady}}">{{generating ? '生成中...' : repairLimitReached ? '已达到修正上限' : '生成修正版（消耗 1 次）'}}</button>
+      </view>
+      <view wx:if="{{!cloudReady}}" class="hint">云端未连接：可以查看和复制指令，但不能提交生成。</view>
+    </view>
+  </block>
+</view>

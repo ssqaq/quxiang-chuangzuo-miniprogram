@@ -34,6 +34,14 @@
         <view class="record-title">{{item.projectName || '未命名项目'}}</view>
         <view class="record-time">{{item.createdAt}}</view>
         <view class="record-prompt">{{item.prompt || '无提示词记录'}}</view>
+        <view wx:if="{{item.isTombstone}}" class="record-tombstone">父记录已删除，子修正版仍保留</view>
+        <button
+          wx:if="{{item.canRepair}}"
+          class="small-btn repair-record-button"
+          data-id="{{item.id}}"
+          catchtap="openRepair"
+          disabled="{{clearing || removingId}}"
+        >局部修正</button>
         <button
           class="small-btn danger-btn record-remove-button"
           data-id="{{item.id}}"

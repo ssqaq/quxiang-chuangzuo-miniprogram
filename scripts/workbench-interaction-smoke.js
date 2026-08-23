@@ -80,6 +80,7 @@ global.Page = (definition) => {
   page = definition;
 };
 
+const cloudService = require("../services/cloud");
 require("../pages/workbench/workbench.js");
 
 page.setData = (next) => {
@@ -105,10 +106,13 @@ async function main() {
   assert.strictEqual(page.data.diagnosticExpanded, true);
 
   page.previewAuthorQr();
-  assert.ok(events.some((item) => (
-    item.type === "previewImage"
-    && item.options.current === "/assets/contact/author-wechat-qr.jpg"
-  )));
+  assert.strictEqual(
+    events.some((item) => item.type === "previewImage"),
+    false
+  );
+  assert.strictEqual(page.data.authorQrPreviewVisible, true);
+  page.closeAuthorQrPreview();
+  assert.strictEqual(page.data.authorQrPreviewVisible, false);
   page.saveAuthorQr();
   assert.ok(events.some((item) => (
     item.type === "saveImageToPhotosAlbum"
@@ -191,6 +195,35 @@ async function main() {
   page.clearDiagnosticLogs();
   assert.strictEqual(page.data.diagnosticEvents.length, 0);
   assert.strictEqual(page.data.diagnosticExpanded, false);
+
+  let checkInCalls = 0;
+  let resolveCheckIn = null;
+  cloudService.isCloudReady = () => true;
+  cloudService.checkIn = () => {
+    checkInCalls += 1;
+    return new Promise((resolve) => {
+      resolveCheckIn = resolve;
+    });
+  };
+  page.data.points.checkedInToday = false;
+  const firstCheckIn = page.checkIn();
+  const duplicateCheckIn = page.checkIn();
+  assert.strictEqual(firstCheckIn, duplicateCheckIn);
+  assert.strictEqual(checkInCalls, 1);
+  resolveCheckIn({
+    duplicate: false,
+    earnedToday: 5,
+    checkedInToday: true,
+    currentStreak: 1,
+    streakDays: 7
+  });
+  await firstCheckIn;
+  assert.strictEqual(page._checkInPromise, null);
+  assert.strictEqual(page.data.checkingIn, false);
+  assert.ok(events.some((item) => (
+    item.type === "toast"
+    && item.options.title === "签到成功，+5 积分"
+  )));
 
   console.log("workbench interaction smoke: OK");
 }

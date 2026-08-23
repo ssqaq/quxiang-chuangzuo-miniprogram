@@ -1152,6 +1152,48 @@ button.diagnostic-copy-button.button-hover {
   box-sizing: border-box;
 }
 
+.author-qr-preview-mask {
+  position: fixed;
+  z-index: 9999;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.94);
+}
+
+.author-qr-preview-counter {
+  position: absolute;
+  top: 34rpx;
+  left: 0;
+  width: 100%;
+  color: #ffffff;
+  font-size: 24rpx;
+  line-height: 36rpx;
+  text-align: center;
+}
+
+.author-qr-preview-image {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+}
+
+.author-qr-preview-hint {
+  position: absolute;
+  right: 0;
+  bottom: calc(34rpx + env(safe-area-inset-bottom));
+  left: 0;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 21rpx;
+  line-height: 32rpx;
+  text-align: center;
+}
+
 @keyframes contact-author-body-in {
   from {
     opacity: 0;

@@ -34,7 +34,7 @@
     <view class="points-entry-copy">
       <view class="points-entry-topline">
         <view class="points-entry-title">{{pointsCopy.cardTitle}}</view>
-        <view class="points-entry-balance">{{points.pointsBalance}} 积分</view>
+        <view class="points-entry-balance">{{points.pointsBalance}} {{pointsCopy.pointsUnit}}</view>
       </view>
       <view class="points-entry-subtitle">
         {{pointsCopy.streakPrefix}} {{points.streakDays}} {{pointsCopy.streakSuffix}}
@@ -46,7 +46,7 @@
         ></view>
       </view>
       <view class="points-entry-foot">
-        <text>已连续 {{points.currentStreak}} 天 · {{points.checkedInToday ? pointsCopy.checkedIn : pointsCopy.notCheckedIn}}</text>
+        <text>{{pointsCopy.streakStatusPrefix}} {{points.currentStreak}} {{pointsCopy.dayUnit}} · {{points.checkedInToday ? pointsCopy.checkedIn : pointsCopy.notCheckedIn}}</text>
         <text class="points-entry-promo {{points.promoActive ? 'points-entry-promo-active' : ''}}">{{points.promoActive ? pointsCopy.promoActive : pointsCopy.freePrefix + ' ' + points.freeRemaining + ' ' + pointsCopy.freeSuffix}}</text>
       </view>
     </view>
@@ -321,6 +321,21 @@
         {{savingAuthorQr ? '保存中...' : '保存二维码'}}
       </button>
     </view>
+  </view>
+
+  <view
+    wx:if="{{authorQrPreviewVisible}}"
+    class="author-qr-preview-mask"
+    catchtap="closeAuthorQrPreview"
+  >
+    <view class="author-qr-preview-counter">1 / 1</view>
+    <image
+      class="author-qr-preview-image"
+      src="{{authorQrPath}}"
+      mode="aspectFit"
+      catchtap="stopAuthorQrPreviewClose"
+    ></image>
+    <view class="author-qr-preview-hint">点击黑色空白处关闭</view>
   </view>
 
   </view>

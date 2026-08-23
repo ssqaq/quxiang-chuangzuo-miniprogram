@@ -1,6 +1,7 @@
 const config = require("../../config");
 const cloud = require("../../services/cloud");
 const diagnosticLog = require("../../utils/diagnostic-log");
+const pointsUi = require("../../utils/points-ui");
 
 function buildCheckInToast(result = {}) {
   const copy = config.points.copy;
@@ -23,7 +24,7 @@ function normalizePoints(result = {}) {
     : streak % streakDays;
   return {
     accountBound: Boolean(source.accountBound),
-    boundMessage: source.boundMessage || "点击签到后绑定微信身份",
+    boundMessage: source.boundMessage || config.points.copy.defaultBoundMessage,
     pointsBalance: Math.max(0, Number(source.pointsBalance) || 0),
     totalEarned: Math.max(0, Number(source.totalEarned) || 0),
     totalSpent: Math.max(0, Number(source.totalSpent) || 0),
@@ -56,10 +57,10 @@ function normalizeLedger(item = {}) {
     amount,
     amountText: amount > 0 ? `+${amount}` : String(amount),
     amountClass: amount > 0 ? "ledger-income" : amount < 0 ? "ledger-expense" : "ledger-free",
-    description: item.description || "积分记录",
+    description: item.description || config.points.copy.ledgerDefaultDescription,
     createdAt: item.createdAt
       ? String(item.createdAt).replace("T", " ").replace(/\.\d+Z$/, "")
-      : "刚刚",
+      : config.points.copy.justNow,
     type: item.type || ""
   };
 }
@@ -77,6 +78,15 @@ Page({
 
   onShow() {
     this.loadPoints();
+    this.schedulePromoRefresh();
+  },
+
+  onHide() {
+    this.clearPromoRefreshTimer();
+  },
+
+  onUnload() {
+    this.clearPromoRefreshTimer();
   },
 
   onPullDownRefresh() {
@@ -88,8 +98,9 @@ Page({
       this.setData({
         loading: false,
         points: normalizePoints({ accountBound: false }),
-        message: "当前是本地预览，连接云端后可以签到和使用积分。"
+        message: config.points.copy.localPreviewMessage
       });
+      this.schedulePromoRefresh();
       return;
     }
     this.setData({ loading: true, message: "" });
@@ -106,18 +117,74 @@ Page({
     } catch (error) {
       this.setData({
         loading: false,
-        message: "积分信息读取失败，先检查云函数是否已部署。"
+        message: config.points.copy.loadFailedMessage
       });
       diagnosticLog.error("points", "load-failed", "积分页读取失败", { error });
+    } finally {
+      this.schedulePromoRefresh();
     }
   },
 
-  async checkIn() {
-    if (this.data.checkingIn || this.data.points.checkedInToday) return;
-    if (!cloud.isCloudReady()) {
-      wx.showToast({ title: "连接云端后才能签到", icon: "none" });
+  clearPromoRefreshTimer() {
+    if (this._promoRefreshTimer) {
+      clearTimeout(this._promoRefreshTimer);
+      this._promoRefreshTimer = null;
+    }
+  },
+
+  schedulePromoRefresh() {
+    this.clearPromoRefreshTimer();
+    const points = this.data.points || {};
+    const remaining = pointsUi.getPromoRefreshDelay(
+      points.promoEndDate || config.points.promoEndDate
+    );
+    if (remaining <= 0) {
+      if (points.promoActive) {
+        this.setData({ "points.promoActive": false });
+      }
       return;
     }
+    const wait = Math.min(remaining, pointsUi.MAX_TIMER_DELAY_MS);
+    this._promoRefreshTimer = setTimeout(() => {
+      this._promoRefreshTimer = null;
+      if (remaining > pointsUi.MAX_TIMER_DELAY_MS) {
+        this.schedulePromoRefresh();
+        return;
+      }
+      if (this.data.points && this.data.points.promoActive) {
+        this.setData({ "points.promoActive": false });
+      }
+      this.loadPoints();
+    }, wait);
+    if (
+      this._promoRefreshTimer
+      && typeof this._promoRefreshTimer.unref === "function"
+    ) {
+      this._promoRefreshTimer.unref();
+    }
+  },
+
+  checkIn() {
+    if (this._checkInPromise) return this._checkInPromise;
+    if (this.data.checkingIn || this.data.points.checkedInToday) {
+      return Promise.resolve();
+    }
+    if (!cloud.isCloudReady()) {
+      wx.showToast({ title: config.points.copy.cloudRequired, icon: "none" });
+      return Promise.resolve();
+    }
+    const request = this.performCheckIn();
+    this._checkInPromise = request;
+    const clearCheckInLock = () => {
+      if (this._checkInPromise === request) {
+        this._checkInPromise = null;
+      }
+    };
+    request.then(clearCheckInLock, clearCheckInLock);
+    return request;
+  },
+
+  async performCheckIn() {
     this.setData({ checkingIn: true, message: "" });
     try {
       const result = await cloud.checkIn();
@@ -135,9 +202,15 @@ Page({
     } catch (error) {
       this.setData({ checkingIn: false });
       const payload = error && error.payload;
-      const message = payload && payload.message || error && error.message || "签到失败，请稍后再试";
+      const message = payload && payload.message
+        || error && error.message
+        || config.points.copy.checkInFailedFallback;
       diagnosticLog.error("points", "checkin-failed", "签到失败", { error });
-      wx.showModal({ title: "签到失败", content: String(message), showCancel: false });
+      wx.showModal({
+        title: config.points.copy.checkInFailedTitle,
+        content: String(message),
+        showCancel: false
+      });
     }
   },
 

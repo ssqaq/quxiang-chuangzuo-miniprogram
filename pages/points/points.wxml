@@ -2,13 +2,13 @@
   <view class="points-hero card">
     <view class="points-hero-head">
       <view>
-        <view class="points-kicker">POINTS CENTER</view>
+        <view class="points-kicker">{{pointsCopy.pointsKicker}}</view>
         <view class="points-title">{{pointsCopy.pointsTitle}}</view>
         <view class="points-subtitle">{{points.boundMessage}}</view>
       </view>
       <view class="points-balance">
         <text class="points-balance-number">{{points.pointsBalance}}</text>
-        <text class="points-balance-label">当前积分</text>
+        <text class="points-balance-label">{{pointsCopy.currentPointsLabel}}</text>
       </view>
     </view>
     <view wx:if="{{points.promoActive}}" class="points-promo">
@@ -20,11 +20,11 @@
     <view class="streak-head">
       <view>
         <view class="section-title">{{pointsCopy.pointsSectionTitle}}</view>
-        <view class="section-subtitle">连续满 {{points.streakDays}} 天，额外奖励 {{points.streakBonus}} 积分</view>
+        <view class="section-subtitle">{{pointsCopy.streakRewardPrefix}} {{points.streakDays}} {{pointsCopy.streakRewardMiddle}} {{points.streakBonus}} {{pointsCopy.pointsUnit}}</view>
       </view>
       <view class="streak-count">
         <text>{{points.currentStreak}}</text>
-        <text>天</text>
+        <text>{{pointsCopy.dayUnit}}</text>
       </view>
     </view>
     <view class="streak-progress-track">
@@ -34,8 +34,8 @@
       ></view>
     </view>
     <view class="streak-progress-foot">
-      <text>本轮已连续 {{points.progress}} 天</text>
-      <text>目标 {{points.streakDays}} 天</text>
+      <text>{{pointsCopy.progressPrefix}} {{points.progress}} {{pointsCopy.dayUnit}}</text>
+      <text>{{pointsCopy.targetPrefix}} {{points.streakDays}} {{pointsCopy.dayUnit}}</text>
     </view>
     <button
       class="primary-btn checkin-button"
@@ -51,30 +51,30 @@
   </view>
 
   <view class="card usage-card">
-    <view class="section-title">使用说明</view>
+    <view class="section-title">{{pointsCopy.usageTitle}}</view>
     <view class="usage-grid">
       <view class="usage-item">
-        <text class="usage-label">今日免费</text>
+        <text class="usage-label">{{pointsCopy.todayFreeLabel}}</text>
         <text class="usage-value">{{points.freeRemaining}} / {{points.freeLimit}}</text>
       </view>
       <view class="usage-item">
-        <text class="usage-label">生图扣除</text>
-        <text class="usage-value">{{points.imageCost}} 积分</text>
+        <text class="usage-label">{{pointsCopy.imageCostLabel}}</text>
+        <text class="usage-value">{{points.imageCost}} {{pointsCopy.pointsUnit}}</text>
       </view>
       <view class="usage-item">
-        <text class="usage-label">视频扣除</text>
-        <text class="usage-value">{{points.videoCost}} 积分</text>
+        <text class="usage-label">{{pointsCopy.videoCostLabel}}</text>
+        <text class="usage-value">{{points.videoCost}} {{pointsCopy.pointsUnit}}</text>
       </view>
     </view>
-    <view class="usage-note">每日免费次数用完后，提交时会提示并自动从积分中扣除。</view>
+    <view class="usage-note">{{pointsCopy.usageNote}}</view>
   </view>
 
   <view class="card ledger-card">
     <view class="ledger-head">
-      <view class="section-title">积分明细</view>
-      <text class="ledger-total">累计获得 {{points.totalEarned}}</text>
+      <view class="section-title">{{pointsCopy.ledgerTitle}}</view>
+      <text class="ledger-total">{{pointsCopy.ledgerTotalPrefix}} {{points.totalEarned}}</text>
     </view>
-    <view wx:if="{{!ledger.length}}" class="empty-ledger">还没有积分记录，今天先签到吧。</view>
+    <view wx:if="{{!ledger.length}}" class="empty-ledger">{{pointsCopy.emptyLedger}}</view>
     <view wx:for="{{ledger}}" wx:key="id" class="ledger-row">
       <view class="ledger-copy">
         <view class="ledger-description">{{item.description}}</view>
@@ -84,5 +84,5 @@
     </view>
   </view>
 
-  <button class="plain-btn back-button" bindtap="backToWorkbench">返回工作台</button>
+  <button class="plain-btn back-button" bindtap="backToWorkbench">{{pointsCopy.backToWorkbench}}</button>
 </view>

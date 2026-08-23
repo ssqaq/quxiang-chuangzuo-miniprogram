@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.20.0";
-const API_BUILD_MARKER = "API_BUILD_TAG_20260823_LOCAL_REPAIR_V200";
+const API_BUILD_VERSION = "0.20.1";
+const API_BUILD_MARKER = "API_BUILD_TAG_20260823_ASSET_UPLOAD_V201";
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
 const cloud = require("wx-server-sdk");
@@ -3150,6 +3150,47 @@ async function retainUserAssets(openid, fileIDs, kind, store = db) {
   }
 }
 
+async function validateGenerationAssets(openid, payload) {
+  if (Number(payload && payload.assetRegistrationVersion) < 1) return;
+  const mainFileID = String(payload.mainFileID || "").trim();
+  const maskFileID = String(payload.maskFileID || "").trim();
+  if (mainFileID) await findUserAsset(openid, mainFileID, "main");
+  if (maskFileID) await findUserAsset(openid, maskFileID, "mask");
+  await Promise.all(
+    (Array.isArray(payload.faceFileIDs) ? payload.faceFileIDs : [])
+      .filter(Boolean)
+      .slice(0, 6)
+      .map((fileID) => findUserAsset(openid, fileID, "face"))
+  );
+  await Promise.all(
+    (Array.isArray(payload.wardrobeFileIDs) ? payload.wardrobeFileIDs : [])
+      .filter(Boolean)
+      .slice(0, 12)
+      .map((fileID) => findUserAsset(openid, fileID, "wardrobe"))
+  );
+}
+
+async function releaseUserAssets(openid, references, store = db) {
+  const unique = new Map();
+  (Array.isArray(references) ? references : []).forEach((item) => {
+    const fileID = String(item && item.fileID || "").trim();
+    const kind = normalizeAssetKind(item && item.kind);
+    if (fileID && kind) unique.set(`${kind}:${fileID}`, { fileID, kind });
+  });
+  for (const item of unique.values()) {
+    const asset = await readDocument(
+      store.collection(USER_ASSET_COLLECTION).doc(userAssetId(openid, item.fileID))
+    );
+    if (!asset || asset.openid !== openid || asset.kind !== item.kind) continue;
+    await store.collection(USER_ASSET_COLLECTION).doc(asset._id).update({
+      data: {
+        refCount: Math.max(0, (Number(asset.refCount) || 0) - 1),
+        updatedAt: new Date()
+      }
+    });
+  }
+}
+
 async function readPointsAccount(openid, store = db) {
   return readDocument(
     store.collection(POINTS_ACCOUNT_COLLECTION).doc(pointsAccountId(openid))
@@ -3922,6 +3963,7 @@ async function generate(event, context) {
       deduplicated: true
     });
   }
+  await validateGenerationAssets(openid, payload);
   log("info", "generation.start", {
     requestId,
     action: "generate",
@@ -4016,6 +4058,7 @@ async function generate(event, context) {
         maskGeometry: payload.maskGeometry && typeof payload.maskGeometry === "object"
           ? payload.maskGeometry
           : {},
+        assetRegistrationVersion: Number(payload.assetRegistrationVersion) || 0,
         faceFileIDs: Array.isArray(payload.faceFileIDs)
           ? payload.faceFileIDs.filter(Boolean).slice(0, 6)
           : [],
@@ -4026,6 +4069,22 @@ async function generate(event, context) {
     };
     const saved = await db.collection("generation_records").add({ data: recordData });
     resultPersisted = true;
+    if (Number(payload.assetRegistrationVersion) >= 1) {
+      try {
+        await db.runTransaction(async (transaction) => {
+          await retainUserAssets(openid, [payload.mainFileID], "main", transaction);
+          await retainUserAssets(openid, [payload.maskFileID], "mask", transaction);
+          await retainUserAssets(openid, payload.faceFileIDs, "face", transaction);
+          await retainUserAssets(openid, payload.wardrobeFileIDs, "wardrobe", transaction);
+        }, 5);
+      } catch (error) {
+        log("warn", "generation.asset_retain_failed", {
+          requestId,
+          recordId: saved._id,
+          message: error && error.message
+        });
+      }
+    }
     const result = {
       recordId: saved._id,
       fileID: fileID.fileID,
@@ -4220,6 +4279,7 @@ async function repairImage(event, context) {
         maskGeometry: payload.maskGeometry && typeof payload.maskGeometry === "object"
           ? payload.maskGeometry
           : {},
+        assetRegistrationVersion: 1,
         faceFileIDs,
         wardrobeFileIDs
       },
@@ -4340,6 +4400,17 @@ async function deleteRecord(event, context) {
       // 文件已经不存在时，仍然允许清理数据库记录。
     }
   }
+  const repairContext = record.data.repairContext || {};
+  const assetReferences = [
+    { fileID: repairContext.mainInputFileID, kind: "main" },
+    { fileID: repairContext.maskFileID, kind: "mask" },
+    ...(Array.isArray(repairContext.faceFileIDs)
+      ? repairContext.faceFileIDs.map((fileID) => ({ fileID, kind: "face" }))
+      : []),
+    ...(Array.isArray(repairContext.wardrobeFileIDs)
+      ? repairContext.wardrobeFileIDs.map((fileID) => ({ fileID, kind: "wardrobe" }))
+      : [])
+  ];
   const children = await db.collection("generation_records")
     .where({ openid, parentRecordId: recordId })
     .limit(1)
@@ -4354,9 +4425,31 @@ async function deleteRecord(event, context) {
         updatedAt: new Date()
       }
     });
+    try {
+      await db.runTransaction(
+        (transaction) => releaseUserAssets(openid, assetReferences, transaction),
+        5
+      );
+    } catch (error) {
+      log("warn", "records.asset_release_failed", {
+        recordId,
+        message: error && error.message
+      });
+    }
     return jsonResponse(true, { recordId, tombstone: true });
   }
   await db.collection("generation_records").doc(recordId).remove();
+  try {
+    await db.runTransaction(
+      (transaction) => releaseUserAssets(openid, assetReferences, transaction),
+      5
+    );
+  } catch (error) {
+    log("warn", "records.asset_release_failed", {
+      recordId,
+      message: error && error.message
+    });
+  }
   return jsonResponse(true, { recordId, removed: true });
 }
 

@@ -322,6 +322,13 @@
       <view wx:for="{{generatedResults}}" wx:key="id" class="result-card" data-url="{{item.tempFileURL || item.path}}" bindtap="previewImage">
         <image src="{{item.tempFileURL || item.path}}" mode="aspectFill"></image>
         <text>{{item.createdAt}}</text>
+        <button
+          wx:if="{{item.canRepair}}"
+          class="small-btn repair-result-button"
+          data-id="{{item.id}}"
+          catchtap="openRepair"
+          disabled="{{loading}}"
+        >局部修正</button>
       </view>
     </view>
   </view>

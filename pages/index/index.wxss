@@ -733,6 +733,14 @@
   border: 1rpx solid #dbe8fb;
 }
 
+.repair-result-button {
+  width: 100%;
+  margin-top: 10rpx;
+  border: 1rpx solid #cfe0fb;
+  color: #1f6feb;
+  background: #f3f7ff;
+}
+
 .auto-face-diagnostics {
   margin-top: 20rpx;
   padding: 20rpx;

@@ -15,6 +15,7 @@ const jsonFiles = [
   "pages/photo-to-video/photo-to-video.json",
   "pages/points/points.json",
   "pages/admin/admin.json",
+  "pages/repair/repair.json",
   "cloudfunctions/api/package.json"
 ];
 const jsFiles = [
@@ -32,6 +33,7 @@ const jsFiles = [
   "utils/publish-export.js",
   "utils/interaction-log.js",
   "utils/diagnostic-log.js",
+  "utils/points-ui.js",
   "pages/splash/splash.js",
   "pages/workbench/workbench.js",
   "pages/publish-export/publish-export.js",
@@ -40,6 +42,7 @@ const jsFiles = [
   "pages/admin/admin.js",
   "pages/index/index.js",
   "pages/records/records.js",
+  "pages/repair/repair.js",
   "cloudfunctions/api/index.js",
   "cloudfunctions/api/lib/logger.js",
   "cloudfunctions/api/lib/retry.js",
@@ -63,6 +66,7 @@ const jsFiles = [
   "scripts/admin-config-smoke.js",
   "scripts/points-checkin-smoke.js",
   "scripts/generation-concurrency-smoke.js",
+  "scripts/repair-smoke.js",
   "scripts/workbench-interaction-smoke.js",
   "scripts/model-usage-stats-smoke.js",
   "scripts/model-cost-stats-smoke.js",
@@ -130,6 +134,7 @@ const required = [
   "pages/workbench/workbench.wxss",
   "utils/interaction-log.js",
   "utils/diagnostic-log.js",
+  "utils/points-ui.js",
   "scripts/refresh-preview.ps1",
   "一键刷新预览.cmd",
   "pages/publish-export/publish-export.js",
@@ -333,6 +338,7 @@ if (
   || !configJs.includes('promoActive: "活动期间免费"')
   || !workbenchWxml.includes("pointsCopy.cardTitle")
   || !workbenchWxml.includes("pointsCopy.promoActive")
+  || !workbenchWxml.includes("pointsCopy.pointsUnit")
   || !workbenchWxml.includes('bindtap="openPoints"')
   || !workbenchWxml.includes('catchtap="checkIn"')
   || !workbenchWxss.includes(".points-entry-card")
@@ -341,15 +347,23 @@ if (
   || !workbenchWxss.includes("font-size: 18rpx")
   || !workbenchJs.includes("pointsCopy: config.points.copy")
   || !workbenchJs.includes("buildCheckInToast")
+  || !workbenchJs.includes("_checkInPromise")
+  || !workbenchJs.includes("schedulePromoRefresh")
+  || !workbenchJs.includes("pointsUi.getPromoRefreshDelay")
   || !pointsJs.includes("cloud.getUserPoints()")
   || !pointsJs.includes("cloud.checkIn()")
   || !pointsJs.includes("cloud.getPointLedger()")
   || !pointsJs.includes("pointsCopy: config.points.copy")
   || !pointsJs.includes("buildCheckInToast")
+  || !pointsJs.includes("_checkInPromise")
+  || !pointsJs.includes("schedulePromoRefresh")
+  || !pointsJs.includes("pointsUi.getPromoRefreshDelay")
   || !pointsWxml.includes("pointsCopy.pointsSectionTitle")
-  || !pointsWxml.includes("积分明细")
+  || !pointsWxml.includes("pointsCopy.ledgerTitle")
   || !pointsWxml.includes("pointsCopy.bindAndCheckIn")
   || !pointsWxml.includes("pointsCopy.pointsPromo")
+  || !pointsWxml.includes("pointsCopy.usageNote")
+  || !pointsWxml.includes("pointsCopy.emptyLedger")
   || !pointsWxss.includes(".streak-progress-fill")
   || !pointsWxss.includes(".ledger-row")
   || !cloudJs.includes('action === "getUserPoints"')
@@ -360,6 +374,8 @@ if (
   || !clientCloudJs.includes("getPointLedger")
   || !configJs.includes("checkInDuplicate")
   || !configJs.includes("pointsPromo")
+  || !configJs.includes("ledgerDefaultDescription")
+  || !configJs.includes("checkInFailedFallback")
   || !refreshPreviewPs1.includes("wechat-miniapp-preview-latest-qr.png")
   || !refreshPreviewPs1.includes("wechat-miniapp-preview-latest-info.json")
 ) {

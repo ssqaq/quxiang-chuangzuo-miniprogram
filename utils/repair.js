@@ -72,6 +72,29 @@ function normalizeIssueKeys(keys, hasWardrobe) {
   return result;
 }
 
+function createSelectableIssueOptions(hasWardrobe, keys) {
+  const selected = new Set(normalizeIssueKeys(keys, hasWardrobe));
+  return createIssueOptions(hasWardrobe).map((group) => Object.assign({}, group, {
+    items: group.items.map((item) => Object.assign({}, item, {
+      checked: selected.has(item.key)
+    }))
+  }));
+}
+
+function canRepairRecord(record, cloudReady = true, maxRevisions = 10) {
+  const id = String(record && (record.id || record._id) || "").trim();
+  const revision = Math.max(0, Number(record && record.revisionNumber) || 0);
+  return Boolean(
+    cloudReady
+    && id
+    && !id.startsWith("local-")
+    && record
+    && !record.isTombstone
+    && record.fileID
+    && revision < Math.max(1, Number(maxRevisions) || 10)
+  );
+}
+
 function issueLabel(key) {
   for (const group of ISSUE_GROUPS) {
     const match = group.items.find((item) => item[0] === key);
@@ -113,7 +136,9 @@ module.exports = {
   ISSUE_GROUPS,
   DEFAULT_ISSUE_KEYS,
   createIssueOptions,
+  createSelectableIssueOptions,
   normalizeIssueKeys,
+  canRepairRecord,
   issueLabel,
   buildRepairPrompt
 };

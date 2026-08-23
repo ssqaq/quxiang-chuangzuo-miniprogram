@@ -2,6 +2,7 @@ const config = require("../../config");
 const cloud = require("../../services/cloud");
 const storage = require("../../utils/storage");
 const diagnosticLog = require("../../utils/diagnostic-log");
+const pointsUi = require("../../utils/points-ui");
 const app = getApp();
 const AUTHOR_QR_PATH = "/assets/contact/author-wechat-qr.jpg";
 
@@ -120,6 +121,7 @@ Page({
     adminVisible: false,
     authorQrPath: AUTHOR_QR_PATH,
     savingAuthorQr: false,
+    authorQrPreviewVisible: false,
     contactAuthorExpanded: false,
     entryModes: ENTRY_MODES,
     hasDraft: false,
@@ -146,6 +148,8 @@ Page({
       freeRemaining: config.points.dailyFreeLimit,
       freeLimit: config.points.dailyFreeLimit,
       promoActive: false,
+      promoStartDate: config.points.promoStartDate,
+      promoEndDate: config.points.promoEndDate,
       billingMode: "daily-free"
     }
   },
@@ -167,6 +171,16 @@ Page({
     } else {
       setTimeout(refreshSecondary, 0);
     }
+    this.schedulePromoRefresh();
+  },
+
+  onHide() {
+    this.clearPromoRefreshTimer();
+  },
+
+  onUnload() {
+    this.clearPromoRefreshTimer();
+    this.clearNavigationWatchdog();
   },
 
   refreshWorkbench() {
@@ -212,6 +226,8 @@ Page({
       freeRemaining: config.points.dailyFreeLimit,
       freeLimit: config.points.dailyFreeLimit,
       promoActive: false,
+      promoStartDate: config.points.promoStartDate,
+      promoEndDate: config.points.promoEndDate,
       billingMode: "daily-free"
     }, result, {
       pointsBalance: Math.max(0, Number(result.pointsBalance) || 0),
@@ -224,8 +240,48 @@ Page({
           || Number(result.checkinPoints)
           || Number(config.points.checkinPoints)
       ),
-      streakDays
+      streakDays,
+      promoStartDate: result.promoStartDate || config.points.promoStartDate,
+      promoEndDate: result.promoEndDate || config.points.promoEndDate
     });
+  },
+
+  clearPromoRefreshTimer() {
+    if (this._promoRefreshTimer) {
+      clearTimeout(this._promoRefreshTimer);
+      this._promoRefreshTimer = null;
+    }
+  },
+
+  schedulePromoRefresh() {
+    this.clearPromoRefreshTimer();
+    const points = this.data.points || {};
+    const endDate = points.promoEndDate || config.points.promoEndDate;
+    const remaining = pointsUi.getPromoRefreshDelay(endDate);
+    if (remaining <= 0) {
+      if (points.promoActive) {
+        this.setData({ "points.promoActive": false });
+      }
+      return;
+    }
+    const wait = Math.min(remaining, pointsUi.MAX_TIMER_DELAY_MS);
+    this._promoRefreshTimer = setTimeout(() => {
+      this._promoRefreshTimer = null;
+      if (remaining > pointsUi.MAX_TIMER_DELAY_MS) {
+        this.schedulePromoRefresh();
+        return;
+      }
+      if (this.data.points && this.data.points.promoActive) {
+        this.setData({ "points.promoActive": false });
+      }
+      this.refreshPoints();
+    }, wait);
+    if (
+      this._promoRefreshTimer
+      && typeof this._promoRefreshTimer.unref === "function"
+    ) {
+      this._promoRefreshTimer.unref();
+    }
   },
 
   async refreshPoints() {
@@ -233,9 +289,10 @@ Page({
       this.setData({
         points: this.normalizePoints({
           accountBound: false,
-          boundMessage: "连接云端后可以签到"
+          boundMessage: config.points.copy.cloudRequired
         })
       });
+      this.schedulePromoRefresh();
       return;
     }
     try {
@@ -245,6 +302,8 @@ Page({
       }
     } catch (error) {
       diagnosticLog.warn("points", "workbench-load-failed", "工作台积分卡读取失败", { error });
+    } finally {
+      this.schedulePromoRefresh();
     }
   },
 
@@ -611,15 +670,28 @@ Page({
     this.openPage("/pages/points/points", "积分中心打开失败", "已打开积分中心");
   },
 
-  async checkIn() {
+  checkIn() {
+    if (this._checkInPromise) return this._checkInPromise;
     if (
       this.data.checkingIn
       || (this.data.points && this.data.points.checkedInToday)
-    ) return;
+    ) return Promise.resolve();
     if (!cloud.isCloudReady()) {
-      wx.showToast({ title: "连接云端后才能签到", icon: "none" });
-      return;
+      wx.showToast({ title: config.points.copy.cloudRequired, icon: "none" });
+      return Promise.resolve();
     }
+    const request = this.performCheckIn();
+    this._checkInPromise = request;
+    const clearCheckInLock = () => {
+      if (this._checkInPromise === request) {
+        this._checkInPromise = null;
+      }
+    };
+    request.then(clearCheckInLock, clearCheckInLock);
+    return request;
+  },
+
+  async performCheckIn() {
     this.setData({ checkingIn: true });
     try {
       const result = await cloud.checkIn();
@@ -632,8 +704,12 @@ Page({
       this.setData({ checkingIn: false });
       const payload = error && error.payload;
       wx.showModal({
-        title: "签到失败",
-        content: String(payload && payload.message || error && error.message || "请稍后再试"),
+        title: config.points.copy.checkInFailedTitle,
+        content: String(
+          payload && payload.message
+            || error && error.message
+            || config.points.copy.checkInFailedFallback
+        ),
         showCancel: false
       });
     }
@@ -646,19 +722,23 @@ Page({
   },
 
   previewAuthorQr() {
-    const url = this.data.authorQrPath;
-    if (!url || !wx.previewImage) {
+    if (!this.data.authorQrPath) {
       wx.showToast({ title: "当前环境不支持查看二维码", icon: "none" });
       return;
     }
-    wx.previewImage({
-      current: url,
-      urls: [url],
-      fail: () => {
-        wx.showToast({ title: "二维码打开失败", icon: "none" });
-      }
+
+    this.setData({
+      authorQrPreviewVisible: true
     });
   },
+
+  closeAuthorQrPreview() {
+    this.setData({
+      authorQrPreviewVisible: false
+    });
+  },
+
+  stopAuthorQrPreviewClose() {},
 
   handleAuthorQrSaveFailure(error) {
     const message = error && error.errMsg ? error.errMsg : "";

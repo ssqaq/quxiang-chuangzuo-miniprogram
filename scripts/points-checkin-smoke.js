@@ -1,5 +1,6 @@
 const assert = require("assert");
 const config = require("../config");
+const pointsUi = require("../utils/points-ui");
 
 process.env.WECHAT_MINIAPP_TEST = "1";
 
@@ -10,6 +11,12 @@ const points = helpers.resolvePointsConfig({});
 assert.strictEqual(config.points.copy.cardTitle, "每日签到");
 assert.strictEqual(config.points.copy.promoActive, "活动期间免费");
 assert.strictEqual(config.points.copy.checkInDuplicate, "今天已经签到过了");
+assert.strictEqual(config.points.copy.usageTitle, "使用说明");
+assert.strictEqual(config.points.copy.backToWorkbench, "返回工作台");
+const promoEndAt = pointsUi.promoEndAtMs("2026-08-24");
+assert.strictEqual(promoEndAt, Date.parse("2026-08-25T00:00:00.000+08:00"));
+assert.strictEqual(pointsUi.getPromoRefreshDelay("2026-08-24", promoEndAt - 1500), 1500);
+assert.strictEqual(pointsUi.getPromoRefreshDelay("2026-08-24", promoEndAt), 0);
 assert.strictEqual(points.dailyFreeLimit, 3);
 assert.strictEqual(points.imageCost, 10);
 assert.strictEqual(points.videoCost, 10);

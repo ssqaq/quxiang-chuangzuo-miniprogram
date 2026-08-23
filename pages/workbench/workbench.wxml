@@ -126,7 +126,7 @@
     <view class="photo-to-video-icon">动</view>
     <view class="photo-to-video-copy">
       <view class="photo-to-video-title">照片转实况图</view>
-      <view class="photo-to-video-description">生成动态视频，小程序内长按预览效果</view>
+      <view class="photo-to-video-description">生成普通动态视频，照片和视频分别保存</view>
     </view>
     <view class="home-feature-arrow photo-to-video-arrow">›</view>
   </view>

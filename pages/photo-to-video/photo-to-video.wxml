@@ -101,9 +101,6 @@
     </view>
     <view
       class="live-preview {{isPressed ? 'live-preview-pressed' : ''}}"
-      bindtouchstart="onPreviewTouchStart"
-      bindtouchend="onPreviewTouchEnd"
-      bindtouchcancel="onPreviewTouchCancel"
     >
       <image class="live-preview-image" src="{{preview.imagePath}}" mode="aspectFit"></image>
       <video
@@ -116,11 +113,14 @@
         controls="{{false}}"
         show-center-play-btn="{{false}}"
         enable-progress-gesture="{{false}}"
-        bindended="onPreviewVideoEnded"
-        bindtouchstart="onPreviewTouchStart"
-        bindtouchend="onPreviewTouchEnd"
-        bindtouchcancel="onPreviewTouchCancel"
       ></video>
+      <view
+        wx:if="{{preview.videoPath}}"
+        class="live-preview-touch-layer"
+        catchtouchstart="onPreviewTouchStart"
+        catchtouchend="onPreviewTouchEnd"
+        catchtouchcancel="onPreviewTouchCancel"
+      ></view>
       <view wx:if="{{preview.videoPath}}" class="live-preview-hint">
         {{isPressed ? '松开结束播放' : '长按预览动态效果'}}
       </view>

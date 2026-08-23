@@ -451,46 +451,19 @@ Page({
     }
 
     this.recordInteraction(
-      "draft-confirmation-shown",
-      "检测到未完成草稿，等待确认",
+      "draft-auto-clear",
+      "检测到未完成草稿，自动清除并新建",
       { route: target }
     );
-    wx.showModal({
-      title: "手机上已有未完成创作",
-      content: "点击“清除并新建”会删除当前草稿，但不会影响制作记录。",
-      confirmText: "清除新建",
-      cancelText: "保留草稿",
-      success: (response) => {
-        if (!response.confirm) {
-          this.recordInteraction(
-            "draft-kept",
-            "已保留当前草稿",
-            { route: target }
-          );
-          return;
-        }
-        this.recordInteraction("draft-confirmed", "确认清除草稿并新建", {
-          route: target
-        });
-        storage.clearProject();
-        this.recordInteraction("draft-cleared", "已清除旧草稿", {
-          route: target
-        });
-        this.refreshWorkbench();
-        if (app && app.globalData) {
-          app.globalData.pendingNewCreation = { mode, createdAt: Date.now() };
-        }
-        this.openNewCreationPage(target);
-      },
-      fail: (error) => {
-        this.recordInteraction(
-          "draft-confirmation-failed",
-          "草稿确认框没有正常显示",
-          { route: target, error }
-        );
-        wx.showToast({ title: "请再点一次开始新创作", icon: "none" });
-      }
+    storage.clearProject();
+    this.recordInteraction("draft-cleared", "已自动清除旧草稿", {
+      route: target
     });
+    this.refreshWorkbench();
+    if (app && app.globalData) {
+      app.globalData.pendingNewCreation = { mode, createdAt: Date.now() };
+    }
+    this.openNewCreationPage(target);
   },
 
   openRecords() {

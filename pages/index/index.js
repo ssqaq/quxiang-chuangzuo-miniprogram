@@ -314,6 +314,9 @@ Page({
     this._mainImageUploadState = null;
     this._autoFaceDetectionCache = null;
     this._pageDestroyed = false;
+    this._pageScrollTop = 0;
+    this._pinchScrollTop = null;
+    this._pageScrollRestorePending = false;
     const isPreload = options.preload === "1";
     const entry = resolveEntryMode(options);
     const shouldCreateNew = options.new === "1";
@@ -389,6 +392,21 @@ Page({
     this.refreshCloudState();
   },
 
+  onPageScroll(event = {}) {
+    const scrollTop = Number(event.scrollTop);
+    if (!Number.isFinite(scrollTop)) return;
+    if (this._pageScrollLocked && Number.isFinite(this._pinchScrollTop)) {
+      if (Math.abs(scrollTop - this._pinchScrollTop) > 0.5) {
+        this.restorePageScrollPosition();
+      }
+      return;
+    }
+    this._pageScrollTop = Math.max(0, scrollTop);
+    this._canvasPageScroll = Object.assign({}, this._canvasPageScroll, {
+      scrollTop: this._pageScrollTop
+    });
+  },
+
   resetForNewCreation(mode) {
     const entry = resolveEntryMode({ mode }) || ENTRY_MODE_META.custom;
     this.setPageScrollLock(false);
@@ -452,14 +470,60 @@ Page({
 
   setPageScrollLock(locked) {
     const nextLocked = Boolean(locked);
+    if (nextLocked && !this._pageScrollLocked) {
+      this._pinchScrollTop = this.getCurrentPageScrollTop();
+      this.restorePageScrollPosition();
+    }
+    if (!nextLocked && this._pageScrollLocked) {
+      this.restorePageScrollPosition();
+    }
     this._pageScrollLocked = nextLocked;
     if (
       this._pageDestroyed
       || this.data.pageScrollLocked === nextLocked
     ) {
+      if (!nextLocked) this._pinchScrollTop = null;
       return;
     }
     this.setData({ pageScrollLocked: nextLocked });
+    if (!nextLocked) this._pinchScrollTop = null;
+  },
+
+  getCurrentPageScrollTop() {
+    const candidates = [
+      this._canvasPageScroll && this._canvasPageScroll.scrollTop,
+      this._canvasPageScroll && this._canvasPageScroll.top,
+      this._pageScrollTop
+    ];
+    for (const candidate of candidates) {
+      const value = Number(candidate);
+      if (Number.isFinite(value) && value >= 0) return value;
+    }
+    return 0;
+  },
+
+  restorePageScrollPosition(scrollTop = this._pinchScrollTop) {
+    const target = Number(scrollTop);
+    if (
+      !Number.isFinite(target)
+      || target < 0
+      || typeof wx.pageScrollTo !== "function"
+      || this._pageScrollRestorePending
+    ) {
+      return;
+    }
+    this._pageScrollRestorePending = true;
+    wx.pageScrollTo({
+      scrollTop: target,
+      duration: 0,
+      complete: () => {
+        this._pageScrollRestorePending = false;
+        this._pageScrollTop = target;
+        this._canvasPageScroll = Object.assign({}, this._canvasPageScroll, {
+          scrollTop: target
+        });
+      }
+    });
   },
 
   startGenerationTimer() {
@@ -995,10 +1059,14 @@ Page({
     this._drawingCurrent = this._drawingStart;
     this._drawingTouchId = getTouchIdentifier(touch);
     this._gestureMode = "draw";
+    this.setPageScrollLock(true);
     this.setData({ drawing: true });
   },
 
   onCanvasTouchMove(event) {
+    if (this._gestureMode === "pinch" || this._gestureMode === "draw") {
+      this.restorePageScrollPosition();
+    }
     const touches = this.getViewportTouches(event);
     if (touches.length >= 2) {
       if (this._gestureMode !== "pinch") this.beginPinch(touches);

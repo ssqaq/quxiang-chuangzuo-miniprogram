@@ -11,13 +11,18 @@ const SCOPE_OPTIONS = [
 
 function normalizeRecord(record, index) {
   const item = record && typeof record === "object" ? record : {};
+  const sourcePath = item.sourcePath || item.path || "";
+  const sourceFileID = item.sourceFileID || item.fileID || "";
   return {
     id: item.id || item._id || `record-${index}-${Date.now()}`,
-    fileID: item.fileID || "",
+    fileID: sourceFileID,
+    sourceFileID,
+    resultFileID: item.resultFileID || "",
     projectName: item.projectName || "未命名项目",
     createdAt: item.createdAt || "刚刚生成",
     tempFileURL: item.tempFileURL || "",
-    path: item.path || "",
+    sourcePath,
+    path: sourcePath,
     selected: false,
     status: item.status || "idle",
     statusText: item.statusText || "待处理",
@@ -34,10 +39,6 @@ function uniqueRecords(records) {
       seen[item.id] = true;
       return Boolean(item.tempFileURL || item.path || item.fileID);
     });
-}
-
-function wait(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function createCancelledError() {
@@ -151,6 +152,13 @@ Page({
   onShow() {
     this._destroyed = false;
     this._pageVisible = true;
+    if (this.data.processing && !this._activeRun) {
+      this.setData({
+        processing: false,
+        progressValue: 0,
+        progressText: ""
+      });
+    }
     diagnosticLog.info("video", "page-show", "打开照片转动态视频页面");
     this.loadLocalRecords();
     this.refreshCloudRecords();
@@ -188,7 +196,8 @@ Page({
     this.cancelActiveRun();
     const run = {
       id: `photo-to-video-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-      cancelled: false
+      cancelled: false,
+      polls: new Set()
     };
     this._activeRun = run;
     return run;
@@ -196,9 +205,15 @@ Page({
 
   cancelActiveRun() {
     const run = this._activeRun;
-    if (run) run.cancelled = true;
+    if (run) {
+      run.cancelled = true;
+      run.polls.forEach((poll) => {
+        clearTimeout(poll.timer);
+        poll.reject(createCancelledError());
+      });
+      run.polls.clear();
+    }
     this._activeRun = null;
-    this.clearPollTimer(createCancelledError());
   },
 
   finishRun(run) {
@@ -292,7 +307,7 @@ Page({
       && event.currentTarget.dataset
       && event.currentTarget.dataset.scope;
     if (!scope) return;
-    this.setData({ scope, usingDevicePhotos: false }, () => this.refreshVisibleRecords());
+    this.setDataIfActive({ scope, usingDevicePhotos: false }, () => this.refreshVisibleRecords());
   },
 
   chooseDevicePhotos() {
@@ -334,7 +349,7 @@ Page({
         wx.showToast({ title: "没有拿到照片", icon: "none" });
         return;
       }
-      this.setData({
+      this.setDataIfActive({
         deviceRecords,
         usingDevicePhotos: true,
         records: deviceRecords,
@@ -375,7 +390,7 @@ Page({
     const records = this.data.records.map((item) => item.id === id
       ? Object.assign({}, item, { selected: !item.selected })
       : item);
-    this.setData({
+    this.setDataIfActive({
       records,
       selectedCount: records.filter((item) => item.selected).length
     });
@@ -393,7 +408,7 @@ Page({
     const imagePath = record.tempFileURL || record.path || "";
     if (!imagePath) return;
     this.stopPreview();
-    this.setData({
+    this.setDataIfActive({
       preview: {
         imagePath,
         videoPath: record.videoPath || "",
@@ -407,7 +422,7 @@ Page({
     clearTimeout(this._previewTimer);
     this._previewTimer = setTimeout(() => {
       if (this._destroyed) return;
-      this.setData({ isPressed: true });
+      this.setDataIfActive({ isPressed: true });
       const context = wx.createVideoContext("photo-to-video-preview", this);
       context.seek(0);
       context.play();
@@ -442,26 +457,42 @@ Page({
         console.warn("[photo-to-video] 停止预览失败", error);
       }
     }
-    if (this.data.isPressed) this.setData({ isPressed: false });
+    if (this.data.isPressed) this.setDataIfActive({ isPressed: false });
   },
 
-  clearPollTimer() {
-    clearTimeout(this._pollTimer);
-    this._pollTimer = null;
+  waitForPoll(ms, run) {
+    this.assertRunActive(run);
+    return new Promise((resolve, reject) => {
+      const poll = {
+        timer: null,
+        reject
+      };
+      run.polls.add(poll);
+      poll.timer = setTimeout(() => {
+        run.polls.delete(poll);
+        try {
+          this.assertRunActive(run);
+          resolve();
+        } catch (error) {
+          reject(error);
+        }
+      }, ms);
+    });
   },
 
-  updateRecord(id, patch) {
+  updateRecord(id, patch, run) {
+    if (run && !this.isRunActive(run)) return false;
     const records = this.data.records.map((item) => item.id === id
       ? Object.assign({}, item, patch)
       : item);
-    this.setData({ records });
+    return this.setDataIfActive({ records });
   },
 
-  async pollVideoTask(taskId) {
-    this.clearPollTimer();
+  async pollVideoTask(taskId, run) {
     const maxPolls = Number(config.photoToVideo.maxPolls) || 120;
     const interval = Number(config.photoToVideo.pollIntervalMs) || 2500;
     for (let count = 0; count < maxPolls; count += 1) {
+      this.assertRunActive(run);
       if (count === 0) {
         diagnosticLog.info("video", "poll-start", "开始轮询视频任务", {
           taskId,
@@ -470,6 +501,7 @@ Page({
         });
       }
       const result = await cloud.queryVideoTask(taskId);
+      this.assertRunActive(run);
       const status = String(result && result.status || "").toLowerCase();
       if (["succeeded", "success", "completed"].includes(status)) {
         diagnosticLog.info("video", "poll-success", "视频任务完成", {
@@ -488,7 +520,7 @@ Page({
         });
         throw new Error(result.error || result.message || "动态视频生成失败");
       }
-      if (count < maxPolls - 1) await wait(interval);
+      if (count < maxPolls - 1) await this.waitForPoll(interval, run);
     }
     const error = new Error("动态视频生成超时，请稍后重试。");
     diagnosticLog.error("video", "poll-timeout", "视频任务轮询超时", {
@@ -507,14 +539,17 @@ Page({
     throw new Error("视频服务没有返回可下载的视频。");
   },
 
-  async convertOne(record) {
+  async convertOne(record, run) {
+    this.assertRunActive(run);
     const startedAt = Date.now();
     diagnosticLog.info("video", "convert-start", "开始处理一张照片转动态视频", {
       recordId: record.id,
       projectName: record.projectName
     });
     const sourcePath = await publishExport.resolveImageSource(record);
+    this.assertRunActive(run);
     const upload = await cloud.uploadFile(sourcePath, "photo-to-video-input");
+    this.assertRunActive(run);
     const created = await cloud.createVideoTask({
       imageFileID: upload.fileID,
       durationSeconds: config.photoToVideo.durationSeconds,
@@ -529,16 +564,23 @@ Page({
       taskId: created.taskId,
       durationMs: Date.now() - startedAt
     });
-    const result = await this.pollVideoTask(created.taskId);
+    const result = await this.pollVideoTask(created.taskId, run);
+    const resultFileID = result && (result.resultFileID || result.videoFileID || "");
     const videoPath = await this.resolveVideoPath(result);
+    this.assertRunActive(run);
     await saveImageToAlbum(sourcePath);
+    this.assertRunActive(run);
     await saveVideoToAlbum(videoPath);
+    this.assertRunActive(run);
     this.updateRecord(record.id, {
       status: "success",
       statusText: "已保存照片和视频",
-      videoPath
-    });
-    this.setData({
+      videoPath,
+      sourcePath,
+      sourceFileID: upload.fileID,
+      resultFileID
+    }, run);
+    this.setDataIfActive({
       preview: {
         imagePath: sourcePath,
         videoPath,
@@ -553,41 +595,61 @@ Page({
     return { videoPath };
   },
 
-  async runBatch(records) {
+  async runBatch(records, run) {
     let successCount = 0;
     const failures = [];
-    for (let index = 0; index < records.length; index += 1) {
-      const record = records[index];
-      this.updateRecord(record.id, {
-        status: "running",
-        statusText: "正在准备"
-      });
-      this.setData({
-        progressValue: Math.round((index / records.length) * 100),
-        progressText: `正在处理第 ${index + 1} / ${records.length} 张：${record.projectName}`
-      });
-      try {
-        await this.convertOne(record);
-        successCount += 1;
-      } catch (error) {
-        diagnosticLog.error("video", "convert-failed", "单张照片转动态视频失败", {
-          recordId: record.id,
-          projectName: record.projectName,
-          error
-        });
-        const message = this.formatError(error);
+    let nextIndex = 0;
+    let completedCount = 0;
+    const concurrency = Math.max(
+      1,
+      Math.min(Number(config.photoToVideo.maxConcurrent) || 1, records.length)
+    );
+    const worker = async () => {
+      while (true) {
+        this.assertRunActive(run);
+        const index = nextIndex;
+        nextIndex += 1;
+        if (index >= records.length) return;
+        const record = records[index];
         this.updateRecord(record.id, {
-          status: "failed",
-          statusText: message
+          status: "running",
+          statusText: "正在准备"
+        }, run);
+        this.setDataIfActive({
+          progressValue: Math.round((completedCount / records.length) * 100),
+          progressText: `正在处理：${record.projectName}（已完成 ${completedCount} / ${records.length}）`
         });
-        failures.push({
-          id: record.id,
-          name: record.projectName,
-          message
-        });
+        try {
+          await this.convertOne(record, run);
+          successCount += 1;
+        } catch (error) {
+          if (isCancelledError(error)) throw error;
+          diagnosticLog.error("video", "convert-failed", "单张照片转动态视频失败", {
+            recordId: record.id,
+            projectName: record.projectName,
+            error
+          });
+          const message = this.formatError(error);
+          this.updateRecord(record.id, {
+            status: "failed",
+            statusText: message
+          }, run);
+          failures.push({
+            id: record.id,
+            name: record.projectName,
+            message
+          });
+        } finally {
+          completedCount += 1;
+          this.setDataIfActive({
+            progressValue: Math.round((completedCount / records.length) * 100),
+            progressText: `已完成 ${completedCount} / ${records.length} 张`
+          });
+        }
       }
-    }
-    this.setData({ failures });
+    };
+    await Promise.all(Array.from({ length: concurrency }, () => worker()));
+    this.setDataIfActive({ failures });
     return { successCount, failures };
   },
 
@@ -601,15 +663,17 @@ Page({
     diagnosticLog.info("video", "batch-start", "开始批量生成动态视频", {
       recordCount: records.length
     });
-    this.setData({
+    const run = this.beginRun();
+    this.setDataIfActive({
       processing: true,
       progressValue: 0,
       progressText: `准备处理 ${records.length} 张照片...`,
       failures: []
     });
     try {
-      const result = await this.runBatch(records);
-      this.setData({
+      const result = await this.runBatch(records, run);
+      if (!this.isRunActive(run)) return;
+      this.setDataIfActive({
         progressValue: 100,
         progressText: `处理完成：成功 ${result.successCount} 张${result.failures.length ? `，失败 ${result.failures.length} 张` : ""}`
       });
@@ -618,10 +682,15 @@ Page({
         successCount: result.successCount,
         failureCount: result.failures.length
       });
+    } catch (error) {
+      if (!isCancelledError(error) && this.isRunActive(run)) {
+        wx.showToast({ title: this.formatError(error), icon: "none" });
+      }
     } finally {
+      this.finishRun(run);
       setTimeout(() => {
-        if (!this._destroyed) {
-          this.setData({
+        if (this.isPageActive()) {
+          this.setDataIfActive({
             processing: false,
             progressValue: 0,
             progressText: ""
@@ -642,19 +711,26 @@ Page({
       recordId: record.id,
       projectName: record.projectName
     });
-    this.setData({
+    const run = this.beginRun();
+    this.setDataIfActive({
       processing: true,
       progressValue: 0,
       progressText: `正在重试：${record.projectName}`,
       failures: this.data.failures.filter((item) => item.id !== id)
     });
     try {
-      const result = await this.runBatch([record]);
+      const result = await this.runBatch([record], run);
+      if (!this.isRunActive(run)) return;
       this.showBatchResult(result.successCount, result.failures);
+    } catch (error) {
+      if (!isCancelledError(error) && this.isRunActive(run)) {
+        wx.showToast({ title: this.formatError(error), icon: "none" });
+      }
     } finally {
+      this.finishRun(run);
       setTimeout(() => {
-        if (!this._destroyed) {
-          this.setData({
+        if (this.isPageActive()) {
+          this.setDataIfActive({
             processing: false,
             progressValue: 0,
             progressText: ""

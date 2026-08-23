@@ -252,6 +252,8 @@
   margin: 0 auto;
   overflow: hidden;
   background: #111827;
+  touch-action: none;
+  overscroll-behavior: none;
 }
 
 .canvas-stage {
@@ -262,6 +264,8 @@
   background: #111827;
   transform-origin: center center;
   will-change: transform;
+  touch-action: none;
+  overscroll-behavior: none;
 }
 
 .canvas-image {

@@ -80,11 +80,6 @@ function hasEvent(event) {
   return diagnosticEvents().some((item) => item.event === event);
 }
 
-function latestModal() {
-  const modals = events.filter((item) => item.type === "modal");
-  return modals[modals.length - 1];
-}
-
 async function main() {
   page.onShow();
   page.startNew({
@@ -116,18 +111,23 @@ async function main() {
   });
   assert.ok(hasEvent("new-creation-navigation-failed"));
 
+  redirectMode = "success";
   page.onShow();
   page.data.hasDraft = true;
+  const modalCountBeforeDraft = events.filter((item) => item.type === "modal").length;
   page.startNew({
     currentTarget: {
       dataset: { mode: "custom" }
     }
   });
-  assert.ok(hasEvent("draft-confirmation-shown"));
-  assert.ok(latestModal());
-  assert.ok(latestModal().options.confirmText.length <= 4);
-  latestModal().options.success({ confirm: false });
-  assert.ok(hasEvent("draft-kept"));
+  assert.ok(hasEvent("draft-auto-clear"));
+  assert.ok(hasEvent("draft-cleared"));
+  assert.strictEqual(
+    events.filter((item) => item.type === "modal").length,
+    modalCountBeforeDraft
+  );
+  assert.strictEqual(page.data.hasDraft, false);
+  assert.ok(hasEvent("new-creation-navigation-success"));
 
   redirectMode = "success";
   page.onShow();
@@ -137,8 +137,7 @@ async function main() {
       dataset: { mode: "custom" }
     }
   });
-  latestModal().options.success({ confirm: true });
-  assert.ok(hasEvent("draft-confirmed"));
+  assert.ok(hasEvent("draft-auto-clear"));
   assert.ok(hasEvent("draft-cleared"));
 
   redirectMode = "timeout";

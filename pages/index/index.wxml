@@ -82,6 +82,10 @@
         <view
           class="canvas-stage"
           style="width: {{canvasWidth}}px; height: {{canvasHeight}}px; transform: translate({{canvasOffsetX}}px, {{canvasOffsetY}}px) scale({{canvasScale}});"
+          catchtouchstart="onCanvasTouchStart"
+          catchtouchmove="onCanvasTouchMove"
+          catchtouchend="onCanvasTouchEnd"
+          catchtouchcancel="onCanvasTouchCancel"
         >
           <image
             class="canvas-image"

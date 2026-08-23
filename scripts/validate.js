@@ -46,10 +46,12 @@ const jsFiles = [
   "scripts/image-smoke.js",
   "scripts/web-pose-smoke.js",
   "scripts/canvas-gesture-smoke.js",
+  "scripts/page-scroll-lock-smoke.js",
   "scripts/circle-gesture-smoke.js",
   "scripts/auto-face-fallback-smoke.js",
   "scripts/diagnostic-log-smoke.js",
   "scripts/generation-experience-smoke.js",
+  "scripts/photo-to-video-smoke.js",
   "scripts/workbench-interaction-smoke.js"
 ];
 const pythonFiles = ["scripts/package-release.py"];
@@ -371,8 +373,11 @@ if (
   || !workbenchJs.includes("openNewCreationPage(url)")
   || !workbenchJs.includes("wx.redirectTo")
   || !workbenchJs.includes("wx.reLaunch")
-  || !workbenchJs.includes('confirmText: "清除新建"')
-  || workbenchJs.includes('confirmText: "清除并新建"')
+  || !workbenchJs.includes('"draft-auto-clear"')
+  || workbenchJs.includes('confirmText: "清除新建"')
+  || workbenchJs.includes('cancelText: "保留草稿"')
+  || workbenchJs.includes("draft-confirmation")
+  || workbenchJs.includes("draft-kept")
   || !workbenchWxml.includes('bindtap="startNew"')
 ) {
   throw new Error("开始新创作没有配置稳定跳转和失败兜底逻辑。");
@@ -384,7 +389,7 @@ if (
   || !workbenchJs.includes("copyDiagnosticReport()")
   || !workbenchJs.includes("clearDiagnosticLogs()")
   || !workbenchJs.includes("new-creation-navigation-timeout")
-  || !workbenchJs.includes("draft-confirmation-shown")
+  || !workbenchJs.includes("draft-auto-clear")
   || !workbenchWxml.includes("故障排查报告")
   || !workbenchWxml.includes("diagnosticStats.eventCount")
   || !workbenchWxml.includes("bindtap=\"copyDiagnosticReport\"")
@@ -476,7 +481,7 @@ if (
 if (
   !appJson.pages.includes("pages/photo-to-video/photo-to-video")
   || !workbenchWxml.includes("照片转实况图")
-  || !workbenchWxml.includes("小程序内长按预览效果")
+  || !workbenchWxml.includes("生成普通动态视频，照片和视频分别保存")
   || !workbenchWxml.includes('bindtap="openPhotoToVideo"')
   || !workbenchJs.includes("openPhotoToVideo()")
   || !workbenchJs.includes('"/pages/photo-to-video/photo-to-video"')
@@ -490,7 +495,7 @@ if (
   || !photoToVideoJs.includes("retryOne(event = {})")
   || !photoToVideoWxml.includes("照片转动态视频")
   || !photoToVideoWxml.includes("不会自动变成系统实况照片")
-  || !photoToVideoWxml.includes('bindtouchstart="onPreviewTouchStart"')
+  || !photoToVideoWxml.includes('class="live-preview-touch-layer"')
   || !photoToVideoWxml.includes('id="photo-to-video-preview"')
   || !photoToVideoWxss.includes(".live-preview-image")
   || !photoToVideoWxss.includes(".live-preview-video-visible")
@@ -499,6 +504,9 @@ if (
   || !cloudJs.includes('action === "queryVideoTask"')
   || !cloudJs.includes("VIDEO_PROVIDER_NOT_CONFIGURED")
   || !cloudJs.includes("VIDEO_PROVIDER_PROTOCOL_PENDING")
+  || !photoToVideoJs.includes("maxConcurrent")
+  || !photoToVideoJs.includes("PHOTO_TO_VIDEO_CANCELLED")
+  || !photoToVideoJs.includes("resultFileID")
 ) {
   throw new Error("照片转动态视频入口、长按预览或云函数接口骨架不完整。");
 }

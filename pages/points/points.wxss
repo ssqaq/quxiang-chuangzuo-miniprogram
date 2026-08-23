@@ -12,15 +12,16 @@ page {
 .card {
   margin-bottom: 16rpx;
   padding: 24rpx;
-  border: 1rpx solid #e7ebf2;
+  border: 1rpx solid #e1e8f1;
   border-radius: 24rpx;
   background: #ffffff;
   box-shadow: 0 12rpx 32rpx rgba(31, 49, 79, 0.05);
 }
 
 .points-hero {
-  background: linear-gradient(135deg, #e9f3ff 0%, #ffffff 80%);
+  padding: 24rpx;
   border-color: #cfe3ff;
+  background: linear-gradient(145deg, #edf5ff 0%, #ffffff 72%);
 }
 
 .points-hero-head,
@@ -32,18 +33,25 @@ page {
   gap: 18rpx;
 }
 
+.points-heading,
+.streak-heading {
+  min-width: 0;
+  flex: 1;
+}
+
 .points-kicker {
   color: #1f6feb;
   font-size: 20rpx;
-  font-weight: 700;
+  font-weight: 800;
   letter-spacing: 2rpx;
 }
 
 .points-title {
   margin-top: 8rpx;
-  color: #182132;
+  color: #17253b;
   font-size: 38rpx;
   font-weight: 800;
+  line-height: 48rpx;
 }
 
 .points-subtitle,
@@ -58,9 +66,12 @@ page {
 }
 
 .points-balance {
+  display: flex;
   flex: none;
   min-width: 132rpx;
   padding: 14rpx 16rpx;
+  align-items: center;
+  flex-direction: column;
   border-radius: 18rpx;
   background: #ffffff;
   text-align: center;
@@ -81,14 +92,89 @@ page {
   font-size: 20rpx;
 }
 
+.dashboard-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12rpx;
+  margin-top: 20rpx;
+}
+
+.dashboard-metric {
+  min-width: 0;
+  min-height: 104rpx;
+  padding: 16rpx;
+  border-radius: 16rpx;
+}
+
+.dashboard-metric-blue {
+  background: #edf4ff;
+}
+
+.dashboard-metric-green {
+  background: #eaf8f3;
+}
+
+.dashboard-metric-orange {
+  background: #fff4e3;
+}
+
+.dashboard-metric-purple {
+  background: #f1edff;
+}
+
+.dashboard-metric-label {
+  display: block;
+  overflow: hidden;
+  color: #78879b;
+  font-size: 20rpx;
+  line-height: 28rpx;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-metric-value {
+  display: block;
+  margin-top: 8rpx;
+  overflow: hidden;
+  color: #2c405f;
+  font-size: 32rpx;
+  font-weight: 800;
+  line-height: 38rpx;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-metric-blue .dashboard-metric-value {
+  color: #2f70d5;
+}
+
+.dashboard-metric-green .dashboard-metric-value {
+  color: #188b70;
+}
+
+.dashboard-metric-orange .dashboard-metric-value {
+  color: #bd7623;
+}
+
+.dashboard-metric-purple .dashboard-metric-value {
+  color: #7056cf;
+}
+
 .points-promo {
-  margin-top: 18rpx;
+  margin-top: 16rpx;
   padding: 14rpx 16rpx;
   border-radius: 14rpx;
   color: #946d24;
   background: #fff8e9;
   font-size: 21rpx;
   line-height: 32rpx;
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12rpx;
 }
 
 .section-title {
@@ -98,8 +184,17 @@ page {
   line-height: 42rpx;
 }
 
-.streak-count {
+.section-meta {
   flex: none;
+  color: #7183a1;
+  font-size: 20rpx;
+  line-height: 30rpx;
+}
+
+.streak-count {
+  display: flex;
+  flex: none;
+  align-items: baseline;
   color: #1f6feb;
   font-size: 24rpx;
   font-weight: 700;
@@ -150,6 +245,10 @@ page {
   text-align: center;
 }
 
+.usage-card {
+  padding-bottom: 22rpx;
+}
+
 .usage-grid {
   display: flex;
   gap: 12rpx;
@@ -190,9 +289,35 @@ page {
   align-items: center;
 }
 
-.ledger-total {
-  margin-top: 0;
-  font-size: 20rpx;
+.ledger-summary {
+  display: flex;
+  flex: none;
+  align-items: flex-end;
+  gap: 16rpx;
+}
+
+.ledger-summary-item {
+  display: flex;
+  align-items: flex-end;
+  flex-direction: column;
+  color: #8a96a8;
+  font-size: 17rpx;
+  line-height: 24rpx;
+}
+
+.ledger-summary-value {
+  margin-top: 2rpx;
+  font-size: 24rpx;
+  font-weight: 800;
+  line-height: 28rpx;
+}
+
+.ledger-summary-income {
+  color: #23834b;
+}
+
+.ledger-summary-expense {
+  color: #c35d68;
 }
 
 .empty-ledger {
@@ -252,6 +377,16 @@ page {
   color: #7b879a;
 }
 
+.points-message {
+  margin: -4rpx 0 12rpx;
+  padding: 12rpx 16rpx;
+  border-radius: 14rpx;
+  color: #7c6b3d;
+  background: #fff8e9;
+  font-size: 21rpx;
+  line-height: 32rpx;
+}
+
 .back-button {
   width: 100%;
   height: 72rpx;
@@ -281,6 +416,10 @@ button::after {
     padding-left: 22rpx;
   }
 
+  .points-hero {
+    padding: 20rpx;
+  }
+
   .points-title {
     font-size: 34rpx;
   }
@@ -293,5 +432,38 @@ button::after {
 
   .points-balance-number {
     font-size: 36rpx;
+  }
+
+  .dashboard-metric {
+    min-height: 96rpx;
+    padding: 14rpx;
+  }
+
+  .dashboard-metric-value {
+    font-size: 28rpx;
+  }
+
+  .ledger-summary {
+    gap: 8rpx;
+  }
+
+  .ledger-summary-item {
+    font-size: 16rpx;
+  }
+}
+
+@media (min-width: 400px) and (max-width: 430px) {
+  .points-page {
+    padding-right: 28rpx;
+    padding-left: 28rpx;
+  }
+
+  .points-hero {
+    padding: 26rpx;
+  }
+
+  .dashboard-metric {
+    min-height: 112rpx;
+    padding: 18rpx;
   }
 }

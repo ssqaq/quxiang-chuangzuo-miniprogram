@@ -16,7 +16,7 @@ module.exports = {
     quality: 82,
     minBytes: 262144
   },
-  appVersion: "0.15.3",
+  appVersion: "0.15.4",
   photoToVideo: {
     durationSeconds: 3,
     resolution: "720p",

@@ -837,12 +837,18 @@ button.interaction-log-button.button-hover {
   box-shadow: none !important;
 }
 
-.interaction-log-primary-button,
+.interaction-log-primary-button {
+  transform: translateX(-25px);
+}
+
 .diagnostic-copy-button {
   transform: translateX(-10px);
 }
 
-button.interaction-log-primary-button.button-hover,
+button.interaction-log-primary-button.button-hover {
+  transform: translateX(-25px);
+}
+
 button.diagnostic-copy-button.button-hover {
   transform: translateX(-10px);
 }
@@ -1598,4 +1604,47 @@ button.recent-more-c.small-btn {
 .photo-to-video-entry .photo-to-video-copy {
   align-self: flex-start;
   margin-top: 18rpx;
+}
+
+/* 最终统一：其他三张卡片按“制作记录”的内容块垂直对齐。 */
+.common-feature-panel .common-feature-row,
+.common-feature-panel .entry-card-custom {
+  height: 148rpx !important;
+  min-height: 148rpx !important;
+  max-height: 148rpx !important;
+  align-items: center !important;
+}
+
+.common-feature-panel .entry-card-custom .entry-mark,
+.common-feature-panel .feature-card-icon,
+.common-feature-panel .publish-export-icon,
+.common-feature-panel .photo-to-video-icon {
+  align-self: center !important;
+}
+
+.common-feature-panel .entry-card-custom .entry-copy,
+.common-feature-panel .feature-card-copy,
+.common-feature-panel .publish-export-copy,
+.common-feature-panel .photo-to-video-copy {
+  min-width: 0;
+  flex: 1 1 0;
+  align-self: center !important;
+  margin: 0 0 0 14rpx !important;
+  padding: 0 !important;
+  transform: none !important;
+}
+
+.common-feature-panel .entry-title,
+.common-feature-panel .section-title,
+.common-feature-panel .publish-export-title,
+.common-feature-panel .photo-to-video-title {
+  margin-top: 0 !important;
+  margin-bottom: 20rpx !important;
+}
+
+.common-feature-panel .entry-description,
+.common-feature-panel .common-feature-description,
+.common-feature-panel .publish-export-description,
+.common-feature-panel .photo-to-video-description {
+  margin-top: 0 !important;
 }

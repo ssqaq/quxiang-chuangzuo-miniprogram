@@ -3416,7 +3416,9 @@ async function generate(event, context) {
   let claimed = false;
   try {
     billing = await reserveUsage(openid, requestId, "image");
-    const claim = await claimGenerationOperation(openid, requestId, "image");
+    const claim = billing.untracked
+      ? { claimed: true, operation: null, completed: false }
+      : await claimGenerationOperation(openid, requestId, "image");
     if (claim.completed && claim.operation && claim.operation.result) {
       return jsonResponse(true, Object.assign({}, claim.operation.result, {
         deduplicated: true,
@@ -3509,12 +3511,16 @@ async function generate(event, context) {
       quota: billing.quota,
       billing
     };
-    await completeGenerationOperation(openid, requestId, result);
+    if (!billing.untracked) {
+      await completeGenerationOperation(openid, requestId, result);
+    }
     return jsonResponse(true, result);
   } catch (error) {
     if (claimed) {
-      await failGenerationOperation(openid, requestId, error);
-      await refundUsage(openid, requestId, "生图失败，已退回本次使用额度");
+      if (!billing || !billing.untracked) {
+        await failGenerationOperation(openid, requestId, error);
+        await refundUsage(openid, requestId, "生图失败，已退回本次使用额度");
+      }
     }
     throw error;
   }
@@ -3765,6 +3771,7 @@ async function createVideoTask(event, context) {
   const requestId = event.requestId;
   const openid = getOpenId(context);
   let billing = null;
+  let claimed = false;
   try {
     const imageBuffer = await downloadCloudFile(payload.imageFileID, {
       requestId,
@@ -3773,6 +3780,31 @@ async function createVideoTask(event, context) {
     });
     const requestPayload = buildVideoGenerationPayload(payload, Buffer.from(imageBuffer), video);
     billing = await reserveUsage(openid, requestId, "video");
+    const claim = billing.untracked
+      ? { claimed: true, operation: null, completed: false }
+      : await claimGenerationOperation(openid, requestId, "video");
+    if (claim.completed && claim.operation && claim.operation.result) {
+      return jsonResponse(true, Object.assign({}, claim.operation.result, {
+        deduplicated: true,
+        billing
+      }));
+    }
+    if (!claim.claimed) {
+      if (claim.operation && claim.operation.providerTaskId) {
+        return jsonResponse(true, Object.assign({}, claim.operation.result || {
+          taskId: claim.operation.providerTaskId,
+          status: "processing",
+          providerStatus: "processing"
+        }, {
+          requestId,
+          provider: video.provider,
+          deduplicated: true,
+          billing
+        }));
+      }
+      throw operationStateError(claim.operation);
+    }
+    claimed = true;
     log("info", "video.create.start", {
       requestId,
       provider: video.provider,
@@ -3789,7 +3821,7 @@ async function createVideoTask(event, context) {
       requestPayload,
       video.apiKey,
       "POST",
-      {},
+      { "Idempotency-Key": requestId },
       videoRequestMeta(requestId, "video.create", video, false, {
         costs: configs.costs,
         userHash: usageUserHash(openid),
@@ -3805,15 +3837,28 @@ async function createVideoTask(event, context) {
       providerStatus: normalized.providerStatus,
       durationMs: null
     });
-    return jsonResponse(true, Object.assign({}, normalized, {
+    const result = Object.assign({}, normalized, {
       requestId,
       provider: video.provider,
       model: requestPayload.model,
       resolution: requestPayload.resolution || "",
       billing
-    }));
+    });
+    if (!billing.untracked) {
+      await updateGenerationOperation(openid, requestId, {
+        status: normalized.status === "succeeded" ? "succeeded" : "processing",
+        providerTaskId: normalized.taskId,
+        providerStatus: normalized.providerStatus,
+        result: Object.assign({}, result, { billing: undefined }),
+        providerCreatedAt: new Date()
+      }, {
+        allowedStatuses: ["processing"]
+      });
+    }
+    return jsonResponse(true, result);
   } catch (error) {
-    if (billing && !billing.alreadyReserved) {
+    if (claimed && billing && !billing.untracked) {
+      await failGenerationOperation(openid, requestId, error);
       await refundUsage(openid, requestId, "视频任务创建失败，已退回本次使用额度");
     }
     throw error;
@@ -3834,20 +3879,52 @@ async function queryVideoTask(event, context) {
   if (!taskId) {
     return fail("缺少视频任务编号。", "VIDEO_TASK_ID_MISSING");
   }
+  const requestId = String(event.requestId || "").trim();
+  const operation = openid !== "anonymous" && requestId
+    ? await findGenerationOperation(openid, requestId)
+    : null;
+  if (operation) {
+    if (["refunding", "refunded"].includes(String(operation.status || ""))) {
+      throw operationStateError(operation);
+    }
+    if (operation.providerTaskId && String(operation.providerTaskId) !== taskId) {
+      return fail("视频任务编号与原请求不匹配。", "VIDEO_TASK_OWNERSHIP_MISMATCH");
+    }
+  } else if (openid !== "anonymous" && requestId) {
+    return fail("找不到这次视频生成请求。", "VIDEO_OPERATION_NOT_FOUND");
+  }
   const response = await requestJsonMethod(
     videoQueryUrl(video, taskId),
     null,
     video.apiKey,
     "GET",
     {},
-    videoRequestMeta(event.requestId, "video.query", video, true)
+    videoRequestMeta(requestId, "video.query", video, true)
   );
   const normalized = normalizeVideoQueryResponse(response);
   if (
     ["failed", "cancelled"].includes(normalized.status)
     && openid !== "anonymous"
   ) {
-    await refundUsage(openid, event.requestId, "视频任务失败，已退回本次使用额度");
+    if (operation) {
+      await updateGenerationOperation(openid, requestId, {
+        status: "failed",
+        providerStatus: normalized.providerStatus,
+        result: normalized,
+        failedAt: new Date(),
+        lastError: normalized.error || "视频任务失败"
+      }, {
+        allowedStatuses: ["processing", "failed"]
+      });
+      await refundUsage(openid, requestId, "视频任务失败，已退回本次使用额度");
+    }
+  }
+  if (normalized.status === "succeeded" && operation) {
+    await completeGenerationOperation(openid, requestId, Object.assign({}, normalized, {
+      taskId,
+      requestId,
+      provider: video.provider
+    }));
   }
   if (normalized.status === "succeeded" && !normalized.videoURL) {
     return fail(
@@ -3862,7 +3939,7 @@ async function queryVideoTask(event, context) {
     );
   }
   return jsonResponse(true, Object.assign({}, normalized, {
-    requestId: event.requestId,
+    requestId,
     taskId,
     provider: video.provider
   }));

@@ -16,7 +16,6 @@
       </view>
     </view>
     <view class="hero-subtitle">区域锁定 · 人像参考 · AI 提示词</view>
-    <button class="hero-back-button" bindtap="backToWorkbench">返回工作台</button>
   </view>
 
   <view wx:if="{{entryTitle}}" class="entry-hint entry-hint-{{entryTone}}">
@@ -54,6 +53,7 @@
         bindtap="clearMainImage"
       >清除主图</button>
     </view>
+    <button class="secondary-btn main-image-back-button" bindtap="backToWorkbench">返回主页</button>
     <view wx:if="{{project.mainImage}}" class="mask-action-row">
       <button
         class="primary-btn main-image-action-button mask-action-button"

@@ -838,19 +838,19 @@ button.interaction-log-button.button-hover {
 }
 
 .interaction-log-primary-button {
-  transform: translateX(-25px);
+  transform: translateX(-28px);
 }
 
 .diagnostic-copy-button {
-  transform: translateX(-10px);
+  transform: translateX(-13px);
 }
 
 button.interaction-log-primary-button.button-hover {
-  transform: translateX(-25px);
+  transform: translateX(-28px);
 }
 
 button.diagnostic-copy-button.button-hover {
-  transform: translateX(-10px);
+  transform: translateX(-13px);
 }
 
 .contact-author-card {
@@ -1647,4 +1647,18 @@ button.recent-more-c.small-btn {
 .common-feature-panel .publish-export-description,
 .common-feature-panel .photo-to-video-description {
   margin-top: 0 !important;
+}
+
+.common-feature-panel .common-feature-row {
+  gap: 14rpx;
+}
+
+.common-feature-panel .entry-card-custom .entry-copy,
+.common-feature-panel .publish-export-copy,
+.common-feature-panel .photo-to-video-copy {
+  margin-left: 0 !important;
+}
+
+.common-feature-panel .feature-card-copy {
+  margin-left: 14rpx !important;
 }

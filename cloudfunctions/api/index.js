@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.18.0";
-const API_BUILD_MARKER = "API_BUILD_TAG_20260823_MODEL_COST_STATS";
+const API_BUILD_VERSION = "0.18.1";
+const API_BUILD_MARKER = "API_BUILD_TAG_20260823_MODEL_COST_STATS_V181";
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
 const cloud = require("wx-server-sdk");
@@ -1929,7 +1929,7 @@ async function saveAdminConfig(event, context) {
   };
   await db.collection(ADMIN_RUNTIME_CONFIG_COLLECTION).doc(ADMIN_RUNTIME_CONFIG_ID).set({ data });
   adminRuntimeCache = {
-    value: { image: next.image, video: next.video, costs: next.costs },
+    value: { image: next.image, video: next.video, points: next.points, costs: next.costs },
     expiresAt: Date.now() + ADMIN_RUNTIME_CACHE_TTL_MS
   };
   log("info", "admin.runtime-config.saved", {
@@ -2642,7 +2642,8 @@ async function requestImageEdits(
     headers: {
       "Content-Type": multipart.contentType,
       "Content-Length": multipart.body.length,
-      Authorization: `Bearer ${apiKey}`
+      Authorization: `Bearer ${apiKey}`,
+      "Idempotency-Key": requestId
     }
   }, multipart.body, {
     requestId,
@@ -2729,12 +2730,24 @@ function defaultPointsAccount(openid) {
   };
 }
 
+function isDocumentNotFoundError(error) {
+  const code = String(error && (error.code || error.errCode) || "").toUpperCase();
+  const message = String(error && (error.message || error.errMsg) || "");
+  return [
+    "DATABASE_DOCUMENT_NOT_EXIST",
+    "DOCUMENT_NOT_FOUND",
+    "NOT_FOUND"
+  ].includes(code)
+    || /document.*(?:not exist|not found)|文档不存在/i.test(message);
+}
+
 async function readDocument(ref) {
   try {
     const result = await ref.get();
     return result && result.data ? result.data : null;
-  } catch (_) {
-    return null;
+  } catch (error) {
+    if (isDocumentNotFoundError(error)) return null;
+    throw error;
   }
 }
 
@@ -2842,6 +2855,100 @@ function operationStateError(operation, message) {
   error.operationStatus = status;
   error.retryable = status === "processing";
   return error;
+}
+
+function operationUpdatedAtMs(operation) {
+  const value = operation && (
+    operation.processingAt
+    || operation.updatedAt
+    || operation.createdAt
+  );
+  if (!value) return 0;
+  if (value instanceof Date) return value.getTime();
+  if (typeof value.toDate === "function") return value.toDate().getTime();
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+async function claimGenerationOperation(openid, requestId, kind) {
+  return db.runTransaction(async (transaction) => {
+    const operation = await findGenerationOperation(openid, requestId, transaction);
+    if (!operation) {
+      const error = new Error("生成请求尚未完成额度预留，请重新发起。");
+      error.code = "generation-not-reserved";
+      throw error;
+    }
+    if (operation.kind && operation.kind !== kind) {
+      const error = new Error("同一请求编号不能用于不同类型的生成任务。");
+      error.code = "request-kind-conflict";
+      throw error;
+    }
+    const status = String(operation.status || "reserved");
+    if (["refunding", "refunded"].includes(status)) {
+      throw operationStateError(operation);
+    }
+    if (status === "succeeded") {
+      return { claimed: false, operation, completed: true };
+    }
+    if (status === "processing") {
+      const stale = Date.now() - operationUpdatedAtMs(operation) >= GENERATION_OPERATION_STALE_MS;
+      if (!stale || operation.providerTaskId) {
+        return { claimed: false, operation, completed: false };
+      }
+    } else if (!["reserved", "failed"].includes(status)) {
+      throw operationStateError(operation);
+    }
+    const claimed = await saveGenerationOperation(openid, requestId, {
+      kind,
+      status: "processing",
+      processingAt: new Date(),
+      attemptCount: (Number(operation.attemptCount) || 0) + 1,
+      lastError: null
+    }, transaction);
+    return { claimed: true, operation: claimed, completed: false };
+  }, 5);
+}
+
+async function updateGenerationOperation(openid, requestId, patch, options = {}) {
+  return db.runTransaction(async (transaction) => {
+    const operation = await findGenerationOperation(openid, requestId, transaction);
+    if (!operation) return null;
+    const status = String(operation.status || "");
+    if (status === "refunded") return operation;
+    if (
+      Array.isArray(options.allowedStatuses)
+      && options.allowedStatuses.length
+      && !options.allowedStatuses.includes(status)
+    ) {
+      return operation;
+    }
+    return saveGenerationOperation(openid, requestId, patch, transaction);
+  }, 5);
+}
+
+async function completeGenerationOperation(openid, requestId, result) {
+  return updateGenerationOperation(openid, requestId, {
+    status: "succeeded",
+    result,
+    succeededAt: new Date(),
+    lastError: null
+  }, {
+    allowedStatuses: ["processing", "succeeded"]
+  });
+}
+
+async function failGenerationOperation(openid, requestId, error) {
+  return updateGenerationOperation(openid, requestId, {
+    status: "failed",
+    failedAt: new Date(),
+    lastError: {
+      code: String(error && error.code || "generation-failed"),
+      message: String(error && error.message || "生成失败"),
+      retryable: Boolean(error && error.retryable)
+    }
+  }, {
+    allowedStatuses: ["processing", "failed"]
+  });
 }
 
 function pointsSummary(account, quota, points, dateKey) {
@@ -3306,8 +3413,20 @@ async function generate(event, context) {
   });
 
   let billing = null;
+  let claimed = false;
   try {
     billing = await reserveUsage(openid, requestId, "image");
+    const claim = await claimGenerationOperation(openid, requestId, "image");
+    if (claim.completed && claim.operation && claim.operation.result) {
+      return jsonResponse(true, Object.assign({}, claim.operation.result, {
+        deduplicated: true,
+        billing
+      }));
+    }
+    if (!claim.claimed) {
+      throw operationStateError(claim.operation);
+    }
+    claimed = true;
     let response;
     if (mode === "edits") {
       response = await requestImageEdits(
@@ -3326,7 +3445,9 @@ async function generate(event, context) {
         size,
         n: 1
       };
-      response = await requestJson(url, body, apiKey, {}, {
+      response = await requestJson(url, body, apiKey, {
+        "Idempotency-Key": requestId
+      }, {
         requestId,
         action: "generate",
         provider: imageConfig.provider || "",
@@ -3376,7 +3497,7 @@ async function generate(event, context) {
       pointsCharged: billing.pointsCharged
     };
     const saved = await db.collection("generation_records").add({ data: recordData });
-    return jsonResponse(true, {
+    const result = {
       recordId: saved._id,
       fileID: fileID.fileID,
       tempFileURL: tempFileURL || "",
@@ -3387,9 +3508,12 @@ async function generate(event, context) {
       }),
       quota: billing.quota,
       billing
-    });
+    };
+    await completeGenerationOperation(openid, requestId, result);
+    return jsonResponse(true, result);
   } catch (error) {
-    if (billing && !billing.alreadyReserved) {
+    if (claimed) {
+      await failGenerationOperation(openid, requestId, error);
       await refundUsage(openid, requestId, "生图失败，已退回本次使用额度");
     }
     throw error;

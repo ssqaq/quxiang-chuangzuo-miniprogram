@@ -330,7 +330,7 @@ if (
   appJson.pages[0] !== "pages/splash/splash"
   || appJson.pages[1] !== "pages/workbench/workbench"
   || !splashJs.includes("setTimeout")
-  || !splashJs.includes("REDIRECT_DELAY = 1180")
+  || !splashJs.includes("REDIRECT_DELAY = 1000")
   || !splashJs.includes("openWorkbench()")
   || !splashJs.includes("wx.redirectTo")
   || !splashJs.includes('wx.reLaunch')

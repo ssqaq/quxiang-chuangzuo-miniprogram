@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.16.0";
-const API_BUILD_MARKER = "API_BUILD_TAG_20260823_64";
+const API_BUILD_VERSION = "0.17.0";
+const API_BUILD_MARKER = "API_BUILD_TAG_20260823_POINTS";
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
 const cloud = require("wx-server-sdk");
@@ -19,6 +19,10 @@ const ADMIN_RUNTIME_CONFIG_COLLECTION = "admin_runtime_config";
 const ADMIN_RUNTIME_CONFIG_ID = "global";
 const ADMIN_DEPLOYMENT_LOG_COLLECTION = "admin_deployment_logs";
 const ADMIN_RUNTIME_CACHE_TTL_MS = 15000;
+const POINTS_ACCOUNT_COLLECTION = "user_accounts";
+const POINTS_LEDGER_COLLECTION = "point_ledger";
+const USER_QUOTA_COLLECTION = "user_quotas";
+const POINTS_TIME_ZONE = "Asia/Shanghai";
 let adminRuntimeCache = {
   value: null,
   expiresAt: 0

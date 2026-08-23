@@ -1,4 +1,4 @@
-const REDIRECT_DELAY = 1180;
+const REDIRECT_DELAY = 1000;
 const WORKBENCH_URL = "/pages/workbench/workbench";
 
 Page({

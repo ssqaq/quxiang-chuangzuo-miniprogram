@@ -465,6 +465,19 @@ module.exports = {
   listRecords() {
     return callApi({ action: "listRecords" });
   },
+  getUserPoints(options = {}) {
+    return callApi({
+      action: "getUserPoints",
+      retryLimit: options.retryLimit === undefined ? 1 : options.retryLimit,
+      silent: Boolean(options.silent)
+    });
+  },
+  checkIn() {
+    return callApi({ action: "checkIn", retryLimit: 0 });
+  },
+  getPointLedger() {
+    return callApi({ action: "getPointLedger" });
+  },
   deleteRecord(recordId) {
     return callApi({ action: "deleteRecord", recordId });
   },

@@ -16,7 +16,17 @@ module.exports = {
     quality: 82,
     minBytes: 262144
   },
-  appVersion: "0.16.2",
+  appVersion: "0.17.0",
+  points: {
+    dailyFreeLimit: 3,
+    imageCost: 10,
+    videoCost: 10,
+    checkinPoints: 5,
+    streakBonus: 20,
+    streakDays: 7,
+    promoStartDate: "2026-08-23",
+    promoEndDate: "2026-08-24"
+  },
   photoToVideo: {
     durationSeconds: 3,
     resolution: "720p",

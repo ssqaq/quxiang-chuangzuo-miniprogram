@@ -63,6 +63,23 @@ api.main({
   assert.strictEqual(result.isAdmin, true);
   return api.main({
     action: "getAdminConfig",
+    requestId: "admin-smoke-config"
+  }, { OPENID: "admin-openid-001" });
+}).then((result) => {
+  assert.strictEqual(result.ok, true);
+  assert.strictEqual(result.admin, true);
+  assert.ok(result.effective.image.model);
+  assert.ok(result.effective.video.model);
+  assert.strictEqual(
+    Object.prototype.hasOwnProperty.call(result.effective.image, "apiKey"),
+    false
+  );
+  assert.strictEqual(
+    Object.prototype.hasOwnProperty.call(result.effective.video, "apiKey"),
+    false
+  );
+  return api.main({
+    action: "getAdminConfig",
     requestId: "admin-smoke-forbidden"
   }, { OPENID: "normal-openid" });
 }).then((result) => {

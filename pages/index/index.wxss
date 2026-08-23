@@ -828,6 +828,19 @@
   background: #eef2f7;
 }
 
+.auto-face-diagnostics-failure,
+.auto-face-diagnostics-next {
+  margin-top: 14rpx;
+  color: #8b4d58;
+  font-size: 22rpx;
+  line-height: 34rpx;
+}
+
+.auto-face-diagnostics-next {
+  margin-top: 6rpx;
+  color: #65768c;
+}
+
 .auto-face-log-actions {
   display: flex;
   gap: 12rpx;

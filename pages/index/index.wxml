@@ -113,6 +113,12 @@
           </view>
         </view>
       </view>
+      <view wx:if="{{autoFaceStatus.failureReason}}" class="auto-face-diagnostics-failure">
+        原因：{{autoFaceStatus.failureReason}}
+      </view>
+      <view wx:if="{{autoFaceStatus.nextStepText}}" class="auto-face-diagnostics-next">
+        下一步：{{autoFaceStatus.nextStepText}}
+      </view>
     </view>
   </view>
 

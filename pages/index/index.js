@@ -1379,7 +1379,11 @@ Page({
   applyCachedAutoFaceCircle(circle) {
     const cachedCircle = clone(circle);
     this.updateProject({ maskCircle: cachedCircle, maskFileID: "" });
-    this.setData({ step: 1 });
+    this.setData({
+      step: 1,
+      manualGuideActive: false,
+      canvasGestureTip: getCanvasGestureTip(Boolean(this.data.canvasZoomed), false)
+    });
     this.drawCanvas(cachedCircle);
     this.recordAutoFaceStatus(
       "ready",
@@ -1506,7 +1510,11 @@ Page({
       }
 
       this.updateProject({ maskCircle: circle, maskFileID: "" });
-      this.setData({ step: 1 });
+      this.setData({
+        step: 1,
+        manualGuideActive: false,
+        canvasGestureTip: getCanvasGestureTip(Boolean(this.data.canvasZoomed), false)
+      });
       this.drawCanvas(circle);
       this.recordAutoFaceStatus(
         "ready",

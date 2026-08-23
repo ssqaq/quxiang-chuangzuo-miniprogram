@@ -966,7 +966,7 @@ page {
   align-items: center;
   justify-content: space-between;
   gap: 18rpx;
-  margin: 16rpx 0 14rpx 94rpx;
+  margin: 16rpx 0 14rpx;
   padding: 18rpx;
   border: 1rpx solid #dce8f8;
   border-radius: 20rpx;
@@ -1068,7 +1068,7 @@ page {
   align-items: stretch;
   gap: 12rpx;
   margin-top: 0;
-  margin-left: 94rpx;
+  margin-left: 0;
 }
 
 .interaction-log-actions-primary {
@@ -1118,19 +1118,19 @@ button.interaction-log-button.button-hover {
 }
 
 .interaction-log-primary-button {
-  transform: translateX(-28px);
+  transform: none;
 }
 
 .diagnostic-copy-button {
-  transform: translateX(-13px);
+  transform: none;
 }
 
 button.interaction-log-primary-button.button-hover {
-  transform: translateX(-28px);
+  transform: none;
 }
 
 button.diagnostic-copy-button.button-hover {
-  transform: translateX(-13px);
+  transform: none;
 }
 
 .contact-author-card {
@@ -1329,7 +1329,7 @@ button.diagnostic-copy-button.button-hover {
 .interaction-log-list {
   max-height: 520rpx;
   margin-top: 18rpx;
-  margin-left: 94rpx;
+  margin-left: 0;
   padding: 14rpx;
   overflow-y: auto;
   border-radius: 16rpx;
@@ -1669,12 +1669,12 @@ button.recent-more-c.small-btn {
 
   .interaction-log-description,
   .interaction-log-actions {
-    margin-left: 78rpx;
+    margin-left: 0;
   }
 
   .diagnostic-summary,
   .interaction-log-list {
-    margin-left: 78rpx;
+    margin-left: 0;
   }
 
   .interaction-log-button {
@@ -1848,7 +1848,7 @@ button.recent-more-c.small-btn {
 
   .diagnostic-summary,
   .interaction-log-list {
-    margin-left: 94rpx;
+    margin-left: 0;
   }
 }
 

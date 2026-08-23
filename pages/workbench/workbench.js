@@ -85,6 +85,13 @@ function buildProjectSnapshot(project) {
   };
 }
 
+function formatDiagnosticTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value || "");
+  const pad = (number) => String(number).padStart(2, "0");
+  return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
 function formatDiagnosticEvent(item) {
   const details = item && item.details && Object.keys(item.details).length
     ? JSON.stringify(item.details)
@@ -288,12 +295,15 @@ Page({
       .read({ limit: diagnosticLog.DISPLAY_LIMIT, newestFirst: true })
       .map(formatDiagnosticEvent);
     const diagnosticStats = diagnosticLog.getStats();
+    const diagnosticSession = diagnosticLog.getSession();
     this.setData({
       diagnosticEvents,
       diagnosticGroups: buildDiagnosticGroups(diagnosticEvents),
       diagnosticStats,
       diagnosticSummary: buildDiagnosticSummary(diagnosticStats),
-      diagnosticSession: diagnosticLog.getSession()
+      diagnosticSession: Object.assign({}, diagnosticSession, {
+        startedAtText: formatDiagnosticTime(diagnosticSession.startedAt)
+      })
     });
   },
 

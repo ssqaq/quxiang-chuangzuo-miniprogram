@@ -243,7 +243,7 @@
       </view>
       <view class="interaction-log-list" data-diagnostic-events="{{diagnosticEvents}}">
         <view class="diagnostic-session-summary">
-          本次会话：{{diagnosticSession.startedAt || '刚刚'}}
+          本次会话：{{diagnosticSession.startedAtText || '刚刚'}}
         </view>
         <view wx:if="{{!diagnosticGroups.length}}" class="interaction-log-empty">
           本次启动还没有排查日志

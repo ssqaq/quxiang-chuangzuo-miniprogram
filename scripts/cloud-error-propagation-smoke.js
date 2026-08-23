@@ -46,6 +46,12 @@ async function main() {
   assert.strictEqual(capturedError.payload.errorCode, "upstream-unavailable");
   assert.strictEqual(capturedError.payload.message, "视觉服务暂时不可用");
 
+  const adminStatus = await cloud.getAdminStatus();
+  assert.strictEqual(adminStatus.ok, false);
+  assert.strictEqual(adminStatus.isAdmin, false);
+  assert.strictEqual(adminStatus.unavailable, true);
+  assert.strictEqual(callCount, 4, "管理员入口探测失败时只应静默请求一次");
+
   console.log("cloud error propagation smoke: OK");
   console.log(JSON.stringify({
     status: capturedError.status,

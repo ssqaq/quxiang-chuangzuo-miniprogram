@@ -56,29 +56,38 @@ function callApi(data) {
       reject(error);
       return;
     }
-    const maxRetries = data && data.action === "generate"
-      ? Math.max(0, Number(data.retryLimit === undefined ? 2 : data.retryLimit))
-      : 2;
+    const retryLimit = data && data.retryLimit !== undefined
+      ? Number(data.retryLimit)
+      : null;
+    const maxRetries = retryLimit !== null && Number.isFinite(retryLimit)
+      ? Math.max(0, retryLimit)
+      : data && data.action === "generate"
+        ? 2
+        : 2;
     const retryDelay = data && data.action === "generate" ? 2000 : 500;
+    const silent = Boolean(data && data.silent);
     const onRetry = data && typeof data.onRetry === "function" ? data.onRetry : null;
     const requestData = Object.assign({}, data);
     delete requestData.onRetry;
     delete requestData.retryLimit;
+    delete requestData.silent;
     if (!requestData.requestId) {
       requestData.requestId = `client-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 8)}`;
     }
     const requestStartedAt = Date.now();
-    console.info("[cloud] call.start", {
-      action: requestData.action || "",
-      requestId: requestData.requestId
-    });
-    diagnosticLog.info("cloud", "call-start", "开始调用云函数", {
-      step: requestData.action || "",
-      requestId: requestData.requestId,
-      payloadSummary: requestData.payload || {},
-      recordId: requestData.recordId || "",
-      taskId: requestData.taskId || ""
-    });
+    if (!silent) {
+      console.info("[cloud] call.start", {
+        action: requestData.action || "",
+        requestId: requestData.requestId
+      });
+      diagnosticLog.info("cloud", "call-start", "开始调用云函数", {
+        step: requestData.action || "",
+        requestId: requestData.requestId,
+        payloadSummary: requestData.payload || {},
+        recordId: requestData.recordId || "",
+        taskId: requestData.taskId || ""
+      });
+    }
     const invoke = (attempt) => {
       wx.cloud.callFunction({
         name: config.cloudFunctionName,
@@ -97,19 +106,21 @@ function callApi(data) {
             error.payload = result;
             if (result.retryable && attempt < maxRetries) {
               const nextAttempt = attempt + 1;
-              console.warn("[cloud] retry", {
-                action: requestData && requestData.action,
-                attempt: nextAttempt,
-                requestId: result.requestId || ""
-              });
-              diagnosticLog.warn("cloud", "call-retry", "云函数请求准备重试", {
-                step: requestData.action || "",
-                requestId: result.requestId || requestData.requestId,
-                attempt: nextAttempt,
-                maxRetries,
-                delayMs: retryDelay,
-                code: result.errorCode || result.code || ""
-              });
+              if (!silent) {
+                console.warn("[cloud] retry", {
+                  action: requestData && requestData.action,
+                  attempt: nextAttempt,
+                  requestId: result.requestId || ""
+                });
+                diagnosticLog.warn("cloud", "call-retry", "云函数请求准备重试", {
+                  step: requestData.action || "",
+                  requestId: result.requestId || requestData.requestId,
+                  attempt: nextAttempt,
+                  maxRetries,
+                  delayMs: retryDelay,
+                  code: result.errorCode || result.code || ""
+                });
+              }
               if (onRetry) {
                 onRetry({
                   attempt: nextAttempt,
@@ -121,46 +132,57 @@ function callApi(data) {
               sleep(retryDelay).then(() => invoke(nextAttempt));
               return;
             }
-            console.warn("[cloud] call.finish", {
-              action: requestData.action || "",
-              requestId: result.requestId || requestData.requestId,
-              durationMs: Date.now() - requestStartedAt,
-              ok: false,
-              attempt,
-              errorCode: result.errorCode || result.code || ""
-            });
-            diagnosticLog.error("cloud", "call-failed", "云函数返回失败结果", {
-              step: requestData.action || "",
-              requestId: result.requestId || requestData.requestId,
-              durationMs: Date.now() - requestStartedAt,
-              attempt,
-              code: result.errorCode || result.code || "",
-              error
-            });
+            if (!silent) {
+              console.warn("[cloud] call.finish", {
+                action: requestData.action || "",
+                requestId: result.requestId || requestData.requestId,
+                durationMs: Date.now() - requestStartedAt,
+                ok: false,
+                attempt,
+                errorCode: result.errorCode || result.code || ""
+              });
+              diagnosticLog.error("cloud", "call-failed", "云函数返回失败结果", {
+                step: requestData.action || "",
+                requestId: result.requestId || requestData.requestId,
+                durationMs: Date.now() - requestStartedAt,
+                attempt,
+                code: result.errorCode || result.code || "",
+                error
+              });
+            }
+            if (silent) {
+              resolve(Object.assign({}, result, {
+                unavailable: true,
+                isAdmin: Boolean(result.isAdmin)
+              }));
+              return;
+            }
             reject(error);
             return;
           }
-          console.info("[cloud] call.finish", {
-            action: requestData.action || "",
-            requestId: result && result.requestId || requestData.requestId,
-            durationMs: Date.now() - requestStartedAt,
-            ok: true,
-            attempt
-          });
-          diagnosticLog.info("cloud", "call-success", "云函数调用完成", {
-            step: requestData.action || "",
-            requestId: result && result.requestId || requestData.requestId,
-            durationMs: Date.now() - requestStartedAt,
-            attempt,
-            resultSummary: {
-              ok: result && result.ok,
-              recordId: result && result.recordId,
-              taskId: result && result.taskId,
-              status: result && result.status,
-              provider: result && result.provider,
-              model: result && result.model
-            }
-          });
+          if (!silent) {
+            console.info("[cloud] call.finish", {
+              action: requestData.action || "",
+              requestId: result && result.requestId || requestData.requestId,
+              durationMs: Date.now() - requestStartedAt,
+              ok: true,
+              attempt
+            });
+            diagnosticLog.info("cloud", "call-success", "云函数调用完成", {
+              step: requestData.action || "",
+              requestId: result && result.requestId || requestData.requestId,
+              durationMs: Date.now() - requestStartedAt,
+              attempt,
+              resultSummary: {
+                ok: result && result.ok,
+                recordId: result && result.recordId,
+                taskId: result && result.taskId,
+                status: result && result.status,
+                provider: result && result.provider,
+                model: result && result.model
+              }
+            });
+          }
           resolve(result);
         },
         fail(error) {
@@ -170,18 +192,20 @@ function callApi(data) {
           });
           if (attempt < maxRetries) {
             const nextAttempt = attempt + 1;
-            console.warn("[cloud] retry", {
-              action: requestData && requestData.action,
-              attempt: nextAttempt
-            });
-            diagnosticLog.warn("cloud", "call-retry", "云函数调用失败，准备重试", {
-              step: requestData.action || "",
-              requestId: requestData.requestId,
+            if (!silent) {
+              console.warn("[cloud] retry", {
+                action: requestData && requestData.action,
+                attempt: nextAttempt
+              });
+              diagnosticLog.warn("cloud", "call-retry", "云函数调用失败，准备重试", {
+                step: requestData.action || "",
+                requestId: requestData.requestId,
                 attempt: nextAttempt,
                 maxRetries,
                 delayMs: retryDelay,
                 error: normalizedError
               });
+            }
             if (onRetry) {
               onRetry({
                 attempt: nextAttempt,
@@ -193,21 +217,32 @@ function callApi(data) {
             sleep(retryDelay).then(() => invoke(nextAttempt));
             return;
           }
-          console.warn("[cloud] call.finish", {
-            action: requestData.action || "",
-            requestId: requestData.requestId,
-            durationMs: Date.now() - requestStartedAt,
-            ok: false,
-            attempt,
-            errorCode: error && (error.errCode || error.code || "")
-          });
-          diagnosticLog.error("cloud", "call-failed", "云函数调用最终失败", {
-            step: requestData.action || "",
-            requestId: requestData.requestId,
-            durationMs: Date.now() - requestStartedAt,
-            attempt,
-                error: normalizedError
-              });
+          if (!silent) {
+            console.warn("[cloud] call.finish", {
+              action: requestData.action || "",
+              requestId: requestData.requestId,
+              durationMs: Date.now() - requestStartedAt,
+              ok: false,
+              attempt,
+              errorCode: error && (error.errCode || error.code || "")
+            });
+            diagnosticLog.error("cloud", "call-failed", "云函数调用最终失败", {
+              step: requestData.action || "",
+              requestId: requestData.requestId,
+              durationMs: Date.now() - requestStartedAt,
+              attempt,
+              error: normalizedError
+            });
+          }
+          if (silent) {
+            resolve({
+              ok: false,
+              isAdmin: false,
+              unavailable: true,
+              requestId: requestData.requestId
+            });
+            return;
+          }
           reject(normalizedError);
         }
       });
@@ -437,7 +472,11 @@ module.exports = {
     return callApi({ action: "videoProviderStatus" });
   },
   getAdminStatus() {
-    return callApi({ action: "getAdminStatus" });
+    return callApi({
+      action: "getAdminStatus",
+      retryLimit: 0,
+      silent: true
+    });
   },
   getAdminConfig() {
     return callApi({ action: "getAdminConfig" });

@@ -207,6 +207,10 @@ const recordsWxml = fs.readFileSync(path.join(root, "pages/records/records.wxml"
 const recordsWxss = fs.readFileSync(path.join(root, "pages/records/records.wxss"), "utf8");
 const cloudJs = fs.readFileSync(path.join(root, "cloudfunctions/api/index.js"), "utf8");
 const clientCloudJs = fs.readFileSync(path.join(root, "services/cloud.js"), "utf8");
+const cloudErrorSmokeJs = fs.readFileSync(
+  path.join(root, "scripts/cloud-error-propagation-smoke.js"),
+  "utf8"
+);
 const storageJs = fs.readFileSync(path.join(root, "utils/storage.js"), "utf8");
 const webPoseJs = fs.readFileSync(path.join(root, "utils/web-pose.js"), "utf8");
 const adminJs = fs.readFileSync(path.join(root, "pages/admin/admin.js"), "utf8");
@@ -507,6 +511,8 @@ if (
   || !workbenchJs.includes("toggleDiagnosticPanel()")
   || !workbenchJs.includes("copyDiagnosticReport()")
   || !workbenchJs.includes("clearDiagnosticLogs()")
+  || !workbenchJs.includes("refreshAdminAccess()")
+  || !workbenchJs.includes("adminVisible")
   || !workbenchJs.includes("new-creation-navigation-timeout")
   || !workbenchJs.includes("draft-auto-clear")
   || !workbenchWxml.includes("故障排查报告")
@@ -534,6 +540,15 @@ if (
   || !fs.existsSync(path.join(root, "一键刷新预览.cmd"))
 ) {
   throw new Error("故障排查报告、真机跳转兜底或一键刷新预览功能不完整。");
+}
+if (
+  !clientCloudJs.includes('action: "getAdminStatus"')
+  || !clientCloudJs.includes("retryLimit: 0")
+  || !clientCloudJs.includes("silent: true")
+  || !clientCloudJs.includes("if (silent)")
+  || !cloudErrorSmokeJs.includes("管理员入口探测失败时只应静默请求一次")
+) {
+  throw new Error("管理员入口探测失败时没有静默处理，仍会刷重试报错。");
 }
 if (
   !workbenchWxml.includes("降低 AI 痕迹")
@@ -797,13 +812,28 @@ if (
 }
 const autoFaceStatusStyle = indexWxss.match(/\.auto-face-diagnostics-status\s*\{([^}]*)\}/);
 const autoFaceDurationStyle = indexWxss.match(/\.auto-face-diagnostics-duration\s*\{([^}]*)\}/);
+const autoFaceHeadStyle = indexWxss.match(/\.auto-face-diagnostics-head\s*\{([^}]*)\}/);
+const autoFaceLeadingStyle = indexWxss.match(/\.auto-face-diagnostics-leading\s*\{([^}]*)\}/);
+const autoFaceTitleStyle = indexWxss.match(/\.auto-face-diagnostics-title\s*\{([^}]*)\}/);
+const autoFaceStateStyle = indexWxss.match(/\.auto-face-diagnostics-state\s*\{([^}]*)\}/);
 if (
   !autoFaceStatusStyle
   || !/display:\s*flex/.test(autoFaceStatusStyle[1])
   || !/align-items:\s*center/.test(autoFaceStatusStyle[1])
   || !autoFaceDurationStyle
+  || !autoFaceHeadStyle
+  || !/min-height:\s*42rpx/.test(autoFaceHeadStyle[1])
+  || !autoFaceLeadingStyle
+  || !/display:\s*flex/.test(autoFaceLeadingStyle[1])
+  || !/height:\s*42rpx/.test(autoFaceLeadingStyle[1])
+  || !/align-items:\s*center/.test(autoFaceLeadingStyle[1])
+  || !autoFaceTitleStyle
+  || !/line-height:\s*42rpx/.test(autoFaceTitleStyle[1])
+  || !/white-space:\s*nowrap/.test(autoFaceTitleStyle[1])
+  || !autoFaceStateStyle
+  || !/height:\s*42rpx/.test(autoFaceStateStyle[1])
 ) {
-  throw new Error("自动贴脸卡片状态和耗时没有使用横向排列布局。");
+  throw new Error("自动贴脸卡片的标题、耗时和状态没有使用同高横向对齐布局。");
 }
 if (
   indexWxml.includes('class="asset-name"')

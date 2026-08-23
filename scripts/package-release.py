@@ -3,11 +3,13 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
 
+sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parent.parent
 
 

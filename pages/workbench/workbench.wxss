@@ -703,6 +703,64 @@ page {
   border-bottom: 1rpx solid #e9eef7;
 }
 
+.diagnostic-toggle-head {
+  min-height: 76rpx;
+  margin: -8rpx -8rpx 0;
+  padding: 8rpx;
+  border-radius: 18rpx;
+  transition: background-color 160ms ease;
+}
+
+.diagnostic-toggle-head-hover {
+  background: rgba(237, 244, 255, 0.72);
+}
+
+.diagnostic-toggle-summary {
+  display: flex;
+  flex: none;
+  align-items: flex-end;
+  flex-direction: column;
+  gap: 6rpx;
+  margin-left: 12rpx;
+}
+
+.diagnostic-toggle-indicator {
+  display: flex;
+  align-items: center;
+  gap: 4rpx;
+  color: #6d82aa;
+  font-size: 19rpx;
+  line-height: 26rpx;
+}
+
+.diagnostic-toggle-arrow {
+  display: inline-block;
+  font-size: 25rpx;
+  line-height: 22rpx;
+  transform: translateY(-2rpx);
+  transition: transform 160ms ease;
+}
+
+.diagnostic-toggle-arrow-expanded {
+  transform: translateY(2rpx) rotate(180deg);
+}
+
+.diagnostic-expanded-content {
+  animation: diagnostic-content-in 160ms ease-out;
+}
+
+@keyframes diagnostic-content-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4rpx);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .admin-entry-card {
   display: flex;
   align-items: center;

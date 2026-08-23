@@ -143,7 +143,11 @@
   </view>
 
   <view class="card interaction-log-card">
-    <view class="section-head">
+    <view
+      class="section-head diagnostic-toggle-head"
+      catchtap="toggleDiagnosticPanel"
+      hover-class="diagnostic-toggle-head-hover"
+    >
       <view class="feature-card-leading">
         <view class="feature-card-icon interaction-log-icon">查</view>
         <view class="feature-card-copy">
@@ -151,64 +155,74 @@
           <view class="section-title">故障排查报告</view>
         </view>
       </view>
-      <view class="interaction-log-count">
-        {{diagnosticStats.eventCount}} 条 · {{diagnosticStats.errorCount}} 错误
+      <view class="diagnostic-toggle-summary">
+        <view class="interaction-log-count">
+          {{diagnosticStats.eventCount}} 条 · {{diagnosticStats.errorCount}} 错误
+        </view>
+        <view class="diagnostic-toggle-indicator">
+          <text>{{diagnosticExpanded ? '收起' : '展开'}}</text>
+          <text class="diagnostic-toggle-arrow {{diagnosticExpanded ? 'diagnostic-toggle-arrow-expanded' : ''}}">
+            ⌄
+          </text>
+        </view>
       </view>
     </view>
-    <view class="interaction-log-description">
-      记录启动、跳转和云端异常。
-    </view>
-    <view class="interaction-log-actions interaction-log-actions-primary">
-      <button
-        class="small-btn plain-btn interaction-log-button interaction-log-primary-button"
-        size="mini"
-        bindtap="toggleDiagnosticPanel"
-      >
-        {{diagnosticExpanded ? '收起日志' : '查看日志'}}
-      </button>
-      <button
-        class="small-btn plain-btn interaction-log-button diagnostic-copy-button"
-        size="mini"
-        bindtap="copyDiagnosticReport"
-      >
-        复制报告
-      </button>
-      <button
-        class="small-btn plain-btn interaction-log-button interaction-log-clear"
-        size="mini"
-        bindtap="clearDiagnosticLogs"
-      >
-        清空
-      </button>
-    </view>
-    <view wx:if="{{diagnosticExpanded}}" class="interaction-log-list">
-      <view class="diagnostic-session-summary">
-        本次会话：{{diagnosticSession.startedAt || '刚刚'}}
+    <view wx:if="{{diagnosticExpanded}}" class="diagnostic-expanded-content">
+      <view class="interaction-log-description">
+        记录启动、跳转和云端异常。
       </view>
-      <view wx:if="{{!diagnosticEvents.length}}" class="interaction-log-empty">
-        本次启动还没有排查日志
+      <view class="interaction-log-actions interaction-log-actions-primary">
+        <button
+          class="small-btn plain-btn interaction-log-button interaction-log-primary-button"
+          size="mini"
+          catchtap="toggleDiagnosticPanel"
+        >
+          收起日志
+        </button>
+        <button
+          class="small-btn plain-btn interaction-log-button diagnostic-copy-button"
+          size="mini"
+          bindtap="copyDiagnosticReport"
+        >
+          复制报告
+        </button>
+        <button
+          class="small-btn plain-btn interaction-log-button interaction-log-clear"
+          size="mini"
+          bindtap="clearDiagnosticLogs"
+        >
+          清空
+        </button>
       </view>
-      <view
-        wx:for="{{diagnosticEvents}}"
-        wx:key="sequence"
-        class="interaction-log-item {{item.level === 'error' ? 'interaction-log-item-error' : (item.level === 'warn' ? 'interaction-log-item-warn' : '')}}"
-      >
-        <view class="interaction-log-item-head">
-          <text>{{item.title}}</text>
-          <text>{{item.time}}</text>
+      <view class="interaction-log-list">
+        <view class="diagnostic-session-summary">
+          本次会话：{{diagnosticSession.startedAt || '刚刚'}}
         </view>
-        <view class="interaction-log-message">{{item.message}}</view>
-        <view wx:if="{{item.metaText}}" class="interaction-log-detail">
-          {{item.metaText}}
+        <view wx:if="{{!diagnosticEvents.length}}" class="interaction-log-empty">
+          本次启动还没有排查日志
         </view>
-        <view wx:if="{{item.route}}" class="interaction-log-detail">
-          页面：{{item.route}}
-        </view>
-        <view wx:if="{{item.detailText}}" class="interaction-log-detail">
-          {{item.detailText}}
-        </view>
-        <view wx:if="{{item.errorText}}" class="interaction-log-error">
-          {{item.errorText}}
+        <view
+          wx:for="{{diagnosticEvents}}"
+          wx:key="sequence"
+          class="interaction-log-item {{item.level === 'error' ? 'interaction-log-item-error' : (item.level === 'warn' ? 'interaction-log-item-warn' : '')}}"
+        >
+          <view class="interaction-log-item-head">
+            <text>{{item.title}}</text>
+            <text>{{item.time}}</text>
+          </view>
+          <view class="interaction-log-message">{{item.message}}</view>
+          <view wx:if="{{item.metaText}}" class="interaction-log-detail">
+            {{item.metaText}}
+          </view>
+          <view wx:if="{{item.route}}" class="interaction-log-detail">
+            页面：{{item.route}}
+          </view>
+          <view wx:if="{{item.detailText}}" class="interaction-log-detail">
+            {{item.detailText}}
+          </view>
+          <view wx:if="{{item.errorText}}" class="interaction-log-error">
+            {{item.errorText}}
+          </view>
         </view>
       </view>
     </view>

@@ -96,6 +96,14 @@ function hasEvent(event) {
 
 async function main() {
   page.onShow();
+  assert.strictEqual(page.data.diagnosticExpanded, false);
+  page.toggleDiagnosticPanel();
+  assert.strictEqual(page.data.diagnosticExpanded, true);
+  page.toggleDiagnosticPanel();
+  assert.strictEqual(page.data.diagnosticExpanded, false);
+  page.toggleDiagnosticPanel();
+  assert.strictEqual(page.data.diagnosticExpanded, true);
+
   page.previewAuthorQr();
   assert.ok(events.some((item) => (
     item.type === "previewImage"
@@ -182,6 +190,7 @@ async function main() {
   assert.ok(events.some((item) => item.type === "clipboard"));
   page.clearDiagnosticLogs();
   assert.strictEqual(page.data.diagnosticEvents.length, 0);
+  assert.strictEqual(page.data.diagnosticExpanded, false);
 
   console.log("workbench interaction smoke: OK");
 }

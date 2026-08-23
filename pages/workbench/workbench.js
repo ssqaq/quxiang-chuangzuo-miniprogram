@@ -127,8 +127,18 @@ Page({
     this.clearNavigationWatchdog();
     this._navigating = false;
     this.refreshWorkbench();
-    this.refreshDiagnostics();
-    this.refreshAdminAccess();
+    this.setData({
+      diagnosticExpanded: false
+    });
+    const refreshSecondary = () => {
+      this.refreshDiagnostics();
+      this.refreshAdminAccess();
+    };
+    if (typeof wx.nextTick === "function") {
+      wx.nextTick(refreshSecondary);
+    } else {
+      setTimeout(refreshSecondary, 0);
+    }
   },
 
   refreshWorkbench() {

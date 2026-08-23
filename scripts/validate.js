@@ -330,7 +330,7 @@ if (
   appJson.pages[0] !== "pages/splash/splash"
   || appJson.pages[1] !== "pages/workbench/workbench"
   || !splashJs.includes("setTimeout")
-  || !splashJs.includes("REDIRECT_DELAY = 450")
+  || !splashJs.includes("REDIRECT_DELAY = 180")
   || !splashJs.includes("openWorkbench()")
   || !splashJs.includes("wx.redirectTo")
   || !splashJs.includes('wx.reLaunch')
@@ -511,6 +511,7 @@ if (
   !workbenchJs.includes('require("../../utils/diagnostic-log")')
   || !workbenchJs.includes("refreshDiagnostics()")
   || !workbenchJs.includes("toggleDiagnosticPanel()")
+  || !workbenchJs.includes("diagnosticExpanded: false")
   || !workbenchJs.includes("copyDiagnosticReport()")
   || !workbenchJs.includes("clearDiagnosticLogs()")
   || !workbenchJs.includes("refreshAdminAccess()")
@@ -519,7 +520,13 @@ if (
   || !workbenchJs.includes("draft-auto-clear")
   || !workbenchWxml.includes("故障排查报告")
   || !workbenchWxml.includes("diagnosticStats.eventCount")
-  || !workbenchWxml.includes("bindtap=\"copyDiagnosticReport\"")
+  || !workbenchWxml.includes('catchtap="toggleDiagnosticPanel"')
+  || !workbenchWxml.includes("diagnosticExpanded ? '收起' : '展开'")
+  || !workbenchWxml.includes("diagnostic-expanded-content")
+  || !(
+    workbenchWxml.includes("bindtap=\"copyDiagnosticReport\"")
+    || workbenchWxml.includes("catchtap=\"copyDiagnosticReport\"")
+  )
   || !workbenchWxml.includes("复制报告")
   || !workbenchWxml.includes("interaction-log-primary-button")
   || !workbenchWxss.includes("height: 72rpx")

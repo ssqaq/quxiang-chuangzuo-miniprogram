@@ -206,6 +206,8 @@ async function runCloudFailureManualFallback() {
   resetLogs();
   const cloudError = new Error("云端自动贴脸失败");
   cloudError.status = 503;
+  cloudError.retryable = true;
+  cloudError.requestId = "req-smoke-face";
   cloudError.payload = {
     errorCode: "vision-upstream-failed",
     message: "视觉服务暂时不可用",

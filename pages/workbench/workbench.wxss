@@ -820,19 +820,21 @@ button.interaction-log-button.button-hover {
 }
 
 .interaction-log-primary-button {
-  background: #2d6cdf !important;
-  color: #ffffff !important;
-  box-shadow: 0 8rpx 16rpx rgba(45, 108, 223, 0.16);
+  background: #edf4ff !important;
+  color: #315fc7 !important;
+  box-shadow: none !important;
 }
 
 .diagnostic-copy-button {
   color: #315fc7 !important;
   background: #edf4ff !important;
+  box-shadow: none !important;
 }
 
 .interaction-log-clear {
-  color: #b45b67 !important;
-  background: #fff1f2 !important;
+  color: #315fc7 !important;
+  background: #edf4ff !important;
+  box-shadow: none !important;
 }
 
 .contact-author-card {
@@ -1314,6 +1316,222 @@ button.recent-more-c.small-btn {
   .diagnostic-feature-heading {
     margin-top: 32rpx;
   }
+}
+
+/* 02 分组清晰型：四个常用功能统一放进一张浅绿色分组卡片 */
+.common-feature-panel {
+  margin-top: 16rpx;
+  padding: 22rpx;
+  border: 1rpx solid #d2ece3;
+  border-radius: 24rpx;
+  background: linear-gradient(145deg, #eef9f6 0%, #f8fcfb 58%, #ffffff 100%);
+  box-shadow: 0 10rpx 26rpx rgba(28, 111, 91, 0.06);
+}
+
+.common-feature-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2rpx 16rpx;
+  color: #30415a;
+  font-size: 24rpx;
+  font-weight: 700;
+}
+
+.common-feature-panel-status {
+  padding: 6rpx 12rpx;
+  border-radius: 999rpx;
+  color: #8b9caf;
+  background: #f0f5f8;
+  font-size: 20rpx;
+  font-weight: 500;
+}
+
+.common-feature-panel .common-feature-heading {
+  margin: 0 0 16rpx;
+  padding: 0 2rpx;
+}
+
+.common-feature-panel .feature-group-title {
+  color: #2b3a52;
+}
+
+.common-feature-panel .feature-group-dot {
+  width: 8rpx;
+  height: 30rpx;
+  border-radius: 999rpx;
+  background: #149276;
+}
+
+.common-feature-panel .feature-group-subtitle {
+  color: #8d9aaa;
+}
+
+.common-feature-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12rpx;
+}
+
+.common-feature-panel .common-feature-row {
+  display: flex;
+  width: 100%;
+  min-height: 100rpx;
+  height: auto;
+  margin: 0;
+  padding: 18rpx;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12rpx;
+  border: 1rpx solid #d2ece3;
+  border-radius: 20rpx;
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: none;
+}
+
+.common-feature-panel .entry-card-custom {
+  width: 100%;
+  min-height: 100rpx;
+  padding: 18rpx;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.common-feature-panel .entry-card-custom .entry-mark {
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: 20rpx;
+  font-size: 30rpx;
+  box-shadow: none;
+}
+
+.common-feature-panel .entry-card-custom .entry-copy {
+  margin: 0;
+  padding: 0;
+}
+
+.common-feature-panel .entry-card-custom .entry-title {
+  font-size: 28rpx;
+  line-height: 38rpx;
+}
+
+.common-feature-panel .entry-card-custom .entry-description {
+  margin-top: 4rpx;
+  font-size: 21rpx;
+  line-height: 30rpx;
+}
+
+.common-feature-panel .feature-card-leading,
+.common-feature-panel .common-feature-row-main {
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+}
+
+.common-feature-panel .feature-card-icon,
+.common-feature-panel .publish-export-icon,
+.common-feature-panel .photo-to-video-icon {
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: 20rpx;
+  font-size: 24rpx;
+  box-shadow: none;
+}
+
+.common-feature-panel .feature-card-copy,
+.common-feature-panel .publish-export-copy,
+.common-feature-panel .photo-to-video-copy {
+  margin-left: 14rpx;
+}
+
+.common-feature-panel .section-title,
+.common-feature-panel .publish-export-title,
+.common-feature-panel .photo-to-video-title {
+  color: #2d3b54;
+  font-size: 28rpx;
+  font-weight: 800;
+  line-height: 38rpx;
+}
+
+.common-feature-description,
+.common-feature-panel .publish-export-description,
+.common-feature-panel .photo-to-video-description {
+  margin-top: 4rpx;
+  overflow: hidden;
+  color: #8b99aa;
+  font-size: 21rpx;
+  line-height: 30rpx;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.common-feature-action {
+  display: inline-flex;
+  flex: none;
+  min-width: 104rpx;
+  height: 60rpx;
+  align-items: center;
+  justify-content: center;
+  padding: 0 14rpx;
+  border-radius: 16rpx;
+  color: #287762;
+  background: #e2f5ee;
+  font-size: 22rpx;
+  font-weight: 700;
+  line-height: 60rpx;
+  white-space: nowrap;
+}
+
+.common-feature-action-button {
+  min-width: 104rpx !important;
+  width: auto !important;
+  height: 60rpx !important;
+  min-height: 60rpx !important;
+  margin: 0 !important;
+  padding: 0 14rpx !important;
+  border-radius: 16rpx !important;
+  color: #287762 !important;
+  background: #e2f5ee !important;
+  font-size: 22rpx !important;
+  line-height: 60rpx !important;
+}
+
+.common-feature-panel .home-feature-arrow {
+  flex: none;
+  color: #9bb0c3;
+  font-size: 34rpx;
+  line-height: 1;
+}
+
+.common-feature-panel .recent-card-guide {
+  width: calc(100% - 78rpx);
+  margin: 0 0 0 78rpx;
+  padding: 10rpx 14rpx;
+  border-radius: 12rpx;
+  color: #8a98a9;
+  background: rgba(255, 255, 255, 0.78);
+  font-size: 20rpx;
+  line-height: 30rpx;
+}
+
+.common-feature-panel .recent-list {
+  width: 100%;
+  margin-top: 2rpx;
+}
+
+.common-feature-panel .recent-card-filled {
+  align-items: center;
+}
+
+.common-feature-note {
+  margin: 14rpx 2rpx 0;
+  padding: 10rpx 14rpx;
+  border-radius: 12rpx;
+  color: #8b99aa;
+  background: rgba(255, 255, 255, 0.72);
+  font-size: 20rpx;
+  line-height: 30rpx;
 }
 
 /* 三张首页功能卡片的说明文字到底边统一留白约 16px（约 24rpx）。 */

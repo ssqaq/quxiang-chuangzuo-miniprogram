@@ -25,6 +25,26 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function enrichCloudError(error, details = {}) {
+  const normalized = error instanceof Error
+    ? error
+    : new Error(
+      error && (error.errMsg || error.message)
+        ? String(error.errMsg || error.message)
+        : "云函数请求失败"
+    );
+  if (details.status !== undefined && details.status !== null) {
+    normalized.status = Number(details.status) || 0;
+  }
+  if (details.retryable !== undefined) {
+    normalized.retryable = Boolean(details.retryable);
+  }
+  if (details.requestId) {
+    normalized.requestId = String(details.requestId);
+  }
+  return normalized;
+}
+
 function callApi(data) {
   return new Promise((resolve, reject) => {
     if (!isCloudReady()) {
@@ -66,7 +86,14 @@ function callApi(data) {
         success(response) {
           const result = response && response.result ? response.result : response;
           if (result && result.ok === false) {
-            const error = new Error(result.message || result.error || "云函数请求失败");
+            const error = enrichCloudError(
+              new Error(result.message || result.error || "云函数请求失败"),
+              {
+                status: result.status,
+                retryable: result.retryable,
+                requestId: result.requestId || requestData.requestId
+              }
+            );
             error.payload = result;
             if (result.retryable && attempt < maxRetries) {
               const nextAttempt = attempt + 1;
@@ -137,6 +164,10 @@ function callApi(data) {
           resolve(result);
         },
         fail(error) {
+          const normalizedError = enrichCloudError(error, {
+            retryable: true,
+            requestId: requestData.requestId
+          });
           if (attempt < maxRetries) {
             const nextAttempt = attempt + 1;
             console.warn("[cloud] retry", {
@@ -146,11 +177,11 @@ function callApi(data) {
             diagnosticLog.warn("cloud", "call-retry", "云函数调用失败，准备重试", {
               step: requestData.action || "",
               requestId: requestData.requestId,
-              attempt: nextAttempt,
-              maxRetries,
-              delayMs: retryDelay,
-              error
-            });
+                attempt: nextAttempt,
+                maxRetries,
+                delayMs: retryDelay,
+                error: normalizedError
+              });
             if (onRetry) {
               onRetry({
                 attempt: nextAttempt,
@@ -175,9 +206,9 @@ function callApi(data) {
             requestId: requestData.requestId,
             durationMs: Date.now() - requestStartedAt,
             attempt,
-            error
-          });
-          reject(error);
+                error: normalizedError
+              });
+          reject(normalizedError);
         }
       });
     };

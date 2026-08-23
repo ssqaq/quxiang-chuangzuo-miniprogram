@@ -10,7 +10,7 @@ const ENTRY_MODES = [
     mode: "custom",
     mark: "＋",
     title: "开始新创作",
-    description: "不预设重点，自定义制作流程",
+    description: "先选一张主图，再补充参考素材",
     tone: "custom"
   }
 ];

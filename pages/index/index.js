@@ -222,12 +222,22 @@ function safeErrorInfo(error, fallbackMessage) {
     || payload.code
     || (error && (error.code || error.errCode))
     || "";
+  const status = Number(error && error.status)
+    || Number(payload.status)
+    || 0;
+  const retryable = error && error.retryable !== undefined
+    ? Boolean(error.retryable)
+    : Boolean(payload.retryable);
   return {
     code: String(code || ""),
     message: String(message || "未知错误"),
-    status: Number(error && error.status) || 0,
-    retryable: Boolean(error && error.retryable),
-    requestId: String(payload.requestId || ""),
+    status,
+    retryable,
+    requestId: String(
+      payload.requestId
+        || (error && error.requestId)
+        || ""
+    ),
     stack: error && error.stack ? String(error.stack).slice(0, 1200) : ""
   };
 }
@@ -298,6 +308,9 @@ function getAutoFaceFailureGuide(errorInfo, cloudReady = true) {
   if (
     info.retryable
     || status >= 500
+    || code === "rate-limited"
+    || code === "upstream-unavailable"
+    || code === "vision-upstream-failed"
     || code === "retry-exhausted"
     || /network|request:fail|fail to fetch|socket|网络|连接失败/.test(searchText)
   ) {

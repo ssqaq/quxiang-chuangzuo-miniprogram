@@ -270,17 +270,73 @@ async function runCloudUnavailableManualFallback() {
   assert.strictEqual(page.data.analysisAction, "");
 }
 
+async function runWechatBindingManualFallback() {
+  resetLogs();
+  const autoCircle = {
+    x: 500,
+    y: 350,
+    width: 260,
+    height: 220
+  };
+  const page = createPage();
+  page.data.project.maskCircle = autoCircle;
+  page.data.project.maskFileID = "cloud://old-mask.png";
+  page._autoFaceDetectionCache = {
+    key: page.getMainImageKey(page.data.project.mainImage),
+    circle: autoCircle
+  };
+  page.enterManualFaceCircle({
+    code: "wechat-binding-required",
+    message: "请先完成微信授权后再上传素材。",
+    requestId: "req-smoke-binding"
+  });
+
+  assert.strictEqual(page.data.step, 1);
+  assert.strictEqual(page.data.manualGuideActive, true);
+  assert.strictEqual(page.data.autoFaceStatus.state, "manual-required");
+  assert.strictEqual(page.data.project.maskCircle, null);
+  assert.strictEqual(page.data.project.maskFileID, "");
+  assert.strictEqual(page._autoFaceDetectionCache, null);
+  assert.ok(page.data.autoFaceStatus.failureReason.includes("模拟器"));
+  assert.ok(page.data.autoFaceStatus.nextStepText.includes("微信授权"));
+  assert.ok(modalLog.some((item) => (
+    item.title === "模拟器未完成微信授权"
+    && item.content.includes("当前模拟器没有微信授权身份")
+    && item.content.includes("请用手机预览并完成微信授权")
+    && item.content.includes("手动圈选：")
+  )));
+
+  resetLogs();
+  const manualCircle = {
+    x: 490,
+    y: 340,
+    width: 260,
+    height: 220
+  };
+  const manualPage = createPage();
+  manualPage.data.project.maskCircle = manualCircle;
+  manualPage.data.project.maskFileID = "cloud://manual-mask.png";
+  manualPage.enterManualFaceCircle({
+    code: "wechat-binding-required",
+    message: "请先完成微信授权后再上传素材。"
+  });
+  assert.deepStrictEqual(manualPage.data.project.maskCircle, manualCircle);
+  assert.strictEqual(manualPage.data.project.maskFileID, "cloud://manual-mask.png");
+}
+
 async function main() {
   await runCloudSuccess();
   await runMainImageUploadReuse();
   await runCloudFailureManualFallback();
   await runCloudUnavailableManualFallback();
+  await runWechatBindingManualFallback();
   console.log("auto face cloud-only smoke: OK");
   console.log(JSON.stringify({
     cloudSuccess: true,
     mainImageUploadReuse: true,
     cloudFailureManualFallback: true,
-    cloudUnavailableManualFallback: true
+    cloudUnavailableManualFallback: true,
+    wechatBindingManualFallback: true
   }));
 }
 

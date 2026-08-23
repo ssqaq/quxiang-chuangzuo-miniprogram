@@ -186,6 +186,25 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+function isSameFaceCircle(left, right) {
+  if (!left || !right) return false;
+  return ["x", "y", "width", "height"].every((key) => {
+    const leftValue = Number(left[key]);
+    const rightValue = Number(right[key]);
+    return Number.isFinite(leftValue)
+      && Number.isFinite(rightValue)
+      && Math.abs(leftValue - rightValue) < 0.5;
+  });
+}
+
+function isWechatBindingRequired(errorInfo) {
+  const info = errorInfo && typeof errorInfo === "object" ? errorInfo : {};
+  const code = String(info.code || "").toLowerCase();
+  const message = String(info.message || "").toLowerCase();
+  return code === "wechat-binding-required"
+    || /微信授权|wechat.*(auth|bind)|openid/.test(`${code} ${message}`);
+}
+
 const AUTO_FACE_STATE_LABELS = {
   idle: "未开始",
   running: "识别中",
@@ -266,6 +285,13 @@ function getAutoFaceFailureGuide(errorInfo, cloudReady = true) {
   const searchText = `${code} ${message}`.toLowerCase();
   const manualGuide = "请用一根手指拖动，圈住整张脸；不要只点一下。双指可以放大图片。";
 
+  if (isWechatBindingRequired(info)) {
+    return {
+      reason: "当前模拟器没有微信授权身份，云端不能上传素材。",
+      nextStep: "请用手机预览并完成微信授权；只在模拟器测试时可以直接手动圈选。",
+      manualGuide
+    };
+  }
   if (!cloudReady || code === "cloud-unavailable") {
     return {
       reason: "当前没有连接云端，自动识别人脸没有发出去。",
@@ -351,6 +377,7 @@ function getAutoFaceFailureType(errorInfo) {
   const code = String(info.code || "").toLowerCase();
   const message = String(info.message || "").toLowerCase();
   const searchText = `${code} ${message}`;
+  if (isWechatBindingRequired(info)) return "wechat-binding-required";
   if (code === "cloud-unavailable") return "cloud-unavailable";
   if (
     code === "missing-api-key"
@@ -796,9 +823,37 @@ Page({
     );
   },
 
+  clearStaleAutoFaceCircle() {
+    const project = this.data.project || {};
+    const currentImageKey = this.getMainImageKey(project.mainImage);
+    const cache = this._autoFaceDetectionCache;
+    const cachedCircle = cache
+      && cache.key === currentImageKey
+      && cache.circle
+      ? cache.circle
+      : null;
+    const status = this.data.autoFaceStatus || {};
+    const statusCircle = status.state === "ready"
+      && status.stage === "detect-complete"
+      && status.details
+      && status.details.circle
+      ? status.details.circle
+      : null;
+    const autoCircle = cachedCircle || statusCircle;
+    const shouldClearCircle = isSameFaceCircle(project.maskCircle, autoCircle);
+
+    this._autoFaceDetectionCache = null;
+    if (shouldClearCircle) {
+      this.updateProject({ maskCircle: null, maskFileID: "" });
+    }
+    return shouldClearCircle;
+  },
+
   enterManualFaceCircle(cloudError) {
     const cloudInfo = cloudError || null;
     const failureGuide = getAutoFaceFailureGuide(cloudInfo, Boolean(cloudInfo));
+    const authorizationRequired = isWechatBindingRequired(cloudInfo);
+    this.clearStaleAutoFaceCircle();
     this.setData({
       step: 1,
       manualGuideActive: true,
@@ -810,7 +865,9 @@ Page({
       cloudInfo ? "cloud-failed" : "cloud-unavailable",
       "manual",
       cloudInfo
-        ? "云端自动贴脸不可用，已进入手动圈选"
+        ? (authorizationRequired
+          ? "模拟器未完成微信授权，已进入手动圈选"
+          : "云端自动贴脸不可用，已进入手动圈选")
         : "云端未连接，已进入手动圈选",
       {
         cloudError: cloudInfo,
@@ -828,7 +885,7 @@ Page({
       requestId ? `请求编号：${requestId}` : ""
     ].filter(Boolean).join("\n");
     wx.showModal({
-      title: "自动贴脸没成功",
+      title: authorizationRequired ? "模拟器未完成微信授权" : "自动贴脸没成功",
       content: modalContent,
       showCancel: false
     });

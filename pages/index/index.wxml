@@ -295,26 +295,49 @@
       <button class="secondary-btn generation-records-button" bindtap="jumpToRecords">查看制作记录</button>
     </view>
     <view wx:if="{{loading}}" class="generation-waiting generation-waiting-{{generationStage}}">
-      <view class="generation-waiting-spinner">
-        <view class="generation-waiting-spinner-dot"></view>
-      </view>
       <view class="generation-waiting-copy">
-        <view class="generation-progress">
+        <view class="generation-checklist">
           <view
             wx:for="{{generationPhases}}"
             wx:key="key"
             wx:for-index="phaseIndex"
-            class="generation-progress-item {{phaseIndex < generationPhaseIndex ? 'is-done' : ''}} {{phaseIndex === generationPhaseIndex ? 'is-current' : ''}}"
+            class="generation-check-row {{phaseIndex < generationPhaseIndex ? 'is-done' : ''}} {{phaseIndex === generationPhaseIndex ? 'is-current' : ''}}"
           >
-            <view class="generation-progress-dot"></view>
-            <text>{{item.label}}</text>
+            <view class="generation-check-icon">
+              <text wx:if="{{phaseIndex < generationPhaseIndex}}">✓</text>
+              <text wx:elif="{{phaseIndex === generationPhaseIndex}}">•</text>
+              <text wx:else>{{phaseIndex + 1}}</text>
+            </view>
+            <view class="generation-check-copy">
+              <view class="generation-check-title">{{item.label}}</view>
+              <view class="generation-check-detail">
+                {{phaseIndex < generationPhaseIndex
+                  ? '已完成'
+                  : (phaseIndex === generationPhaseIndex
+                    ? (generationStage === 'retry' ? '网络较慢，自动重试中' : loadingText)
+                    : '等待上一项完成')}}
+              </view>
+            </view>
+            <view class="generation-check-state">
+              {{phaseIndex < generationPhaseIndex
+                ? '完成'
+                : (phaseIndex === generationPhaseIndex
+                  ? (generationStage === 'timeout' ? '处理中' : (generationStage === 'retry' ? '重试中' : '进行中'))
+                  : '等待')}}
+            </view>
           </view>
         </view>
-        <view class="generation-waiting-title">{{loadingText}}</view>
-        <view class="generation-waiting-text">{{generationWaitText}}</view>
-        <view class="generation-waiting-elapsed">已等待 {{generationElapsedSeconds}} 秒，请不要重复点击</view>
-        <view wx:if="{{generationRetryCount}}" class="generation-waiting-retry-count">
-          已自动重试 {{generationRetryCount}} 次
+        <view class="generation-waiting-note">
+          <view class="generation-waiting-title">
+            {{generationStage === 'timeout' ? '任务仍在处理中' : (generationStage === 'retry' ? '网络有点慢' : '请稍等，系统会自动继续')}}
+          </view>
+          <view class="generation-waiting-text">{{generationWaitText}}</view>
+          <view class="generation-waiting-footer">
+            <view class="generation-waiting-elapsed">已等待 {{generationElapsedSeconds}} 秒 · 请不要重复点击</view>
+            <view wx:if="{{generationRetryCount}}" class="generation-waiting-retry-count">
+              已自动重试 {{generationRetryCount}} 次
+            </view>
+          </view>
         </view>
       </view>
     </view>

@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.18.1";
-const API_BUILD_MARKER = "API_BUILD_TAG_20260823_MODEL_COST_STATS_V181";
+const API_BUILD_VERSION = "0.19.0";
+const API_BUILD_MARKER = "API_BUILD_TAG_20260823_GENERATION_STATE_MACHINE_V190";
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
 const cloud = require("wx-server-sdk");
@@ -4083,7 +4083,16 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     checkDeployment,
     listDeploymentLogs
     ,
-    exportModelUsageStats
+    exportModelUsageStats,
+    pointsSummary,
+    reserveUsage,
+    refundUsage,
+    claimGenerationOperation,
+    completeGenerationOperation,
+    failGenerationOperation,
+    checkIn,
+    getTestDatabase: () => db,
+    getAdminRuntimeCache: () => adminRuntimeCache
   };
 }
 

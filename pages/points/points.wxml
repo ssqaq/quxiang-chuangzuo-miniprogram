@@ -3,7 +3,7 @@
     <view class="points-hero-head">
       <view>
         <view class="points-kicker">POINTS CENTER</view>
-        <view class="points-title">连续签到，攒积分</view>
+        <view class="points-title">{{pointsCopy.pointsTitle}}</view>
         <view class="points-subtitle">{{points.boundMessage}}</view>
       </view>
       <view class="points-balance">
@@ -12,14 +12,14 @@
       </view>
     </view>
     <view wx:if="{{points.promoActive}}" class="points-promo">
-      8月23日—8月24日，生图和视频不限次数免费，不扣积分。
+      {{pointsCopy.pointsPromo}}
     </view>
   </view>
 
   <view class="card streak-card">
     <view class="streak-head">
       <view>
-        <view class="section-title">连续签到进度</view>
+        <view class="section-title">{{pointsCopy.pointsSectionTitle}}</view>
         <view class="section-subtitle">连续满 {{points.streakDays}} 天，额外奖励 {{points.streakBonus}} 积分</view>
       </view>
       <view class="streak-count">
@@ -43,10 +43,10 @@
       loading="{{checkingIn}}"
       disabled="{{checkingIn || points.checkedInToday}}"
     >
-      {{points.checkedInToday ? '今天已签到' : (points.accountBound ? '今日签到 +' + points.nextCheckinReward + ' 积分' : '微信授权并签到')}}
+      {{points.checkedInToday ? pointsCopy.checkedIn : (points.accountBound ? pointsCopy.checkInWithRewardPrefix + points.nextCheckinReward + pointsCopy.checkInWithRewardSuffix : pointsCopy.bindAndCheckIn)}}
     </button>
     <view class="checkin-hint">
-      每日签到 {{points.checkinPoints}} 积分；积分永久有效。
+      {{pointsCopy.checkInHintPrefix}} {{points.checkinPoints}} {{pointsCopy.checkInHintSuffix}}
     </view>
   </view>
 

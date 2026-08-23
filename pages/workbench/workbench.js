@@ -100,9 +100,22 @@ function formatDiagnosticEvent(item) {
   });
 }
 
+function buildCheckInToast(result = {}) {
+  const copy = config.points.copy;
+  const duplicate = Boolean(result.duplicate);
+  const earned = Number(result.earnedToday) || 0;
+  return {
+    title: duplicate
+      ? copy.checkInDuplicate
+      : `${copy.checkInSuccessPrefix}${earned}${copy.checkInSuccessSuffix}`,
+    icon: duplicate ? "none" : "success"
+  };
+}
+
 Page({
   data: {
     appVersion: config.appVersion,
+    pointsCopy: config.points.copy,
     cloudReady: false,
     adminVisible: false,
     authorQrPath: AUTHOR_QR_PATH,
@@ -614,10 +627,7 @@ Page({
         checkingIn: false,
         points: this.normalizePoints(result)
       });
-      wx.showToast({
-        title: result.duplicate ? "今天已签到" : `签到 +${result.earnedToday || 0}`,
-        icon: result.duplicate ? "none" : "success"
-      });
+      wx.showToast(buildCheckInToast(result));
     } catch (error) {
       this.setData({ checkingIn: false });
       const payload = error && error.payload;

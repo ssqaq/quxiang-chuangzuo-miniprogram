@@ -2,6 +2,18 @@ const config = require("../../config");
 const cloud = require("../../services/cloud");
 const diagnosticLog = require("../../utils/diagnostic-log");
 
+function buildCheckInToast(result = {}) {
+  const copy = config.points.copy;
+  const duplicate = Boolean(result.duplicate);
+  const earned = Number(result.earnedToday) || 0;
+  return {
+    title: duplicate
+      ? copy.checkInDuplicate
+      : `${copy.checkInSuccessPrefix}${earned}${copy.checkInSuccessSuffix}`,
+    icon: duplicate ? "none" : "success"
+  };
+}
+
 function normalizePoints(result = {}) {
   const source = result && typeof result === "object" ? result : {};
   const streak = Math.max(0, Number(source.currentStreak) || 0);
@@ -55,6 +67,7 @@ function normalizeLedger(item = {}) {
 Page({
   data: {
     appVersion: config.appVersion,
+    pointsCopy: config.points.copy,
     loading: true,
     checkingIn: false,
     message: "",
@@ -108,18 +121,17 @@ Page({
     this.setData({ checkingIn: true, message: "" });
     try {
       const result = await cloud.checkIn();
+      const checkInMessage = result.duplicate
+        ? config.points.copy.checkInDuplicate
+        : `${config.points.copy.checkInSuccessPrefix}${result.earnedToday || 0}${config.points.copy.checkInSuccessSuffix}`;
       this.setData({
         checkingIn: false,
         points: normalizePoints(result),
-        message: result.duplicate
-          ? "今天已经签到过了"
-          : `签到成功，获得 ${result.earnedToday || 0} 积分`
+        message: checkInMessage
       });
       await this.loadPoints();
-      wx.showToast({
-        title: result.duplicate ? "今天已签到" : `签到 +${result.earnedToday || 0}`,
-        icon: result.duplicate ? "none" : "success"
-      });
+      this.setData({ message: checkInMessage });
+      wx.showToast(buildCheckInToast(result));
     } catch (error) {
       this.setData({ checkingIn: false });
       const payload = error && error.payload;

@@ -33,11 +33,11 @@
   >
     <view class="points-entry-copy">
       <view class="points-entry-topline">
-        <view class="points-entry-title">每日签到</view>
+        <view class="points-entry-title">{{pointsCopy.cardTitle}}</view>
         <view class="points-entry-balance">{{points.pointsBalance}} 积分</view>
       </view>
       <view class="points-entry-subtitle">
-        连续签到 {{points.streakDays}} 天有额外奖励
+        {{pointsCopy.streakPrefix}} {{points.streakDays}} {{pointsCopy.streakSuffix}}
       </view>
       <view class="points-entry-track">
         <view
@@ -46,8 +46,8 @@
         ></view>
       </view>
       <view class="points-entry-foot">
-        <text>已连续 {{points.currentStreak}} 天 · {{points.checkedInToday ? '今天已签到' : '今天还没签到'}}</text>
-        <text>{{points.promoActive ? '活动期间免费' : '今天还可免费用 ' + points.freeRemaining + ' 次'}}</text>
+        <text>已连续 {{points.currentStreak}} 天 · {{points.checkedInToday ? pointsCopy.checkedIn : pointsCopy.notCheckedIn}}</text>
+        <text class="points-entry-promo {{points.promoActive ? 'points-entry-promo-active' : ''}}">{{points.promoActive ? pointsCopy.promoActive : pointsCopy.freePrefix + ' ' + points.freeRemaining + ' ' + pointsCopy.freeSuffix}}</text>
       </view>
     </view>
     <button
@@ -56,7 +56,7 @@
       loading="{{checkingIn}}"
       disabled="{{checkingIn || points.checkedInToday}}"
     >
-      {{points.checkedInToday ? '已签到' : ('签到 +' + points.nextCheckinReward + ' 积分')}}
+      {{points.checkedInToday ? pointsCopy.checkedInButton : pointsCopy.checkIn}}
     </button>
     <view class="home-feature-arrow points-entry-arrow">›</view>
   </view>

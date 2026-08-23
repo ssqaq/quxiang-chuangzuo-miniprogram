@@ -16,7 +16,7 @@ module.exports = {
     quality: 82,
     minBytes: 262144
   },
-  appVersion: "0.18.1",
+  appVersion: "0.19.0",
   points: {
     dailyFreeLimit: 3,
     imageCost: 10,
@@ -25,7 +25,30 @@ module.exports = {
     streakBonus: 20,
     streakDays: 7,
     promoStartDate: "2026-08-23",
-    promoEndDate: "2026-08-24"
+    promoEndDate: "2026-08-24",
+    copy: {
+      cardTitle: "每日签到",
+      streakPrefix: "连续签到",
+      streakSuffix: "天有额外奖励",
+      notCheckedIn: "今天还没签到",
+      checkedIn: "今天已签到",
+      freePrefix: "今天还可免费用",
+      freeSuffix: "次",
+      promoActive: "活动期间免费",
+      checkIn: "签到",
+      checkedInButton: "已签到",
+      checkInWithRewardPrefix: "今日签到 +",
+      checkInWithRewardSuffix: " 积分",
+      bindAndCheckIn: "微信授权并签到",
+      checkInSuccessPrefix: "签到成功，+",
+      checkInSuccessSuffix: " 积分",
+      checkInDuplicate: "今天已经签到过了",
+      pointsTitle: "连续签到，攒积分",
+      pointsSectionTitle: "连续签到进度",
+      pointsPromo: "活动期间生图和视频不限次数免费，不扣积分。",
+      checkInHintPrefix: "每日签到",
+      checkInHintSuffix: "积分；积分永久有效。"
+    }
   },
   photoToVideo: {
     durationSeconds: 3,

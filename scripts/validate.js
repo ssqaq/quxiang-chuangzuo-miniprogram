@@ -61,6 +61,7 @@ const jsFiles = [
   "scripts/video-provider-smoke.js",
   "scripts/admin-config-smoke.js",
   "scripts/points-checkin-smoke.js",
+  "scripts/generation-concurrency-smoke.js",
   "scripts/workbench-interaction-smoke.js",
   "scripts/model-usage-stats-smoke.js",
   "scripts/model-cost-stats-smoke.js"
@@ -230,6 +231,10 @@ const adminWxss = fs.readFileSync(path.join(root, "pages/admin/admin.wxss"), "ut
 const pointsJs = fs.readFileSync(path.join(root, "pages/points/points.js"), "utf8");
 const pointsWxml = fs.readFileSync(path.join(root, "pages/points/points.wxml"), "utf8");
 const pointsWxss = fs.readFileSync(path.join(root, "pages/points/points.wxss"), "utf8");
+const refreshPreviewPs1 = fs.readFileSync(
+  path.join(root, "scripts/refresh-preview.ps1"),
+  "utf8"
+);
 if (!projectConfig.setting || projectConfig.setting.minified !== true) {
   throw new Error("微信开发者工具 JS 压缩没有开启，请确认 project.config.json 的 setting.minified 为 true。");
 }
@@ -303,23 +308,31 @@ if (
   || !workbenchJs.includes("refreshPoints()")
   || !workbenchJs.includes("openPoints()")
   || !workbenchJs.includes("checkIn()")
-  || !workbenchWxml.includes("每日签到")
-  || !workbenchWxml.includes("连续签到 ")
-  || !workbenchWxml.includes("今天还没签到")
-  || !workbenchWxml.includes("今天已签到")
-  || !workbenchWxml.includes("今天还可免费用")
-  || !workbenchWxml.includes("活动期间免费")
+  || !configJs.includes('cardTitle: "每日签到"')
+  || !configJs.includes('streakPrefix: "连续签到"')
+  || !configJs.includes('notCheckedIn: "今天还没签到"')
+  || !configJs.includes('checkedIn: "今天已签到"')
+  || !configJs.includes('freePrefix: "今天还可免费用"')
+  || !configJs.includes('promoActive: "活动期间免费"')
+  || !workbenchWxml.includes("pointsCopy.cardTitle")
+  || !workbenchWxml.includes("pointsCopy.promoActive")
   || !workbenchWxml.includes('bindtap="openPoints"')
   || !workbenchWxml.includes('catchtap="checkIn"')
   || !workbenchWxss.includes(".points-entry-card")
+  || !workbenchWxss.includes(".points-entry-promo-active")
   || !workbenchWxss.includes("justify-content: flex-start")
   || !workbenchWxss.includes("font-size: 18rpx")
+  || !workbenchJs.includes("pointsCopy: config.points.copy")
+  || !workbenchJs.includes("buildCheckInToast")
   || !pointsJs.includes("cloud.getUserPoints()")
   || !pointsJs.includes("cloud.checkIn()")
   || !pointsJs.includes("cloud.getPointLedger()")
-  || !pointsWxml.includes("连续签到进度")
+  || !pointsJs.includes("pointsCopy: config.points.copy")
+  || !pointsJs.includes("buildCheckInToast")
+  || !pointsWxml.includes("pointsCopy.pointsSectionTitle")
   || !pointsWxml.includes("积分明细")
-  || !pointsWxml.includes("微信授权并签到")
+  || !pointsWxml.includes("pointsCopy.bindAndCheckIn")
+  || !pointsWxml.includes("pointsCopy.pointsPromo")
   || !pointsWxss.includes(".streak-progress-fill")
   || !pointsWxss.includes(".ledger-row")
   || !cloudJs.includes('action === "getUserPoints"')
@@ -328,6 +341,10 @@ if (
   || !clientCloudJs.includes("getUserPoints")
   || !clientCloudJs.includes("checkIn")
   || !clientCloudJs.includes("getPointLedger")
+  || !configJs.includes("checkInDuplicate")
+  || !configJs.includes("pointsPromo")
+  || !refreshPreviewPs1.includes("wechat-miniapp-preview-latest-qr.png")
+  || !refreshPreviewPs1.includes("wechat-miniapp-preview-latest-info.json")
 ) {
   throw new Error("积分签到入口、明细页或云函数路由不完整。");
 }

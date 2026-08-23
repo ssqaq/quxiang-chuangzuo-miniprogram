@@ -463,6 +463,19 @@ page {
   text-align: right;
 }
 
+.points-entry-promo {
+  min-height: 28rpx;
+  line-height: 28rpx;
+}
+
+.points-entry-promo-active {
+  padding: 3rpx 8rpx;
+  border-radius: 999rpx;
+  color: #9b681f;
+  background: #fff4d9;
+  font-weight: 700;
+}
+
 .points-checkin-button {
   flex: none;
   width: 116rpx;

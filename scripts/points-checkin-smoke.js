@@ -1,4 +1,5 @@
 const assert = require("assert");
+const config = require("../config");
 
 process.env.WECHAT_MINIAPP_TEST = "1";
 
@@ -6,6 +7,9 @@ const api = require("../cloudfunctions/api/index.js");
 const helpers = api.__test;
 
 const points = helpers.resolvePointsConfig({});
+assert.strictEqual(config.points.copy.cardTitle, "每日签到");
+assert.strictEqual(config.points.copy.promoActive, "活动期间免费");
+assert.strictEqual(config.points.copy.checkInDuplicate, "今天已经签到过了");
 assert.strictEqual(points.dailyFreeLimit, 3);
 assert.strictEqual(points.imageCost, 10);
 assert.strictEqual(points.videoCost, 10);

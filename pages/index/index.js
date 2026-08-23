@@ -634,6 +634,9 @@ Page({
   },
 
   async chooseMainImage() {
+    diagnosticLog.info("creation", "main-image-choose-start", "开始选择主图", {
+      step: "main-image"
+    });
     try {
       const result = await chooseImages(1);
       const file = result.tempFiles && result.tempFiles[0];
@@ -678,6 +681,15 @@ Page({
       this.setData({ step: 0 });
       this.prepareCanvas(mainImage);
       this.preloadMainImageUpload(mainImage);
+      diagnosticLog.info("creation", "main-image-ready", "主图选择和处理完成", {
+        step: "main-image",
+        filePath: mainImage.path,
+        originalSize: mainImage.originalSize,
+        compressedSize: mainImage.compressedSize,
+        width: mainImage.width,
+        height: mainImage.height,
+        compressed: mainImage.compressed
+      });
     } catch (error) {
       this.showError("主图选择失败", error);
     }
@@ -728,6 +740,9 @@ Page({
           offsetY: 0
         };
         this._canvasViewportRect = null;
+        diagnosticLog.info("creation", "main-image-cleared", "主图已清除", {
+          step: "main-image"
+        });
         wx.showToast({ title: "主图已清除", icon: "success" });
       }
     });
@@ -1508,6 +1523,15 @@ Page({
         compressionChecked: true,
         compressionQuality: compressed.compressionQuality
       });
+      diagnosticLog.info("upload", "image-prepared", "图片压缩检查完成", {
+        step: folder,
+        filePath: prepared.path,
+        originalSize: prepared.originalSize,
+        compressedSize: prepared.compressedSize,
+        compressed: prepared.compressed,
+        width: prepared.width,
+        height: prepared.height
+      });
     }
     const isMainImage = folder === "main";
     const key = this.getMainImageKey(prepared);
@@ -1576,6 +1600,12 @@ Page({
 
   async prepareCloudAssets(options = {}) {
     const project = clone(options.project || this.data.project);
+    diagnosticLog.info("upload", "assets-prepare-start", "开始准备云端素材", {
+      step: "prepare-assets",
+      includeMask: Boolean(options.includeMask),
+      faceReferenceCount: project.faceRefs.length,
+      wardrobeReferenceCount: project.wardrobeRefs.length
+    });
     project.mainImage = await this.ensureUploaded(project.mainImage, "main");
     project.faceRefs = await Promise.all(
       project.faceRefs.map((item) => this.ensureUploaded(item, "references/faces"))
@@ -1588,6 +1618,14 @@ Page({
     }
     this.setData({ project });
     storage.saveProject(project);
+    diagnosticLog.info("upload", "assets-prepare-success", "云端素材准备完成", {
+      step: "prepare-assets",
+      includeMask: Boolean(options.includeMask),
+      mainUploaded: Boolean(project.mainImage && project.mainImage.fileID),
+      maskUploaded: Boolean(project.maskFileID),
+      faceReferenceCount: project.faceRefs.filter((item) => item.fileID).length,
+      wardrobeReferenceCount: project.wardrobeRefs.filter((item) => item.fileID).length
+    });
     return project;
   },
 
@@ -1609,6 +1647,9 @@ Page({
       return;
     }
     this.setData({ analysisAction: "main" });
+    diagnosticLog.info("analysis", "main-start", "开始分析主图", {
+      step: "main"
+    });
     try {
       const project = await this.prepareCloudAssets();
       const result = await cloud.analyzeImage({
@@ -1624,7 +1665,14 @@ Page({
         lightingMakeupDescription: analysis.lightingMakeupDescription || ""
       });
       wx.showToast({ title: "原图分析完成", icon: "success" });
+      diagnosticLog.info("analysis", "main-success", "原图分析完成", {
+        step: "main"
+      });
     } catch (error) {
+      diagnosticLog.error("analysis", "main-failed", "原图分析失败", {
+        step: "main",
+        error
+      });
       this.showError("原图分析失败", error);
     } finally {
       this.setData({ analysisAction: "" });
@@ -1649,6 +1697,9 @@ Page({
       return;
     }
     this.setData({ analysisAction: "webPose" });
+    diagnosticLog.info("analysis", "web-pose-start", "开始分析参考网感姿势", {
+      step: "webPose"
+    });
     try {
       const project = await this.prepareCloudAssets();
       const result = await cloud.analyzeWebPoses({
@@ -1669,7 +1720,15 @@ Page({
         }
       });
       wx.showToast({ title: "已生成 8 条建议", icon: "success" });
+      diagnosticLog.info("analysis", "web-pose-success", "参考网感姿势分析完成", {
+        step: "webPose",
+        suggestionCount: suggestions.length
+      });
     } catch (error) {
+      diagnosticLog.error("analysis", "web-pose-failed", "参考网感姿势分析失败", {
+        step: "webPose",
+        error
+      });
       this.showError("参考网感分析失败", error);
     } finally {
       this.setData({ analysisAction: "" });
@@ -1703,6 +1762,11 @@ Page({
       return;
     }
     const requestId = createClientRequestId();
+    diagnosticLog.info("generation", "submit-start", "开始提交生图任务", {
+      step: "prepare",
+      requestId,
+      retryLimit: GENERATION_RETRY_LIMIT
+    });
     this.setData({
       loading: true,
       generationPhaseIndex: 0,
@@ -1737,6 +1801,17 @@ Page({
         project.promptDraft,
         project.selectedWebPose
       );
+      diagnosticLog.info("generation", "submit", "生图任务参数准备完成", {
+        step: "generate",
+        requestId,
+        projectName: project.projectName,
+        prompt: submittedPrompt,
+        negativePrompt: project.negativePrompt,
+        mainImageUploaded: Boolean(project.mainImage && project.mainImage.fileID),
+        maskUploaded: Boolean(project.maskFileID),
+        faceReferenceCount: project.faceRefs.length,
+        wardrobeReferenceCount: project.wardrobeRefs.length
+      });
       const result = await cloud.generateImage(
         {
           projectName: project.projectName,
@@ -1752,6 +1827,12 @@ Page({
           requestId,
           maxRetries: GENERATION_RETRY_LIMIT,
           onRetry: ({ attempt, maxRetries }) => {
+            diagnosticLog.warn("generation", "retry", "生图请求准备重试", {
+              step: "generate",
+              requestId,
+              attempt,
+              maxRetries
+            });
             if (this._pageDestroyed || !this.data.loading) return;
             this.setData({
               generationStage: "retry",
@@ -1791,7 +1872,18 @@ Page({
       storage.saveProject(nextProject);
       storage.saveRecords(records);
       wx.showToast({ title: "生成完成", icon: "success" });
+      diagnosticLog.info("generation", "success", "生图完成并保存记录", {
+        step: "save",
+        requestId,
+        recordId: record.id,
+        fileID: record.fileID
+      });
     } catch (error) {
+      diagnosticLog.error("generation", "failed", "生图流程失败", {
+        step: "generate",
+        requestId,
+        error
+      });
       this.showError("生图失败", error);
     } finally {
       this.stopGenerationTimer();
@@ -1810,6 +1902,9 @@ Page({
 
   async loadRecords() {
     const localRecords = storage.loadRecords() || [];
+    diagnosticLog.info("records", "load-start", "开始读取制作记录", {
+      localCount: localRecords.length
+    });
     if (cloud.isCloudReady()) {
       try {
         const result = await cloud.listRecords();
@@ -1820,13 +1915,28 @@ Page({
           storage.saveRecords(remoteRecords);
         } else if (localRecords.length) {
           console.warn("云端记录为空，保留本地制作记录", localRecords.length);
+          diagnosticLog.warn("records", "cloud-empty", "云端记录为空，保留本地记录", {
+            localCount: localRecords.length
+          });
         }
+        diagnosticLog.info("records", "load-success", "制作记录读取完成", {
+          remoteCount: remoteRecords.length,
+          localCount: localRecords.length,
+          selectedCount: records.length
+        });
         return;
       } catch (error) {
         console.warn("云端记录读取失败，回退本地记录", error);
+        diagnosticLog.warn("records", "load-fallback", "云端记录读取失败，回退本地记录", {
+          localCount: localRecords.length,
+          error
+        });
       }
     }
     this.setData({ records: localRecords });
+    diagnosticLog.info("records", "load-local", "使用本地制作记录", {
+      localCount: localRecords.length
+    });
   },
 
   previewImage(event) {
@@ -1842,6 +1952,11 @@ Page({
       (error && error.message) ||
       "请稍后重试";
     const requestId = payload && payload.requestId;
+    diagnosticLog.error("page", "operation-failed", title, {
+      requestId,
+      error,
+      message
+    });
     wx.showModal({
       title,
       content: `${String(message)}${requestId ? `\n请求编号：${requestId}` : ""}`,

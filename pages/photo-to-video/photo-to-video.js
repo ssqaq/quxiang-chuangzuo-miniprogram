@@ -2,6 +2,7 @@ const config = require("../../config");
 const cloud = require("../../services/cloud");
 const storage = require("../../utils/storage");
 const publishExport = require("../../utils/publish-export");
+const diagnosticLog = require("../../utils/diagnostic-log");
 
 const SCOPE_OPTIONS = [
   { value: "latest", label: "最新一张" },
@@ -47,8 +48,19 @@ function saveImageToAlbum(filePath) {
     }
     wx.saveImageToPhotosAlbum({
       filePath,
-      success: resolve,
-      fail: reject
+      success(result) {
+        diagnosticLog.info("video", "save-image-success", "视频流程中的照片已保存到相册", {
+          filePath
+        });
+        resolve(result);
+      },
+      fail(error) {
+        diagnosticLog.error("video", "save-image-failed", "视频流程中的照片保存失败", {
+          filePath,
+          error
+        });
+        reject(error);
+      }
     });
   });
 }
@@ -61,8 +73,19 @@ function saveVideoToAlbum(filePath) {
     }
     wx.saveVideoToPhotosAlbum({
       filePath,
-      success: resolve,
-      fail: reject
+      success(result) {
+        diagnosticLog.info("video", "save-video-success", "视频已保存到相册", {
+          filePath
+        });
+        resolve(result);
+      },
+      fail(error) {
+        diagnosticLog.error("video", "save-video-failed", "视频保存失败", {
+          filePath,
+          error
+        });
+        reject(error);
+      }
     });
   });
 }
@@ -116,6 +139,7 @@ Page({
 
   onShow() {
     this._destroyed = false;
+    diagnosticLog.info("video", "page-show", "打开照片转动态视频页面");
     this.loadLocalRecords();
     this.refreshCloudRecords();
     this.checkVideoProvider();
@@ -146,8 +170,14 @@ Page({
         storage.saveRecords(records);
         this.setData({ archiveRecords: records }, () => this.refreshVisibleRecords());
       }
+      diagnosticLog.info("video", "records-refresh-success", "视频页读取制作记录完成", {
+        recordCount: records.length
+      });
     } catch (error) {
       console.warn("[photo-to-video] 云端记录刷新失败，继续使用本地记录", error);
+      diagnosticLog.warn("video", "records-refresh-failed", "视频页读取云端记录失败", {
+        error
+      });
     }
   },
 
@@ -156,6 +186,9 @@ Page({
       this.setData({
         providerReady: false,
         providerMessage: "当前是本地预览模式，视频服务未连接。"
+      });
+      diagnosticLog.warn("video", "provider-unavailable", "视频页处于本地预览模式", {
+        cloudReady: false
       });
       return;
     }
@@ -167,10 +200,17 @@ Page({
           ? result.message
           : "视频服务状态未知。"
       });
+      diagnosticLog.info("video", "provider-status", "视频服务状态读取完成", {
+        ready: Boolean(result && result.ready),
+        message: result && result.message
+      });
     } catch (error) {
       this.setData({
         providerReady: false,
         providerMessage: "视频服务状态读取失败，生成时会给出具体原因。"
+      });
+      diagnosticLog.error("video", "provider-status-failed", "视频服务状态读取失败", {
+        error
       });
     }
   },
@@ -368,15 +408,41 @@ Page({
     const maxPolls = Number(config.photoToVideo.maxPolls) || 120;
     const interval = Number(config.photoToVideo.pollIntervalMs) || 2500;
     for (let count = 0; count < maxPolls; count += 1) {
+      if (count === 0) {
+        diagnosticLog.info("video", "poll-start", "开始轮询视频任务", {
+          taskId,
+          maxPolls,
+          interval
+        });
+      }
       const result = await cloud.queryVideoTask(taskId);
       const status = String(result && result.status || "").toLowerCase();
-      if (["succeeded", "success", "completed"].includes(status)) return result;
+      if (["succeeded", "success", "completed"].includes(status)) {
+        diagnosticLog.info("video", "poll-success", "视频任务完成", {
+          taskId,
+          pollCount: count + 1,
+          status
+        });
+        return result;
+      }
       if (["failed", "error", "cancelled"].includes(status)) {
+        diagnosticLog.error("video", "poll-failed", "视频任务返回失败状态", {
+          taskId,
+          pollCount: count + 1,
+          status,
+          result
+        });
         throw new Error(result.error || result.message || "动态视频生成失败");
       }
       if (count < maxPolls - 1) await wait(interval);
     }
-    throw new Error("动态视频生成超时，请稍后重试。");
+    const error = new Error("动态视频生成超时，请稍后重试。");
+    diagnosticLog.error("video", "poll-timeout", "视频任务轮询超时", {
+      taskId,
+      maxPolls,
+      error
+    });
+    throw error;
   },
 
   async resolveVideoPath(result) {
@@ -388,6 +454,11 @@ Page({
   },
 
   async convertOne(record) {
+    const startedAt = Date.now();
+    diagnosticLog.info("video", "convert-start", "开始处理一张照片转动态视频", {
+      recordId: record.id,
+      projectName: record.projectName
+    });
     const sourcePath = await publishExport.resolveImageSource(record);
     const upload = await cloud.uploadFile(sourcePath, "photo-to-video-input");
     const created = await cloud.createVideoTask({
@@ -399,6 +470,11 @@ Page({
     if (!created || !created.taskId) {
       throw new Error("视频服务没有返回任务编号。");
     }
+    diagnosticLog.info("video", "task-created", "视频任务已创建", {
+      recordId: record.id,
+      taskId: created.taskId,
+      durationMs: Date.now() - startedAt
+    });
     const result = await this.pollVideoTask(created.taskId);
     const videoPath = await this.resolveVideoPath(result);
     await saveImageToAlbum(sourcePath);
@@ -414,6 +490,11 @@ Page({
         videoPath,
         title: record.projectName
       }
+    });
+    diagnosticLog.info("video", "convert-success", "照片转动态视频完成", {
+      recordId: record.id,
+      taskId: created.taskId,
+      durationMs: Date.now() - startedAt
     });
     return { videoPath };
   },
@@ -435,6 +516,11 @@ Page({
         await this.convertOne(record);
         successCount += 1;
       } catch (error) {
+        diagnosticLog.error("video", "convert-failed", "单张照片转动态视频失败", {
+          recordId: record.id,
+          projectName: record.projectName,
+          error
+        });
         const message = this.formatError(error);
         this.updateRecord(record.id, {
           status: "failed",
@@ -458,6 +544,9 @@ Page({
       wx.showToast({ title: "先选择要处理的照片", icon: "none" });
       return;
     }
+    diagnosticLog.info("video", "batch-start", "开始批量生成动态视频", {
+      recordCount: records.length
+    });
     this.setData({
       processing: true,
       progressValue: 0,
@@ -471,6 +560,10 @@ Page({
         progressText: `处理完成：成功 ${result.successCount} 张${result.failures.length ? `，失败 ${result.failures.length} 张` : ""}`
       });
       this.showBatchResult(result.successCount, result.failures);
+      diagnosticLog.info("video", "batch-finish", "批量动态视频处理完成", {
+        successCount: result.successCount,
+        failureCount: result.failures.length
+      });
     } finally {
       setTimeout(() => {
         if (!this._destroyed) {
@@ -491,6 +584,10 @@ Page({
       && event.currentTarget.dataset.id;
     const record = this.data.records.find((item) => item.id === id);
     if (!record) return;
+    diagnosticLog.info("video", "retry-start", "开始重试单张动态视频", {
+      recordId: record.id,
+      projectName: record.projectName
+    });
     this.setData({
       processing: true,
       progressValue: 0,

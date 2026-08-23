@@ -1,6 +1,7 @@
 const cloud = require("../../services/cloud");
 const storage = require("../../utils/storage");
 const publishExport = require("../../utils/publish-export");
+const diagnosticLog = require("../../utils/diagnostic-log");
 
 const SCOPE_OPTIONS = [
   { value: "latest", label: "最新一张" },
@@ -83,6 +84,7 @@ Page({
   },
 
   onShow() {
+    diagnosticLog.info("export", "page-show", "打开图片导出页面");
     this.loadLocalRecords();
     this.refreshCloudRecords();
   },
@@ -107,6 +109,9 @@ Page({
       }
     } catch (error) {
       console.warn("[publish-export] 云端记录刷新失败，继续使用本地记录", error);
+      diagnosticLog.warn("export", "records-refresh-failed", "导出页读取云端记录失败", {
+        error
+      });
     } finally {
       this.setData({ refreshing: false });
     }
@@ -265,6 +270,15 @@ Page({
       wx.showToast({ title: "先选择要导出的记录", icon: "none" });
       return;
     }
+    diagnosticLog.info("export", "batch-start", "开始批量导出图片", {
+      recordCount: records.length,
+      format: this.data.format,
+      maxEdge: this.data.maxEdge,
+      quality: this.data.quality,
+      colorCorrect: this.data.colorCorrect,
+      denoise: this.data.denoise,
+      sharpen: this.data.sharpen
+    });
 
     this.setData({
       processing: true,
@@ -310,8 +324,19 @@ Page({
           });
           await publishExport.saveToAlbum(tempFilePath);
           successCount += 1;
+          diagnosticLog.info("export", "item-success", "单张图片导出完成", {
+            recordId: record.id,
+            projectName: record.projectName,
+            format: this.data.format,
+            outputSize
+          });
         } catch (error) {
           console.warn("[publish-export] 单张导出失败", record.id, error);
+          diagnosticLog.error("export", "item-failed", "单张图片导出失败", {
+            recordId: record.id,
+            projectName: record.projectName,
+            error
+          });
           failures.push({
             name: record.projectName,
             message: this.formatError(error)
@@ -324,6 +349,10 @@ Page({
         progressText: `处理完成：成功 ${successCount} 张${failures.length ? `，失败 ${failures.length} 张` : ""}`
       });
       this.showExportResult(successCount, failures);
+      diagnosticLog.info("export", "batch-finish", "批量图片导出完成", {
+        successCount,
+        failureCount: failures.length
+      });
     } finally {
       setTimeout(() => {
         this.setData({

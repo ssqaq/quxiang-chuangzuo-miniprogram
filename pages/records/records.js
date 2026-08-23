@@ -1,5 +1,6 @@
 const cloud = require("../../services/cloud");
 const storage = require("../../utils/storage");
+const diagnosticLog = require("../../utils/diagnostic-log");
 
 Page({
   data: {
@@ -11,6 +12,7 @@ Page({
   },
 
   onShow() {
+    diagnosticLog.info("records", "page-show", "打开制作记录页面");
     this.loadRecords();
   },
 
@@ -28,6 +30,10 @@ Page({
   async loadRecords() {
     const ready = cloud.isCloudReady();
     const localRecords = storage.loadRecords() || [];
+    diagnosticLog.info("records", "page-load-start", "开始加载制作记录页", {
+      cloudReady: ready,
+      localCount: localRecords.length
+    });
     this.setData({ loading: true, cloudReady: ready });
     try {
       if (ready) {
@@ -39,12 +45,26 @@ Page({
           storage.saveRecords(remoteRecords);
         } else if (localRecords.length) {
           console.warn("云端记录为空，保留本地制作记录", localRecords.length);
+          diagnosticLog.warn("records", "cloud-empty", "云端记录为空，保留本地记录", {
+            localCount: localRecords.length
+          });
         }
+        diagnosticLog.info("records", "page-load-success", "制作记录页加载完成", {
+          remoteCount: remoteRecords.length,
+          selectedCount: records.length
+        });
       } else {
         this.setData({ records: localRecords });
+        diagnosticLog.info("records", "page-load-local", "制作记录页使用本地记录", {
+          localCount: localRecords.length
+        });
       }
     } catch (error) {
       this.setData({ records: localRecords });
+      diagnosticLog.error("records", "page-load-failed", "制作记录页读取云端失败", {
+        error,
+        localCount: localRecords.length
+      });
       wx.showToast({ title: "云端读取失败，显示本地记录", icon: "none" });
     } finally {
       this.setData({ loading: false });
@@ -68,6 +88,9 @@ Page({
     });
     if (!response.confirm) return;
     this.setData({ removingId: id });
+    diagnosticLog.info("records", "remove-start", "开始删除一条制作记录", {
+      recordId: id
+    });
     try {
       if (this.data.cloudReady && !String(id).startsWith("local-")) {
         await cloud.deleteRecord(id);
@@ -76,7 +99,14 @@ Page({
       this.setData({ records });
       storage.saveRecords(records);
       wx.showToast({ title: "已删除", icon: "success" });
+      diagnosticLog.info("records", "remove-success", "制作记录删除完成", {
+        recordId: id
+      });
     } catch (error) {
+      diagnosticLog.error("records", "remove-failed", "制作记录删除失败", {
+        recordId: id,
+        error
+      });
       wx.showToast({ title: error.message || "删除失败", icon: "none" });
     } finally {
       this.setData({ removingId: "" });
@@ -98,6 +128,9 @@ Page({
     if (!response.confirm) return;
 
     this.setData({ clearing: true });
+    diagnosticLog.info("records", "clear-start", "开始清空制作记录", {
+      recordCount: records.length
+    });
     const remoteRecords = this.data.cloudReady
       ? records.filter((item) => item.id && !String(item.id).startsWith("local-"))
       : [];
@@ -114,16 +147,27 @@ Page({
       this.setData({ records: failedRecords });
       storage.saveRecords(failedRecords);
       if (failedRecords.length) {
+        diagnosticLog.warn("records", "clear-partial", "制作记录部分清理失败", {
+          failedCount: failedRecords.length,
+          totalCount: records.length
+        });
         wx.showModal({
           title: "部分记录未清理",
           content: `${failedRecords.length} 条记录删除失败，已保留在列表中，请稍后重试。`,
           showCancel: false
         });
       } else {
+        diagnosticLog.info("records", "clear-success", "制作记录已全部清空", {
+          recordCount: records.length
+        });
         wx.showToast({ title: "已清空全部记录", icon: "success" });
       }
     } catch (error) {
       this.setData({ records });
+      diagnosticLog.error("records", "clear-failed", "清空制作记录失败", {
+        recordCount: records.length,
+        error
+      });
       wx.showToast({ title: error.message || "清空失败", icon: "none" });
     } finally {
       this.setData({ clearing: false });

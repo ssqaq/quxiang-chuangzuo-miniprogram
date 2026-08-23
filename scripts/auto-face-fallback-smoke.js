@@ -1,6 +1,7 @@
 const assert = require("assert");
 const path = require("path");
 const Module = require("module");
+const diagnosticLog = require("../utils/diagnostic-log");
 
 const root = path.resolve(__dirname, "..");
 const pagePath = path.join(root, "pages", "index", "index.js");
@@ -100,6 +101,7 @@ function resetLogs() {
   clipboardLog = [];
   loadingCount = 0;
   hideLoadingCount = 0;
+  diagnosticLog.clear();
 }
 
 function createPage() {
@@ -123,7 +125,6 @@ function createPage() {
   page.data.imageWidth = 1000;
   page.data.imageHeight = 800;
   page.data.analysisAction = "";
-  page._autoFaceLogs = [];
   page.drawCount = 0;
   page.setData = function setData(patch, callback) {
     Object.assign(this.data, patch || {});
@@ -160,14 +161,10 @@ async function runCloudSuccess() {
   assert.strictEqual(page.data.autoFaceStatus.details.detectComplete, true);
   assert.ok(page.data.autoFaceStatus.details.clientTotalMs >= 0);
   assert.ok(page.data.autoFaceStatus.summary.includes("clientTotalMs"));
-  assert.ok(page.data.autoFaceLogs.length >= 4);
-  page.copyAutoFaceLogs();
-  assert.strictEqual(clipboardLog.length, 1, "自动贴脸日志应支持复制");
-  assert.ok(clipboardLog[0].data.includes('"logs"'));
-  page.toggleAutoFaceLogPanel();
-  assert.strictEqual(page.data.autoFaceLogExpanded, true);
-  const cloudResultStatus = page._autoFaceLogs.find((item) => item.stage === "cloud-result");
-  assert.strictEqual(cloudResultStatus.details.timing.totalMs, 3210);
+  const autoFaceEvents = diagnosticLog.read({ category: "auto-face" });
+  assert.ok(autoFaceEvents.length >= 4);
+  const cloudResultStatus = autoFaceEvents.find((item) => item.event === "cloud-result");
+  assert.strictEqual(cloudResultStatus.details.details.timing.totalMs, 3210);
   assert.strictEqual(loadingCount, 1);
   assert.strictEqual(hideLoadingCount, 1);
   assert.ok(toastLog.some((item) => item.title === "云端贴脸完成"));

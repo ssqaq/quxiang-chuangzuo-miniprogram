@@ -28,6 +28,7 @@ const jsFiles = [
   "utils/circle-gesture.js",
   "utils/publish-export.js",
   "utils/interaction-log.js",
+  "utils/diagnostic-log.js",
   "pages/splash/splash.js",
   "pages/workbench/workbench.js",
   "pages/publish-export/publish-export.js",
@@ -47,6 +48,7 @@ const jsFiles = [
   "scripts/canvas-gesture-smoke.js",
   "scripts/circle-gesture-smoke.js",
   "scripts/auto-face-fallback-smoke.js",
+  "scripts/diagnostic-log-smoke.js",
   "scripts/generation-experience-smoke.js",
   "scripts/workbench-interaction-smoke.js"
 ];
@@ -110,6 +112,7 @@ const required = [
   "pages/workbench/workbench.wxml",
   "pages/workbench/workbench.wxss",
   "utils/interaction-log.js",
+  "utils/diagnostic-log.js",
   "scripts/refresh-preview.ps1",
   "一键刷新预览.cmd",
   "pages/publish-export/publish-export.js",
@@ -373,19 +376,33 @@ if (
   throw new Error("开始新创作没有配置稳定跳转和失败兜底逻辑。");
 }
 if (
-  !workbenchJs.includes("recordInteraction(event, message, details = {})")
-  || !workbenchJs.includes("toggleInteractionLogPanel()")
-  || !workbenchJs.includes("copyInteractionLogs()")
-  || !workbenchJs.includes("clearInteractionLogs()")
-  || !workbenchWxml.includes("点击链路日志")
-  || !workbenchWxml.includes("interactionLogs.length")
-  || !workbenchWxml.includes("bindtap=\"copyInteractionLogs\"")
+  !workbenchJs.includes('require("../../utils/diagnostic-log")')
+  || !workbenchJs.includes("refreshDiagnostics()")
+  || !workbenchJs.includes("toggleDiagnosticPanel()")
+  || !workbenchJs.includes("copyDiagnosticReport()")
+  || !workbenchJs.includes("clearDiagnosticLogs()")
+  || !workbenchJs.includes("new-creation-navigation-timeout")
+  || !workbenchJs.includes("draft-confirmation-shown")
+  || !workbenchWxml.includes("故障排查报告")
+  || !workbenchWxml.includes("diagnosticStats.eventCount")
+  || !workbenchWxml.includes("bindtap=\"copyDiagnosticReport\"")
+  || !workbenchWxml.includes("复制排查报告")
+  || !workbenchWxml.includes("diagnosticEvents")
   || !workbenchWxss.includes(".interaction-log-card")
   || !workbenchWxss.includes(".interaction-log-list")
+  || !indexJs.includes('require("../../utils/diagnostic-log")')
+  || !indexJs.includes('diagnosticLog.info("auto-face"')
+  || !photoToVideoJs.includes('require("../../utils/diagnostic-log")')
+  || !photoToVideoJs.includes('diagnosticLog.info("video"')
+  || !publishExportJs.includes('require("../../utils/diagnostic-log")')
+  || !publishExportJs.includes('diagnosticLog.info("export"')
+  || !recordsJs.includes('require("../../utils/diagnostic-log")')
+  || !recordsJs.includes('diagnosticLog.info("records"')
+  || !fs.existsSync(path.join(root, "scripts", "diagnostic-log-smoke.js"))
   || !fs.existsSync(path.join(root, "scripts", "refresh-preview.ps1"))
   || !fs.existsSync(path.join(root, "一键刷新预览.cmd"))
 ) {
-  throw new Error("点击链路日志或一键刷新预览功能不完整。");
+  throw new Error("故障排查报告、真机跳转兜底或一键刷新预览功能不完整。");
 }
 if (
   !workbenchWxml.includes("降低AI识别率再导出照片")

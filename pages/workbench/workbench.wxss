@@ -658,6 +658,11 @@ page {
   box-shadow: 0 8rpx 18rpx rgba(82, 103, 200, 0.1);
 }
 
+.interaction-log-card .section-head {
+  padding-bottom: 14rpx;
+  border-bottom: 1rpx solid #e9eef7;
+}
+
 .interaction-log-count {
   flex: none;
   padding: 8rpx 12rpx;
@@ -669,7 +674,7 @@ page {
 }
 
 .interaction-log-description {
-  margin: 12rpx 0 0 94rpx;
+  margin: 13rpx 0 12rpx 94rpx;
   overflow: hidden;
   color: #7d899b;
   font-size: 22rpx;
@@ -691,8 +696,13 @@ page {
   display: flex;
   align-items: stretch;
   gap: 12rpx;
-  margin-top: 18rpx;
+  margin-top: 0;
   margin-left: 94rpx;
+}
+
+.interaction-log-actions-primary {
+  display: grid;
+  grid-template-columns: 1.15fr 1fr 1fr;
 }
 
 .interaction-log-button {
@@ -705,6 +715,10 @@ page {
   font-size: 23rpx;
   line-height: 72rpx;
   white-space: nowrap;
+}
+
+.interaction-log-actions-primary .interaction-log-button {
+  width: auto;
 }
 
 .interaction-log-primary-button {

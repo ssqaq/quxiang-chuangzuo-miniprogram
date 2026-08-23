@@ -745,7 +745,7 @@ Page({
 
   onAuthorQrPreviewError() {
     this.setData({
-      authorQrPreviewVisible: false,
+      authorQrPreviewVisible: true,
       authorQrPreviewLoading: false,
       authorQrPreviewError: true
     });

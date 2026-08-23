@@ -119,8 +119,10 @@ async function main() {
   assert.strictEqual(page.data.authorQrPreviewError, false);
   page.previewAuthorQr();
   page.onAuthorQrPreviewError({ errMsg: "image:fail smoke" });
-  assert.strictEqual(page.data.authorQrPreviewVisible, false);
+  assert.strictEqual(page.data.authorQrPreviewVisible, true);
   assert.strictEqual(page.data.authorQrPreviewError, true);
+  page.closeAuthorQrPreview();
+  assert.strictEqual(page.data.authorQrPreviewVisible, false);
   page.saveAuthorQr();
   assert.ok(events.some((item) => (
     item.type === "saveImageToPhotosAlbum"

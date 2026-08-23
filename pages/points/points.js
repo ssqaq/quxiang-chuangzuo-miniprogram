@@ -19,6 +19,15 @@ function normalizePoints(result = {}) {
   const source = result && typeof result === "object" ? result : {};
   const streak = Math.max(0, Number(source.currentStreak) || 0);
   const streakDays = Number(source.streakDays) || config.points.streakDays;
+  const freeLimit = Math.max(
+    0,
+    Number(source.freeLimit) || config.points.dailyFreeLimit
+  );
+  const freeRemaining = Math.min(
+    freeLimit,
+    Math.max(0, Number(source.freeRemaining) || 0)
+  );
+  const freeUsed = Math.max(0, freeLimit - freeRemaining);
   const progress = streak > 0 && streak % streakDays === 0
     ? streakDays
     : streak % streakDays;
@@ -32,8 +41,12 @@ function normalizePoints(result = {}) {
     videoCost: Math.max(0, Number(source.videoCost) || config.points.videoCost),
     currentStreak: streak,
     checkedInToday: Boolean(source.checkedInToday),
-    freeRemaining: Math.max(0, Number(source.freeRemaining) || 0),
-    freeLimit: Math.max(0, Number(source.freeLimit) || config.points.dailyFreeLimit),
+    freeRemaining,
+    freeLimit,
+    freeUsed,
+    freeUsagePercent: freeLimit > 0
+      ? Math.min(100, Math.max(0, freeUsed / freeLimit * 100))
+      : 0,
     promoActive: Boolean(source.promoActive),
     promoStartDate: source.promoStartDate || config.points.promoStartDate,
     promoEndDate: source.promoEndDate || config.points.promoEndDate,
@@ -67,6 +80,16 @@ function normalizeLedger(item = {}) {
   };
 }
 
+function filterLedger(records = [], filter = "all") {
+  if (filter === "income") {
+    return records.filter((item) => item.amount > 0);
+  }
+  if (filter === "expense") {
+    return records.filter((item) => item.amount < 0);
+  }
+  return records;
+}
+
 Page({
   data: {
     appVersion: config.appVersion,
@@ -75,7 +98,15 @@ Page({
     checkingIn: false,
     message: "",
     points: normalizePoints(),
-    ledger: []
+    ledger: [],
+    visibleLedger: [],
+    ledgerFilter: "all",
+    animatedPointsBalance: 0,
+    animatedCurrentStreak: 0,
+    animatedFreeRemaining: 0,
+    animatedTotalEarned: 0,
+    checkinCelebrationVisible: false,
+    checkinCelebrationText: ""
   },
 
   onShow() {
@@ -85,10 +116,14 @@ Page({
 
   onHide() {
     this.clearPromoRefreshTimer();
+    this.stopDashboardNumberAnimation();
+    this.clearCheckinCelebrationTimer();
   },
 
   onUnload() {
     this.clearPromoRefreshTimer();
+    this.stopDashboardNumberAnimation();
+    this.clearCheckinCelebrationTimer();
   },
 
   onPullDownRefresh() {
@@ -97,11 +132,16 @@ Page({
 
   async loadPoints() {
     if (!cloud.isCloudReady()) {
+      const points = normalizePoints({ accountBound: false });
+      const ledger = [];
       this.setData({
         loading: false,
-        points: normalizePoints({ accountBound: false }),
+        points,
+        ledger,
+        visibleLedger: filterLedger(ledger, this.data.ledgerFilter),
         message: config.points.copy.localPreviewMessage
       });
+      this.animateDashboardNumbers(points);
       this.schedulePromoRefresh();
       return;
     }
@@ -111,11 +151,15 @@ Page({
         cloud.getUserPoints(),
         cloud.getPointLedger()
       ]);
+      const points = normalizePoints(pointsResult);
+      const ledger = (ledgerResult && ledgerResult.records || []).map(normalizeLedger);
       this.setData({
         loading: false,
-        points: normalizePoints(pointsResult),
-        ledger: (ledgerResult && ledgerResult.records || []).map(normalizeLedger)
+        points,
+        ledger,
+        visibleLedger: filterLedger(ledger, this.data.ledgerFilter)
       });
+      this.animateDashboardNumbers(points);
     } catch (error) {
       this.setData({
         loading: false,
@@ -125,6 +169,77 @@ Page({
     } finally {
       this.schedulePromoRefresh();
     }
+  },
+
+  animateDashboardNumbers(points = {}) {
+    this.stopDashboardNumberAnimation();
+    const targets = {
+      animatedPointsBalance: Math.max(0, Number(points.pointsBalance) || 0),
+      animatedCurrentStreak: Math.max(0, Number(points.currentStreak) || 0),
+      animatedFreeRemaining: Math.max(0, Number(points.freeRemaining) || 0),
+      animatedTotalEarned: Math.max(0, Number(points.totalEarned) || 0)
+    };
+    const keys = Object.keys(targets);
+    const starts = keys.reduce((result, key) => {
+      result[key] = Math.max(0, Number(this.data[key]) || 0);
+      return result;
+    }, {});
+    const startTime = Date.now();
+    const duration = 560;
+    const tick = () => {
+      const progress = Math.min(1, (Date.now() - startTime) / duration);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      const values = keys.reduce((result, key) => {
+        result[key] = Math.round(
+          starts[key] + (targets[key] - starts[key]) * eased
+        );
+        return result;
+      }, {});
+      this.setData(values);
+      if (progress >= 1) {
+        this._dashboardNumberTimer = null;
+        return;
+      }
+      this._dashboardNumberTimer = setTimeout(tick, 32);
+    };
+    tick();
+  },
+
+  stopDashboardNumberAnimation() {
+    if (this._dashboardNumberTimer) {
+      clearTimeout(this._dashboardNumberTimer);
+      this._dashboardNumberTimer = null;
+    }
+  },
+
+  clearCheckinCelebrationTimer() {
+    if (this._checkinCelebrationTimer) {
+      clearTimeout(this._checkinCelebrationTimer);
+      this._checkinCelebrationTimer = null;
+    }
+  },
+
+  showCheckinCelebration(text) {
+    this.clearCheckinCelebrationTimer();
+    this.setData({
+      checkinCelebrationVisible: true,
+      checkinCelebrationText: text
+    });
+    this._checkinCelebrationTimer = setTimeout(() => {
+      this._checkinCelebrationTimer = null;
+      this.setData({ checkinCelebrationVisible: false });
+    }, 1800);
+  },
+
+  onLedgerFilterTap(event) {
+    const filter = event && event.currentTarget && event.currentTarget.dataset
+      ? event.currentTarget.dataset.filter
+      : "all";
+    if (["all", "income", "expense"].indexOf(filter) === -1) return;
+    this.setData({
+      ledgerFilter: filter,
+      visibleLedger: filterLedger(this.data.ledger, filter)
+    });
   },
 
   clearPromoRefreshTimer() {
@@ -193,11 +308,16 @@ Page({
       const checkInMessage = result.duplicate
         ? config.points.copy.checkInDuplicate
         : `${config.points.copy.checkInSuccessPrefix}${result.earnedToday || 0}${config.points.copy.checkInSuccessSuffix}`;
+      const points = normalizePoints(result);
       this.setData({
         checkingIn: false,
-        points: normalizePoints(result),
+        points,
         message: checkInMessage
       });
+      this.animateDashboardNumbers(points);
+      if (!result.duplicate) {
+        this.showCheckinCelebration(checkInMessage);
+      }
       await this.loadPoints();
       this.setData({ message: checkInMessage });
       wx.showToast(buildCheckInToast(result));

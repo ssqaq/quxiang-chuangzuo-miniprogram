@@ -1,4 +1,37 @@
-<view class="points-page points-dashboard-page">
+<view wx:if="{{loading}}" class="points-skeleton">
+  <view class="skeleton-card skeleton-hero">
+    <view class="skeleton-block skeleton-kicker"></view>
+    <view class="skeleton-block skeleton-title"></view>
+    <view class="skeleton-block skeleton-subtitle"></view>
+    <view class="skeleton-metric-grid">
+      <view class="skeleton-block skeleton-metric"></view>
+      <view class="skeleton-block skeleton-metric"></view>
+      <view class="skeleton-block skeleton-metric"></view>
+      <view class="skeleton-block skeleton-metric"></view>
+    </view>
+  </view>
+  <view class="skeleton-card">
+    <view class="skeleton-block skeleton-section-title"></view>
+    <view class="skeleton-block skeleton-progress"></view>
+    <view class="skeleton-block skeleton-button"></view>
+  </view>
+  <view class="skeleton-card">
+    <view class="skeleton-block skeleton-section-title"></view>
+    <view class="skeleton-metric-grid">
+      <view class="skeleton-block skeleton-usage"></view>
+      <view class="skeleton-block skeleton-usage"></view>
+      <view class="skeleton-block skeleton-usage"></view>
+    </view>
+  </view>
+  <view class="skeleton-card skeleton-ledger">
+    <view class="skeleton-block skeleton-section-title"></view>
+    <view class="skeleton-block skeleton-row"></view>
+    <view class="skeleton-block skeleton-row"></view>
+    <view class="skeleton-block skeleton-row"></view>
+  </view>
+</view>
+
+<view wx:else class="points-page points-dashboard-page">
   <view class="points-hero card">
     <view class="points-hero-head">
       <view class="points-heading">
@@ -7,7 +40,7 @@
         <view class="points-subtitle">{{points.boundMessage}}</view>
       </view>
       <view class="points-balance">
-        <text class="points-balance-number">{{points.pointsBalance}}</text>
+        <text class="points-balance-number">{{animatedPointsBalance}}</text>
         <text class="points-balance-label">{{pointsCopy.currentPointsLabel}}</text>
       </view>
     </view>
@@ -15,19 +48,19 @@
     <view class="dashboard-metric-grid">
       <view class="dashboard-metric dashboard-metric-blue">
         <text class="dashboard-metric-label">{{pointsCopy.currentPointsLabel}}</text>
-        <text class="dashboard-metric-value">{{points.pointsBalance}}</text>
+        <text class="dashboard-metric-value">{{animatedPointsBalance}}</text>
       </view>
       <view class="dashboard-metric dashboard-metric-green">
         <text class="dashboard-metric-label">连续签到</text>
-        <text class="dashboard-metric-value">{{points.currentStreak}} {{pointsCopy.dayUnit}}</text>
+        <text class="dashboard-metric-value">{{animatedCurrentStreak}} {{pointsCopy.dayUnit}}</text>
       </view>
       <view class="dashboard-metric dashboard-metric-orange">
         <text class="dashboard-metric-label">{{pointsCopy.todayFreeLabel}}</text>
-        <text class="dashboard-metric-value">{{points.freeRemaining}} / {{points.freeLimit}}</text>
+        <text class="dashboard-metric-value">{{animatedFreeRemaining}} / {{points.freeLimit}}</text>
       </view>
       <view class="dashboard-metric dashboard-metric-purple">
         <text class="dashboard-metric-label">{{pointsCopy.ledgerTotalPrefix}}</text>
-        <text class="dashboard-metric-value">{{points.totalEarned}}</text>
+        <text class="dashboard-metric-value">{{animatedTotalEarned}}</text>
       </view>
     </view>
 
@@ -68,6 +101,13 @@
     <view class="checkin-hint">
       {{pointsCopy.checkInHintPrefix}} {{points.checkinPoints}} {{pointsCopy.checkInHintSuffix}}
     </view>
+    <view wx:if="{{checkinCelebrationVisible}}" class="checkin-celebration">
+      <view class="checkin-celebration-icon">✓</view>
+      <view class="checkin-celebration-copy">
+        <view class="checkin-celebration-title">签到成功</view>
+        <view class="checkin-celebration-text">{{checkinCelebrationText}}</view>
+      </view>
+    </view>
   </view>
 
   <view class="card usage-card">
@@ -89,6 +129,19 @@
         <text class="usage-value">{{points.videoCost}} {{pointsCopy.pointsUnit}}</text>
       </view>
     </view>
+    <view class="free-usage-progress">
+      <view class="free-usage-progress-head">
+        <text>今日免费次数使用情况</text>
+        <text>{{points.freeUsed}} / {{points.freeLimit}} 次</text>
+      </view>
+      <view class="free-usage-track">
+        <view class="free-usage-fill" style="width: {{points.freeUsagePercent}}%;"></view>
+      </view>
+      <view class="free-usage-foot">
+        <text>还可使用 {{points.freeRemaining}} 次</text>
+        <text>用完后扣积分</text>
+      </view>
+    </view>
     <view class="usage-note">{{pointsCopy.usageNote}}</view>
   </view>
 
@@ -106,8 +159,27 @@
         </view>
       </view>
     </view>
-    <view wx:if="{{!ledger.length}}" class="empty-ledger">{{pointsCopy.emptyLedger}}</view>
-    <view wx:for="{{ledger}}" wx:key="id" class="ledger-row">
+    <view class="ledger-filter-bar">
+      <view
+        class="ledger-filter-chip {{ledgerFilter === 'all' ? 'ledger-filter-chip-active' : ''}}"
+        data-filter="all"
+        bindtap="onLedgerFilterTap"
+      >全部</view>
+      <view
+        class="ledger-filter-chip {{ledgerFilter === 'income' ? 'ledger-filter-chip-active' : ''}}"
+        data-filter="income"
+        bindtap="onLedgerFilterTap"
+      >获得</view>
+      <view
+        class="ledger-filter-chip {{ledgerFilter === 'expense' ? 'ledger-filter-chip-active' : ''}}"
+        data-filter="expense"
+        bindtap="onLedgerFilterTap"
+      >使用</view>
+    </view>
+    <view wx:if="{{!visibleLedger.length}}" class="empty-ledger">
+      {{ledgerFilter === 'all' ? pointsCopy.emptyLedger : '暂无符合条件的记录'}}
+    </view>
+    <view wx:for="{{visibleLedger}}" wx:key="id" class="ledger-row">
       <view class="ledger-copy">
         <view class="ledger-description">{{item.description}}</view>
         <view class="ledger-time">{{item.createdAt}}</view>

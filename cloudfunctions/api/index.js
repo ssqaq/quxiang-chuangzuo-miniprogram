@@ -3414,6 +3414,7 @@ async function generate(event, context) {
 
   let billing = null;
   let claimed = false;
+  let resultPersisted = false;
   try {
     billing = await reserveUsage(openid, requestId, "image");
     const claim = billing.untracked
@@ -3499,6 +3500,7 @@ async function generate(event, context) {
       pointsCharged: billing.pointsCharged
     };
     const saved = await db.collection("generation_records").add({ data: recordData });
+    resultPersisted = true;
     const result = {
       recordId: saved._id,
       fileID: fileID.fileID,
@@ -3518,8 +3520,10 @@ async function generate(event, context) {
   } catch (error) {
     if (claimed) {
       if (!billing || !billing.untracked) {
-        await failGenerationOperation(openid, requestId, error);
-        await refundUsage(openid, requestId, "生图失败，已退回本次使用额度");
+        if (!resultPersisted) {
+          await failGenerationOperation(openid, requestId, error);
+          await refundUsage(openid, requestId, "生图失败，已退回本次使用额度");
+        }
       }
     }
     throw error;
@@ -3772,6 +3776,7 @@ async function createVideoTask(event, context) {
   const openid = getOpenId(context);
   let billing = null;
   let claimed = false;
+  let providerAccepted = false;
   try {
     const imageBuffer = await downloadCloudFile(payload.imageFileID, {
       requestId,
@@ -3830,6 +3835,7 @@ async function createVideoTask(event, context) {
       })
     );
     const normalized = normalizeVideoCreateResponse(response);
+    providerAccepted = true;
     log("info", "video.create.finish", {
       requestId,
       provider: video.provider,
@@ -3849,7 +3855,7 @@ async function createVideoTask(event, context) {
         status: normalized.status === "succeeded" ? "succeeded" : "processing",
         providerTaskId: normalized.taskId,
         providerStatus: normalized.providerStatus,
-        result: Object.assign({}, result, { billing: undefined }),
+        result: Object.assign({}, result, { billing: null }),
         providerCreatedAt: new Date()
       }, {
         allowedStatuses: ["processing"]
@@ -3857,7 +3863,7 @@ async function createVideoTask(event, context) {
     }
     return jsonResponse(true, result);
   } catch (error) {
-    if (claimed && billing && !billing.untracked) {
+    if (claimed && billing && !billing.untracked && !providerAccepted) {
       await failGenerationOperation(openid, requestId, error);
       await refundUsage(openid, requestId, "视频任务创建失败，已退回本次使用额度");
     }

@@ -37,29 +37,6 @@
   white-space: nowrap;
 }
 
-.main-image-back-button {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 66rpx;
-  min-height: 66rpx;
-  margin: 16rpx 0 0;
-  padding: 0;
-  border: 1rpx solid #d8e6fb;
-  border-radius: 14rpx;
-  background: #f6f9ff;
-  color: #1f6feb;
-  font-size: 24rpx;
-  font-weight: 600;
-  line-height: 64rpx;
-  text-align: center;
-}
-
-.main-image-back-button::after {
-  border: 0;
-}
-
 .status {
   display: flex;
   flex: none;
@@ -1148,13 +1125,6 @@
 
   .hero-title {
     font-size: 38rpx;
-  }
-
-  .main-image-back-button {
-    height: 64rpx;
-    min-height: 64rpx;
-    font-size: 22rpx;
-    line-height: 62rpx;
   }
 
   .stepper {

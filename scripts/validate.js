@@ -245,16 +245,16 @@ if (
 if (
   !indexWxml.includes('class="hero-heading"')
   || !indexWxml.includes("区域锁定 · 人像参考 · AI 提示词")
-  || !indexWxml.includes('class="secondary-btn main-image-back-button" bindtap="backToWorkbench"')
+  || !indexWxml.includes('wx:if="{{step === 0}}" class="primary-btn nav-action-button" bindtap="backToWorkbench">返回主页</button>')
   || indexWxml.includes('class="hero-back-button"')
+  || indexWxml.includes('class="main-image-back-button"')
   || indexWxml.includes('class="hero-actions"')
 ) {
-  throw new Error("创作页顶部卡片或主图操作区的标题、状态、说明和返回按钮结构不完整。");
+  throw new Error("创作页顶部卡片或底部导航区的标题、状态、说明和返回按钮结构不完整。");
 }
 const heroStyle = indexWxss.match(/\.hero\s*\{([^}]*)\}/);
 const heroHeadingStyle = indexWxss.match(/\.hero-heading\s*\{([^}]*)\}/);
 const heroSubtitleStyle = indexWxss.match(/\.hero-subtitle\s*\{([^}]*)\}/);
-const mainImageBackButtonStyle = indexWxss.match(/\.main-image-back-button\s*\{([^}]*)\}/);
 const heroStatusStyle = indexWxss.match(/\.status\s*\{([^}]*)\}/);
 const navActionsStyle = indexWxss.match(/\.nav-actions\s*\{([^}]*)\}/);
 const navActionButtonsStyle = indexWxss.match(/\.nav-actions button\s*\{([^}]*)\}/);
@@ -266,14 +266,10 @@ if (
   || !/justify-content:\s*space-between/.test(heroHeadingStyle[1])
   || !heroSubtitleStyle
   || !/white-space:\s*nowrap/.test(heroSubtitleStyle[1])
-  || !mainImageBackButtonStyle
-  || !/width:\s*100%/.test(mainImageBackButtonStyle[1])
-  || !/margin:\s*16rpx\s+0\s+0/.test(mainImageBackButtonStyle[1])
-  || !/text-align:\s*center/.test(mainImageBackButtonStyle[1])
   || !heroStatusStyle
   || !/white-space:\s*nowrap/.test(heroStatusStyle[1])
 ) {
-  throw new Error("创作页顶部卡片、主图按钮横排或返回按钮样式不完整。");
+  throw new Error("创作页顶部卡片或底部导航按钮样式不完整。");
 }
 if (
   !indexWxml.includes('class="primary-btn nav-action-button" bindtap="nextStep">下一步</button>')

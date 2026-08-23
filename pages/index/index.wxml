@@ -53,7 +53,6 @@
         bindtap="clearMainImage"
       >清除主图</button>
     </view>
-    <button class="secondary-btn main-image-back-button" bindtap="backToWorkbench">返回主页</button>
     <view wx:if="{{project.mainImage}}" class="mask-action-row">
       <button
         class="primary-btn main-image-action-button mask-action-button"
@@ -330,6 +329,7 @@
   </view>
 
   <view class="nav-actions">
+    <button wx:if="{{step === 0}}" class="primary-btn nav-action-button" bindtap="backToWorkbench">返回主页</button>
     <button wx:if="{{step > 0}}" class="primary-btn nav-action-button {{step === 4 ? 'final-prev-button' : ''}}" bindtap="prevStep">上一步</button>
     <button wx:if="{{step < steps.length - 1 && !(step === 2 && project.faceRefs.length) && step !== 3}}" class="primary-btn nav-action-button" bindtap="nextStep">下一步</button>
     <button wx:if="{{step === 2 && project.faceRefs.length}}" class="primary-btn nav-action-button" bindtap="nextStep">去填写提示词</button>

@@ -28,6 +28,8 @@ function normalizePoints(result = {}) {
     pointsBalance: Math.max(0, Number(source.pointsBalance) || 0),
     totalEarned: Math.max(0, Number(source.totalEarned) || 0),
     totalSpent: Math.max(0, Number(source.totalSpent) || 0),
+    imageCost: Math.max(0, Number(source.imageCost) || config.points.imageCost),
+    videoCost: Math.max(0, Number(source.videoCost) || config.points.videoCost),
     currentStreak: streak,
     checkedInToday: Boolean(source.checkedInToday),
     freeRemaining: Math.max(0, Number(source.freeRemaining) || 0),

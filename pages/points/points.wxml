@@ -1,9 +1,9 @@
-<view class="points-page">
+<view class="points-page points-dashboard-page">
   <view class="points-hero card">
     <view class="points-hero-head">
-      <view>
+      <view class="points-heading">
         <view class="points-kicker">{{pointsCopy.pointsKicker}}</view>
-        <view class="points-title">{{pointsCopy.pointsTitle}}</view>
+        <view class="points-title">积分仪表盘</view>
         <view class="points-subtitle">{{points.boundMessage}}</view>
       </view>
       <view class="points-balance">
@@ -11,6 +11,26 @@
         <text class="points-balance-label">{{pointsCopy.currentPointsLabel}}</text>
       </view>
     </view>
+
+    <view class="dashboard-metric-grid">
+      <view class="dashboard-metric dashboard-metric-blue">
+        <text class="dashboard-metric-label">{{pointsCopy.currentPointsLabel}}</text>
+        <text class="dashboard-metric-value">{{points.pointsBalance}}</text>
+      </view>
+      <view class="dashboard-metric dashboard-metric-green">
+        <text class="dashboard-metric-label">连续签到</text>
+        <text class="dashboard-metric-value">{{points.currentStreak}} {{pointsCopy.dayUnit}}</text>
+      </view>
+      <view class="dashboard-metric dashboard-metric-orange">
+        <text class="dashboard-metric-label">{{pointsCopy.todayFreeLabel}}</text>
+        <text class="dashboard-metric-value">{{points.freeRemaining}} / {{points.freeLimit}}</text>
+      </view>
+      <view class="dashboard-metric dashboard-metric-purple">
+        <text class="dashboard-metric-label">{{pointsCopy.ledgerTotalPrefix}}</text>
+        <text class="dashboard-metric-value">{{points.totalEarned}}</text>
+      </view>
+    </view>
+
     <view wx:if="{{points.promoActive}}" class="points-promo">
       {{pointsCopy.pointsPromo}}
     </view>
@@ -18,7 +38,7 @@
 
   <view class="card streak-card">
     <view class="streak-head">
-      <view>
+      <view class="streak-heading">
         <view class="section-title">{{pointsCopy.pointsSectionTitle}}</view>
         <view class="section-subtitle">{{pointsCopy.streakRewardPrefix}} {{points.streakDays}} {{pointsCopy.streakRewardMiddle}} {{points.streakBonus}} {{pointsCopy.pointsUnit}}</view>
       </view>
@@ -51,7 +71,10 @@
   </view>
 
   <view class="card usage-card">
-    <view class="section-title">{{pointsCopy.usageTitle}}</view>
+    <view class="section-head">
+      <view class="section-title">{{pointsCopy.usageTitle}}</view>
+      <view class="section-meta">按次扣除</view>
+    </view>
     <view class="usage-grid">
       <view class="usage-item">
         <text class="usage-label">{{pointsCopy.todayFreeLabel}}</text>
@@ -72,7 +95,16 @@
   <view class="card ledger-card">
     <view class="ledger-head">
       <view class="section-title">{{pointsCopy.ledgerTitle}}</view>
-      <text class="ledger-total">{{pointsCopy.ledgerTotalPrefix}} {{points.totalEarned}}</text>
+      <view class="ledger-summary">
+        <view class="ledger-summary-item">
+          <text>累计获得</text>
+          <text class="ledger-summary-value ledger-summary-income">{{points.totalEarned}}</text>
+        </view>
+        <view class="ledger-summary-item">
+          <text>累计使用</text>
+          <text class="ledger-summary-value ledger-summary-expense">{{points.totalSpent}}</text>
+        </view>
+      </view>
     </view>
     <view wx:if="{{!ledger.length}}" class="empty-ledger">{{pointsCopy.emptyLedger}}</view>
     <view wx:for="{{ledger}}" wx:key="id" class="ledger-row">
@@ -84,5 +116,6 @@
     </view>
   </view>
 
+  <view wx:if="{{message}}" class="points-message">{{message}}</view>
   <button class="plain-btn back-button" bindtap="backToWorkbench">{{pointsCopy.backToWorkbench}}</button>
 </view>

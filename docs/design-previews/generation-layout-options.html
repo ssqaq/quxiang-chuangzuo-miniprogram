@@ -1,0 +1,1157 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>圈像创作 · 第 5 步排版方案对比</title>
+  <style>
+    :root {
+      --ink: #17233a;
+      --muted: #6c7890;
+      --line: #dfe7f2;
+      --blue: #1f6feb;
+      --blue-dark: #1559c5;
+      --canvas: #edf2f8;
+      --card: #ffffff;
+      --shadow: 0 22px 60px rgba(31, 49, 79, .12);
+      --soft-shadow: 0 12px 28px rgba(31, 49, 79, .08);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-width: 1180px;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 6% 0%, rgba(75, 141, 255, .13), transparent 24rem),
+        radial-gradient(circle at 95% 6%, rgba(159, 123, 255, .10), transparent 24rem),
+        #f7f9fc;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+        "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    }
+
+    button {
+      border: 0;
+      font: inherit;
+      cursor: pointer;
+    }
+
+    .topbar {
+      position: sticky;
+      z-index: 10;
+      top: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 20px 48px;
+      border-bottom: 1px solid rgba(223, 231, 242, .85);
+      background: rgba(247, 249, 252, .86);
+      backdrop-filter: blur(18px);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-mark {
+      display: grid;
+      width: 36px;
+      height: 36px;
+      place-items: center;
+      border-radius: 12px;
+      color: #fff;
+      background: linear-gradient(135deg, #2b78f4, #6d8eff);
+      font-size: 18px;
+      font-weight: 900;
+      box-shadow: 0 8px 18px rgba(31, 111, 235, .24);
+    }
+
+    .brand-copy strong {
+      display: block;
+      font-size: 16px;
+      letter-spacing: .02em;
+    }
+
+    .brand-copy span {
+      display: block;
+      margin-top: 2px;
+      color: #8b96a9;
+      font-size: 12px;
+    }
+
+    .selection-bar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .selection-text {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .selection-text b { color: var(--blue); }
+
+    .reset {
+      padding: 9px 14px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: #59708e;
+      background: #fff;
+      font-size: 12px;
+    }
+
+    .intro {
+      width: min(1320px, calc(100% - 96px));
+      margin: 0 auto;
+      padding: 46px 0 28px;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 11px;
+      border-radius: 999px;
+      color: #1d64cd;
+      background: #eaf2ff;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .eyebrow::before {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: currentColor;
+      content: "";
+    }
+
+    h1 {
+      max-width: 780px;
+      margin: 18px 0 12px;
+      font-size: clamp(34px, 4vw, 54px);
+      line-height: 1.08;
+      letter-spacing: -.045em;
+    }
+
+    .intro p {
+      max-width: 710px;
+      margin: 0;
+      color: var(--muted);
+      font-size: 16px;
+      line-height: 1.75;
+    }
+
+    .brief {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 9px;
+      margin-top: 22px;
+    }
+
+    .brief span {
+      padding: 8px 12px;
+      border: 1px solid #e2eaf5;
+      border-radius: 10px;
+      color: #52627a;
+      background: #fff;
+      font-size: 12px;
+      box-shadow: 0 5px 14px rgba(31, 49, 79, .04);
+    }
+
+    .gallery {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 22px;
+      width: min(1320px, calc(100% - 96px));
+      margin: 0 auto;
+      padding-bottom: 64px;
+    }
+
+    .option {
+      position: relative;
+      display: flex;
+      min-width: 0;
+      flex-direction: column;
+      padding: 16px;
+      border: 1px solid #e0e7f1;
+      border-radius: 24px;
+      background: rgba(255, 255, 255, .78);
+      box-shadow: var(--soft-shadow);
+      transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease;
+    }
+
+    .option:hover {
+      transform: translateY(-5px);
+      border-color: #b9d1f7;
+      box-shadow: 0 22px 44px rgba(31, 49, 79, .14);
+    }
+
+    .option.selected {
+      border: 2px solid var(--blue);
+      padding: 15px;
+      box-shadow: 0 24px 52px rgba(31, 111, 235, .20);
+    }
+
+    .option-head {
+      display: flex;
+      min-height: 74px;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 4px 2px 14px;
+    }
+
+    .option-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .option-no {
+      display: inline-flex;
+      width: 28px;
+      height: 28px;
+      align-items: center;
+      justify-content: center;
+      border-radius: 10px;
+      color: #fff;
+      background: var(--blue);
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .option-tag {
+      padding: 5px 9px;
+      border-radius: 999px;
+      color: #65738a;
+      background: #f1f4f8;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .option h2 {
+      margin: 12px 0 4px;
+      font-size: 18px;
+      letter-spacing: -.02em;
+    }
+
+    .option-desc {
+      min-height: 38px;
+      color: #7c8799;
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .phone {
+      position: relative;
+      overflow: hidden;
+      width: 100%;
+      aspect-ratio: 390 / 844;
+      border: 7px solid #202a3b;
+      border-radius: 31px;
+      background: #f4f7fb;
+      box-shadow: 0 18px 28px rgba(24, 39, 63, .24);
+    }
+
+    .phone::before {
+      position: absolute;
+      z-index: 3;
+      top: 0;
+      left: 50%;
+      width: 34%;
+      height: 18px;
+      border-radius: 0 0 14px 14px;
+      background: #202a3b;
+      content: "";
+      transform: translateX(-50%);
+    }
+
+    .phone-screen {
+      height: 100%;
+      padding: 25px 14px 15px;
+      overflow: hidden;
+    }
+
+    .mini-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 4px 4px 9px;
+    }
+
+    .mini-title {
+      color: #17233a;
+      font-size: 18px;
+      font-weight: 850;
+      letter-spacing: .02em;
+    }
+
+    .mini-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 5px 7px;
+      border-radius: 999px;
+      color: #21834b;
+      background: #e8f7ee;
+      font-size: 9px;
+      white-space: nowrap;
+    }
+
+    .mini-status::before {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: currentColor;
+      content: "";
+    }
+
+    .mini-subtitle {
+      padding: 0 4px 11px;
+      color: #7890ad;
+      font-size: 10px;
+    }
+
+    .mini-entry {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 10px;
+      padding: 10px;
+      border: 1px solid #d9e6f7;
+      border-radius: 11px;
+      background: #f7fbff;
+    }
+
+    .mini-entry-mark {
+      display: grid;
+      flex: none;
+      width: 25px;
+      height: 25px;
+      place-items: center;
+      border-radius: 8px;
+      color: #2471dd;
+      background: #e8f1ff;
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    .mini-entry-copy b,
+    .mini-entry-copy span {
+      display: block;
+    }
+
+    .mini-entry-copy b {
+      color: #2b3d59;
+      font-size: 10px;
+    }
+
+    .mini-entry-copy span {
+      margin-top: 3px;
+      color: #7689a2;
+      font-size: 8px;
+      line-height: 1.45;
+    }
+
+    .mini-steps {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 10px;
+      padding: 10px 5px 9px;
+      border: 1px solid #e3eaf3;
+      border-radius: 12px;
+      background: #fff;
+    }
+
+    .mini-step {
+      position: relative;
+      display: flex;
+      flex: 1;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      color: #9ca8b8;
+      font-size: 8px;
+    }
+
+    .mini-step:not(:last-child)::after {
+      position: absolute;
+      top: 9px;
+      left: 58%;
+      width: 86%;
+      height: 1px;
+      background: #dce5f0;
+      content: "";
+    }
+
+    .mini-step i {
+      position: relative;
+      z-index: 1;
+      width: 18px;
+      height: 18px;
+      border: 1px solid #d8e0eb;
+      border-radius: 50%;
+      background: #fff;
+      font-style: normal;
+      line-height: 16px;
+      text-align: center;
+    }
+
+    .mini-step.done,
+    .mini-step.active { color: #1f6feb; }
+
+    .mini-step.done i,
+    .mini-step.active i {
+      border-color: #1f6feb;
+      color: #fff;
+      background: #1f6feb;
+    }
+
+    .base-card {
+      padding: 14px;
+      border: 1px solid #e3eaf3;
+      border-radius: 15px;
+      background: #fff;
+    }
+
+    .base-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 11px;
+    }
+
+    .base-heading strong {
+      font-size: 15px;
+    }
+
+    .base-badge {
+      padding: 4px 7px;
+      border-radius: 999px;
+      color: #1f6feb;
+      background: #eaf2ff;
+      font-size: 8px;
+      font-weight: 700;
+    }
+
+    .mini-buttons {
+      display: grid;
+      gap: 7px;
+    }
+
+    .mini-btn {
+      display: flex;
+      height: 31px;
+      align-items: center;
+      justify-content: center;
+      border-radius: 8px;
+      color: #fff;
+      background: #1f6feb;
+      font-size: 10px;
+      font-weight: 750;
+    }
+
+    .mini-btn.secondary {
+      color: #1f6feb;
+      background: #edf4ff;
+    }
+
+    .waiting {
+      display: flex;
+      gap: 9px;
+      margin-top: 9px;
+      padding: 11px;
+      border: 1px solid #d6e7fb;
+      border-radius: 11px;
+      background: #f7fbff;
+    }
+
+    .spinner {
+      position: relative;
+      display: grid;
+      flex: none;
+      width: 25px;
+      height: 25px;
+      place-items: center;
+      border: 2px solid #cde0fb;
+      border-top-color: #1f6feb;
+      border-radius: 50%;
+    }
+
+    .spinner::after {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: #1f6feb;
+      content: "";
+    }
+
+    .waiting-copy {
+      min-width: 0;
+      flex: 1;
+    }
+
+    .waiting-title {
+      color: #243650;
+      font-size: 11px;
+      font-weight: 800;
+      line-height: 1.35;
+    }
+
+    .waiting-text {
+      margin-top: 4px;
+      color: #6d7f97;
+      font-size: 9px;
+      line-height: 1.45;
+    }
+
+    .waiting-time {
+      margin-top: 4px;
+      color: #8e9aad;
+      font-size: 8px;
+    }
+
+    .phase-row {
+      display: flex;
+      gap: 5px;
+      margin-bottom: 9px;
+    }
+
+    .phase-pill {
+      flex: 1;
+      padding: 6px 3px;
+      border-radius: 7px;
+      color: #9ba8b9;
+      background: #f2f5f8;
+      font-size: 8px;
+      text-align: center;
+    }
+
+    .phase-pill.done {
+      color: #1f6feb;
+      background: #eaf2ff;
+    }
+
+    .phase-pill.current {
+      color: #fff;
+      background: #1f6feb;
+      box-shadow: 0 4px 10px rgba(31, 111, 235, .18);
+    }
+
+    .nav-bottom {
+      display: flex;
+      gap: 8px;
+      margin-top: 11px;
+    }
+
+    .nav-bottom .mini-btn { flex: 1; }
+
+    .selected-label {
+      display: none;
+      position: absolute;
+      z-index: 2;
+      top: 12px;
+      right: 12px;
+      padding: 6px 9px;
+      border-radius: 999px;
+      color: #fff;
+      background: var(--blue);
+      font-size: 11px;
+      font-weight: 800;
+      box-shadow: 0 7px 15px rgba(31, 111, 235, .24);
+    }
+
+    .option.selected .selected-label { display: block; }
+
+    .choose {
+      width: 100%;
+      margin-top: 14px;
+      padding: 11px 12px;
+      border-radius: 12px;
+      color: #1f6feb;
+      background: #edf4ff;
+      font-size: 12px;
+      font-weight: 800;
+      transition: background .18s ease, color .18s ease;
+    }
+
+    .choose:hover,
+    .option.selected .choose {
+      color: #fff;
+      background: var(--blue);
+    }
+
+    .note {
+      width: min(1320px, calc(100% - 96px));
+      margin: -22px auto 52px;
+      padding: 18px 20px;
+      border: 1px dashed #c9d7ea;
+      border-radius: 16px;
+      color: #6f7e95;
+      background: rgba(249, 251, 255, .82);
+      font-size: 12px;
+      line-height: 1.7;
+    }
+
+    .note b { color: #405879; }
+
+    /* 方案 2：仪表盘 */
+    .theme-dashboard .phone-screen {
+      background: linear-gradient(180deg, #f2f6fc 0%, #eef3fa 100%);
+    }
+
+    .theme-dashboard .base-card {
+      padding: 0;
+      overflow: hidden;
+      border: 0;
+      background: #182942;
+      box-shadow: 0 12px 24px rgba(24, 41, 66, .18);
+    }
+
+    .theme-dashboard .base-heading {
+      margin: 0;
+      padding: 13px 14px 0;
+    }
+
+    .theme-dashboard .base-heading strong { color: #fff; }
+
+    .theme-dashboard .base-badge {
+      color: #cbe1ff;
+      background: rgba(108, 166, 255, .18);
+    }
+
+    .dashboard-score {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      padding: 15px 14px 14px;
+    }
+
+    .score-ring {
+      display: grid;
+      width: 63px;
+      height: 63px;
+      place-items: center;
+      border-radius: 50%;
+      background: conic-gradient(#65a4ff 0 62%, rgba(255,255,255,.14) 62% 100%);
+    }
+
+    .score-ring::after {
+      display: grid;
+      width: 49px;
+      height: 49px;
+      place-items: center;
+      border-radius: 50%;
+      color: #fff;
+      background: #182942;
+      content: "62%";
+      font-size: 13px;
+      font-weight: 850;
+    }
+
+    .dashboard-score-copy strong,
+    .dashboard-score-copy span {
+      display: block;
+    }
+
+    .dashboard-score-copy strong {
+      color: #fff;
+      font-size: 12px;
+    }
+
+    .dashboard-score-copy span {
+      margin-top: 4px;
+      color: #9fb1cb;
+      font-size: 9px;
+      line-height: 1.45;
+    }
+
+    .theme-dashboard .phase-row {
+      padding: 0 14px 13px;
+    }
+
+    .theme-dashboard .phase-pill {
+      color: #9fb1cb;
+      background: rgba(255,255,255,.08);
+    }
+
+    .theme-dashboard .phase-pill.current {
+      color: #102037;
+      background: #8fc0ff;
+    }
+
+    .dashboard-footer {
+      padding: 10px 14px;
+      color: #aabdD5;
+      background: #122039;
+      font-size: 8px;
+    }
+
+    /* 方案 3：极简聚焦 */
+    .theme-minimal .mini-entry,
+    .theme-minimal .mini-steps {
+      border: 0;
+      background: transparent;
+    }
+
+    .theme-minimal .mini-entry { padding: 7px 4px 10px; }
+    .theme-minimal .mini-steps { padding: 2px 5px 11px; }
+
+    .theme-minimal .base-card {
+      padding: 16px 14px 13px;
+      border: 0;
+      background: #fff;
+      box-shadow: 0 18px 34px rgba(44, 75, 117, .12);
+    }
+
+    .theme-minimal .base-heading {
+      display: block;
+      margin-bottom: 14px;
+    }
+
+    .theme-minimal .base-heading strong {
+      display: block;
+      font-size: 18px;
+      letter-spacing: -.02em;
+    }
+
+    .theme-minimal .base-badge {
+      display: inline-flex;
+      margin-top: 6px;
+      color: #71819a;
+      background: #f2f5f9;
+      font-weight: 600;
+    }
+
+    .theme-minimal .mini-buttons { display: none; }
+
+    .minimal-progress {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      margin-bottom: 14px;
+    }
+
+    .minimal-track {
+      height: 8px;
+      flex: 1;
+      overflow: hidden;
+      border-radius: 999px;
+      background: #e9eef5;
+    }
+
+    .minimal-track i {
+      display: block;
+      width: 62%;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #1f6feb, #63a0ff);
+    }
+
+    .minimal-progress span {
+      color: #1f6feb;
+      font-size: 11px;
+      font-weight: 850;
+    }
+
+    .theme-minimal .waiting {
+      margin-top: 0;
+      padding: 0;
+      border: 0;
+      background: transparent;
+    }
+
+    .theme-minimal .waiting-title { font-size: 12px; }
+    .theme-minimal .waiting-text { font-size: 10px; }
+    .theme-minimal .waiting-time { margin-top: 7px; }
+
+    /* 方案 4：任务清单 */
+    .theme-checklist .base-card {
+      padding: 14px 12px 12px;
+      background: #fafdff;
+    }
+
+    .checklist {
+      display: grid;
+      gap: 7px;
+    }
+
+    .check-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 9px;
+      border: 1px solid #e3eaf3;
+      border-radius: 9px;
+      background: #fff;
+    }
+
+    .check-row.current {
+      border-color: #a9caf7;
+      background: #edf5ff;
+    }
+
+    .check-icon {
+      display: grid;
+      flex: none;
+      width: 20px;
+      height: 20px;
+      place-items: center;
+      border: 1px solid #d8e3ef;
+      border-radius: 7px;
+      color: #99a8ba;
+      background: #fff;
+      font-size: 11px;
+      font-weight: 900;
+    }
+
+    .check-row.done .check-icon,
+    .check-row.current .check-icon {
+      border-color: #1f6feb;
+      color: #fff;
+      background: #1f6feb;
+    }
+
+    .check-copy strong,
+    .check-copy span {
+      display: block;
+    }
+
+    .check-copy strong {
+      color: #2e425e;
+      font-size: 9px;
+    }
+
+    .check-copy span {
+      margin-top: 2px;
+      color: #8492a6;
+      font-size: 8px;
+    }
+
+    .check-state {
+      margin-left: auto;
+      color: #1f6feb;
+      font-size: 8px;
+      font-weight: 800;
+    }
+
+    .theme-checklist .waiting { display: none; }
+
+    /* 方案 5：品牌沉浸 */
+    .theme-brand .phone-screen {
+      color: #fff;
+      background:
+        radial-gradient(circle at 82% 23%, rgba(123, 99, 255, .45), transparent 9rem),
+        linear-gradient(180deg, #171c3a 0%, #202852 100%);
+    }
+
+    .theme-brand .mini-title { color: #fff; }
+    .theme-brand .mini-status { color: #baf1d0; background: rgba(107, 222, 157, .15); }
+    .theme-brand .mini-subtitle { color: #a5b3d2; }
+
+    .theme-brand .mini-entry {
+      border-color: rgba(166, 181, 255, .25);
+      background: rgba(255,255,255,.08);
+    }
+
+    .theme-brand .mini-entry-mark {
+      color: #fff;
+      background: rgba(113, 145, 255, .24);
+    }
+
+    .theme-brand .mini-entry-copy b { color: #fff; }
+    .theme-brand .mini-entry-copy span { color: #a8b5d4; }
+
+    .theme-brand .mini-steps {
+      border-color: rgba(166, 181, 255, .22);
+      background: rgba(255,255,255,.07);
+    }
+
+    .theme-brand .mini-step { color: #8998bc; }
+    .theme-brand .mini-step:not(:last-child)::after { background: rgba(177, 190, 255, .27); }
+    .theme-brand .mini-step i { border-color: rgba(177, 190, 255, .33); background: transparent; }
+    .theme-brand .mini-step.done,
+    .theme-brand .mini-step.active { color: #b7caff; }
+    .theme-brand .mini-step.done i,
+    .theme-brand .mini-step.active i { border-color: #8faeff; background: #8faeff; color: #1d2850; }
+
+    .theme-brand .base-card {
+      border: 1px solid rgba(178, 190, 255, .28);
+      background: rgba(255,255,255,.09);
+      box-shadow: 0 18px 38px rgba(8, 13, 38, .22);
+    }
+
+    .theme-brand .base-heading strong { color: #fff; }
+    .theme-brand .base-badge { color: #d5dcff; background: rgba(140, 163, 255, .18); }
+    .theme-brand .mini-buttons { display: none; }
+
+    .brand-orb {
+      display: grid;
+      width: 76px;
+      height: 76px;
+      margin: 2px auto 13px;
+      place-items: center;
+      border: 1px solid rgba(218, 224, 255, .62);
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 28%, #dce7ff, #7a8cff 49%, #6b50d8 100%);
+      box-shadow: 0 0 0 9px rgba(126, 143, 255, .10), 0 14px 30px rgba(51, 39, 143, .30);
+    }
+
+    .brand-orb::after {
+      width: 28px;
+      height: 28px;
+      border: 2px solid rgba(255,255,255,.85);
+      border-top-color: transparent;
+      border-radius: 50%;
+      content: "";
+    }
+
+    .theme-brand .waiting {
+      display: block;
+      margin-top: 0;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      text-align: center;
+    }
+
+    .theme-brand .waiting-title { color: #fff; font-size: 13px; }
+    .theme-brand .waiting-text { color: #b4c0dc; font-size: 9px; }
+    .theme-brand .waiting-time { color: #8997bb; }
+
+    .brand-pulse {
+      display: flex;
+      gap: 5px;
+      justify-content: center;
+      margin-top: 12px;
+    }
+
+    .brand-pulse i {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: #a8baff;
+    }
+
+    @media (max-width: 1260px) {
+      body { min-width: 0; }
+      .gallery { grid-template-columns: repeat(3, minmax(260px, 1fr)); }
+    }
+
+    @media (max-width: 820px) {
+      .topbar { padding: 16px 20px; }
+      .intro, .gallery, .note { width: min(100% - 32px, 560px); }
+      .gallery { grid-template-columns: 1fr; }
+      .phone { max-width: 390px; margin: 0 auto; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">圈</div>
+      <div class="brand-copy">
+        <strong>圈像创作 · 排版提案</strong>
+        <span>第 5 步「生成并归档」等待状态优化</span>
+      </div>
+    </div>
+    <div class="selection-bar">
+      <div class="selection-text">当前选择：<b id="selectionText">还未选择</b></div>
+      <button class="reset" id="resetButton">清除选择</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="intro">
+      <div class="eyebrow">移动端 5 套可选方案</div>
+      <h1>把“正在上传”变成一眼看懂的进度。</h1>
+      <p>
+        这次只重排截图红框里的等待状态，不改业务流程。5 套方案都保留原有的生成按钮、
+        制作记录、阶段进度和等待提示，只换信息层级、密度和视觉气质。
+      </p>
+      <div class="brief">
+        <span>目标：减少空白与重复提示</span>
+        <span>重点：当前阶段要最醒目</span>
+        <span>适配：微信小程序 390px 手机宽度</span>
+        <span>默认文案：正在上传素材…</span>
+      </div>
+    </section>
+
+    <section class="gallery" aria-label="5套排版方案">
+      <article class="option" data-option="方案 1 · 清晰分层">
+        <div class="selected-label">已选方案</div>
+        <div class="option-head">
+          <div class="option-meta"><span class="option-no">01</span><span class="option-tag">推荐 · 稳妥</span></div>
+          <h2>清晰分层</h2>
+          <div class="option-desc">保留现在的蓝白风格，把状态、阶段、等待文案拆成三层。</div>
+        </div>
+        <div class="phone theme-layered">
+          <div class="phone-screen">
+            <div class="mini-top"><div class="mini-title">圈像创作</div><div class="mini-status">云端已连接</div></div>
+            <div class="mini-subtitle">区域锁定 · 人像参考 · AI 提示词</div>
+            <div class="mini-entry"><div class="mini-entry-mark">◎</div><div class="mini-entry-copy"><b>本次入口：新建创作</b><span>按五步流程完成一次局部创作，系统会自动保存当前草稿。</span></div></div>
+            <div class="mini-steps">
+              <div class="mini-step done"><i>1</i><span>主图</span></div>
+              <div class="mini-step done"><i>2</i><span>红圈</span></div>
+              <div class="mini-step done"><i>3</i><span>素材</span></div>
+              <div class="mini-step done"><i>4</i><span>提示词</span></div>
+              <div class="mini-step active"><i>5</i><span>生成</span></div>
+            </div>
+            <div class="base-card">
+              <div class="base-heading"><strong>5. 生成并归档</strong><span class="base-badge">可提交云端</span></div>
+              <div class="phase-row"><div class="phase-pill current">准备素材</div><div class="phase-pill">上传素材</div><div class="phase-pill">AI生成</div><div class="phase-pill">保存记录</div></div>
+              <div class="waiting"><div class="spinner"></div><div class="waiting-copy"><div class="waiting-title">正在上传素材…</div><div class="waiting-text">正在上传主图、红圈和参考素材，请稍等。</div><div class="waiting-time">已等待 0 秒 · 请不要重复点击</div></div></div>
+            </div>
+            <div class="nav-bottom"><div class="mini-btn">上一步</div></div>
+          </div>
+        </div>
+        <button class="choose">选择方案 1</button>
+      </article>
+
+      <article class="option" data-option="方案 2 · 任务仪表盘">
+        <div class="selected-label">已选方案</div>
+        <div class="option-head">
+          <div class="option-meta"><span class="option-no">02</span><span class="option-tag">状态最强</span></div>
+          <h2>任务仪表盘</h2>
+          <div class="option-desc">用深色任务面板承载进度，上传、生成、归档像一个小型状态中心。</div>
+        </div>
+        <div class="phone theme-dashboard">
+          <div class="phone-screen">
+            <div class="mini-top"><div class="mini-title">圈像创作</div><div class="mini-status">云端已连接</div></div>
+            <div class="mini-subtitle">区域锁定 · 人像参考 · AI 提示词</div>
+            <div class="mini-entry"><div class="mini-entry-mark">◎</div><div class="mini-entry-copy"><b>本次入口：新建创作</b><span>系统会自动保存当前草稿，上传过程中无需重复操作。</span></div></div>
+            <div class="mini-steps">
+              <div class="mini-step done"><i>1</i><span>主图</span></div><div class="mini-step done"><i>2</i><span>红圈</span></div><div class="mini-step done"><i>3</i><span>素材</span></div><div class="mini-step done"><i>4</i><span>提示词</span></div><div class="mini-step active"><i>5</i><span>生成</span></div>
+            </div>
+            <div class="base-card">
+              <div class="base-heading"><strong>生成任务</strong><span class="base-badge">进行中</span></div>
+              <div class="dashboard-score"><div class="score-ring"></div><div class="dashboard-score-copy"><strong>正在上传素材…</strong><span>主图、红圈、参考素材<br>正在安全传到云端</span></div></div>
+              <div class="phase-row"><div class="phase-pill done">准备</div><div class="phase-pill current">上传</div><div class="phase-pill">生成</div><div class="phase-pill">归档</div></div>
+              <div class="dashboard-footer">已等待 0 秒　·　系统会自动重试</div>
+            </div>
+            <div class="nav-bottom"><div class="mini-btn">上一步</div></div>
+          </div>
+        </div>
+        <button class="choose">选择方案 2</button>
+      </article>
+
+      <article class="option" data-option="方案 3 · 极简聚焦">
+        <div class="selected-label">已选方案</div>
+        <div class="option-head">
+          <div class="option-meta"><span class="option-no">03</span><span class="option-tag">最省空间</span></div>
+          <h2>极简聚焦</h2>
+          <div class="option-desc">压掉重复框线和次要按钮，让用户只关注“现在做到哪一步”。</div>
+        </div>
+        <div class="phone theme-minimal">
+          <div class="phone-screen">
+            <div class="mini-top"><div class="mini-title">圈像创作</div><div class="mini-status">云端已连接</div></div>
+            <div class="mini-subtitle">区域锁定 · 人像参考 · AI 提示词</div>
+            <div class="mini-entry"><div class="mini-entry-mark">◎</div><div class="mini-entry-copy"><b>本次入口：新建创作</b><span>五步完成一次局部创作，系统自动保存。</span></div></div>
+            <div class="mini-steps">
+              <div class="mini-step done"><i>1</i><span>主图</span></div><div class="mini-step done"><i>2</i><span>红圈</span></div><div class="mini-step done"><i>3</i><span>素材</span></div><div class="mini-step done"><i>4</i><span>提示词</span></div><div class="mini-step active"><i>5</i><span>生成</span></div>
+            </div>
+            <div class="base-card">
+              <div class="base-heading"><strong>正在生成</strong><span class="base-badge">可提交云端</span></div>
+              <div class="minimal-progress"><div class="minimal-track"><i></i></div><span>62%</span></div>
+              <div class="waiting"><div class="spinner"></div><div class="waiting-copy"><div class="waiting-title">正在上传素材…</div><div class="waiting-text">主图、红圈和参考素材正在上传，请稍等。</div><div class="waiting-time">已等待 0 秒</div></div></div>
+            </div>
+            <div class="nav-bottom"><div class="mini-btn">上一步</div></div>
+          </div>
+        </div>
+        <button class="choose">选择方案 3</button>
+      </article>
+
+      <article class="option" data-option="方案 4 · 任务清单">
+        <div class="selected-label">已选方案</div>
+        <div class="option-head">
+          <div class="option-meta"><span class="option-no">04</span><span class="option-tag">最易理解</span></div>
+          <h2>任务清单</h2>
+          <div class="option-desc">把上传过程写成三行清单，完成项、当前项、未开始项一眼分开。</div>
+        </div>
+        <div class="phone theme-checklist">
+          <div class="phone-screen">
+            <div class="mini-top"><div class="mini-title">圈像创作</div><div class="mini-status">云端已连接</div></div>
+            <div class="mini-subtitle">区域锁定 · 人像参考 · AI 提示词</div>
+            <div class="mini-entry"><div class="mini-entry-mark">◎</div><div class="mini-entry-copy"><b>本次入口：新建创作</b><span>按流程完成，系统会自动保存当前项目草稿。</span></div></div>
+            <div class="mini-steps">
+              <div class="mini-step done"><i>1</i><span>主图</span></div><div class="mini-step done"><i>2</i><span>红圈</span></div><div class="mini-step done"><i>3</i><span>素材</span></div><div class="mini-step done"><i>4</i><span>提示词</span></div><div class="mini-step active"><i>5</i><span>生成</span></div>
+            </div>
+            <div class="base-card">
+              <div class="base-heading"><strong>5. 生成并归档</strong><span class="base-badge">进行中</span></div>
+              <div class="checklist">
+                <div class="check-row done"><div class="check-icon">✓</div><div class="check-copy"><strong>准备素材</strong><span>已检查文件和参数</span></div><div class="check-state">完成</div></div>
+                <div class="check-row current"><div class="check-icon">•</div><div class="check-copy"><strong>上传素材</strong><span>主图、红圈、参考图</span></div><div class="check-state">进行中</div></div>
+                <div class="check-row"><div class="check-icon">3</div><div class="check-copy"><strong>AI 生成并保存</strong><span>上传完成后自动开始</span></div><div class="check-state">等待</div></div>
+              </div>
+            </div>
+            <div class="nav-bottom"><div class="mini-btn">上一步</div></div>
+          </div>
+        </div>
+        <button class="choose">选择方案 4</button>
+      </article>
+
+      <article class="option" data-option="方案 5 · AI 品牌沉浸">
+        <div class="selected-label">已选方案</div>
+        <div class="option-head">
+          <div class="option-meta"><span class="option-no">05</span><span class="option-tag">品牌感最强</span></div>
+          <h2>AI 品牌沉浸</h2>
+          <div class="option-desc">用深色渐变和发光进度球拉出 AI 创作感，适合强调产品气质。</div>
+        </div>
+        <div class="phone theme-brand">
+          <div class="phone-screen">
+            <div class="mini-top"><div class="mini-title">圈像创作</div><div class="mini-status">云端已连接</div></div>
+            <div class="mini-subtitle">区域锁定 · 人像参考 · AI 提示词</div>
+            <div class="mini-entry"><div class="mini-entry-mark">◎</div><div class="mini-entry-copy"><b>本次入口：新建创作</b><span>五步完成一次局部创作，系统会自动保存当前草稿。</span></div></div>
+            <div class="mini-steps">
+              <div class="mini-step done"><i>1</i><span>主图</span></div><div class="mini-step done"><i>2</i><span>红圈</span></div><div class="mini-step done"><i>3</i><span>素材</span></div><div class="mini-step done"><i>4</i><span>提示词</span></div><div class="mini-step active"><i>5</i><span>生成</span></div>
+            </div>
+            <div class="base-card">
+              <div class="base-heading"><strong>AI 创作进行中</strong><span class="base-badge">云端任务</span></div>
+              <div class="brand-orb"></div>
+              <div class="waiting"><div class="waiting-copy"><div class="waiting-title">正在上传素材…</div><div class="waiting-text">先把主图、红圈和参考素材交给 AI，下一步会自动开始生成。</div><div class="waiting-time">已等待 0 秒 · 无需重复点击</div></div></div>
+              <div class="brand-pulse"><i></i><i></i><i></i></div>
+            </div>
+            <div class="nav-bottom"><div class="mini-btn">上一步</div></div>
+          </div>
+        </div>
+        <button class="choose">选择方案 5</button>
+      </article>
+    </section>
+
+    <div class="note">
+      <b>怎么选：</b>想稳妥落地选 1；想让进度最醒目选 2；想把页面压短选 3；想让新用户最容易看懂选 4；想强化 AI 产品气质选 5。
+      你回复“选 1/2/3/4/5”，我再把对应方案落回微信小程序真实页面。
+    </div>
+  </main>
+
+  <script>
+    const options = [...document.querySelectorAll('.option')];
+    const selectionText = document.getElementById('selectionText');
+    const resetButton = document.getElementById('resetButton');
+
+    function chooseOption(option) {
+      options.forEach(item => item.classList.toggle('selected', item === option));
+      selectionText.textContent = option.dataset.option;
+      selectionText.closest('.selection-text').style.color = '#1f6feb';
+      option.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+    }
+
+    options.forEach(option => {
+      option.querySelector('.choose').addEventListener('click', () => chooseOption(option));
+      option.addEventListener('click', event => {
+        if (!event.target.closest('button')) chooseOption(option);
+      });
+    });
+
+    resetButton.addEventListener('click', () => {
+      options.forEach(item => item.classList.remove('selected'));
+      selectionText.textContent = '还未选择';
+      selectionText.closest('.selection-text').style.color = '';
+    });
+  </script>
+</body>
+</html>

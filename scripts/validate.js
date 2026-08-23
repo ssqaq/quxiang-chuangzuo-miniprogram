@@ -1138,14 +1138,21 @@ if (
   || !indexWxml.includes('class="primary-btn generate-button"')
   || !indexWxml.includes('class="secondary-btn generation-records-button"')
   || !indexWxml.includes('class="generation-waiting generation-waiting-{{generationStage}}"')
+  || !indexWxml.includes('class="generation-checklist"')
+  || !indexWxml.includes('class="generation-check-row {{phaseIndex < generationPhaseIndex ? \'is-done\' : \'\'}')
+  || !indexWxml.includes("等待上一项完成")
+  || !indexWxml.includes("generation-waiting-footer")
   || !indexWxml.includes("generationElapsedSeconds")
   || !indexJs.includes("startGenerationTimer()")
   || !indexJs.includes("stopGenerationTimer()")
   || !indexJs.includes("generationWaitText")
   || !indexWxss.includes(".generation-waiting")
-  || !indexWxss.includes("@keyframes generation-waiting-spin")
+  || !indexWxss.includes(".generation-checklist")
+  || !indexWxss.includes(".generation-check-row.is-current")
+  || !indexWxss.includes(".generation-check-row.is-done")
+  || !indexWxss.includes(".generation-waiting-footer")
 ) {
-  throw new Error("第 5 步生成等待状态或操作卡结构不完整。");
+  throw new Error("第 5 步生成任务清单或操作卡结构不完整。");
 }
 const generationActionStyle = indexWxss.match(/\.generation-actions button\s*\{([^}]*)\}/);
 if (

@@ -47,7 +47,7 @@ async function main() {
     requestId: "req-smoke",
     prompt: "完整正向提示词",
     negativePrompt: "完整负向提示词",
-    apiKey: "sk-this-must-not-appear"
+  apiKey: "fake-key-for-redaction-test"
   });
   diagnosticLog.warn("cloud", "retry", "请求重试", {
     requestId: "req-smoke",

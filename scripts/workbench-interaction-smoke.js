@@ -125,6 +125,7 @@ async function main() {
   });
   assert.ok(hasEvent("draft-confirmation-shown"));
   assert.ok(latestModal());
+  assert.ok(latestModal().options.confirmText.length <= 4);
   latestModal().options.success({ confirm: false });
   assert.ok(hasEvent("draft-kept"));
 

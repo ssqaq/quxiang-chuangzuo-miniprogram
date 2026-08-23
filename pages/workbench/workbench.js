@@ -458,7 +458,7 @@ Page({
     wx.showModal({
       title: "手机上已有未完成创作",
       content: "点击“清除并新建”会删除当前草稿，但不会影响制作记录。",
-      confirmText: "清除并新建",
+      confirmText: "清除新建",
       cancelText: "保留草稿",
       success: (response) => {
         if (!response.confirm) {

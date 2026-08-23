@@ -371,6 +371,8 @@ if (
   || !workbenchJs.includes("openNewCreationPage(url)")
   || !workbenchJs.includes("wx.redirectTo")
   || !workbenchJs.includes("wx.reLaunch")
+  || !workbenchJs.includes('confirmText: "清除新建"')
+  || workbenchJs.includes('confirmText: "清除并新建"')
   || !workbenchWxml.includes('bindtap="startNew"')
 ) {
   throw new Error("开始新创作没有配置稳定跳转和失败兜底逻辑。");
@@ -391,7 +393,7 @@ if (
   || !workbenchWxss.includes(".interaction-log-card")
   || !workbenchWxss.includes(".interaction-log-list")
   || !indexJs.includes('require("../../utils/diagnostic-log")')
-  || !indexJs.includes('diagnosticLog.info("auto-face"')
+  || !indexJs.includes('logMethod("auto-face"')
   || !photoToVideoJs.includes('require("../../utils/diagnostic-log")')
   || !photoToVideoJs.includes('diagnosticLog.info("video"')
   || !publishExportJs.includes('require("../../utils/diagnostic-log")')

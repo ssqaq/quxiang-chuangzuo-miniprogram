@@ -346,6 +346,14 @@ Page({
     );
   },
 
+  openPhotoToVideo() {
+    this.openPage(
+      "/pages/photo-to-video/photo-to-video",
+      "动态视频页打开失败",
+      "已打开照片转动态视频"
+    );
+  },
+
   previewRecord(event) {
     const url = event.currentTarget.dataset.url;
     if (url) {

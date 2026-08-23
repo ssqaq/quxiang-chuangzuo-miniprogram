@@ -1,4 +1,4 @@
-console.log("[api] build=0.10.29 marker=API_BUILD_TAG_20260823_44");
+console.log("[api] build=0.11.0 marker=API_BUILD_TAG_20260823_45");
 
 const cloud = require("wx-server-sdk");
 
@@ -57,6 +57,22 @@ function resolveVisionConfig() {
         Number(env("AI_VISION_MAX_IMAGE_BYTES", String(5 * 1024 * 1024))) || 5 * 1024 * 1024
       )
     )
+  };
+}
+
+function resolveVideoConfig() {
+  const provider = firstEnv(["AI_VIDEO_PROVIDER"]);
+  const endpoint = env("AI_VIDEO_ENDPOINT");
+  const apiKey = firstEnv(["AI_VIDEO_API_KEY", "AI_VIDEO_KEY"]);
+  const model = env("AI_VIDEO_MODEL");
+  return {
+    provider,
+    endpoint,
+    apiKey,
+    model,
+    createPath: env("AI_VIDEO_CREATE_PATH", ""),
+    queryPath: env("AI_VIDEO_QUERY_PATH", ""),
+    configured: Boolean(provider && endpoint && apiKey && model)
   };
 }
 
@@ -1254,6 +1270,52 @@ async function deleteRecord(event, context) {
   return jsonResponse(true, { recordId });
 }
 
+function videoProviderStatus() {
+  const video = resolveVideoConfig();
+  if (!video.configured) {
+    return jsonResponse(true, {
+      configured: false,
+      ready: false,
+      provider: video.provider || "",
+      message: "视频服务尚未配置，当前只能浏览页面和选择照片。"
+    });
+  }
+  return jsonResponse(true, {
+    configured: true,
+    ready: false,
+    provider: video.provider,
+    message: "视频服务参数已填写，但 provider 适配协议尚未接入。"
+  });
+}
+
+async function createVideoTask(event) {
+  const video = resolveVideoConfig();
+  if (!video.configured) {
+    return fail(
+      "视频服务未配置，请联系管理员配置 AI_VIDEO_PROVIDER、AI_VIDEO_ENDPOINT、AI_VIDEO_MODEL 和 AI_VIDEO_API_KEY。",
+      "VIDEO_PROVIDER_NOT_CONFIGURED"
+    );
+  }
+  return fail(
+    "视频 provider 适配器尚未接入，暂不能伪造生成成功。",
+    "VIDEO_PROVIDER_PROTOCOL_PENDING"
+  );
+}
+
+async function queryVideoTask(event) {
+  const video = resolveVideoConfig();
+  if (!video.configured) {
+    return fail(
+      "视频服务未配置，无法查询动态视频任务。",
+      "VIDEO_PROVIDER_NOT_CONFIGURED"
+    );
+  }
+  return fail(
+    "视频 provider 适配器尚未接入，暂不能查询动态视频任务。",
+    "VIDEO_PROVIDER_PROTOCOL_PENDING"
+  );
+}
+
 exports.main = async (event = {}, context) => {
   const requestId = event.requestId
     || (event.payload && event.payload.requestId)
@@ -1273,6 +1335,9 @@ exports.main = async (event = {}, context) => {
     else if (action === "generate") result = await generate(requestEvent, context);
     else if (action === "listRecords") result = await listRecords(context);
     else if (action === "deleteRecord") result = await deleteRecord(requestEvent, context);
+    else if (action === "videoProviderStatus") result = videoProviderStatus();
+    else if (action === "createVideoTask") result = await createVideoTask(requestEvent, context);
+    else if (action === "queryVideoTask") result = await queryVideoTask(requestEvent, context);
     else result = fail(`不支持的操作：${action || "空"}`, "unsupported-action");
     log("info", "function.finish", {
       requestId,
@@ -1319,7 +1384,9 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     resolveVisionConfig,
     assertVisionImageSize,
     normalizeFaceDetections,
-    normalizeWebPoseSuggestions
+    normalizeWebPoseSuggestions,
+    resolveVideoConfig,
+    videoProviderStatus
   };
 }
 

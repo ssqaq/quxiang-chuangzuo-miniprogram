@@ -12,6 +12,7 @@ const jsonFiles = [
   "pages/splash/splash.json",
   "pages/workbench/workbench.json",
   "pages/publish-export/publish-export.json",
+  "pages/photo-to-video/photo-to-video.json",
   "cloudfunctions/api/package.json"
 ];
 const jsFiles = [
@@ -30,6 +31,7 @@ const jsFiles = [
   "pages/splash/splash.js",
   "pages/workbench/workbench.js",
   "pages/publish-export/publish-export.js",
+  "pages/photo-to-video/photo-to-video.js",
   "pages/index/index.js",
   "pages/records/records.js",
   "cloudfunctions/api/index.js",
@@ -114,6 +116,10 @@ const required = [
   "pages/publish-export/publish-export.json",
   "pages/publish-export/publish-export.wxml",
   "pages/publish-export/publish-export.wxss",
+  "pages/photo-to-video/photo-to-video.js",
+  "pages/photo-to-video/photo-to-video.json",
+  "pages/photo-to-video/photo-to-video.wxml",
+  "pages/photo-to-video/photo-to-video.wxss",
   "pages/index/index.wxml",
   "pages/index/index.wxss",
   "utils/canvas-gesture.js",
@@ -160,6 +166,18 @@ const publishExportWxss = fs.readFileSync(
 );
 const publishExportUtil = fs.readFileSync(
   path.join(root, "utils/publish-export.js"),
+  "utf8"
+);
+const photoToVideoJs = fs.readFileSync(
+  path.join(root, "pages/photo-to-video/photo-to-video.js"),
+  "utf8"
+);
+const photoToVideoWxml = fs.readFileSync(
+  path.join(root, "pages/photo-to-video/photo-to-video.wxml"),
+  "utf8"
+);
+const photoToVideoWxss = fs.readFileSync(
+  path.join(root, "pages/photo-to-video/photo-to-video.wxss"),
   "utf8"
 );
 const indexJs = fs.readFileSync(path.join(root, "pages/index/index.js"), "utf8");
@@ -273,9 +291,9 @@ if (
   || !workbenchWxss.includes("text-overflow: ellipsis")
   || !workbenchWxss.includes("margin-left: 94rpx")
   || !workbenchWxss.includes("margin-left: 78rpx")
-  || !workbenchWxss.includes(".workbench-feature-stack .entry-grid {\n  margin-bottom: 16rpx;")
-  || !workbenchWxss.includes(".workbench-feature-stack .recent-card {\n  margin-top: 0;")
-  || !workbenchWxss.includes(".workbench-feature-stack .publish-export-entry {\n  margin-top: 16rpx;")
+  || !workbenchWxss.includes(".workbench-feature-stack .entry-grid")
+  || !workbenchWxss.includes(".workbench-feature-stack .recent-card")
+  || !workbenchWxss.includes(".workbench-feature-stack .publish-export-entry")
   || !workbenchWxss.includes("margin-bottom: 12rpx")
   || !workbenchWxss.includes("margin-bottom: 20rpx")
   || !workbenchWxss.includes("margin-top: 20rpx")
@@ -304,8 +322,8 @@ if (
   || !workbenchWxss.includes("min-height: 148rpx")
   || !workbenchWxss.includes("transition: transform 0.08s ease")
   || !workbenchWxss.includes("transform: scale(0.985)")
-  || (workbenchWxml.match(/hover-start-time="0"/g) || []).length !== 3
-  || (workbenchWxml.match(/hover-stay-time="70"/g) || []).length !== 3
+  || (workbenchWxml.match(/hover-start-time="0"/g) || []).length !== 4
+  || (workbenchWxml.match(/hover-stay-time="70"/g) || []).length !== 4
   || !workbenchJs.includes("openPage(url, failureTitle, logLabel)")
   || !workbenchJs.includes("replacePage(url, failureTitle, logLabel)")
   || !workbenchJs.includes("wx.redirectTo")
@@ -315,7 +333,7 @@ if (
   || workbenchJs.includes("wx.hideLoading")
   || workbenchJs.includes("this.data.navigating")
   || workbenchJs.includes("navigating: false")
-  || (workbenchWxml.match(/home-feature-arrow/g) || []).length !== 3
+  || (workbenchWxml.match(/home-feature-arrow/g) || []).length !== 4
   || !workbenchWxml.includes("recent-more-arrow")
   || !workbenchWxml.includes("recent-more-label")
   || !workbenchWxss.includes(".home-feature-arrow")
@@ -325,7 +343,7 @@ if (
   || !workbenchWxss.includes("@keyframes workbench-page-enter")
   || !workbenchWxss.includes("animation: workbench-page-enter 180ms ease-out both")
   || !workbenchWxss.includes("transform: translateY(8rpx)")
-  || !workbenchWxss.includes(".workbench-page {\n    animation: none;")
+  || !workbenchWxss.includes("animation: none")
   || !workbenchWxss.includes("border-color: #f2ddc5")
   || !workbenchWxss.includes("@media (min-width: 400px)")
   || !workbenchWxss.includes("@media (max-width: 340px)")

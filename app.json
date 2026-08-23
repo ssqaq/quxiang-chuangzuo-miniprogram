@@ -4,7 +4,8 @@
     "pages/workbench/workbench",
     "pages/index/index",
     "pages/records/records",
-    "pages/publish-export/publish-export"
+    "pages/publish-export/publish-export",
+    "pages/photo-to-video/photo-to-video"
   ],
   "window": {
     "navigationBarTitleText": "圈像创作",

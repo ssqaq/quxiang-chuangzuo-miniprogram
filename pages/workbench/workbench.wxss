@@ -594,6 +594,61 @@ page {
   color: #c48a61;
 }
 
+.photo-to-video-entry {
+  position: relative;
+  display: flex;
+  min-height: 148rpx;
+  margin-top: 16rpx;
+  padding: 22rpx;
+  align-items: center;
+  overflow: hidden;
+  border-color: #cfe3ff;
+  background: linear-gradient(135deg, #f0f6ff 0%, #ffffff 76%);
+}
+
+.photo-to-video-icon {
+  display: flex;
+  flex: none;
+  width: 76rpx;
+  height: 76rpx;
+  align-items: center;
+  justify-content: center;
+  border-radius: 24rpx;
+  background: #e5efff;
+  color: #356fce;
+  font-size: 26rpx;
+  font-weight: 800;
+  box-shadow: 0 8rpx 18rpx rgba(53, 111, 206, 0.12);
+}
+
+.photo-to-video-copy {
+  min-width: 0;
+  flex: 1;
+  margin-left: 18rpx;
+  padding-right: 26rpx;
+}
+
+.photo-to-video-title {
+  color: #233a61;
+  font-size: 30rpx;
+  font-weight: 800;
+  line-height: 40rpx;
+}
+
+.photo-to-video-description {
+  overflow: hidden;
+  margin-top: 8rpx;
+  color: #7084a5;
+  font-size: 21rpx;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.photo-to-video-arrow {
+  color: #7196d3;
+}
+
 .interaction-log-card {
   margin-top: 16rpx;
   padding: 24rpx;
@@ -755,7 +810,8 @@ button::after {
 
   .entry-card-custom,
   .recent-card,
-  .publish-export-entry {
+  .publish-export-entry,
+  .photo-to-video-entry {
     margin-top: 0;
     padding: 18rpx;
   }
@@ -770,7 +826,8 @@ button::after {
 
   .entry-card-custom .entry-copy,
   .feature-card-copy,
-  .publish-export-copy {
+  .publish-export-copy,
+  .photo-to-video-copy {
     margin-left: 14rpx;
     padding-right: 18rpx;
   }
@@ -965,7 +1022,8 @@ button::after {
 }
 
 .entry-card-custom,
-.publish-export-entry {
+.publish-export-entry,
+.photo-to-video-entry {
   height: 148rpx;
   align-items: flex-start;
 }
@@ -976,7 +1034,8 @@ button::after {
 }
 
 .entry-card-custom .entry-mark,
-.publish-export-entry .publish-export-icon {
+.publish-export-entry .publish-export-icon,
+.photo-to-video-entry .photo-to-video-icon {
   align-self: flex-start;
 }
 
@@ -985,6 +1044,11 @@ button::after {
 }
 
 .publish-export-entry .publish-export-copy {
+  align-self: flex-start;
+  margin-top: 18rpx;
+}
+
+.photo-to-video-entry .photo-to-video-copy {
   align-self: flex-start;
   margin-top: 18rpx;
 }

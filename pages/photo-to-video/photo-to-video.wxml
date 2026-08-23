@@ -1,0 +1,177 @@
+<view class="page photo-to-video-page">
+  <view class="card photo-to-video-intro">
+    <view class="section-title">照片转动态视频</view>
+    <view class="section-subtitle">
+      生成约 2–3 秒的无声普通视频，并在小程序内长按预览动态效果。
+    </view>
+    <view class="photo-to-video-notice">
+      说明：保存到相册的是一张照片和一个普通视频，二者独立，不会自动变成系统原生实况照片。
+    </view>
+    <view class="provider-status {{providerReady ? 'provider-status-ready' : 'provider-status-pending'}}">
+      <view class="provider-status-dot"></view>
+      <text>{{providerMessage}}</text>
+    </view>
+  </view>
+
+  <view class="card source-upload-card">
+    <view class="section-title">1. 导入照片</view>
+    <view class="section-subtitle">可从手机相册选择，也可以直接使用制作记录。</view>
+    <button class="primary-btn upload-main-button" bindtap="chooseDevicePhotos">
+      {{deviceRecords.length ? '重新选择照片' : '从手机相册选择'}}
+    </button>
+    <view wx:if="{{deviceRecords.length}}" class="device-photo-preview-list">
+      <image
+        wx:for="{{deviceRecords}}"
+        wx:key="id"
+        class="device-photo-preview"
+        src="{{item.path}}"
+        mode="aspectFill"
+        data-id="{{item.id}}"
+        bindtap="previewRecord"
+      ></image>
+    </view>
+    <view wx:if="{{deviceRecords.length}}" class="device-photo-hint">
+      已导入 {{deviceRecords.length}} 张照片，当前将处理这些照片。
+    </view>
+  </view>
+
+  <view class="card">
+    <view class="section-title">2. 选择制作记录</view>
+    <view class="scope-switch">
+      <button
+        wx:for="{{scopeOptions}}"
+        wx:key="value"
+        class="scope-button {{scope === item.value && !usingDevicePhotos ? 'scope-button-active' : ''}}"
+        data-scope="{{item.value}}"
+        bindtap="changeScope"
+      >
+        {{item.label}}
+      </button>
+    </view>
+
+    <view wx:if="{{usingDevicePhotos && !deviceRecords.length}}" class="empty photo-to-video-empty">
+      还没有导入照片。
+      <button class="small-btn secondary-btn" bindtap="chooseDevicePhotos">导入照片</button>
+    </view>
+    <view wx:elif="{{!records.length}}" class="empty photo-to-video-empty">
+      还没有可用的制作记录。
+      <button class="primary-btn upload-main-button" bindtap="goToCreate">去制作一张</button>
+    </view>
+    <view wx:else>
+      <view class="selection-summary">
+        已选择 {{selectedCount}} 张
+        <text wx:if="{{usingDevicePhotos}}">（已导入照片）</text>
+        <text wx:elif="{{scope === 'latest'}}">（默认使用最新一张）</text>
+        <text wx:else>（全部记录）</text>
+      </view>
+      <view class="publish-record-list">
+        <view
+          wx:for="{{records}}"
+          wx:key="id"
+          class="publish-record {{item.selected ? 'publish-record-selected' : ''}}"
+          data-id="{{item.id}}"
+          bindtap="toggleRecord"
+        >
+          <image
+            wx:if="{{item.tempFileURL || item.path}}"
+            class="publish-record-image"
+            src="{{item.tempFileURL || item.path}}"
+            mode="aspectFill"
+            data-id="{{item.id}}"
+            catchtap="previewRecord"
+          ></image>
+          <view wx:else class="publish-record-image publish-record-image-empty">无图</view>
+          <view class="publish-record-info">
+            <view class="publish-record-title">{{item.projectName}}</view>
+            <view class="publish-record-time">{{item.createdAt}}</view>
+            <view class="publish-record-state {{item.status === 'failed' ? 'record-state-failed' : ''}}">
+              {{item.statusText}}
+            </view>
+          </view>
+          <view class="publish-record-check">{{item.selected ? '✓' : ''}}</view>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <view wx:if="{{preview.imagePath}}" class="card live-preview-card">
+    <view class="section-title">3. 小程序内长按预览</view>
+    <view class="section-subtitle">
+      {{preview.videoPath ? '按住图片播放动态效果，松开后回到静态图。' : '生成视频后，这里会显示长按播放效果。'}}
+    </view>
+    <view
+      class="live-preview {{isPressed ? 'live-preview-pressed' : ''}}"
+      bindtouchstart="onPreviewTouchStart"
+      bindtouchend="onPreviewTouchEnd"
+      bindtouchcancel="onPreviewTouchCancel"
+    >
+      <image class="live-preview-image" src="{{preview.imagePath}}" mode="aspectFit"></image>
+      <video
+        wx:if="{{preview.videoPath}}"
+        id="photo-to-video-preview"
+        class="live-preview-video {{isPressed ? 'live-preview-video-visible' : ''}}"
+        src="{{preview.videoPath}}"
+        muted="{{true}}"
+        loop="{{true}}"
+        controls="{{false}}"
+        show-center-play-btn="{{false}}"
+        enable-progress-gesture="{{false}}"
+        bindended="onPreviewVideoEnded"
+        bindtouchstart="onPreviewTouchStart"
+        bindtouchend="onPreviewTouchEnd"
+        bindtouchcancel="onPreviewTouchCancel"
+      ></video>
+      <view wx:if="{{preview.videoPath}}" class="live-preview-hint">
+        {{isPressed ? '松开结束播放' : '长按预览动态效果'}}
+      </view>
+    </view>
+    <view class="preview-title">{{preview.title}}</view>
+  </view>
+
+  <view wx:if="{{records.length}}" class="card convert-action-card">
+    <view class="selection-summary">每张照片独立处理，某一张失败不会拖垮整批。</view>
+    <button
+      class="primary-btn export-button"
+      loading="{{processing}}"
+      disabled="{{processing || !selectedCount}}"
+      bindtap="startConvert"
+    >
+      {{processing ? '正在生成动态视频...' : '开始生成并保存照片和视频'}}
+    </button>
+    <button class="plain-btn back-button" bindtap="backToWorkbench">返回工作台</button>
+  </view>
+
+  <view wx:if="{{processing}}" class="card export-progress-card">
+    <view class="progress-head">
+      <view class="section-title">正在处理</view>
+      <text class="quality-value">{{progressValue}}%</text>
+    </view>
+    <progress
+      percent="{{progressValue}}"
+      active
+      activeColor="#356fce"
+      backgroundColor="#e6edf7"
+      stroke-width="8"
+    ></progress>
+    <view class="progress-text">{{progressText}}</view>
+  </view>
+
+  <view wx:if="{{failures.length}}" class="card failure-card">
+    <view class="section-title">失败清单</view>
+    <view class="section-subtitle">可以只重试失败的这一张。</view>
+    <view wx:for="{{failures}}" wx:key="id" class="failure-item">
+      <view class="failure-copy">
+        <view class="failure-name">{{item.name}}</view>
+        <view class="failure-message">{{item.message}}</view>
+      </view>
+      <button
+        class="small-btn plain-btn retry-button"
+        data-id="{{item.id}}"
+        bindtap="retryOne"
+        disabled="{{processing}}"
+      >
+        重试
+      </button>
+    </view>
+  </view>
+</view>

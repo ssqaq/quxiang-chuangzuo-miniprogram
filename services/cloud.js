@@ -180,11 +180,33 @@ function getTempUrl(fileID) {
   });
 }
 
+function downloadFile(fileID) {
+  return new Promise((resolve, reject) => {
+    if (!isCloudReady() || !fileID || !wx.cloud || typeof wx.cloud.downloadFile !== "function") {
+      reject(new Error("当前环境不支持读取云端视频。"));
+      return;
+    }
+    wx.cloud.downloadFile({
+      fileID,
+      success(response) {
+        const filePath = response && response.tempFilePath;
+        if (!filePath) {
+          reject(new Error("云端视频下载后没有得到临时路径。"));
+          return;
+        }
+        resolve(filePath);
+      },
+      fail: reject
+    });
+  });
+}
+
 module.exports = {
   isCloudReady,
   callApi,
   uploadFile,
   getTempUrl,
+  downloadFile,
   analyzeImage(payload) {
     return callApi({ action: "analyze", payload });
   },
@@ -208,5 +230,14 @@ module.exports = {
   },
   deleteRecord(recordId) {
     return callApi({ action: "deleteRecord", recordId });
+  },
+  getVideoProviderStatus() {
+    return callApi({ action: "videoProviderStatus" });
+  },
+  createVideoTask(payload) {
+    return callApi({ action: "createVideoTask", payload });
+  },
+  queryVideoTask(taskId) {
+    return callApi({ action: "queryVideoTask", taskId });
   }
 };

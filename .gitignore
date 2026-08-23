@@ -13,6 +13,8 @@ project.private.config.json
 _tmp_*/
 *.log
 .superpowers/
+**/__pycache__/
+*.pyc
 
 # 系统文件
 .DS_Store

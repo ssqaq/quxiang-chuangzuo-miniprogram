@@ -1,0 +1,18 @@
+﻿# 微信本地配置
+project.private.config.json
+
+# Node依赖
+**/node_modules/
+
+# 环境变量和密钥
+.env
+.env.*
+!.env.example
+
+# 临时文件和日志
+_tmp_*/
+*.log
+
+# 系统文件
+.DS_Store
+Thumbs.db

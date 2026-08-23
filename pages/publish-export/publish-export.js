@@ -1,0 +1,391 @@
+const cloud = require("../../services/cloud");
+const storage = require("../../utils/storage");
+const publishExport = require("../../utils/publish-export");
+
+const SCOPE_OPTIONS = [
+  { value: "latest", label: "最新一张" },
+  { value: "all", label: "全部记录" }
+];
+
+const FORMAT_OPTIONS = [
+  { value: "jpg", label: "JPG" },
+  { value: "png", label: "PNG" }
+];
+
+const SIZE_OPTIONS = [
+  { value: 1536, label: "1536px" },
+  { value: 2048, label: "2048px" },
+  { value: 4096, label: "4096px" }
+];
+
+function normalizeRecord(record, index) {
+  const item = record && typeof record === "object" ? record : {};
+  return {
+    id: item.id || `record-${index}-${Date.now()}`,
+    fileID: item.fileID || "",
+    projectName: item.projectName || "未命名项目",
+    createdAt: item.createdAt || "刚刚生成",
+    tempFileURL: item.tempFileURL || "",
+    path: item.path || "",
+    prompt: item.prompt || "",
+    source: item.source || "archive",
+    sourceLabel: item.sourceLabel || "制作记录",
+    selected: false
+  };
+}
+
+function uniqueRecords(records) {
+  const seen = {};
+  return (Array.isArray(records) ? records : [])
+    .map(normalizeRecord)
+    .filter((item) => {
+      if (seen[item.id]) return false;
+      seen[item.id] = true;
+      return Boolean(item.tempFileURL || item.path || item.fileID);
+    });
+}
+
+function waitForViewUpdate(page) {
+  return new Promise((resolve) => {
+    const done = () => setTimeout(resolve, 60);
+    if (page && typeof wx.nextTick === "function") {
+      wx.nextTick(done);
+    } else {
+      done();
+    }
+  });
+}
+
+Page({
+  data: {
+    scopeOptions: SCOPE_OPTIONS,
+    formatOptions: FORMAT_OPTIONS,
+    sizeOptions: SIZE_OPTIONS,
+    scope: "latest",
+    usingDevicePhotos: false,
+    format: "jpg",
+    maxEdge: publishExport.DEFAULT_MAX_EDGE,
+    quality: publishExport.DEFAULT_QUALITY,
+    colorCorrect: true,
+    denoise: false,
+    sharpen: false,
+    archiveRecords: [],
+    deviceRecords: [],
+    records: [],
+    selectedCount: 0,
+    loading: false,
+    refreshing: false,
+    processing: false,
+    progressValue: 0,
+    progressText: "",
+    canvasWidth: 1,
+    canvasHeight: 1
+  },
+
+  onShow() {
+    this.loadLocalRecords();
+    this.refreshCloudRecords();
+  },
+
+  loadLocalRecords() {
+    const records = uniqueRecords(storage.loadRecords() || []);
+    this.setData({ archiveRecords: records }, () => this.refreshVisibleRecords());
+  },
+
+  async refreshCloudRecords() {
+    if (!cloud.isCloudReady() || this.data.processing) return;
+    this.setData({ refreshing: true });
+    try {
+      const result = await cloud.listRecords();
+      const records = uniqueRecords((result && result.records) || []);
+      if (records.length) {
+        storage.saveRecords(records);
+        this.setData(
+          { archiveRecords: records },
+          () => this.refreshVisibleRecords()
+        );
+      }
+    } catch (error) {
+      console.warn("[publish-export] 云端记录刷新失败，继续使用本地记录", error);
+    } finally {
+      this.setData({ refreshing: false });
+    }
+  },
+
+  refreshVisibleRecords() {
+    const sourceRecords = this.data.usingDevicePhotos
+      ? this.data.deviceRecords
+      : this.data.archiveRecords;
+    const safeRecords = Array.isArray(sourceRecords) ? sourceRecords : [];
+    const selectedRecords = this.data.scope === "all"
+      || this.data.usingDevicePhotos
+      ? safeRecords.map((item) => Object.assign({}, item, { selected: true }))
+      : safeRecords.map((item, index) => Object.assign({}, item, { selected: index === 0 }));
+    this.setData({
+      records: selectedRecords,
+      selectedCount: selectedRecords.filter((item) => item.selected).length
+    });
+  },
+
+  changeScope(event = {}) {
+    const scope = event.currentTarget
+      && event.currentTarget.dataset
+      && event.currentTarget.dataset.scope;
+    if (!scope || (scope === this.data.scope && !this.data.usingDevicePhotos)) return;
+    this.setData({ scope, usingDevicePhotos: false }, () => this.refreshVisibleRecords());
+  },
+
+  changeFormat(event = {}) {
+    const format = event.currentTarget
+      && event.currentTarget.dataset
+      && event.currentTarget.dataset.format;
+    if (format !== "jpg" && format !== "png") return;
+    this.setData({ format });
+  },
+
+  changeMaxEdge(event = {}) {
+    const value = Number(
+      event.currentTarget
+      && event.currentTarget.dataset
+      && event.currentTarget.dataset.size
+    );
+    if (!value) return;
+    this.setData({ maxEdge: value });
+  },
+
+  changeQuality(event = {}) {
+    const value = Number(event.detail && event.detail.value);
+    if (!value) return;
+    this.setData({ quality: Math.max(60, Math.min(100, Math.round(value))) });
+  },
+
+  toggleEnhancement(event = {}) {
+    const key = event.currentTarget
+      && event.currentTarget.dataset
+      && event.currentTarget.dataset.key;
+    if (!["colorCorrect", "denoise", "sharpen"].includes(key)) return;
+    this.setData({
+      [key]: Boolean(event.detail && event.detail.value)
+    });
+  },
+
+  chooseDevicePhotos() {
+    if (this.data.processing) return;
+    wx.showActionSheet({
+      itemList: ["从相册选择", "拍照"],
+      success: (response) => {
+        this.pickDevicePhotos(response.tapIndex === 1 ? "camera" : "album");
+      }
+    });
+  },
+
+  pickDevicePhotos(sourceType) {
+    const count = sourceType === "camera" ? 1 : 9;
+    const success = (result = {}) => {
+      const files = Array.isArray(result.tempFiles)
+        ? result.tempFiles
+        : (Array.isArray(result.tempFilePaths)
+          ? result.tempFilePaths.map((path) => ({ tempFilePath: path }))
+          : []);
+      const deviceRecords = files
+        .map((file, index) => {
+          const path = file.tempFilePath || file.path || "";
+          if (!path) return null;
+          return {
+            id: `device-${Date.now()}-${index}`,
+            projectName: `导入照片 ${index + 1}`,
+            createdAt: "刚选择",
+            tempFileURL: "",
+            path,
+            prompt: "",
+            source: "device",
+            sourceLabel: "导入照片",
+            selected: true
+          };
+        })
+        .filter(Boolean);
+
+      if (!deviceRecords.length) {
+        wx.showToast({ title: "没有拿到照片", icon: "none" });
+        return;
+      }
+      this.setData(
+        {
+          deviceRecords,
+          usingDevicePhotos: true
+        },
+        () => this.refreshVisibleRecords()
+      );
+    };
+    const fail = (error = {}) => {
+      if (/cancel/i.test(String(error.errMsg || ""))) return;
+      wx.showToast({ title: "选择照片失败", icon: "none" });
+    };
+
+    if (typeof wx.chooseMedia === "function") {
+      wx.chooseMedia({
+        count,
+        mediaType: ["image"],
+        sourceType: [sourceType],
+        sizeType: ["original"],
+        success,
+        fail
+      });
+      return;
+    }
+
+    wx.chooseImage({
+      count,
+      sizeType: ["original"],
+      sourceType: [sourceType],
+      success,
+      fail
+    });
+  },
+
+  previewRecord(event = {}) {
+    const url = event.currentTarget
+      && event.currentTarget.dataset
+      && event.currentTarget.dataset.url;
+    if (!url) return;
+    wx.previewImage({
+      current: url,
+      urls: [url]
+    });
+  },
+
+  getSelectedRecords() {
+    return this.data.records.filter((item) => item.selected);
+  },
+
+  async startExport() {
+    if (this.data.processing) return;
+    const records = this.getSelectedRecords();
+    if (!records.length) {
+      wx.showToast({ title: "先选择要导出的记录", icon: "none" });
+      return;
+    }
+
+    this.setData({
+      processing: true,
+      progressValue: 0,
+      progressText: `准备处理 ${records.length} 张图片...`
+    });
+
+    let successCount = 0;
+    const failures = [];
+    try {
+      for (let index = 0; index < records.length; index += 1) {
+        const record = records[index];
+        this.setData({
+          progressValue: Math.round((index / records.length) * 100),
+          progressText: `正在处理第 ${index + 1} / ${records.length} 张：${record.projectName}`
+        });
+
+        try {
+          const sourcePath = await publishExport.resolveImageSource(record);
+          const imageInfo = await publishExport.getImageInfo(sourcePath);
+          const outputSize = publishExport.getOutputSize(
+            imageInfo.width,
+            imageInfo.height,
+            this.data.maxEdge
+          );
+          this.setData({
+            canvasWidth: outputSize.width,
+            canvasHeight: outputSize.height
+          });
+          await waitForViewUpdate(this);
+
+          const tempFilePath = await publishExport.renderToTempFile({
+            page: this,
+            canvasId: "publish-export-canvas",
+            sourcePath,
+            width: outputSize.width,
+            height: outputSize.height,
+            format: this.data.format,
+            quality: this.data.quality,
+            colorCorrect: this.data.colorCorrect,
+            denoise: this.data.denoise,
+            sharpen: this.data.sharpen
+          });
+          await publishExport.saveToAlbum(tempFilePath);
+          successCount += 1;
+        } catch (error) {
+          console.warn("[publish-export] 单张导出失败", record.id, error);
+          failures.push({
+            name: record.projectName,
+            message: this.formatError(error)
+          });
+        }
+      }
+
+      this.setData({
+        progressValue: 100,
+        progressText: `处理完成：成功 ${successCount} 张${failures.length ? `，失败 ${failures.length} 张` : ""}`
+      });
+      this.showExportResult(successCount, failures);
+    } finally {
+      setTimeout(() => {
+        this.setData({
+          processing: false,
+          progressValue: 0,
+          progressText: ""
+        });
+      }, 700);
+    }
+  },
+
+  formatError(error) {
+    const raw = error && (error.errMsg || error.message);
+    const message = String(raw || "导出失败");
+    if (/auth deny|authorize|permission/i.test(message)) {
+      return "没有相册权限，请在设置里允许保存图片";
+    }
+    if (/download|url|网络|request/i.test(message)) {
+      return "图片下载失败，可能是记录链接已过期";
+    }
+    return message.length > 48 ? `${message.slice(0, 48)}…` : message;
+  },
+
+  showExportResult(successCount, failures) {
+    if (successCount && !failures.length) {
+      wx.showToast({
+        title: `已保存 ${successCount} 张`,
+        icon: "success"
+      });
+      return;
+    }
+
+    const detail = failures
+      .slice(0, 3)
+      .map((item) => `${item.name}：${item.message}`)
+      .join("\n");
+    if (successCount) {
+      wx.showModal({
+        title: `已保存 ${successCount} 张`,
+        content: `还有 ${failures.length} 张没有保存：\n${detail}`,
+        showCancel: false
+      });
+      return;
+    }
+
+    wx.showModal({
+      title: "导出没有完成",
+      content: detail || "没有图片被保存，请稍后重试。",
+      showCancel: false
+    });
+  },
+
+  goToCreate() {
+    wx.navigateTo({
+      url: "/pages/index/index?new=1"
+    });
+  },
+
+  backToWorkbench() {
+    wx.navigateBack({
+      delta: 1,
+      fail: () => wx.reLaunch({ url: "/pages/workbench/workbench" })
+    });
+  }
+});

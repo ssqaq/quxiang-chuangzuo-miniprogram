@@ -1,0 +1,150 @@
+.records-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18rpx;
+}
+
+.records-head-main {
+  min-width: 0;
+  flex: 1;
+}
+
+.records-head-actions {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 14rpx;
+}
+
+.records-back-button {
+  min-width: 156rpx;
+  height: 68rpx;
+  min-height: 68rpx;
+  font-size: 25rpx;
+  line-height: 68rpx;
+}
+
+.records-clear-button {
+  min-width: 156rpx;
+  height: 64rpx;
+  min-height: 64rpx;
+  font-size: 23rpx;
+  line-height: 64rpx;
+}
+
+.record-card {
+  display: flex;
+  padding: 18rpx;
+}
+
+.record-image {
+  flex: none;
+  width: 230rpx;
+  height: 230rpx;
+  border-radius: 16rpx;
+  background: #e9edf4;
+}
+
+.record-info {
+  min-width: 0;
+  flex: 1;
+  margin-left: 20rpx;
+}
+
+.record-title {
+  overflow: hidden;
+  color: #243047;
+  font-size: 29rpx;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.record-time {
+  margin-top: 8rpx;
+  color: #9aa4b4;
+  font-size: 21rpx;
+}
+
+.record-prompt {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 14rpx 0;
+  color: #697386;
+  font-size: 23rpx;
+  line-height: 1.5;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+}
+
+.record-remove-button {
+  min-width: 144rpx;
+}
+
+@media (min-width: 360px) and (max-width: 389px) {
+  .records-head {
+    gap: 10rpx;
+  }
+
+  .records-head-actions {
+    gap: 10rpx;
+  }
+
+  .records-back-button,
+  .records-clear-button {
+    min-width: 132rpx;
+    height: 60rpx;
+    min-height: 60rpx;
+    padding-right: 14rpx;
+    padding-left: 14rpx;
+    font-size: 21rpx;
+    line-height: 60rpx;
+  }
+
+  .record-card {
+    padding: 14rpx;
+  }
+
+  .record-image {
+    width: 210rpx;
+    height: 210rpx;
+  }
+
+  .record-info {
+    margin-left: 14rpx;
+  }
+
+  .record-title {
+    font-size: 27rpx;
+  }
+
+  .record-prompt {
+    margin: 12rpx 0;
+    font-size: 21rpx;
+    -webkit-line-clamp: 3;
+  }
+
+  .record-remove-button {
+    min-width: 132rpx;
+    padding-right: 14rpx;
+    padding-left: 14rpx;
+    font-size: 22rpx;
+  }
+}
+
+@media (min-width: 400px) and (max-width: 430px) {
+  .records-head-actions {
+    gap: 12rpx;
+  }
+
+  .record-image {
+    width: 240rpx;
+    height: 240rpx;
+  }
+
+  .record-info {
+    margin-left: 18rpx;
+  }
+}

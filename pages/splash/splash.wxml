@@ -1,0 +1,26 @@
+<view class="splash-page">
+  <view class="splash-content">
+    <view class="brand-icon-wrap">
+      <view class="brand-icon-halo"></view>
+      <image
+        class="brand-icon"
+        src="/assets/brand/brand-icon.png"
+        mode="aspectFit"
+      ></image>
+    </view>
+
+    <view class="brand-name">圈像创作</view>
+    <view class="brand-slogan">圈定想改的，创作想要的。</view>
+    <view class="brand-rule"></view>
+    <view class="brand-description">局部创作，整体可控</view>
+  </view>
+
+  <view class="splash-footer">
+    <view class="loading-indicator" aria-label="正在加载">
+      <view class="loading-dot loading-dot-first"></view>
+      <view class="loading-dot loading-dot-second"></view>
+      <view class="loading-dot loading-dot-third"></view>
+    </view>
+    <text class="loading-text">正在进入创作空间</text>
+  </view>
+</view>

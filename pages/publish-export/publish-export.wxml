@@ -1,0 +1,211 @@
+<view class="page publish-export-page">
+  <view class="card publish-export-intro">
+    <view class="section-title">降低AI识别率再导出照片</view>
+    <view class="section-subtitle">
+      让图片更不容易被判成AI生成，再另存到手机相册
+    </view>
+    <view class="publish-export-notice">
+      会生成一张新的处理图，原图不变；图片里的文字和水印不会被删除。
+    </view>
+  </view>
+
+  <view class="card source-upload-card">
+    <view class="section-title">1. 导入照片</view>
+    <view class="section-subtitle">从手机相册选择照片导入</view>
+    <button class="primary-btn upload-main-button" bindtap="chooseDevicePhotos">
+      {{deviceRecords.length ? '重新选择照片' : '选择照片'}}
+    </button>
+    <view wx:if="{{deviceRecords.length}}" class="device-photo-preview-list">
+      <image
+        wx:for="{{deviceRecords}}"
+        wx:key="id"
+        class="device-photo-preview"
+        src="{{item.path}}"
+        mode="aspectFill"
+        data-url="{{item.path}}"
+        bindtap="previewRecord"
+      ></image>
+    </view>
+    <view wx:if="{{deviceRecords.length}}" class="device-photo-hint">
+      已导入 {{deviceRecords.length}} 张照片，当前将导出这些照片。
+    </view>
+  </view>
+
+  <view class="card">
+    <view class="section-title">2. 选择制作记录</view>
+    <view class="scope-switch">
+      <button
+        wx:for="{{scopeOptions}}"
+        wx:key="value"
+        class="scope-button {{scope === item.value ? 'scope-button-active' : ''}}"
+        data-scope="{{item.value}}"
+        bindtap="changeScope"
+      >
+        {{item.label}}
+      </button>
+    </view>
+
+    <view wx:if="{{loading}}" class="empty publish-export-empty">正在读取制作记录...</view>
+    <view wx:elif="{{usingDevicePhotos && !deviceRecords.length}}" class="empty publish-export-empty">
+      还没有导入照片。
+      <button class="small-btn secondary-btn" bindtap="chooseDevicePhotos">导入照片</button>
+    </view>
+    <view wx:elif="{{!records.length}}" class="empty publish-export-empty">
+      还没有可导出的制作记录。
+      <button class="primary-btn upload-main-button" bindtap="goToCreate">去制作一张</button>
+    </view>
+    <view wx:else>
+      <view class="selection-summary">
+        已选择 {{selectedCount}} 张
+        <text wx:if="{{usingDevicePhotos}}">（已导入照片）</text>
+        <text wx:elif="{{scope === 'latest'}}">（默认使用最新一张）</text>
+        <text wx:else>（全部记录）</text>
+      </view>
+      <view class="publish-record-list">
+        <view
+          wx:for="{{records}}"
+          wx:key="id"
+          class="publish-record {{item.selected ? 'publish-record-selected' : ''}}"
+          data-url="{{item.tempFileURL || item.path}}"
+          bindtap="previewRecord"
+        >
+          <image
+            wx:if="{{item.tempFileURL || item.path}}"
+            class="publish-record-image"
+            src="{{item.tempFileURL || item.path}}"
+            mode="aspectFill"
+          ></image>
+          <view wx:else class="publish-record-image publish-record-image-empty">无图</view>
+          <view class="publish-record-info">
+            <view class="publish-record-title">{{item.projectName}}</view>
+            <view class="publish-record-time">{{item.createdAt}}</view>
+            <view class="publish-record-state">{{item.selected ? '将导出' : '不导出'}}</view>
+          </view>
+          <view class="publish-record-check">{{item.selected ? '✓' : ''}}</view>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <view wx:if="{{records.length}}" class="card export-options-card">
+    <view class="section-title">导出设置</view>
+
+    <view class="option-line">
+      <view class="option-label">文件格式</view>
+      <view class="choice-list">
+        <button
+          wx:for="{{formatOptions}}"
+          wx:key="value"
+          class="choice-button {{format === item.value ? 'choice-button-active' : ''}}"
+          data-format="{{item.value}}"
+          bindtap="changeFormat"
+        >
+          {{item.label}}
+        </button>
+      </view>
+    </view>
+
+    <view class="option-line">
+      <view class="option-label">最长边</view>
+      <view class="choice-list">
+        <button
+          wx:for="{{sizeOptions}}"
+          wx:key="value"
+          class="choice-button {{maxEdge === item.value ? 'choice-button-active' : ''}}"
+          data-size="{{item.value}}"
+          bindtap="changeMaxEdge"
+        >
+          {{item.label}}
+        </button>
+      </view>
+    </view>
+
+    <view wx:if="{{format === 'jpg'}}" class="quality-line">
+      <view class="quality-head">
+        <text class="option-label">JPG 品质</text>
+        <text class="quality-value">{{quality}}%</text>
+      </view>
+      <slider
+        value="{{quality}}"
+        min="60"
+        max="100"
+        step="1"
+        activeColor="#1f6feb"
+        backgroundColor="#dfe7f3"
+        block-size="22"
+        bindchange="changeQuality"
+      ></slider>
+    </view>
+
+    <view class="enhancement-list">
+      <view class="enhancement-row">
+        <view>
+          <view class="enhancement-title">基础色彩校正</view>
+          <view class="enhancement-description">轻微提亮对比度和饱和度</view>
+        </view>
+        <switch
+          checked="{{colorCorrect}}"
+          color="#1f6feb"
+          data-key="colorCorrect"
+          bindchange="toggleEnhancement"
+        ></switch>
+      </view>
+      <view class="enhancement-row">
+        <view>
+          <view class="enhancement-title">轻度降噪</view>
+          <view class="enhancement-description">尽量压住重新导出后的细碎噪点</view>
+        </view>
+        <switch
+          checked="{{denoise}}"
+          color="#1f6feb"
+          data-key="denoise"
+          bindchange="toggleEnhancement"
+        ></switch>
+      </view>
+      <view class="enhancement-row">
+        <view>
+          <view class="enhancement-title">清晰补偿</view>
+          <view class="enhancement-description">轻微加强边缘对比，避免过度锐化</view>
+        </view>
+        <switch
+          checked="{{sharpen}}"
+          color="#1f6feb"
+          data-key="sharpen"
+          bindchange="toggleEnhancement"
+        ></switch>
+      </view>
+    </view>
+
+    <button
+      class="primary-btn export-button"
+      loading="{{processing}}"
+      disabled="{{processing || !selectedCount}}"
+      bindtap="startExport"
+    >
+      {{processing ? '正在导出...' : '开始导出并保存到相册'}}
+    </button>
+    <button class="plain-btn back-button" bindtap="backToWorkbench">返回工作台</button>
+  </view>
+
+  <view wx:if="{{processing}}" class="card export-progress-card">
+    <view class="progress-head">
+      <view class="section-title">正在处理</view>
+      <text class="quality-value">{{progressValue}}%</text>
+    </view>
+    <progress
+      percent="{{progressValue}}"
+      active
+      activeColor="#1f6feb"
+      backgroundColor="#e6edf7"
+      stroke-width="8"
+    ></progress>
+    <view class="progress-text">{{progressText}}</view>
+  </view>
+
+  <canvas
+    canvas-id="publish-export-canvas"
+    id="publish-export-canvas"
+    class="publish-export-canvas"
+    style="width: {{canvasWidth}}px; height: {{canvasHeight}}px;"
+  ></canvas>
+</view>

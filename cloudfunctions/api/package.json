@@ -1,0 +1,10 @@
+{
+  "name": "display-tool-cloud-api",
+  "version": "0.10.29",
+  "private": true,
+  "main": "index.js",
+  "dependencies": {
+    "pngjs": "^7.0.0",
+    "wx-server-sdk": "latest"
+  }
+}

@@ -1,0 +1,47 @@
+<view class="page">
+  <view class="card records-head">
+    <view class="records-head-main">
+      <view class="section-title">结果归档</view>
+      <view class="section-subtitle">云端记录会跟随当前微信账号保存。</view>
+    </view>
+      <view class="records-head-actions">
+        <text class="badge">{{cloudReady ? '云端' : '本地'}}</text>
+        <button
+          wx:if="{{records.length}}"
+          class="small-btn danger-btn records-clear-button"
+          bindtap="clearAll"
+          loading="{{clearing}}"
+          disabled="{{clearing || removingId}}"
+        >{{clearing ? '清理中...' : '清空全部'}}</button>
+        <button class="small-btn secondary-btn records-back-button" bindtap="backToCreate">返回制作</button>
+      </view>
+  </view>
+
+  <view wx:if="{{loading}}" class="card empty">正在读取记录...</view>
+  <view wx:elif="{{!records.length}}" class="card empty">
+    还没有生成结果。<br />点击上方“返回制作”上传主图并生成。
+  </view>
+  <view wx:else class="record-list">
+    <view wx:for="{{records}}" wx:key="id" class="record-card card">
+      <image
+        class="record-image"
+        src="{{item.tempFileURL || item.path}}"
+        mode="aspectFill"
+        data-url="{{item.tempFileURL || item.path}}"
+        bindtap="preview"
+      ></image>
+      <view class="record-info">
+        <view class="record-title">{{item.projectName || '未命名项目'}}</view>
+        <view class="record-time">{{item.createdAt}}</view>
+        <view class="record-prompt">{{item.prompt || '无提示词记录'}}</view>
+        <button
+          class="small-btn danger-btn record-remove-button"
+          data-id="{{item.id}}"
+          bindtap="remove"
+          loading="{{removingId === item.id}}"
+          disabled="{{clearing || removingId}}"
+        >{{removingId === item.id ? '删除中...' : '删除记录'}}</button>
+      </view>
+    </view>
+  </view>
+</view>

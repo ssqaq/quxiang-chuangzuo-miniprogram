@@ -1,0 +1,1817 @@
+const app = getApp();
+const config = require("../../config");
+const cloud = require("../../services/cloud");
+const storage = require("../../utils/storage");
+const {
+  LOCKED_ELEMENTS,
+  buildPrompt,
+  buildNegativePrompt
+} = require("../../utils/prompt");
+const { exportMaskFile } = require("../../utils/mask");
+const { prepareImageAsset } = require("../../utils/image");
+const {
+  MIN_SCALE,
+  MAX_SCALE,
+  clampOffset,
+  createPinchState,
+  mapViewportPointToCanvas,
+  resolveTouchPoint,
+  resolveTouchPoints,
+  updatePinchView
+} = require("../../utils/canvas-gesture");
+const {
+  circleFromPoints: createCircleFromPoints,
+  findTouchByIdentifier,
+  getTouchIdentifier
+} = require("../../utils/circle-gesture");
+const {
+  appendWebPosePromptBlock,
+  normalizeWebPoseSuggestion,
+  normalizeWebPoseSuggestions
+} = require("../../utils/web-pose");
+
+const CLOTHING_TARGETS = ["整套穿搭", "上装", "外套", "下装", "连衣裙/连体装", "鞋靴"];
+const ACCESSORY_TARGETS = [
+  "对应配饰位置",
+  "包袋",
+  "首饰",
+  "帽子",
+  "眼镜",
+  "腰带",
+  "手表",
+  "其他配饰"
+];
+
+const AUTO_FACE_WIDTH_SCALE = 1.2;
+const AUTO_FACE_HEIGHT_SCALE = 1.15;
+const AUTO_FACE_MIN_WIDTH = 48;
+const AUTO_FACE_MIN_HEIGHT = 56;
+const GENERATION_TIMEOUT_MS = 120000;
+const GENERATION_RETRY_LIMIT = 2;
+const GENERATION_PHASES = [
+  { key: "prepare", label: "准备素材" },
+  { key: "upload", label: "上传素材" },
+  { key: "generate", label: "AI生成" },
+  { key: "save", label: "保存记录" }
+];
+
+function createClientRequestId() {
+  return `mini-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+}
+
+function createProject() {
+  return {
+    projectName: "未命名项目",
+    mainImage: null,
+    maskCircle: null,
+    maskFileID: "",
+    faceRefs: [],
+    wardrobeRefs: [],
+    sceneDescription: "",
+    poseDescription: "",
+    faceDirectionDescription: "",
+    lightingMakeupDescription: "",
+    lockedElements: LOCKED_ELEMENTS.slice(),
+    customLockedElements: [],
+    promptDraft: "",
+    negativePrompt: "",
+    webPoseSuggestions: [],
+    selectedWebPose: null,
+    webPoseAnalysisMeta: null,
+    results: []
+  };
+}
+
+function createLockedElementOptions(selectedElements) {
+  const selected = Array.isArray(selectedElements) ? selectedElements : LOCKED_ELEMENTS;
+  return LOCKED_ELEMENTS.map((value) => ({
+    value,
+    label: value.replace(/^不改变/, ""),
+    checked: selected.indexOf(value) >= 0
+  }));
+}
+
+function parseCustomLocks(value) {
+  const result = [];
+  String(value || "").split(/[\n；;]+/).forEach((item) => {
+    const text = item.trim();
+    if (text && result.indexOf(text) < 0) result.push(text);
+  });
+  return result.slice(0, 20);
+}
+
+function basename(path) {
+  return String(path || "图片").split(/[\\/]/).pop() || "图片";
+}
+
+function chooseImages(count) {
+  return new Promise((resolve, reject) => {
+    wx.chooseMedia({
+      count,
+      mediaType: ["image"],
+      sourceType: ["album", "camera"],
+      success: resolve,
+      fail: reject
+    });
+  });
+}
+
+const ENTRY_MODE_META = {
+  face: {
+    title: "局部换脸",
+    tone: "face",
+    hint: "先上传主图，再添加人脸参考；背景、构图和红圈外内容会继续保持不变。"
+  },
+  wardrobe: {
+    title: "换穿搭",
+    tone: "wardrobe",
+    hint: "先上传主图，再在参考素材里添加衣物或配饰；未指定的内容不会被额外改动。"
+  },
+  pose: {
+    title: "调姿势",
+    tone: "pose",
+    hint: "先上传主图，进入提示词步骤后可以使用“参考网感分析”选择姿势建议。"
+  },
+  custom: {
+    title: "新建创作",
+    tone: "custom",
+    hint: "按五步流程完成一次局部创作，系统会自动保存当前项目草稿。"
+  },
+  resume: {
+    title: "继续上次编辑",
+    tone: "resume",
+    hint: "已恢复本地草稿，接着完成上次停下的步骤即可。"
+  }
+};
+
+function resolveEntryMode(options) {
+  if (options && options.resume === "1") return ENTRY_MODE_META.resume;
+  return ENTRY_MODE_META[options && options.mode] || null;
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function assetIdentity(asset) {
+  if (!asset) return "";
+  const primary = asset.id || asset.path || asset.fileID || "";
+  return [
+    primary,
+    asset.size || asset.compressedSize || 0,
+    asset.width || 0,
+    asset.height || 0
+  ].join("|");
+}
+
+function clone(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function createAutoFaceStatus() {
+  return {
+    state: "idle",
+    stage: "idle",
+    source: "",
+    message: "等待自动贴脸",
+    details: null,
+    updatedAt: ""
+  };
+}
+
+function safeErrorInfo(error, fallbackMessage) {
+  const payload = error && error.payload && typeof error.payload === "object"
+    ? error.payload
+    : {};
+  const message = payload.message
+    || payload.error
+    || (error && error.errMsg)
+    || (error && error.message)
+    || fallbackMessage
+    || "未知错误";
+  const code = payload.errorCode
+    || payload.code
+    || (error && (error.code || error.errCode))
+    || "";
+  return {
+    code: String(code || ""),
+    message: String(message || "未知错误"),
+    requestId: String(payload.requestId || ""),
+    stack: error && error.stack ? String(error.stack).slice(0, 1200) : ""
+  };
+}
+
+function formatAutoFaceDetails(details) {
+  if (!details || typeof details !== "object") return "";
+  try {
+    return JSON.stringify(details);
+  } catch (error) {
+    return String(details);
+  }
+}
+
+Page({
+  data: {
+    appVersion: config.appVersion,
+    cloudReady: false,
+    cloudEnvId: config.cloudEnvId,
+    steps: ["主图", "红圈", "参考素材", "提示词", "生成"],
+    step: 0,
+    entryTitle: "",
+    entryHint: "",
+    entryTone: "",
+    project: createProject(),
+    canvasWidth: 0,
+    canvasHeight: 0,
+    imageWidth: 0,
+    imageHeight: 0,
+    canvasScale: 1,
+    canvasOffsetX: 0,
+    canvasOffsetY: 0,
+    canvasZoomPercent: 100,
+    canvasZoomed: false,
+    canvasGestureTip: "双指捏合缩放，单指从任意位置拖到任意方向绘制红圈",
+    pageScrollLocked: false,
+    drawing: false,
+    loading: false,
+    loadingText: "",
+    generationStage: "idle",
+    generationPhases: GENERATION_PHASES,
+    generationPhaseIndex: 0,
+    generationWaitText: "",
+    generationElapsedSeconds: 0,
+    generationRetryCount: 0,
+    generationTimedOut: false,
+    analysisAction: "",
+    statusText: "先上传主图",
+    clothingTargets: CLOTHING_TARGETS,
+    accessoryTargets: ACCESSORY_TARGETS,
+    lockPanelOpen: false,
+    lockedElementOptions: createLockedElementOptions(LOCKED_ELEMENTS),
+    customLockText: "",
+    lockedSelectionCount: LOCKED_ELEMENTS.length,
+    records: [],
+    generatedResults: [],
+    autoFaceStatus: createAutoFaceStatus(),
+    autoFaceLogs: [],
+    autoFaceLogExpanded: false
+  },
+
+  onLoad(options = {}) {
+    const pageLoadStartedAt = Date.now();
+    this._autoFaceLogs = [];
+    this._mainImagePrepareState = null;
+    this._mainImageUploadState = null;
+    this._autoFaceDetectionCache = null;
+    this._pageDestroyed = false;
+    const isPreload = options.preload === "1";
+    const entry = resolveEntryMode(options);
+    const shouldCreateNew = options.new === "1";
+    if (shouldCreateNew && !isPreload) {
+      storage.clearProject();
+    }
+    if (entry) {
+      this.setData({
+        entryTitle: entry.title,
+        entryHint: entry.hint,
+        entryTone: entry.tone
+      });
+    }
+    this._canvasView = {
+      scale: MIN_SCALE,
+      offsetX: 0,
+      offsetY: 0
+    };
+    const saved = isPreload || shouldCreateNew ? null : storage.loadProject();
+    if (saved && typeof saved === "object") {
+      const project = Object.assign(createProject(), saved);
+      project.lockedElements = Array.isArray(project.lockedElements)
+        ? project.lockedElements.filter((item) => LOCKED_ELEMENTS.indexOf(item) >= 0)
+        : LOCKED_ELEMENTS.slice();
+      project.customLockedElements = Array.isArray(project.customLockedElements)
+        ? project.customLockedElements.map((item) => String(item).trim()).filter(Boolean).slice(0, 20)
+        : [];
+      project.webPoseSuggestions = normalizeWebPoseSuggestions(project.webPoseSuggestions);
+      const selectedWebPose = normalizeWebPoseSuggestion(project.selectedWebPose);
+      project.selectedWebPose = selectedWebPose && project.webPoseSuggestions.some(
+        (item) => item.id === selectedWebPose.id
+          && item.title === selectedWebPose.title
+          && item.description === selectedWebPose.description
+      ) ? selectedWebPose : null;
+      project.wardrobeRefs = (project.wardrobeRefs || []).map((item) => Object.assign({}, item, {
+        targetOptions: item.kind === "accessory" ? ACCESSORY_TARGETS : CLOTHING_TARGETS
+      }));
+      this.setData({
+        project,
+        lockedElementOptions: createLockedElementOptions(project.lockedElements),
+        customLockText: project.customLockedElements.join("\n"),
+        lockedSelectionCount: project.lockedElements.length + project.customLockedElements.length,
+        generatedResults: project.results || []
+      });
+      if (project.mainImage && project.mainImage.path) {
+        this.prepareCanvas(project.mainImage);
+      }
+    }
+    if (!isPreload) {
+      this.refreshCloudState();
+      const loadRecordsAfterFirstRender = () => {
+        this.loadRecords();
+      };
+      if (typeof wx.nextTick === "function") {
+        wx.nextTick(loadRecordsAfterFirstRender);
+      } else {
+        setTimeout(loadRecordsAfterFirstRender, 0);
+      }
+    }
+    console.info("[index] 制作页首屏初始化完成", {
+      durationMs: Date.now() - pageLoadStartedAt,
+      shouldCreateNew,
+      isPreload
+    });
+  },
+
+  onShow() {
+    const pending = app && app.globalData && app.globalData.pendingNewCreation;
+    if (pending) {
+      this.resetForNewCreation(pending.mode);
+      app.globalData.pendingNewCreation = null;
+    }
+    this.refreshCloudState();
+  },
+
+  resetForNewCreation(mode) {
+    const entry = resolveEntryMode({ mode }) || ENTRY_MODE_META.custom;
+    this.setPageScrollLock(false);
+    this.clearCanvasDrawTimer();
+    this.invalidateMainImageState();
+    this._drawingStart = null;
+    this._canvasViewportRect = null;
+    this._canvasView = {
+      scale: MIN_SCALE,
+      offsetX: 0,
+      offsetY: 0
+    };
+    storage.clearProject();
+    this.setData({
+      entryTitle: entry.title,
+      entryHint: entry.hint,
+      entryTone: entry.tone,
+      project: createProject(),
+      step: 0,
+      canvasWidth: 0,
+      canvasHeight: 0,
+      imageWidth: 0,
+      imageHeight: 0,
+      canvasScale: MIN_SCALE,
+      canvasOffsetX: 0,
+      canvasOffsetY: 0,
+      canvasZoomPercent: 100,
+      canvasZoomed: false,
+      pageScrollLocked: false,
+      drawing: false,
+      loading: false,
+      loadingText: "",
+      generationStage: "idle",
+      generationPhaseIndex: 0,
+      generationWaitText: "",
+      generationElapsedSeconds: 0,
+      generationRetryCount: 0,
+      generationTimedOut: false,
+      analysisAction: "",
+      statusText: "先上传主图",
+      lockPanelOpen: false,
+      lockedElementOptions: createLockedElementOptions(LOCKED_ELEMENTS),
+      customLockText: "",
+      lockedSelectionCount: LOCKED_ELEMENTS.length,
+      generatedResults: [],
+      autoFaceStatus: createAutoFaceStatus(),
+      autoFaceLogs: [],
+      autoFaceLogExpanded: false
+    });
+    console.info("[index] 已复用预热制作页，进入新创作", { mode });
+  },
+
+  onUnload() {
+    this.setPageScrollLock(false);
+    this._pageDestroyed = true;
+    this.clearCanvasDrawTimer();
+    this.stopGenerationTimer();
+  },
+
+  setPageScrollLock(locked) {
+    const nextLocked = Boolean(locked);
+    this._pageScrollLocked = nextLocked;
+    if (
+      this._pageDestroyed
+      || this.data.pageScrollLocked === nextLocked
+    ) {
+      return;
+    }
+    this.setData({ pageScrollLocked: nextLocked });
+  },
+
+  startGenerationTimer() {
+    this.stopGenerationTimer();
+    this._generationStartedAt = Date.now();
+    this._generationTimer = setInterval(() => {
+      if (!this.data.loading || !this._generationStartedAt) return;
+      this.setData({
+        generationElapsedSeconds: Math.floor(
+          (Date.now() - this._generationStartedAt) / 1000
+        )
+      });
+    }, 1000);
+    this._generationTimeoutTimer = setTimeout(() => {
+      if (
+        this._pageDestroyed
+        || !this.data.loading
+        || this.data.generationTimedOut
+      ) {
+        return;
+      }
+      this.setData({
+        generationStage: "timeout",
+        generationPhaseIndex: 2,
+        generationTimedOut: true,
+        generationWaitText: "已经等待超过 2 分钟，服务可能仍在处理中，请不要重复提交。"
+      });
+      wx.showModal({
+        title: "生成时间较长",
+        content: "已经等待超过 2 分钟，当前请求可能还在处理。请不要重复点击，完成后会自动显示结果。",
+        showCancel: false
+      });
+    }, GENERATION_TIMEOUT_MS);
+  },
+
+  stopGenerationTimer() {
+    if (this._generationTimer) {
+      clearInterval(this._generationTimer);
+      this._generationTimer = null;
+    }
+    if (this._generationTimeoutTimer) {
+      clearTimeout(this._generationTimeoutTimer);
+      this._generationTimeoutTimer = null;
+    }
+    this._generationStartedAt = 0;
+  },
+
+  setGenerationPhase(stage, loadingText, generationWaitText, extra = {}) {
+    const phaseIndex = GENERATION_PHASES.findIndex((item) => item.key === stage);
+    this.setData(Object.assign({
+      loadingText,
+      generationStage: stage,
+      generationPhaseIndex: phaseIndex >= 0 ? phaseIndex : this.data.generationPhaseIndex,
+      generationWaitText
+    }, extra));
+  },
+
+  backToWorkbench() {
+    wx.navigateBack({
+      delta: 1,
+      fail: () => {
+        wx.reLaunch({
+          url: "/pages/workbench/workbench"
+        });
+      }
+    });
+  },
+
+  recordAutoFaceStatus(state, stage, source, message, details) {
+    const entry = {
+      state: String(state || ""),
+      stage: String(stage || ""),
+      source: String(source || ""),
+      message: String(message || ""),
+      details: details && typeof details === "object" ? clone(details) : null,
+      summary: formatAutoFaceDetails(details),
+      updatedAt: new Date().toISOString()
+    };
+    this._autoFaceLogs = (this._autoFaceLogs || []).concat(entry).slice(-30);
+    this.setData({
+      autoFaceStatus: entry,
+      autoFaceLogs: clone(this._autoFaceLogs)
+    });
+    const method = state === "manual-required" || state === "fallback" ? "warn" : "log";
+    console[method]("[auto-face]", entry);
+    return entry;
+  },
+
+  toggleAutoFaceLogPanel() {
+    this.setData({ autoFaceLogExpanded: !this.data.autoFaceLogExpanded });
+  },
+
+  copyAutoFaceLogs() {
+    const payload = {
+      appVersion: config.appVersion,
+      copiedAt: new Date().toISOString(),
+      status: this.data.autoFaceStatus,
+      logs: this._autoFaceLogs || []
+    };
+    const text = JSON.stringify(payload, null, 2);
+    if (!wx.setClipboardData) {
+      wx.showToast({ title: "当前环境不支持复制日志", icon: "none" });
+      return;
+    }
+    wx.setClipboardData({
+      data: text,
+      success: () => wx.showToast({ title: "日志已复制", icon: "success" }),
+      fail: () => wx.showToast({ title: "复制日志失败", icon: "none" })
+    });
+  },
+
+  clearAutoFaceLogs() {
+    this._autoFaceLogs = [];
+    this.setData({
+      autoFaceLogs: [],
+      autoFaceLogExpanded: false
+    });
+    wx.showToast({ title: "日志已清空", icon: "success" });
+  },
+
+  getMainImageKey(image) {
+    return assetIdentity(image);
+  },
+
+  invalidateMainImageState() {
+    this._mainImagePrepareState = null;
+    this._mainImageUploadState = null;
+    this._autoFaceDetectionCache = null;
+  },
+
+  isCurrentMainImage(key) {
+    return Boolean(
+      key
+      && !this._pageDestroyed
+      && this.getMainImageKey(this.data.project && this.data.project.mainImage) === key
+    );
+  },
+
+  enterManualFaceCircle(cloudError) {
+    const cloudInfo = cloudError || null;
+    this.setData({ step: 1 });
+    this.drawCanvas();
+    this.recordAutoFaceStatus(
+      "manual-required",
+      cloudInfo ? "cloud-failed" : "cloud-unavailable",
+      "manual",
+      cloudInfo
+        ? "云端自动贴脸不可用，已进入手动圈选"
+        : "云端未连接，已进入手动圈选",
+      { cloudError: cloudInfo }
+    );
+    const requestId = cloudInfo && cloudInfo.requestId;
+    wx.showModal({
+      title: "请手动圈选",
+      content: cloudInfo
+        ? `自动贴脸失败，已进入手动圈选。请在主图上拖动红圈。${requestId ? `\n请求编号：${requestId}` : ""}`
+        : "当前没有连接云端。已进入手动圈选，请在主图上拖动红圈。",
+      showCancel: false
+    });
+  },
+
+  refreshCloudState() {
+    const ready = cloud.isCloudReady();
+    this.setData({
+      cloudReady: ready,
+      cloudEnvId: config.cloudEnvId,
+      statusText: ready ? "云端已连接" : "本地预览模式"
+    });
+    if (ready && this.data.project && this.data.project.mainImage) {
+      this.preloadMainImageUpload(this.data.project.mainImage);
+    }
+  },
+
+  persist() {
+    storage.saveProject(this.data.project);
+  },
+
+  updateProject(patch) {
+    const project = Object.assign({}, this.data.project, patch);
+    this.setData({ project });
+    storage.saveProject(project);
+    return project;
+  },
+
+  async chooseMainImage() {
+    try {
+      const result = await chooseImages(1);
+      const file = result.tempFiles && result.tempFiles[0];
+      if (!file) return;
+      const prepared = await prepareImageAsset(file, {
+        compression: config.imageCompression
+      });
+      const mainImage = {
+        id: `main-${Date.now()}`,
+        name: file.name || basename(file.tempFilePath),
+        path: prepared.path,
+        type: prepared.type,
+        size: prepared.compressedSize || file.size || 0,
+        width: prepared.width,
+        height: prepared.height,
+        originalWidth: prepared.originalWidth,
+        originalHeight: prepared.originalHeight,
+        originalSize: prepared.originalSize,
+        compressedSize: prepared.compressedSize,
+        compressed: prepared.compressed,
+        compressionChecked: prepared.compressionChecked,
+        compressionQuality: prepared.compressionQuality,
+        fileID: ""
+      };
+      this.setPageScrollLock(false);
+      this.invalidateMainImageState();
+      this.updateProject({
+        mainImage,
+        maskCircle: null,
+        maskFileID: "",
+        sceneDescription: "",
+        poseDescription: "",
+        faceDirectionDescription: "",
+        lightingMakeupDescription: "",
+        promptDraft: "",
+        negativePrompt: "",
+        webPoseSuggestions: [],
+        selectedWebPose: null,
+        webPoseAnalysisMeta: null
+      });
+      this.resetCanvasView();
+      this.setData({ step: 0 });
+      this.prepareCanvas(mainImage);
+      this.preloadMainImageUpload(mainImage);
+    } catch (error) {
+      this.showError("主图选择失败", error);
+    }
+  },
+
+  clearMainImage() {
+    if (!this.data.project.mainImage) return;
+    wx.showModal({
+      title: "清除主图？",
+      content: "将清除主图、红圈、图片分析和当前提示词；人脸参考、穿搭参考和历史记录会保留。",
+      success: (response) => {
+        if (!response.confirm) return;
+        this.clearCanvasDrawTimer();
+        this.setPageScrollLock(false);
+        this._drawingStart = null;
+        this.invalidateMainImageState();
+        this.updateProject({
+          mainImage: null,
+          maskCircle: null,
+          maskFileID: "",
+          sceneDescription: "",
+          poseDescription: "",
+          faceDirectionDescription: "",
+          lightingMakeupDescription: "",
+          promptDraft: "",
+          negativePrompt: "",
+          webPoseSuggestions: [],
+          selectedWebPose: null,
+          webPoseAnalysisMeta: null
+        });
+        this.setData({
+          step: 0,
+          drawing: false,
+          canvasWidth: 0,
+          canvasHeight: 0,
+          imageWidth: 0,
+          imageHeight: 0,
+          canvasScale: MIN_SCALE,
+          canvasOffsetX: 0,
+          canvasOffsetY: 0,
+          canvasZoomPercent: 100,
+          canvasZoomed: false,
+          canvasGestureTip: "双指捏合缩放，单指从任意位置拖到任意方向绘制红圈"
+        });
+        this._canvasView = {
+          scale: MIN_SCALE,
+          offsetX: 0,
+          offsetY: 0
+        };
+        this._canvasViewportRect = null;
+        wx.showToast({ title: "主图已清除", icon: "success" });
+      }
+    });
+  },
+
+  async prepareCanvas(image) {
+    if (!image || !image.path || !image.width || !image.height) return;
+    const info = wx.getSystemInfoSync();
+    let width = Math.min(690, Math.max(280, info.windowWidth - 56));
+    let height = width * image.height / image.width;
+    if (height > 620) {
+      height = 620;
+      width = height * image.width / image.height;
+    }
+    this.setData({
+      canvasWidth: Math.round(width),
+      canvasHeight: Math.round(height),
+      imageWidth: image.width,
+      imageHeight: image.height
+    }, () => {
+      this.resetCanvasView();
+      this.refreshCanvasViewportRect();
+      this.drawCanvas();
+    });
+  },
+
+  drawEllipse(ctx, circle) {
+    const k = 0.5522848;
+    const cx = circle.x * this.data.canvasWidth / this.data.imageWidth;
+    const cy = circle.y * this.data.canvasHeight / this.data.imageHeight;
+    const rx = circle.width * this.data.canvasWidth / this.data.imageWidth / 2;
+    const ry = circle.height * this.data.canvasHeight / this.data.imageHeight / 2;
+    ctx.beginPath();
+    ctx.moveTo(cx + rx, cy);
+    ctx.bezierCurveTo(cx + rx, cy + k * ry, cx + k * rx, cy + ry, cx, cy + ry);
+    ctx.bezierCurveTo(cx - k * rx, cy + ry, cx - rx, cy + k * ry, cx - rx, cy);
+    ctx.bezierCurveTo(cx - rx, cy - k * ry, cx - k * rx, cy - ry, cx, cy - ry);
+    ctx.bezierCurveTo(cx + k * rx, cy - ry, cx + rx, cy - k * ry, cx + rx, cy);
+    ctx.closePath();
+  },
+
+  clearCanvasDrawTimer() {
+    if (this._canvasDrawTimer) {
+      clearTimeout(this._canvasDrawTimer);
+      this._canvasDrawTimer = null;
+    }
+    this._pendingCanvasCircle = null;
+  },
+
+  scheduleCanvasDraw(circle) {
+    this._pendingCanvasCircle = circle;
+    if (this._canvasDrawTimer) return;
+    const elapsed = Date.now() - (this._lastCanvasDrawAt || 0);
+    const wait = Math.max(0, 32 - elapsed);
+    this._canvasDrawTimer = setTimeout(() => {
+      this._canvasDrawTimer = null;
+      this._lastCanvasDrawAt = Date.now();
+      const pending = this._pendingCanvasCircle;
+      this._pendingCanvasCircle = null;
+      if (pending) this.drawCanvas(pending);
+    }, wait);
+  },
+
+  drawCanvas(circleOverride) {
+    const image = this.data.project.mainImage;
+    if (!image || !image.path || !this.data.canvasWidth || !this.data.canvasHeight) return;
+    const ctx = wx.createCanvasContext("maskCanvas", this);
+    ctx.clearRect(0, 0, this.data.canvasWidth, this.data.canvasHeight);
+    const circle = circleOverride === undefined
+      ? this.data.project.maskCircle
+      : circleOverride;
+    if (circle) {
+      ctx.setLineWidth(4);
+      ctx.setStrokeStyle("#ff3b42");
+      this.drawEllipse(ctx, circle);
+      ctx.stroke();
+    }
+    ctx.draw();
+  },
+
+  refreshCanvasViewportRect() {
+    const query = wx.createSelectorQuery().in(this);
+    query.select(".canvas-viewport").boundingClientRect();
+    if (typeof query.selectViewport === "function") {
+      query.selectViewport().scrollOffset();
+    }
+    query.exec((results) => {
+      const rect = results && results[0];
+      const scroll = results && results[1];
+      if (rect) this._canvasViewportRect = rect;
+      if (scroll) this._canvasPageScroll = scroll;
+    });
+  },
+
+  getCanvasView() {
+    if (!this._canvasView) {
+      this._canvasView = {
+        scale: Number(this.data.canvasScale) || MIN_SCALE,
+        offsetX: Number(this.data.canvasOffsetX) || 0,
+        offsetY: Number(this.data.canvasOffsetY) || 0
+      };
+    }
+    return this._canvasView;
+  },
+
+  setCanvasView(scale, offsetX, offsetY) {
+    const safeScale = clamp(Number(scale) || MIN_SCALE, MIN_SCALE, MAX_SCALE);
+    const offset = clampOffset(
+      safeScale,
+      this.data.canvasWidth,
+      this.data.canvasHeight,
+      offsetX,
+      offsetY
+    );
+    const zoomed = safeScale > MIN_SCALE;
+    this._canvasView = {
+      scale: safeScale,
+      offsetX: offset.x,
+      offsetY: offset.y
+    };
+    this.setData({
+      canvasScale: safeScale,
+      canvasOffsetX: offset.x,
+      canvasOffsetY: offset.y,
+      canvasZoomPercent: Math.round(safeScale * 100),
+      canvasZoomed: zoomed,
+      canvasGestureTip: zoomed
+        ? "双指拖动平移，单指从任意位置拖到任意方向绘制红圈"
+        : "双指捏合缩放，单指从任意位置拖到任意方向绘制红圈"
+    });
+  },
+
+  resetCanvasView() {
+    this.setCanvasView(MIN_SCALE, 0, 0);
+  },
+
+  zoomBy(step) {
+    if (!this.data.project.mainImage) return;
+    const view = this.getCanvasView();
+    this.setCanvasView(view.scale + Number(step || 0), view.offsetX, view.offsetY);
+  },
+
+  zoomIn() {
+    this.zoomBy(0.25);
+  },
+
+  zoomOut() {
+    this.zoomBy(-0.25);
+  },
+
+  getViewportPoint(touch, eventContext) {
+    return resolveTouchPoint(
+      touch,
+      this._canvasViewportRect,
+      this._canvasPageScroll,
+      this.data.canvasWidth,
+      this.data.canvasHeight,
+      eventContext
+    );
+  },
+
+  getCanvasPoint(touch, eventContext) {
+    const viewportPoint = this.getViewportPoint(touch, eventContext);
+    if (!viewportPoint) return null;
+    return mapViewportPointToCanvas(
+      viewportPoint,
+      this.getCanvasView(),
+      this.data.canvasWidth,
+      this.data.canvasHeight
+    );
+  },
+
+  getViewportTouches(event) {
+    return resolveTouchPoints(
+      event,
+      this._canvasViewportRect,
+      this._canvasPageScroll,
+      this.data.canvasWidth,
+      this.data.canvasHeight
+    );
+  },
+
+  beginPinch(touches) {
+    if (!touches || touches.length < 2) return false;
+    this.clearCanvasDrawTimer();
+    this._drawingStart = null;
+    this._drawingCurrent = null;
+    this._drawingTouchId = null;
+    this._pinchState = createPinchState(
+      touches[0],
+      touches[1],
+      this.getCanvasView(),
+      this.data.canvasWidth,
+      this.data.canvasHeight
+    );
+    this._gestureMode = this._pinchState ? "pinch" : null;
+    this.setPageScrollLock(Boolean(this._pinchState));
+    this.setData({ drawing: false });
+    return Boolean(this._pinchState);
+  },
+
+  circleFromPoints(start, end) {
+    const startPoint = {
+      x: start.x * this.data.imageWidth / this.data.canvasWidth,
+      y: start.y * this.data.imageHeight / this.data.canvasHeight
+    };
+    const endPoint = {
+      x: end.x * this.data.imageWidth / this.data.canvasWidth,
+      y: end.y * this.data.imageHeight / this.data.canvasHeight
+    };
+    return createCircleFromPoints(
+      startPoint,
+      endPoint,
+      this.data.imageWidth,
+      this.data.imageHeight
+    );
+  },
+
+  getDrawingTouch(event, includeChanged = false) {
+    const collections = includeChanged
+      ? [event.changedTouches, event.touches]
+      : [event.touches, event.changedTouches];
+    for (const touches of collections) {
+      const touch = findTouchByIdentifier(touches, this._drawingTouchId);
+      if (touch) return touch;
+    }
+    return null;
+  },
+
+  getActiveTouchCount(event) {
+    return event && Array.isArray(event.touches)
+      ? event.touches.length
+      : 0;
+  },
+
+  onCanvasTouchStart(event) {
+    if (!this.data.project.mainImage) return;
+    const touches = this.getViewportTouches(event);
+    if (touches.length >= 2) {
+      this.beginPinch(touches);
+      return;
+    }
+    if (this._gestureMode === "pinch") return;
+    const touch = event.touches && event.touches[0];
+    if (!touch) return;
+    this.clearCanvasDrawTimer();
+    this._lastCanvasDrawAt = 0;
+    this._drawingStart = this.getCanvasPoint(event);
+    if (!this._drawingStart) return;
+    this._drawingCurrent = this._drawingStart;
+    this._drawingTouchId = getTouchIdentifier(touch);
+    this._gestureMode = "draw";
+    this.setData({ drawing: true });
+  },
+
+  onCanvasTouchMove(event) {
+    const touches = this.getViewportTouches(event);
+    if (touches.length >= 2) {
+      if (this._gestureMode !== "pinch") this.beginPinch(touches);
+      const nextView = updatePinchView(
+        this._pinchState,
+        touches[0],
+        touches[1],
+        this.data.canvasWidth,
+        this.data.canvasHeight
+      );
+      if (nextView) {
+        this.setCanvasView(nextView.scale, nextView.offsetX, nextView.offsetY);
+      }
+      return;
+    }
+    if (this._gestureMode !== "draw" || !this._drawingStart) return;
+    const touch = this.getDrawingTouch(event);
+    if (!touch) return;
+    this._drawingCurrent = this.getCanvasPoint(touch, event);
+    if (!this._drawingCurrent) return;
+    const preview = this.circleFromPoints(this._drawingStart, this._drawingCurrent);
+    this.scheduleCanvasDraw(preview);
+  },
+
+  onCanvasTouchEnd(event) {
+    if (this._gestureMode === "pinch") {
+      if (this.getActiveTouchCount(event) > 0) {
+        this._pinchState = null;
+        this._drawingStart = null;
+        this._drawingCurrent = null;
+        this._drawingTouchId = null;
+        this.setPageScrollLock(true);
+        return;
+      }
+      this._gestureMode = null;
+      this._pinchState = null;
+      this._drawingStart = null;
+      this._drawingCurrent = null;
+      this._drawingTouchId = null;
+      this.setPageScrollLock(false);
+      return;
+    }
+    if (this._gestureMode !== "draw" || !this._drawingStart) return;
+    this.clearCanvasDrawTimer();
+    const touch = this.getDrawingTouch(event, true);
+    const touchPoint = touch ? this.getCanvasPoint(touch, event) : null;
+    const endPoint = touchPoint
+      ? touchPoint
+      : (this._drawingCurrent || this._drawingStart);
+    const circle = this.circleFromPoints(this._drawingStart, endPoint);
+    this._drawingStart = null;
+    this._drawingCurrent = null;
+    this._drawingTouchId = null;
+    this._gestureMode = null;
+    this.setPageScrollLock(false);
+    this.updateProject({ maskCircle: circle, maskFileID: "" });
+    this.setData({ drawing: false, step: 1 });
+    this.drawCanvas(circle);
+  },
+
+  onCanvasTouchCancel() {
+    this.clearCanvasDrawTimer();
+    this._drawingStart = null;
+    this._drawingCurrent = null;
+    this._drawingTouchId = null;
+    this._gestureMode = null;
+    this._pinchState = null;
+    this.setPageScrollLock(false);
+    this.setData({ drawing: false });
+    this.drawCanvas();
+  },
+
+  clearCircle() {
+    if (!this.data.project.maskCircle) {
+      wx.showToast({ title: "当前没有红圈", icon: "none" });
+      return;
+    }
+    this.clearCanvasDrawTimer();
+    this.updateProject({ maskCircle: null, maskFileID: "" });
+    this.drawCanvas(null);
+  },
+
+  selectFaceForCircle(faces, currentCircle) {
+    const mainImage = this.data.project && this.data.project.mainImage || {};
+    const imageWidth = Number(this.data.imageWidth) || Number(mainImage.width) || 1;
+    const imageHeight = Number(this.data.imageHeight) || Number(mainImage.height) || 1;
+    const normalized = (Array.isArray(faces) ? faces : []).map((face) => {
+      const width = clamp(Number(face.width) / 1000 * imageWidth, 24, imageWidth);
+      const height = clamp(Number(face.height) / 1000 * imageHeight, 24, imageHeight);
+      const left = clamp(Number(face.x) / 1000 * imageWidth, 0, imageWidth - width);
+      const top = clamp(Number(face.y) / 1000 * imageHeight, 0, imageHeight - height);
+      return {
+        x: left + width / 2,
+        y: top + height / 2,
+        width,
+        height,
+        area: width * height,
+        confidence: Number(face.confidence) || 0
+      };
+    }).filter((face) => face.width > 24 && face.height > 24);
+    if (!normalized.length) return null;
+    if (currentCircle) {
+      return normalized.sort((left, right) => {
+        const leftDistance = Math.pow(left.x - currentCircle.x, 2) + Math.pow(left.y - currentCircle.y, 2);
+        const rightDistance = Math.pow(right.x - currentCircle.x, 2) + Math.pow(right.y - currentCircle.y, 2);
+        return leftDistance - rightDistance || right.area - left.area;
+      })[0];
+    }
+    return normalized.sort((left, right) => right.area - left.area || right.confidence - left.confidence)[0];
+  },
+
+  circleFromFace(face) {
+    if (!face) return null;
+    const mainImage = this.data.project && this.data.project.mainImage || {};
+    const imageWidth = Number(this.data.imageWidth) || Number(mainImage.width) || 1;
+    const imageHeight = Number(this.data.imageHeight) || Number(mainImage.height) || 1;
+    const width = clamp(
+      Math.max(AUTO_FACE_MIN_WIDTH, face.width * AUTO_FACE_WIDTH_SCALE),
+      AUTO_FACE_MIN_WIDTH,
+      imageWidth
+    );
+    const height = clamp(
+      Math.max(AUTO_FACE_MIN_HEIGHT, face.height * AUTO_FACE_HEIGHT_SCALE),
+      AUTO_FACE_MIN_HEIGHT,
+      imageHeight
+    );
+    return {
+      x: clamp(face.x, width / 2, imageWidth - width / 2),
+      y: clamp(face.y - face.height * 0.04, height / 2, imageHeight - height / 2),
+      width,
+      height
+    };
+  },
+
+  applyCachedAutoFaceCircle(circle) {
+    const cachedCircle = clone(circle);
+    this.updateProject({ maskCircle: cachedCircle, maskFileID: "" });
+    this.setData({ step: 1 });
+    this.drawCanvas(cachedCircle);
+    this.recordAutoFaceStatus(
+      "ready",
+      "cache-hit",
+      "cache",
+      "已复用本张主图的人脸识别结果",
+      { cacheHit: true }
+    );
+    wx.showToast({ title: "已复用上次贴脸结果", icon: "success" });
+  },
+
+  async autoFaceCircle() {
+    if (!this.data.project.mainImage) {
+      wx.showToast({ title: "请先上传主图", icon: "none" });
+      return;
+    }
+    if (this.data.analysisAction) {
+      wx.showToast({ title: "请等当前分析完成", icon: "none" });
+      return;
+    }
+    this.setData({ analysisAction: "faceCircle" });
+    const autoFaceStartedAt = Date.now();
+    try {
+      const project = this.data.project;
+      const mainImageKey = this.getMainImageKey(project.mainImage);
+      const cached = this._autoFaceDetectionCache;
+      if (cached && cached.key === mainImageKey && cached.circle) {
+        this.applyCachedAutoFaceCircle(cached.circle);
+        return;
+      }
+      if (!cloud.isCloudReady()) {
+        this.enterManualFaceCircle(null);
+        return;
+      }
+
+      let circle = null;
+      this.recordAutoFaceStatus(
+        "running",
+        "cloud-start",
+        "cloud",
+        "正在使用云端自动贴脸"
+      );
+      wx.showLoading({ title: "云端识别人脸中", mask: true });
+      try {
+        const uploadStartedAt = Date.now();
+        const hadMainFileID = Boolean(project.mainImage.fileID);
+        const uploadedMainImage = await this.ensureUploaded(project.mainImage, "main");
+        const uploadMs = Date.now() - uploadStartedAt;
+        this.recordAutoFaceStatus(
+          "running",
+          "upload-complete",
+          "cloud",
+          hadMainFileID ? "主图已在云端，跳过重复上传" : "主图上传完成",
+          {
+            durationMs: uploadMs,
+            reused: hadMainFileID,
+            fileID: uploadedMainImage.fileID || ""
+          }
+        );
+        if (!this.isCurrentMainImage(mainImageKey)) {
+          const staleError = new Error("主图已更换，已取消旧的人脸识别。");
+          staleError.code = "stale-main-image";
+          throw staleError;
+        }
+        if (uploadedMainImage.fileID !== project.mainImage.fileID) {
+          const currentMainImage = this.data.project.mainImage;
+          this.updateProject({
+            mainImage: Object.assign({}, currentMainImage, uploadedMainImage)
+          });
+        }
+        const detectStartedAt = Date.now();
+        const cloudResult = await cloud.detectFaceCircle({
+          mainFileID: uploadedMainImage.fileID,
+          projectName: project.projectName
+        });
+        const clientDetectMs = Date.now() - detectStartedAt;
+        if (!this.isCurrentMainImage(mainImageKey)) {
+          const staleError = new Error("主图已更换，已取消旧的人脸识别。");
+          staleError.code = "stale-main-image";
+          throw staleError;
+        }
+        const selectedFace = this.selectFaceForCircle(
+          cloudResult && cloudResult.faces,
+          this.data.project.maskCircle
+        );
+        circle = this.circleFromFace(selectedFace);
+        if (!circle) throw new Error("云端没有识别到清晰人脸。");
+        this._autoFaceDetectionCache = {
+          key: mainImageKey,
+          circle: clone(circle),
+          faceCount: Array.isArray(cloudResult && cloudResult.faces)
+            ? cloudResult.faces.length
+            : 0
+        };
+        this.recordAutoFaceStatus(
+          "running",
+          "cloud-result",
+          "cloud",
+          "云端人脸位置已返回",
+          {
+            faceCount: Array.isArray(cloudResult && cloudResult.faces)
+              ? cloudResult.faces.length
+              : 0,
+            provider: cloudResult && cloudResult.provider || "",
+            model: cloudResult && cloudResult.model || "",
+            timing: cloudResult && cloudResult.timing || null,
+            clientDetectMs,
+            clientTotalMs: Date.now() - autoFaceStartedAt
+          }
+        );
+      } catch (error) {
+        if (error && error.code === "stale-main-image") {
+          console.warn("[index] 自动贴脸已取消：主图发生变化");
+          wx.showToast({ title: "主图已更换，请重新识别", icon: "none" });
+          return;
+        }
+        const cloudError = safeErrorInfo(error, "云端自动贴脸失败");
+        cloudError.clientTotalMs = Date.now() - autoFaceStartedAt;
+        console.error("[index] 云端自动贴脸失败", { cloudError });
+        this.enterManualFaceCircle(cloudError);
+        return;
+      } finally {
+        wx.hideLoading();
+      }
+
+      this.updateProject({ maskCircle: circle, maskFileID: "" });
+      this.setData({ step: 1 });
+      this.drawCanvas(circle);
+      this.recordAutoFaceStatus(
+        "ready",
+        "detect-complete",
+        "cloud",
+        "云端自动贴脸完成",
+        {
+          detectComplete: true,
+          clientTotalMs: Date.now() - autoFaceStartedAt,
+          circle: clone(circle)
+        }
+      );
+      wx.showToast({
+        title: "云端贴脸完成",
+        icon: "success"
+      });
+    } catch (error) {
+      const unexpectedError = safeErrorInfo(error, "自动贴脸出现异常");
+      console.error("[index] 自动贴脸流程异常", { error: unexpectedError });
+      this.enterManualFaceCircle(unexpectedError);
+    } finally {
+      this.setData({ analysisAction: "" });
+    }
+  },
+
+  async chooseFaceImages() {
+    const remaining = Math.max(0, 6 - this.data.project.faceRefs.length);
+    if (!remaining) {
+      wx.showToast({ title: "最多添加 6 张人脸参考", icon: "none" });
+      return;
+    }
+    await this.appendAssets("faceRefs", Math.min(remaining, 6));
+  },
+
+  async chooseWardrobeImages() {
+    const remaining = Math.max(0, 12 - this.data.project.wardrobeRefs.length);
+    if (!remaining) {
+      wx.showToast({ title: "最多添加 12 张穿搭参考", icon: "none" });
+      return;
+    }
+    await this.appendAssets("wardrobeRefs", Math.min(remaining, 12));
+  },
+
+  async appendAssets(field, count) {
+    try {
+      const result = await chooseImages(count);
+      const files = result.tempFiles || [];
+      const assets = await Promise.all(files.map(async (file, index) => {
+        const prepared = await prepareImageAsset(file, {
+          compression: config.imageCompression
+        });
+        return {
+          id: `${field}-${Date.now()}-${index}-${Math.random().toString(16).slice(2)}`,
+          name: file.name || basename(file.tempFilePath),
+          path: prepared.path,
+          type: prepared.type,
+          size: prepared.compressedSize || file.size || 0,
+          width: prepared.width,
+          height: prepared.height,
+          originalWidth: prepared.originalWidth,
+          originalHeight: prepared.originalHeight,
+          originalSize: prepared.originalSize,
+          compressedSize: prepared.compressedSize,
+          compressed: prepared.compressed,
+          compressionChecked: prepared.compressionChecked,
+          compressionQuality: prepared.compressionQuality,
+          fileID: "",
+          isPrimary: field === "faceRefs" && this.data.project.faceRefs.length === 0 && index === 0,
+          kind: "clothing",
+          target: "整套穿搭",
+          targetOptions: CLOTHING_TARGETS,
+          tags: [],
+          note: ""
+        };
+      }));
+      const current = this.data.project[field] || [];
+      const project = Object.assign({}, this.data.project, {
+        [field]: current.concat(assets)
+      });
+      this.setData({ project, step: 2 });
+      storage.saveProject(project);
+    } catch (error) {
+      this.showError("参考图选择失败", error);
+    }
+  },
+
+  removeFace(event) {
+    const index = Number(event.currentTarget.dataset.index);
+    const faces = this.data.project.faceRefs.slice();
+    faces.splice(index, 1);
+    if (faces.length && !faces.some((item) => item.isPrimary)) faces[0].isPrimary = true;
+    this.updateProject({ faceRefs: faces });
+  },
+
+  setPrimaryFace(event) {
+    const index = Number(event.currentTarget.dataset.index);
+    const faces = this.data.project.faceRefs.map((item, itemIndex) => Object.assign({}, item, {
+      isPrimary: itemIndex === index
+    }));
+    this.updateProject({ faceRefs: faces });
+  },
+
+  onFaceNoteInput(event) {
+    const index = Number(event.currentTarget.dataset.index);
+    const faces = this.data.project.faceRefs.slice();
+    faces[index] = Object.assign({}, faces[index], { note: event.detail.value });
+    this.updateProject({ faceRefs: faces });
+  },
+
+  removeWardrobe(event) {
+    const index = Number(event.currentTarget.dataset.index);
+    const wardrobe = this.data.project.wardrobeRefs.slice();
+    wardrobe.splice(index, 1);
+    this.updateProject({ wardrobeRefs: wardrobe });
+  },
+
+  onWardrobeKindChange(event) {
+    const index = Number(event.currentTarget.dataset.index);
+    const wardrobe = this.data.project.wardrobeRefs.slice();
+    const kind = String(event.currentTarget.dataset.value) === "1" ? "accessory" : "clothing";
+    wardrobe[index] = Object.assign({}, wardrobe[index], {
+      kind,
+      target: kind === "accessory" ? ACCESSORY_TARGETS[0] : CLOTHING_TARGETS[0],
+      targetOptions: kind === "accessory" ? ACCESSORY_TARGETS : CLOTHING_TARGETS
+    });
+    this.updateProject({ wardrobeRefs: wardrobe });
+  },
+
+  onWardrobeTargetInput(event) {
+    const index = Number(event.currentTarget.dataset.index);
+    const wardrobe = this.data.project.wardrobeRefs.slice();
+    const options = wardrobe[index].kind === "accessory" ? ACCESSORY_TARGETS : CLOTHING_TARGETS;
+    const target = options[Number(event.detail.value)] || options[0];
+    wardrobe[index] = Object.assign({}, wardrobe[index], { target });
+    this.updateProject({ wardrobeRefs: wardrobe });
+  },
+
+  onWardrobeNoteInput(event) {
+    const index = Number(event.currentTarget.dataset.index);
+    const wardrobe = this.data.project.wardrobeRefs.slice();
+    wardrobe[index] = Object.assign({}, wardrobe[index], { note: event.detail.value });
+    this.updateProject({ wardrobeRefs: wardrobe });
+  },
+
+  onDescriptionInput(event) {
+    const field = event.currentTarget.dataset.field;
+    if (!field) return;
+    const patch = {};
+    patch[field] = event.detail.value;
+    this.updateProject(patch);
+  },
+
+  onCustomLockInput(event) {
+    const customLockText = event.detail.value || "";
+    const customLockedElements = parseCustomLocks(customLockText);
+    const project = this.updateProject({ customLockedElements });
+    this.setData({
+      customLockText,
+      lockedSelectionCount: project.lockedElements.length + customLockedElements.length
+    });
+  },
+
+  toggleLockPanel() {
+    this.setData({ lockPanelOpen: !this.data.lockPanelOpen });
+  },
+
+  selectAllLockedElements() {
+    const lockedElements = LOCKED_ELEMENTS.slice();
+    const project = this.updateProject({ lockedElements });
+    this.setData({
+      lockedElementOptions: createLockedElementOptions(lockedElements),
+      lockedSelectionCount: lockedElements.length + project.customLockedElements.length
+    });
+  },
+
+  onLockedElementsChange(event) {
+    const lockedElements = Array.isArray(event.detail.value) ? event.detail.value : [];
+    const project = this.updateProject({ lockedElements });
+    this.setData({
+      lockedElementOptions: createLockedElementOptions(lockedElements),
+      lockedSelectionCount: lockedElements.length + project.customLockedElements.length
+    });
+  },
+
+  refreshPromptDraft() {
+    const prompt = buildPrompt(this.data.project);
+    const negativePrompt = buildNegativePrompt(this.data.project);
+    return this.updateProject({ promptDraft: prompt, negativePrompt });
+  },
+
+  validateStep(step) {
+    const project = this.data.project;
+    if (step === 0 && !project.mainImage) return "请先上传主图";
+    if (step === 1 && !project.maskCircle) return "请在主图上拖动圈选区域";
+    if (step === 2 && !project.faceRefs.length) return "至少添加 1 张人脸参考图";
+    return "";
+  },
+
+  nextStep() {
+    const error = this.validateStep(this.data.step);
+    if (error) {
+      wx.showToast({ title: error, icon: "none" });
+      return;
+    }
+    const next = Math.min(this.data.steps.length - 1, this.data.step + 1);
+    if (this.data.step === 3) this.refreshPromptDraft();
+    this.setData({ step: next });
+  },
+
+  prevStep() {
+    this.setData({ step: Math.max(0, this.data.step - 1) });
+  },
+
+  jumpToRecords() {
+    wx.navigateTo({ url: "/pages/records/records" });
+  },
+
+  async ensureUploaded(asset, folder, options = {}) {
+    if (!asset || asset.fileID) return asset;
+    let prepared = asset;
+    if (asset.path && asset.compressionChecked !== true && options.skipCompression !== true) {
+      const isMainImage = folder === "main";
+      const prepareKey = this.getMainImageKey(asset);
+      let preparePromise;
+      if (isMainImage) {
+        const currentState = this._mainImagePrepareState;
+        if (currentState && currentState.key === prepareKey && currentState.promise) {
+          preparePromise = currentState.promise;
+        } else {
+          const state = { key: prepareKey, promise: null };
+          state.promise = prepareImageAsset(asset, {
+            compression: config.imageCompression
+          }).catch((error) => {
+            if (this._mainImagePrepareState === state) this._mainImagePrepareState = null;
+            throw error;
+          });
+          this._mainImagePrepareState = state;
+          preparePromise = state.promise;
+        }
+      } else {
+        preparePromise = prepareImageAsset(asset, {
+          compression: config.imageCompression
+        });
+      }
+      const compressed = await preparePromise;
+      prepared = Object.assign({}, asset, {
+        path: compressed.path,
+        type: compressed.type || asset.type,
+        size: compressed.compressedSize || asset.size || 0,
+        width: compressed.width || asset.width,
+        height: compressed.height || asset.height,
+        originalWidth: compressed.originalWidth || asset.originalWidth || asset.width,
+        originalHeight: compressed.originalHeight || asset.originalHeight || asset.height,
+        originalSize: compressed.originalSize || asset.originalSize || asset.size || 0,
+        compressedSize: compressed.compressedSize || asset.compressedSize || asset.size || 0,
+        compressed: compressed.compressed,
+        compressionChecked: true,
+        compressionQuality: compressed.compressionQuality
+      });
+    }
+    const isMainImage = folder === "main";
+    const key = this.getMainImageKey(prepared);
+    if (isMainImage && options.reuseMain !== false) {
+      const currentState = this._mainImageUploadState;
+      if (currentState && currentState.key === key && currentState.promise) {
+        return currentState.promise;
+      }
+      const state = { key, promise: null };
+      state.promise = cloud.uploadFile(prepared.path, folder)
+        .then((upload) => Object.assign({}, prepared, { fileID: upload.fileID }))
+        .catch((error) => {
+          if (this._mainImageUploadState === state) this._mainImageUploadState = null;
+          throw error;
+        });
+      this._mainImageUploadState = state;
+      return state.promise;
+    }
+    const upload = await cloud.uploadFile(prepared.path, folder);
+    return Object.assign({}, prepared, { fileID: upload.fileID });
+  },
+
+  preloadMainImageUpload(image) {
+    if (!image || image.fileID || !cloud.isCloudReady()) return null;
+    const key = this.getMainImageKey(image);
+    const promise = this.ensureUploaded(image, "main");
+    promise.then(
+      (uploaded) => {
+        if (this._pageDestroyed || !this.isCurrentMainImage(key)) return;
+        const current = this.data.project.mainImage;
+        if (!current || current.fileID === uploaded.fileID) return;
+        this.updateProject({
+          mainImage: Object.assign({}, current, uploaded)
+        });
+      },
+      (error) => {
+        console.warn("[index] 主图后台上传失败，点击自动贴脸时将重试", {
+          message: error && error.message ? error.message : String(error)
+        });
+      }
+    );
+    return promise;
+  },
+
+  async prepareMaskAsset(project) {
+    if (!project || !project.mainImage || !project.maskCircle) return project;
+    if (project.maskFileID) return project;
+    const maskPath = await exportMaskFile(
+      this,
+      project.maskCircle,
+      project.mainImage.width,
+      project.mainImage.height
+    );
+    const uploaded = await this.ensureUploaded({
+      path: maskPath,
+      name: `${basename(project.mainImage.path)}-mask.png`,
+      type: "image/png",
+      width: project.mainImage.width,
+      height: project.mainImage.height,
+      compressionChecked: true,
+      isMask: true
+    }, "masks", { skipCompression: true });
+    project.maskFileID = uploaded.fileID;
+    return project;
+  },
+
+  async prepareCloudAssets(options = {}) {
+    const project = clone(options.project || this.data.project);
+    project.mainImage = await this.ensureUploaded(project.mainImage, "main");
+    project.faceRefs = await Promise.all(
+      project.faceRefs.map((item) => this.ensureUploaded(item, "references/faces"))
+    );
+    project.wardrobeRefs = await Promise.all(
+      project.wardrobeRefs.map((item) => this.ensureUploaded(item, "references/wardrobe"))
+    );
+    if (options.includeMask) {
+      await this.prepareMaskAsset(project);
+    }
+    this.setData({ project });
+    storage.saveProject(project);
+    return project;
+  },
+
+  async analyzeMainImage() {
+    if (!this.data.project.mainImage) {
+      wx.showToast({ title: "请先上传主图", icon: "none" });
+      return;
+    }
+    if (!this.data.cloudReady) {
+      wx.showModal({
+        title: "还没连接云端",
+        content: "当前是本地预览模式。请在 config.js 填好 CloudBase 环境 ID 后重新编译。",
+        showCancel: false
+      });
+      return;
+    }
+    if (this.data.analysisAction) {
+      wx.showToast({ title: "请等当前分析完成", icon: "none" });
+      return;
+    }
+    this.setData({ analysisAction: "main" });
+    try {
+      const project = await this.prepareCloudAssets();
+      const result = await cloud.analyzeImage({
+        mainFileID: project.mainImage.fileID,
+        instruction: "请用中文分析这张图片的场景、人物姿态、面部朝向、光影和妆容，严格返回 JSON。",
+        projectName: project.projectName
+      });
+      const analysis = result.analysis || {};
+      this.updateProject({
+        sceneDescription: analysis.sceneDescription || "",
+        poseDescription: analysis.poseDescription || "",
+        faceDirectionDescription: analysis.faceDirectionDescription || "",
+        lightingMakeupDescription: analysis.lightingMakeupDescription || ""
+      });
+      wx.showToast({ title: "原图分析完成", icon: "success" });
+    } catch (error) {
+      this.showError("原图分析失败", error);
+    } finally {
+      this.setData({ analysisAction: "" });
+    }
+  },
+
+  async analyzeWebPoses() {
+    if (!this.data.project.mainImage) {
+      wx.showToast({ title: "请先上传主图", icon: "none" });
+      return;
+    }
+    if (!this.data.cloudReady) {
+      wx.showModal({
+        title: "还没连接云端",
+        content: "参考网感分析需要使用 CloudBase 云函数和服务端视觉模型。",
+        showCancel: false
+      });
+      return;
+    }
+    if (this.data.analysisAction) {
+      wx.showToast({ title: "请等当前分析完成", icon: "none" });
+      return;
+    }
+    this.setData({ analysisAction: "webPose" });
+    try {
+      const project = await this.prepareCloudAssets();
+      const result = await cloud.analyzeWebPoses({
+        mainFileID: project.mainImage.fileID,
+        projectName: project.projectName
+      });
+      const suggestions = normalizeWebPoseSuggestions(result.suggestions);
+      if (suggestions.length !== 8) {
+        throw new Error("云端没有返回完整的 8 条网感姿势建议。");
+      }
+      this.updateProject({
+        webPoseSuggestions: suggestions,
+        selectedWebPose: null,
+        webPoseAnalysisMeta: {
+          provider: result.provider || "",
+          model: result.model || "",
+          analyzedAt: result.analyzedAt || new Date().toISOString()
+        }
+      });
+      wx.showToast({ title: "已生成 8 条建议", icon: "success" });
+    } catch (error) {
+      this.showError("参考网感分析失败", error);
+    } finally {
+      this.setData({ analysisAction: "" });
+    }
+  },
+
+  selectWebPose(event) {
+    const id = Number(event.currentTarget.dataset.id);
+    const suggestion = (this.data.project.webPoseSuggestions || []).find((item) => item.id === id);
+    if (!suggestion) {
+      wx.showToast({ title: "这条建议已经失效", icon: "none" });
+      return;
+    }
+    this.updateProject({ selectedWebPose: Object.assign({}, suggestion) });
+    wx.showToast({ title: `已选择第 ${suggestion.id} 条`, icon: "success" });
+  },
+
+  async startGenerate() {
+    if (this.data.loading) return;
+    const error = this.validateStep(4);
+    if (error) {
+      wx.showToast({ title: error, icon: "none" });
+      return;
+    }
+    if (!this.data.cloudReady) {
+      wx.showModal({
+        title: "还没连接云端",
+        content: "提示词可以本地生成，但真正生图需要 CloudBase 云函数和服务端 API Key。",
+        showCancel: false
+      });
+      return;
+    }
+    const requestId = createClientRequestId();
+    this.setData({
+      loading: true,
+      generationPhaseIndex: 0,
+      generationRetryCount: 0,
+      generationTimedOut: false,
+      generationElapsedSeconds: 0
+    });
+    this.setGenerationPhase(
+      "prepare",
+      "正在准备素材...",
+      "正在整理图片、红圈和参考素材，预计还需要几秒。"
+    );
+    this.startGenerationTimer();
+    try {
+      const promptProject = this.refreshPromptDraft();
+      this.setGenerationPhase(
+        "upload",
+        "正在上传素材...",
+        "正在上传主图、红圈和参考素材，请稍等。"
+      );
+      const project = await this.prepareCloudAssets({
+        includeMask: config.imageMode === "edits",
+        project: promptProject
+      });
+      this.setGenerationPhase(
+        "generate",
+        "AI正在生成图片...",
+        "预计需要 20～60 秒，网络较慢时可能更久，请耐心等待。",
+        { generationRetryCount: 0 }
+      );
+      const submittedPrompt = appendWebPosePromptBlock(
+        project.promptDraft,
+        project.selectedWebPose
+      );
+      const result = await cloud.generateImage(
+        {
+          projectName: project.projectName,
+          prompt: submittedPrompt,
+          negativePrompt: project.negativePrompt,
+          mainFileID: project.mainImage && project.mainImage.fileID,
+          maskFileID: project.maskFileID || "",
+          faceFileIDs: project.faceRefs.map((item) => item.fileID).filter(Boolean),
+          wardrobeFileIDs: project.wardrobeRefs.map((item) => item.fileID).filter(Boolean),
+          size: "1024x1024"
+        },
+        {
+          requestId,
+          maxRetries: GENERATION_RETRY_LIMIT,
+          onRetry: ({ attempt, maxRetries }) => {
+            if (this._pageDestroyed || !this.data.loading) return;
+            this.setData({
+              generationStage: "retry",
+              generationPhaseIndex: 2,
+              generationRetryCount: attempt,
+              generationWaitText: `网络有点慢，正在进行第 ${attempt}/${maxRetries} 次重试，请不要重复点击。`
+            });
+            this.setData({
+              loadingText: `正在重试生成（${attempt}/${maxRetries}）...`
+            });
+          }
+        }
+      );
+      this.setGenerationPhase(
+        "save",
+        "正在保存生成结果...",
+        "图片已经生成，正在保存到制作记录。"
+      );
+      const record = Object.assign({}, result.record || {}, {
+        id: result.recordId || `local-${Date.now()}`,
+        fileID: result.fileID || "",
+        tempFileURL: result.tempFileURL || "",
+        projectName: project.projectName,
+        prompt: submittedPrompt,
+        createdAt: result.createdAt || new Date().toISOString()
+      });
+      const records = [record].concat(this.data.records || []).slice(0, 50);
+      const nextProject = Object.assign({}, project, {
+        results: [record].concat(project.results || []).slice(0, 20)
+      });
+      this.setData({
+        project: nextProject,
+        records,
+        generatedResults: nextProject.results,
+        step: 4
+      });
+      storage.saveProject(nextProject);
+      storage.saveRecords(records);
+      wx.showToast({ title: "生成完成", icon: "success" });
+    } catch (error) {
+      this.showError("生图失败", error);
+    } finally {
+      this.stopGenerationTimer();
+      this.setData({
+        loading: false,
+        loadingText: "",
+        generationStage: "idle",
+        generationPhaseIndex: 0,
+        generationWaitText: "",
+        generationElapsedSeconds: 0,
+        generationRetryCount: 0,
+        generationTimedOut: false
+      });
+    }
+  },
+
+  async loadRecords() {
+    const localRecords = storage.loadRecords() || [];
+    if (cloud.isCloudReady()) {
+      try {
+        const result = await cloud.listRecords();
+        const remoteRecords = (result && result.records) || [];
+        const records = remoteRecords.length ? remoteRecords : localRecords;
+        this.setData({ records });
+        if (remoteRecords.length) {
+          storage.saveRecords(remoteRecords);
+        } else if (localRecords.length) {
+          console.warn("云端记录为空，保留本地制作记录", localRecords.length);
+        }
+        return;
+      } catch (error) {
+        console.warn("云端记录读取失败，回退本地记录", error);
+      }
+    }
+    this.setData({ records: localRecords });
+  },
+
+  previewImage(event) {
+    const url = event.currentTarget.dataset.url;
+    if (!url) return;
+    wx.previewImage({ current: url, urls: [url] });
+  },
+
+  showError(title, error) {
+    const payload = error && error.payload;
+    const message = (payload && (payload.message || payload.error)) ||
+      (error && error.errMsg) ||
+      (error && error.message) ||
+      "请稍后重试";
+    const requestId = payload && payload.requestId;
+    wx.showModal({
+      title,
+      content: `${String(message)}${requestId ? `\n请求编号：${requestId}` : ""}`,
+      showCancel: false
+    });
+  },
+
+  onShareAppMessage() {
+    return {
+      title: "圈像创作",
+      path: "/pages/index/index"
+    };
+  }
+});

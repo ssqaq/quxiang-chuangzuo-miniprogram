@@ -1,0 +1,125 @@
+<view class="workbench-page">
+  <view class="workbench-hero card">
+    <view class="workbench-brand-row">
+      <image
+        class="workbench-brand-icon"
+        src="/assets/brand/brand-icon.png"
+        mode="aspectFit"
+      ></image>
+      <view class="workbench-brand-copy">
+        <view class="workbench-title">圈像创作</view>
+        <view class="workbench-subtitle">圈定想改的，创作想要的。</view>
+      </view>
+      <view class="status {{cloudReady ? 'status-ok' : 'status-offline'}}">
+        <view class="status-dot"></view>
+        <text>{{cloudReady ? '云端已连接' : '本地预览'}}</text>
+      </view>
+    </view>
+
+    <view class="hero-orbit hero-orbit-red"></view>
+    <view class="hero-orbit hero-orbit-blue"></view>
+    <view class="workbench-welcome">
+      <view class="welcome-title">今天，想创作什么？</view>
+      <view class="welcome-subtitle">先选入口，后面按需补素材。</view>
+    </view>
+  </view>
+
+  <view class="workbench-feature-stack">
+  <view class="feature-group-heading">
+    <view class="feature-group-title">
+      <view class="feature-group-dot"></view>
+      <text>常用功能</text>
+    </view>
+    <view class="feature-group-subtitle">开始创作、查看记录、导出图片</view>
+  </view>
+  <view class="entry-grid">
+    <view
+      wx:for="{{entryModes}}"
+      wx:key="mode"
+      class="entry-card entry-card-{{item.tone}} home-feature-card workbench-link-card"
+      data-mode="{{item.mode}}"
+      catchtap="startNew"
+      hover-class="entry-card-hover"
+      hover-start-time="0"
+      hover-stay-time="70"
+    >
+      <view class="entry-mark">{{item.mark}}</view>
+      <view class="entry-copy">
+        <view class="entry-title">{{item.title}}</view>
+        <view class="entry-description">{{item.description}}</view>
+      </view>
+      <view class="home-feature-arrow entry-arrow">›</view>
+    </view>
+  </view>
+
+  <view
+    class="card recent-card home-feature-card workbench-link-card {{records.length ? 'recent-card-filled' : 'recent-card-empty'}}"
+    catchtap="openRecords"
+    hover-class="workbench-link-card-hover"
+    hover-start-time="0"
+    hover-stay-time="70"
+  >
+    <view class="section-head">
+      <view class="feature-card-leading">
+        <view class="feature-card-icon recent-card-icon">记</view>
+        <view class="feature-card-copy">
+          <view class="section-kicker">最近产出</view>
+          <view class="section-title">制作记录</view>
+        </view>
+      </view>
+      <button class="small-btn plain-btn recent-more" catchtap="openRecords">
+        <text class="recent-more-label">查看全部</text>
+        <text class="home-feature-arrow recent-more-arrow">›</text>
+      </button>
+    </view>
+
+    <view wx:if="{{!records.length}}" class="recent-empty-copy">
+      还没有制作记录，完成一张照片后会显示在这里。
+    </view>
+
+    <view wx:if="{{records.length}}" class="recent-list">
+      <view
+        wx:for="{{records}}"
+        wx:key="id"
+        class="recent-item"
+        data-url="{{item.imagePath}}"
+        catchtap="previewRecord"
+      >
+        <image
+          wx:if="{{item.imagePath}}"
+          class="recent-image"
+          src="{{item.imagePath}}"
+          mode="aspectFill"
+        ></image>
+        <view wx:else class="recent-image recent-image-empty">无图</view>
+        <view class="recent-info">
+          <view class="recent-name">{{item.projectName}}</view>
+          <view class="recent-time">{{item.createdAt}}</view>
+        </view>
+        <view class="recent-arrow">›</view>
+      </view>
+    </view>
+  </view>
+
+  <view
+    class="card publish-export-entry home-feature-card workbench-link-card"
+    bindtap="openPublishExport"
+    hover-class="workbench-link-card-hover"
+    hover-start-time="0"
+    hover-stay-time="70"
+  >
+    <view class="publish-export-icon">AI</view>
+    <view class="publish-export-copy">
+      <view class="publish-export-title">降低AI识别率再导出照片</view>
+      <view class="publish-export-description">让图片更不容易被判成AI生成，再另存到手机相册</view>
+    </view>
+    <view class="home-feature-arrow publish-export-arrow">›</view>
+  </view>
+
+  </view>
+
+  <view class="workbench-footer">
+    <view>局部创作，整体可控</view>
+    <view>版本 {{appVersion}} · {{cloudReady ? '云端已连接' : '本地预览模式'}}</view>
+  </view>
+</view>

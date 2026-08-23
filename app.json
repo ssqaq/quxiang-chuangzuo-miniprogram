@@ -1,0 +1,18 @@
+{
+  "pages": [
+    "pages/splash/splash",
+    "pages/workbench/workbench",
+    "pages/index/index",
+    "pages/records/records",
+    "pages/publish-export/publish-export"
+  ],
+  "window": {
+    "navigationBarTitleText": "圈像创作",
+    "navigationBarBackgroundColor": "#f5f7fb",
+    "navigationBarTextStyle": "black",
+    "backgroundColor": "#f5f7fb",
+    "backgroundTextStyle": "light"
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json"
+}

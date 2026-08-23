@@ -26,13 +26,6 @@
 
   <view class="workbench-feature-stack">
   <view class="common-feature-panel">
-    <view class="common-feature-panel-head">
-      <text>圈像创作</text>
-      <view class="common-feature-panel-status">
-        {{cloudReady ? '云端已连接' : '本地预览'}}
-      </view>
-    </view>
-
     <view class="feature-group-heading common-feature-heading">
       <view class="feature-group-title">
         <view class="feature-group-dot"></view>
@@ -83,10 +76,6 @@
         </button>
         <view class="home-feature-arrow recent-more-arrow">›</view>
 
-        <view wx:if="{{!records.length}}" class="recent-card-guide">
-          制作记录：以前做过的图片都在这里，点进去可以查看。
-        </view>
-
         <view wx:if="{{records.length}}" class="recent-list">
           <view
             wx:for="{{records}}"
@@ -109,6 +98,10 @@
             <view class="recent-arrow">›</view>
           </view>
         </view>
+      </view>
+
+      <view wx:if="{{!records.length}}" class="recent-card-guide common-feature-record-note">
+        制作记录：以前做过的图片都在这里，点进去可以查看。
       </view>
 
       <view

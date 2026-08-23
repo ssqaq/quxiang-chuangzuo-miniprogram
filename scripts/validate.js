@@ -52,6 +52,7 @@ const jsFiles = [
   "scripts/page-scroll-lock-smoke.js",
   "scripts/circle-gesture-smoke.js",
   "scripts/auto-face-fallback-smoke.js",
+  "scripts/cloud-error-propagation-smoke.js",
   "scripts/diagnostic-log-smoke.js",
   "scripts/generation-experience-smoke.js",
   "scripts/photo-to-video-smoke.js",
@@ -342,7 +343,7 @@ const commonFeatureHeadingCount = (
   workbenchWxml.match(/<text>常用功能<\/text>/g) || []
 ).length;
 const commonFeatureSubtitleCount = (
-  workbenchWxml.match(/开始创作、查看记录、导出图片/g) || []
+  workbenchWxml.match(/class="feature-group-subtitle"/g) || []
 ).length;
 const workbenchEntryCardCount = workbenchWxml.includes('wx:if="{{adminVisible}}"') ? 5 : 4;
 const diagnosticFeatureHeadingStyle = workbenchWxss.match(
@@ -537,12 +538,12 @@ if (
   throw new Error("故障排查报告、真机跳转兜底或一键刷新预览功能不完整。");
 }
 if (
-  !workbenchWxml.includes("降低AI识别率再导出照片")
+  !workbenchWxml.includes("降低 AI 痕迹")
   || !workbenchWxml.includes('bindtap="openPublishExport"')
   || !workbenchJs.includes('"/pages/publish-export/publish-export"')
   || !workbenchJs.includes("openPublishExport()")
   || !workbenchWxss.includes(".publish-export-entry")
-  || workbenchWxml.indexOf("降低AI识别率再导出照片") < workbenchWxml.indexOf("制作记录")
+  || workbenchWxml.indexOf("降低 AI 痕迹") < workbenchWxml.indexOf("制作记录")
 ) {
   throw new Error("首页“降低AI识别率再导出照片”入口没有放在制作记录卡片下面。");
 }
@@ -601,7 +602,7 @@ if (
 if (
   !appJson.pages.includes("pages/photo-to-video/photo-to-video")
   || !workbenchWxml.includes("照片转实况图")
-  || !workbenchWxml.includes("生成普通动态视频，照片和视频分别保存")
+  || !workbenchWxml.includes("生成动态视频，照片也会保留")
   || !workbenchWxml.includes('bindtap="openPhotoToVideo"')
   || !workbenchJs.includes("openPhotoToVideo()")
   || !workbenchJs.includes('"/pages/photo-to-video/photo-to-video"')

@@ -837,6 +837,16 @@ button.interaction-log-button.button-hover {
   box-shadow: none !important;
 }
 
+.interaction-log-primary-button,
+.diagnostic-copy-button {
+  transform: translateX(-10px);
+}
+
+button.interaction-log-primary-button.button-hover,
+button.diagnostic-copy-button.button-hover {
+  transform: translateX(-10px);
+}
+
 .contact-author-card {
   margin-top: 16rpx;
   padding: 26rpx;
@@ -1328,27 +1338,8 @@ button.recent-more-c.small-btn {
   box-shadow: 0 10rpx 26rpx rgba(28, 111, 91, 0.06);
 }
 
-.common-feature-panel-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 2rpx 16rpx;
-  color: #30415a;
-  font-size: 24rpx;
-  font-weight: 700;
-}
-
-.common-feature-panel-status {
-  padding: 6rpx 12rpx;
-  border-radius: 999rpx;
-  color: #8b9caf;
-  background: #f0f5f8;
-  font-size: 20rpx;
-  font-weight: 500;
-}
-
 .common-feature-panel .common-feature-heading {
-  margin: 0 0 16rpx;
+  margin: 0 0 14rpx;
   padding: 0 2rpx;
 }
 
@@ -1376,12 +1367,12 @@ button.recent-more-c.small-btn {
 .common-feature-panel .common-feature-row {
   display: flex;
   width: 100%;
-  min-height: 100rpx;
+  min-height: 148rpx;
   height: auto;
   margin: 0;
   padding: 18rpx;
   flex-direction: row;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 12rpx;
   border: 1rpx solid #d2ece3;
@@ -1392,7 +1383,7 @@ button.recent-more-c.small-btn {
 
 .common-feature-panel .entry-card-custom {
   width: 100%;
-  min-height: 100rpx;
+  min-height: 148rpx;
   padding: 18rpx;
   align-items: center;
   background: rgba(255, 255, 255, 0.78);
@@ -1427,6 +1418,19 @@ button.recent-more-c.small-btn {
   min-width: 0;
   flex: 1;
   align-items: center;
+}
+
+.common-feature-panel .recent-card {
+  flex-wrap: nowrap;
+}
+
+.common-feature-panel .recent-card-filled {
+  flex-wrap: wrap;
+}
+
+.common-feature-panel .recent-card .common-feature-row-main {
+  flex: 1 1 0;
+  width: auto;
 }
 
 .common-feature-panel .feature-card-icon,
@@ -1505,6 +1509,8 @@ button.recent-more-c.small-btn {
 }
 
 .common-feature-panel .recent-card-guide {
+  display: block;
+  box-sizing: border-box;
   width: calc(100% - 78rpx);
   margin: 0 0 0 78rpx;
   padding: 10rpx 14rpx;
@@ -1513,6 +1519,11 @@ button.recent-more-c.small-btn {
   background: rgba(255, 255, 255, 0.78);
   font-size: 20rpx;
   line-height: 30rpx;
+}
+
+.common-feature-panel .common-feature-record-note {
+  flex: none;
+  margin-top: -2rpx;
 }
 
 .common-feature-panel .recent-list {

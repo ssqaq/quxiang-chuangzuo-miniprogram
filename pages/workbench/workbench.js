@@ -104,8 +104,10 @@ Page({
   data: {
     appVersion: config.appVersion,
     cloudReady: false,
+    adminVisible: false,
     authorQrPath: AUTHOR_QR_PATH,
     savingAuthorQr: false,
+    contactAuthorExpanded: true,
     entryModes: ENTRY_MODES,
     hasDraft: false,
     records: [],
@@ -126,6 +128,7 @@ Page({
     this._navigating = false;
     this.refreshWorkbench();
     this.refreshDiagnostics();
+    this.refreshAdminAccess();
   },
 
   refreshWorkbench() {
@@ -151,6 +154,25 @@ Page({
       diagnosticStats: diagnosticLog.getStats(),
       diagnosticSession: diagnosticLog.getSession()
     });
+  },
+
+  async refreshAdminAccess() {
+    if (!cloud.isCloudReady()) {
+      this.setData({ adminVisible: false });
+      return;
+    }
+    try {
+      const result = await cloud.getAdminStatus();
+      this.setData({ adminVisible: Boolean(result && result.isAdmin) });
+    } catch (error) {
+      this.setData({ adminVisible: false });
+      diagnosticLog.warn("admin", "status-failed", "管理员入口状态读取失败", { error });
+    }
+  },
+
+  openAdmin() {
+    if (!this.data.adminVisible) return;
+    wx.navigateTo({ url: "/pages/admin/admin" });
   },
 
   recordInteraction(event, message, details = {}) {
@@ -491,6 +513,12 @@ Page({
       "动态视频页打开失败",
       "已打开照片转动态视频"
     );
+  },
+
+  toggleAuthorQr() {
+    this.setData({
+      contactAuthorExpanded: !this.data.contactAuthorExpanded
+    });
   },
 
   previewAuthorQr() {

@@ -1,0 +1,111 @@
+<view class="admin-page">
+  <view class="admin-hero card">
+    <view class="admin-hero-top">
+      <view>
+        <view class="admin-kicker">ADMIN CONSOLE</view>
+        <view class="admin-title">管理员配置</view>
+        <view class="admin-subtitle">在线调整生图和视频模型，不改 API Key。</view>
+      </view>
+      <view class="admin-access-badge">{{isAdmin ? '管理员' : '未授权'}}</view>
+    </view>
+    <button class="admin-back-button" bindtap="backToWorkbench">返回工作台</button>
+  </view>
+
+  <view wx:if="{{loading}}" class="card admin-state-card">
+    正在读取管理员配置...
+  </view>
+
+  <view wx:if="{{!loading && isAdmin}}" class="admin-content">
+    <view wx:if="{{message}}" class="admin-message">{{message}}</view>
+
+    <view class="card admin-section">
+      <view class="admin-section-head">
+        <view>
+          <view class="admin-section-title">生图模型</view>
+          <view class="admin-section-help">API Key 继续从云函数环境变量读取。</view>
+        </view>
+        <view class="admin-config-state {{effective.image.apiKeyConfigured ? 'is-ready' : 'is-off'}}">
+          {{effective.image.apiKeyConfigured ? 'Key 已配置' : 'Key 未配置'}}
+        </view>
+      </view>
+      <view class="admin-grid">
+        <view class="admin-field"><text>Provider</text><input value="{{form.image.provider}}" data-section="image" data-key="provider" bindinput="onInput" /></view>
+        <view class="admin-field"><text>Model</text><input value="{{form.image.model}}" data-section="image" data-key="model" bindinput="onInput" /></view>
+        <view class="admin-field admin-field-wide"><text>Base URL</text><input value="{{form.image.baseUrl}}" data-section="image" data-key="baseUrl" bindinput="onInput" /></view>
+        <view class="admin-field admin-field-wide"><text>Endpoint（可空）</text><input value="{{form.image.endpoint}}" data-section="image" data-key="endpoint" bindinput="onInput" /></view>
+        <view class="admin-field"><text>模式</text><input value="{{form.image.mode}}" data-section="image" data-key="mode" placeholder="generations / edits" bindinput="onInput" /></view>
+        <view class="admin-field"><text>尺寸</text><input value="{{form.image.size}}" data-section="image" data-key="size" placeholder="1024x1024" bindinput="onInput" /></view>
+        <view class="admin-field"><text>超时毫秒</text><input type="number" value="{{form.image.timeoutMs}}" data-section="image" data-key="timeoutMs" bindinput="onInput" /></view>
+        <view class="admin-field"><text>最大重试</text><input type="number" value="{{form.image.maxRetries}}" data-section="image" data-key="maxRetries" bindinput="onInput" /></view>
+      </view>
+      <label class="admin-checkbox-row">
+        <checkbox value="enabled" checked="{{form.image.retryEnabled}}" bindchange="onRetryChange" color="#1f6feb"></checkbox>
+        <text>允许生图上游请求自动重试</text>
+      </label>
+    </view>
+
+    <view class="card admin-section">
+      <view class="admin-section-head">
+        <view>
+          <view class="admin-section-title">视频模型</view>
+          <view class="admin-section-help">创建任务只发一次，查询任务按配置轮询。</view>
+        </view>
+        <view class="admin-config-state {{effective.video.apiKeyConfigured ? 'is-ready' : 'is-off'}}">
+          {{effective.video.apiKeyConfigured ? 'Key 已配置' : 'Key 未配置'}}
+        </view>
+      </view>
+      <view class="admin-grid">
+        <view class="admin-field"><text>Provider</text><input value="{{form.video.provider}}" data-section="video" data-key="provider" bindinput="onInput" /></view>
+        <view class="admin-field"><text>Model</text><input value="{{form.video.model}}" data-section="video" data-key="model" bindinput="onInput" /></view>
+        <view class="admin-field admin-field-wide"><text>Base URL</text><input value="{{form.video.baseUrl}}" data-section="video" data-key="baseUrl" bindinput="onInput" /></view>
+        <view class="admin-field admin-field-wide"><text>创建 Endpoint（可空）</text><input value="{{form.video.endpoint}}" data-section="video" data-key="endpoint" bindinput="onInput" /></view>
+        <view class="admin-field admin-field-wide"><text>查询 Endpoint（可空）</text><input value="{{form.video.queryEndpoint}}" data-section="video" data-key="queryEndpoint" bindinput="onInput" /></view>
+        <view class="admin-field admin-field-wide"><text>创建路径</text><input value="{{form.video.createPath}}" data-section="video" data-key="createPath" bindinput="onInput" /></view>
+        <view class="admin-field admin-field-wide"><text>查询路径</text><input value="{{form.video.queryPath}}" data-section="video" data-key="queryPath" bindinput="onInput" /></view>
+        <view class="admin-field"><text>清晰度</text><input value="{{form.video.resolution}}" data-section="video" data-key="resolution" bindinput="onInput" /></view>
+        <view class="admin-field"><text>宽高比（可空）</text><input value="{{form.video.aspectRatio}}" data-section="video" data-key="aspectRatio" bindinput="onInput" /></view>
+        <view class="admin-field"><text>超时毫秒</text><input type="number" value="{{form.video.timeoutMs}}" data-section="video" data-key="timeoutMs" bindinput="onInput" /></view>
+      </view>
+    </view>
+
+    <view class="admin-actions">
+      <button class="primary-btn admin-save-button" bindtap="saveConfig" loading="{{saving}}" disabled="{{saving}}">
+        {{saving ? '保存中...' : '保存模型配置'}}
+      </button>
+      <button class="secondary-btn admin-check-button" bindtap="checkDeployment" loading="{{checking}}" disabled="{{checking}}">
+        {{checking ? '检查中...' : '立即检查线上部署'}}
+      </button>
+    </view>
+
+    <view wx:if="{{deployment}}" class="card admin-section deployment-card">
+      <view class="admin-section-title">当前线上部署</view>
+      <view class="deployment-grid">
+        <view><text>云函数版本</text><text>{{deployment.buildVersion}}</text></view>
+        <view><text>构建标记</text><text>{{deployment.buildMarker}}</text></view>
+        <view><text>生图状态</text><text>{{deployment.image.ready ? '可用' : '未就绪'}}</text></view>
+        <view><text>视频状态</text><text>{{deployment.video.ready ? '可用' : '未就绪'}}</text></view>
+        <view><text>动态配置版本</text><text>{{deployment.runtimeConfigVersion}}</text></view>
+        <view><text>检查时间</text><text>{{deployment.checkedAt}}</text></view>
+      </view>
+    </view>
+
+    <view class="card admin-section">
+      <view class="admin-section-head">
+        <view>
+          <view class="admin-section-title">部署检查日志</view>
+          <view class="admin-section-help">只记录版本、状态和配置完整性，不记录 Key 和素材。</view>
+        </view>
+        <text class="admin-log-count">{{logs.length}} 条</text>
+      </view>
+      <view wx:if="{{!logs.length}}" class="admin-empty">还没有检查记录，点击上面的按钮生成第一条。</view>
+      <view wx:for="{{logs}}" wx:key="checkedAt" class="admin-log-item">
+        <view class="admin-log-top">
+          <text>{{item.checkedAtText}}</text>
+          <text class="{{item.ok ? 'log-ok' : 'log-warn'}}">{{item.statusText}}</text>
+        </view>
+        <view class="admin-log-meta">{{item.buildVersion}} · {{item.buildMarker}}</view>
+        <view class="admin-log-meta">{{item.imageText}} · {{item.videoText}}</view>
+      </view>
+    </view>
+  </view>
+</view>

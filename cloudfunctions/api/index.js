@@ -1,4 +1,6 @@
-console.log("[api] build=0.14.2 marker=API_BUILD_TAG_20260823_57");
+const API_BUILD_VERSION = "0.14.3";
+const API_BUILD_MARKER = "API_BUILD_TAG_20260823_58";
+console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
 const cloud = require("wx-server-sdk");
 
@@ -13,6 +15,14 @@ const { PNG } = require("pngjs");
 
 // CloudBase 某些部署实例会丢失自定义相对模块，入口必须可以单文件启动。
 const DEFAULT_RETRY_STATUSES = new Set([408, 409, 425, 429, 500, 502, 503, 504]);
+const ADMIN_RUNTIME_CONFIG_COLLECTION = "admin_runtime_config";
+const ADMIN_RUNTIME_CONFIG_ID = "global";
+const ADMIN_DEPLOYMENT_LOG_COLLECTION = "admin_deployment_logs";
+const ADMIN_RUNTIME_CACHE_TTL_MS = 15000;
+let adminRuntimeCache = {
+  value: null,
+  expiresAt: 0
+};
 
 function env(name, fallback = "") {
   const value = process.env[name];
@@ -60,43 +70,88 @@ function resolveVisionConfig() {
   };
 }
 
-function resolveImageConfig() {
+function clampNumber(value, fallback, minimum, maximum) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.max(minimum, Math.min(maximum, number));
+}
+
+function overrideString(overrides, key, fallback) {
+  if (!overrides || !Object.prototype.hasOwnProperty.call(overrides, key)) return fallback;
+  const value = String(overrides[key] === null || overrides[key] === undefined ? "" : overrides[key]).trim();
+  return value || fallback;
+}
+
+function overrideBoolean(overrides, key, fallback) {
+  if (!overrides || !Object.prototype.hasOwnProperty.call(overrides, key)) return fallback;
+  return Boolean(overrides[key]);
+}
+
+function resolveImageConfig(overrides = {}) {
+  const image = overrides && overrides.image ? overrides.image : overrides;
+  const mode = overrideString(image, "mode", env("AI_IMAGE_MODE", "generations")).toLowerCase();
   return {
-    baseUrl: firstEnv(
+    baseUrl: overrideString(image, "baseUrl", firstEnv(
       ["AI_IMAGE_BASE_URL", "AI_BASE_URL"],
       "https://api.openai.com/v1"
-    ),
-    endpoint: env("AI_IMAGE_ENDPOINT"),
+    )),
+    endpoint: overrideString(image, "endpoint", env("AI_IMAGE_ENDPOINT")),
     apiKey: firstEnv(["AI_IMAGE_API_KEY", "AI_API_KEY"]),
-    model: env("AI_IMAGE_MODEL", "gpt-image-2"),
-    size: env("AI_IMAGE_SIZE", "1024x1024")
+    model: overrideString(image, "model", env("AI_IMAGE_MODEL", "gpt-image-2")),
+    size: overrideString(image, "size", env("AI_IMAGE_SIZE", "1024x1024")),
+    mode,
+    timeoutMs: clampNumber(
+      image && Object.prototype.hasOwnProperty.call(image, "timeoutMs")
+        ? image.timeoutMs
+        : firstEnv(["AI_IMAGE_TIMEOUT_MS", "AI_TIMEOUT_MS"], "90000"),
+      90000,
+      5000,
+      120000
+    ),
+    maxRetries: clampNumber(
+      image && Object.prototype.hasOwnProperty.call(image, "maxRetries")
+        ? image.maxRetries
+        : env("AI_MAX_RETRIES", "2"),
+      2,
+      0,
+      5
+    ),
+    retryEnabled: overrideBoolean(image, "retryEnabled", imageRetryEnabled())
   };
 }
 
-function resolveVideoConfig() {
-  const provider = firstEnv(["AI_VIDEO_PROVIDER"]);
-  const baseUrl = firstEnv(["AI_VIDEO_BASE_URL"]);
-  const endpoint = env("AI_VIDEO_ENDPOINT");
+function resolveVideoConfig(overrides = {}) {
+  const video = overrides && overrides.video ? overrides.video : overrides;
+  const provider = overrideString(video, "provider", firstEnv(["AI_VIDEO_PROVIDER"]));
+  const baseUrl = overrideString(video, "baseUrl", firstEnv(["AI_VIDEO_BASE_URL"]));
+  const endpointValue = overrideString(video, "endpoint", env("AI_VIDEO_ENDPOINT"));
   const apiKey = firstEnv(["AI_VIDEO_API_KEY", "AI_VIDEO_KEY"]);
-  const model = env("AI_VIDEO_MODEL", "grok-imagine-video-1.5");
+  const model = overrideString(video, "model", env("AI_VIDEO_MODEL", "grok-imagine-video-1.5"));
   return {
     provider,
     baseUrl,
-    endpoint,
-    queryEndpoint: env("AI_VIDEO_QUERY_ENDPOINT"),
+    endpoint: endpointValue,
+    queryEndpoint: overrideString(video, "queryEndpoint", env("AI_VIDEO_QUERY_ENDPOINT")),
     apiKey,
     model,
-    createPath: env("AI_VIDEO_CREATE_PATH", "/v1/videos/generations"),
-    queryPath: env("AI_VIDEO_QUERY_PATH", "/v1/videos/{taskId}"),
-    resolution: env("AI_VIDEO_RESOLUTION", "720p"),
-    aspectRatio: env("AI_VIDEO_ASPECT_RATIO", ""),
+    createPath: overrideString(video, "createPath", env("AI_VIDEO_CREATE_PATH", "/v1/videos/generations")),
+    queryPath: overrideString(video, "queryPath", env("AI_VIDEO_QUERY_PATH", "/v1/videos/{taskId}")),
+    resolution: overrideString(video, "resolution", env("AI_VIDEO_RESOLUTION", "720p")),
+    aspectRatio: overrideString(video, "aspectRatio", env("AI_VIDEO_ASPECT_RATIO", "")),
     prompt: env(
       "AI_VIDEO_PROMPT",
       "让照片中的人物自然轻微运动，保持人物身份、脸部、发型、服装和背景不变，镜头稳定，动作连贯，不要新增人物，不要变形。"
     ),
     timeoutMs: Math.max(
       10000,
-      Math.min(15 * 60 * 1000, Number(env("AI_VIDEO_TIMEOUT_MS", "90000")) || 90000)
+      Math.min(
+        15 * 60 * 1000,
+        Number(
+          video && Object.prototype.hasOwnProperty.call(video, "timeoutMs")
+            ? video.timeoutMs
+            : env("AI_VIDEO_TIMEOUT_MS", "90000")
+        ) || 90000
+      )
     ),
     configured: Boolean(provider && (baseUrl || endpoint) && apiKey && model)
   };
@@ -742,6 +797,378 @@ function getOpenId(context) {
   return (context && (context.OPENID || context.openid)) || "anonymous";
 }
 
+function adminOpenIds() {
+  return env("ADMIN_OPENIDS")
+    .split(/[\s,]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function isAdminContext(context) {
+  const openid = getOpenId(context);
+  return openid !== "anonymous" && adminOpenIds().includes(openid);
+}
+
+function adminForbidden() {
+  return fail("没有管理员权限。", "ADMIN_FORBIDDEN");
+}
+
+function hasOwn(object, key) {
+  return Boolean(object && Object.prototype.hasOwnProperty.call(object, key));
+}
+
+function normalizeRuntimePatch(input = {}) {
+  const source = input && typeof input === "object" ? input : {};
+  const imageSource = source.image && typeof source.image === "object" ? source.image : {};
+  const videoSource = source.video && typeof source.video === "object" ? source.video : {};
+  const imageKeys = [
+    "provider",
+    "baseUrl",
+    "endpoint",
+    "model",
+    "mode",
+    "size",
+    "timeoutMs",
+    "maxRetries",
+    "retryEnabled"
+  ];
+  const videoKeys = [
+    "provider",
+    "baseUrl",
+    "endpoint",
+    "queryEndpoint",
+    "model",
+    "createPath",
+    "queryPath",
+    "resolution",
+    "aspectRatio",
+    "timeoutMs"
+  ];
+  const image = {};
+  const video = {};
+  imageKeys.forEach((key) => {
+    if (hasOwn(imageSource, key)) image[key] = imageSource[key];
+  });
+  videoKeys.forEach((key) => {
+    if (hasOwn(videoSource, key)) video[key] = videoSource[key];
+  });
+  return { image, video };
+}
+
+function isValidHttpUrl(value) {
+  if (!value) return true;
+  try {
+    const parsed = new URL(String(value));
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch (_) {
+    return false;
+  }
+}
+
+function isValidEndpointOrPath(value) {
+  if (!value) return true;
+  if (String(value).startsWith("/")) return true;
+  return isValidHttpUrl(value);
+}
+
+function validateRuntimePatch(patch) {
+  const errors = [];
+  const image = patch.image || {};
+  const video = patch.video || {};
+  [
+    ["image.baseUrl", image.baseUrl],
+    ["image.endpoint", image.endpoint],
+    ["video.baseUrl", video.baseUrl],
+    ["video.endpoint", video.endpoint],
+    ["video.queryEndpoint", video.queryEndpoint]
+  ].forEach(([field, value]) => {
+    if (value !== undefined && !isValidHttpUrl(value)) errors.push(`${field} 必须是 http/https 地址`);
+  });
+  [
+    ["video.createPath", video.createPath],
+    ["video.queryPath", video.queryPath]
+  ].forEach(([field, value]) => {
+    if (value !== undefined && !isValidEndpointOrPath(value)) {
+      errors.push(`${field} 必须是 / 开头的路径或 http/https 地址`);
+    }
+  });
+  if (image.mode !== undefined && image.mode !== "" && !["generations", "edits"].includes(String(image.mode).toLowerCase())) {
+    errors.push("image.mode 只能是 generations 或 edits");
+  }
+  if (image.timeoutMs !== undefined && (!Number.isFinite(Number(image.timeoutMs)) || Number(image.timeoutMs) < 5000 || Number(image.timeoutMs) > 120000)) {
+    errors.push("image.timeoutMs 必须在 5000～120000 之间");
+  }
+  if (image.maxRetries !== undefined && (!Number.isFinite(Number(image.maxRetries)) || Number(image.maxRetries) < 0 || Number(image.maxRetries) > 5)) {
+    errors.push("image.maxRetries 必须在 0～5 之间");
+  }
+  if (video.timeoutMs !== undefined && (!Number.isFinite(Number(video.timeoutMs)) || Number(video.timeoutMs) < 10000 || Number(video.timeoutMs) > 900000)) {
+    errors.push("video.timeoutMs 必须在 10000～900000 之间");
+  }
+  [
+    ["image.provider", image.provider],
+    ["image.model", image.model],
+    ["image.size", image.size],
+    ["video.provider", video.provider],
+    ["video.model", video.model],
+    ["video.resolution", video.resolution],
+    ["video.aspectRatio", video.aspectRatio]
+  ].forEach(([field, value]) => {
+    if (value !== undefined && String(value).length > 120) errors.push(`${field} 长度不能超过 120`);
+  });
+  return errors;
+}
+
+function mergeRuntimeConfig(current, patch) {
+  const existing = current && typeof current === "object" ? current : {};
+  return {
+    image: Object.assign({}, existing.image || {}, patch.image || {}),
+    video: Object.assign({}, existing.video || {}, patch.video || {})
+  };
+}
+
+function redactConfig(config, defaults) {
+  const image = config.image || {};
+  const video = config.video || {};
+  return {
+    image: {
+      provider: image.provider || "",
+      baseUrl: image.baseUrl || "",
+      endpoint: image.endpoint || "",
+      model: image.model || "",
+      mode: image.mode || "",
+      size: image.size || "",
+      timeoutMs: Number(image.timeoutMs || 0),
+      maxRetries: Number(image.maxRetries || 0),
+      retryEnabled: Boolean(image.retryEnabled),
+      apiKeyConfigured: Boolean(defaults.image.apiKey)
+    },
+    video: {
+      provider: video.provider || "",
+      baseUrl: video.baseUrl || "",
+      endpoint: video.endpoint || "",
+      queryEndpoint: video.queryEndpoint || "",
+      model: video.model || "",
+      createPath: video.createPath || "",
+      queryPath: video.queryPath || "",
+      resolution: video.resolution || "",
+      aspectRatio: video.aspectRatio || "",
+      timeoutMs: Number(video.timeoutMs || 0),
+      apiKeyConfigured: Boolean(defaults.video.apiKey)
+    }
+  };
+}
+
+async function loadAdminRuntimeConfig(force = false) {
+  if (
+    process.env.WECHAT_MINIAPP_TEST === "1"
+    && process.env.ADMIN_RUNTIME_CONFIG_SMOKE !== "1"
+  ) {
+    return null;
+  }
+  if (!force && adminRuntimeCache.expiresAt > Date.now()) return adminRuntimeCache.value;
+  try {
+    const result = await db
+      .collection(ADMIN_RUNTIME_CONFIG_COLLECTION)
+      .doc(ADMIN_RUNTIME_CONFIG_ID)
+      .get();
+    const value = result && result.data
+      ? Object.assign(normalizeRuntimePatch(result.data), {
+          version: Number(result.data.version) || 0,
+          updatedAt: result.data.updatedAt || "",
+          updatedBy: result.data.updatedBy || ""
+        })
+      : null;
+    adminRuntimeCache = {
+      value,
+      expiresAt: Date.now() + ADMIN_RUNTIME_CACHE_TTL_MS
+    };
+    return value;
+  } catch (error) {
+    adminRuntimeCache = {
+      value: null,
+      expiresAt: Date.now() + ADMIN_RUNTIME_CACHE_TTL_MS
+    };
+    log("warn", "admin.runtime-config.read-failed", {
+      error: error && error.message
+    });
+    return null;
+  }
+}
+
+async function resolveEffectiveConfigs() {
+  const runtime = await loadAdminRuntimeConfig();
+  return {
+    runtime: runtime || { image: {}, video: {} },
+    image: resolveImageConfig(runtime && runtime.image),
+    video: resolveVideoConfig(runtime && runtime.video)
+  };
+}
+
+function adminConfigView(configs, runtime, metadata = {}) {
+  const imageDefaults = resolveImageConfig();
+  const videoDefaults = resolveVideoConfig();
+  const overrides = runtime || { image: {}, video: {} };
+  return {
+    defaults: redactConfig({
+      image: imageDefaults,
+      video: videoDefaults
+    }, {
+      image: imageDefaults,
+      video: videoDefaults
+    }),
+    overrides: redactConfig(overrides, {
+      image: imageDefaults,
+      video: videoDefaults
+    }),
+    effective: redactConfig({
+      image: configs.image,
+      video: configs.video
+    }, {
+      image: configs.image,
+      video: configs.video
+    }),
+    updatedAt: metadata.updatedAt || "",
+    version: Number(metadata.version || 0),
+    admin: true
+  };
+}
+
+async function getAdminStatus(context) {
+  return jsonResponse(true, {
+    isAdmin: isAdminContext(context),
+    openidConfigured: getOpenId(context) !== "anonymous"
+  });
+}
+
+async function getAdminConfig(context) {
+  if (!isAdminContext(context)) return adminForbidden();
+  const runtime = await loadAdminRuntimeConfig();
+  const configs = await resolveEffectiveConfigs();
+  let metadata = {};
+  try {
+    const result = await db
+      .collection(ADMIN_RUNTIME_CONFIG_COLLECTION)
+      .doc(ADMIN_RUNTIME_CONFIG_ID)
+      .get();
+    metadata = result && result.data ? result.data : {};
+  } catch (_) {
+    metadata = {};
+  }
+  return jsonResponse(true, adminConfigView(configs, runtime, metadata));
+}
+
+async function saveAdminConfig(event, context) {
+  if (!isAdminContext(context)) return adminForbidden();
+  const patch = normalizeRuntimePatch(event && event.config);
+  const errors = validateRuntimePatch(patch);
+  if (errors.length) return fail(errors.join("；"), "ADMIN_CONFIG_INVALID", { fields: errors });
+  const current = await loadAdminRuntimeConfig(true);
+  const next = mergeRuntimeConfig(current, patch);
+  const previousVersion = Number(current && current.version) || 0;
+  const data = {
+    _id: ADMIN_RUNTIME_CONFIG_ID,
+    image: next.image,
+    video: next.video,
+    version: previousVersion + 1,
+    updatedAt: new Date(),
+    updatedBy: getOpenId(context)
+  };
+  await db.collection(ADMIN_RUNTIME_CONFIG_COLLECTION).doc(ADMIN_RUNTIME_CONFIG_ID).set({ data });
+  adminRuntimeCache = {
+    value: { image: next.image, video: next.video },
+    expiresAt: Date.now() + ADMIN_RUNTIME_CACHE_TTL_MS
+  };
+  log("info", "admin.runtime-config.saved", {
+    updatedBy: getOpenId(context),
+    version: data.version,
+    imageFields: Object.keys(patch.image),
+    videoFields: Object.keys(patch.video)
+  });
+  const configs = await resolveEffectiveConfigs();
+  return jsonResponse(true, adminConfigView(configs, next, data));
+}
+
+async function writeDeploymentLog(entry) {
+  try {
+    await db.collection(ADMIN_DEPLOYMENT_LOG_COLLECTION).add({
+      data: Object.assign({}, entry, {
+        checkedAt: entry.checkedAt || new Date()
+      })
+    });
+    return true;
+  } catch (error) {
+    log("warn", "admin.deployment-log.write-failed", {
+      error: error && error.message
+    });
+    return false;
+  }
+}
+
+async function checkDeployment(event, context) {
+  if (!isAdminContext(context)) return adminForbidden();
+  const configs = await resolveEffectiveConfigs();
+  const runtime = await loadAdminRuntimeConfig();
+  const imageReady = Boolean(
+    configs.image.apiKey &&
+    (configs.image.baseUrl || configs.image.endpoint) &&
+    configs.image.model
+  );
+  const videoReady = Boolean(configs.video.configured);
+  const result = {
+    buildVersion: API_BUILD_VERSION,
+    buildMarker: API_BUILD_MARKER,
+    environment: env("CLOUDBASE_ENV_ID", ""),
+    image: {
+      ready: imageReady,
+      provider: configs.image.provider || "",
+      model: configs.image.model || "",
+      apiKeyConfigured: Boolean(configs.image.apiKey)
+    },
+    video: {
+      ready: videoReady,
+      provider: configs.video.provider || "",
+      model: configs.video.model || "",
+      apiKeyConfigured: Boolean(configs.video.apiKey)
+    },
+    runtimeConfigVersion: Number(runtime && runtime.version) || 0,
+    runtimeConfigUpdatedAt: runtime && runtime.updatedAt
+      ? new Date(runtime.updatedAt).toISOString()
+      : "",
+    checkedAt: new Date().toISOString()
+  };
+  const logWritten = await writeDeploymentLog(Object.assign({}, result, {
+    requestId: event.requestId,
+    ok: imageReady || videoReady,
+    checkedBy: getOpenId(context)
+  }));
+  return jsonResponse(true, Object.assign(result, {
+    ok: true,
+    logWritten
+  }));
+}
+
+async function listDeploymentLogs(context) {
+  if (!isAdminContext(context)) return adminForbidden();
+  try {
+    const result = await db
+      .collection(ADMIN_DEPLOYMENT_LOG_COLLECTION)
+      .orderBy("checkedAt", "desc")
+      .limit(20)
+      .get();
+    return jsonResponse(true, {
+      logs: (result && result.data ? result.data : []).map((item) => sanitize(item))
+    });
+  } catch (error) {
+    log("warn", "admin.deployment-log.read-failed", {
+      error: error && error.message
+    });
+    return jsonResponse(true, {
+      logs: [],
+      message: "暂时没有部署检查日志。"
+    });
+  }
+}
+
 async function analyze(event) {
   const payload = event.payload || {};
   const vision = resolveVisionConfig();
@@ -1062,9 +1489,9 @@ async function requestImageEdits(payload, apiKey, requestId, imageConfig = resol
   const maskMime = detectMime(maskBuffer);
   const referenceField = env("AI_IMAGE_REFERENCE_FIELD", "image[]");
   const fields = [
-    { name: "model", value: env("AI_IMAGE_MODEL", "gpt-image-2") },
+    { name: "model", value: imageConfig.model },
     { name: "prompt", value: String(payload.prompt || "").trim() },
-    { name: "size", value: payload.size || env("AI_IMAGE_SIZE", "1024x1024") },
+    { name: "size", value: imageConfig.size || payload.size },
     {
       name: "reference_manifest",
       value: JSON.stringify(references.map((item) => ({
@@ -1111,7 +1538,10 @@ async function requestImageEdits(payload, apiKey, requestId, imageConfig = resol
   }, multipart.body, {
     requestId,
     action: "generate",
-    imageGeneration: true
+    imageGeneration: true,
+    allowRetry: imageConfig.retryEnabled,
+    maxAttempts: imageConfig.retryEnabled ? imageConfig.maxRetries + 1 : 1,
+    timeoutMs: imageConfig.timeoutMs
   });
   if (response.status < 200 || response.status >= 300) {
     throw upstreamError(response, "图片编辑接口请求失败");
@@ -1172,14 +1602,15 @@ async function generate(event, context) {
   const payload = event.payload || {};
   const openid = getOpenId(context);
   if (!payload.prompt || !String(payload.prompt).trim()) return fail("提示词不能为空。", "empty-prompt");
-  const imageConfig = resolveImageConfig();
+  const configs = await resolveEffectiveConfigs();
+  const imageConfig = configs.image;
   const apiKey = imageConfig.apiKey;
   if (!apiKey) return fail(
     "云函数还没有配置 AI_IMAGE_API_KEY（兼容旧配置 AI_API_KEY）。",
     "missing-api-key"
   );
 
-  const mode = env("AI_IMAGE_MODE", "generations").trim().toLowerCase();
+  const mode = imageConfig.mode.trim().toLowerCase();
   if (!["generations", "edits"].includes(mode)) {
     return fail(`不支持的图片模式：${mode}`, "unsupported-image-mode");
   }
@@ -1189,7 +1620,7 @@ async function generate(event, context) {
 
   const requestId = event.requestId;
   const model = imageConfig.model;
-  const size = payload.size || imageConfig.size;
+  const size = imageConfig.size || payload.size;
   const prompt = `${String(payload.prompt).trim()}${
     payload.negativePrompt ? `\n\n负面约束：${String(payload.negativePrompt).trim()}` : ""
   }`;
@@ -1242,7 +1673,10 @@ async function generate(event, context) {
     response = await requestJson(url, body, apiKey, {}, {
       requestId,
       action: "generate",
-      imageGeneration: true
+      imageGeneration: true,
+      allowRetry: imageConfig.retryEnabled,
+      maxAttempts: imageConfig.retryEnabled ? imageConfig.maxRetries + 1 : 1,
+      timeoutMs: imageConfig.timeoutMs
     });
   }
   const image = extractImageItem(response);
@@ -1360,7 +1794,7 @@ function buildVideoGenerationPayload(payload = {}, imageBuffer, video = resolveV
     throw error;
   }
   const result = {
-    model: String(payload.model || video.model),
+    model: String(video.model || payload.model),
     prompt,
     image: toDataUrl(imageBuffer, detectMime(imageBuffer))
   };
@@ -1368,9 +1802,9 @@ function buildVideoGenerationPayload(payload = {}, imageBuffer, video = resolveV
   if (Number.isFinite(duration) && duration > 0) {
     result.duration = duration;
   }
-  const resolution = String(payload.resolution || video.resolution || "").trim();
+  const resolution = String(video.resolution || payload.resolution || "").trim();
   if (resolution) result.resolution = resolution;
-  const aspectRatio = String(payload.aspectRatio || video.aspectRatio || "").trim();
+  const aspectRatio = String(video.aspectRatio || payload.aspectRatio || "").trim();
   if (aspectRatio) result.aspect_ratio = aspectRatio;
   return result;
 }
@@ -1488,8 +1922,9 @@ function videoRequestMeta(requestId, action, video, allowRetry) {
   };
 }
 
-function videoProviderStatus() {
-  const video = resolveVideoConfig();
+async function videoProviderStatus() {
+  const configs = await resolveEffectiveConfigs();
+  const video = configs.video;
   if (!video.configured) {
     return jsonResponse(true, {
       configured: false,
@@ -1511,7 +1946,8 @@ function videoProviderStatus() {
 }
 
 async function createVideoTask(event) {
-  const video = resolveVideoConfig();
+  const configs = await resolveEffectiveConfigs();
+  const video = configs.video;
   if (!video.configured) {
     return fail(
       "视频服务未配置，请联系管理员配置 AI_VIDEO_PROVIDER、AI_VIDEO_BASE_URL、AI_VIDEO_MODEL 和 AI_VIDEO_API_KEY。",
@@ -1563,7 +1999,8 @@ async function createVideoTask(event) {
 }
 
 async function queryVideoTask(event) {
-  const video = resolveVideoConfig();
+  const configs = await resolveEffectiveConfigs();
+  const video = configs.video;
   if (!video.configured) {
     return fail(
       "视频服务未配置，无法查询动态视频任务。",
@@ -1621,9 +2058,14 @@ exports.main = async (event = {}, context) => {
     else if (action === "generate") result = await generate(requestEvent, context);
     else if (action === "listRecords") result = await listRecords(context);
     else if (action === "deleteRecord") result = await deleteRecord(requestEvent, context);
-    else if (action === "videoProviderStatus") result = videoProviderStatus();
+    else if (action === "videoProviderStatus") result = await videoProviderStatus();
     else if (action === "createVideoTask") result = await createVideoTask(requestEvent, context);
     else if (action === "queryVideoTask") result = await queryVideoTask(requestEvent, context);
+    else if (action === "getAdminStatus") result = await getAdminStatus(context);
+    else if (action === "getAdminConfig") result = await getAdminConfig(context);
+    else if (action === "saveAdminConfig") result = await saveAdminConfig(requestEvent, context);
+    else if (action === "checkDeployment") result = await checkDeployment(requestEvent, context);
+    else if (action === "listDeploymentLogs") result = await listDeploymentLogs(context);
     else result = fail(`不支持的操作：${action || "空"}`, "unsupported-action");
     log("info", "function.finish", {
       requestId,
@@ -1668,6 +2110,8 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     detectMime,
     invertMask,
     resolveVisionConfig,
+    resolveImageConfig,
+    resolveEffectiveConfigs,
     assertVisionImageSize,
     normalizeFaceDetections,
     normalizeWebPoseSuggestions,
@@ -1678,6 +2122,17 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     normalizeVideoQueryResponse,
     videoCreateUrl,
     videoQueryUrl
+    ,
+    adminOpenIds,
+    isAdminContext,
+    normalizeRuntimePatch,
+    validateRuntimePatch,
+    mergeRuntimeConfig,
+    getAdminStatus,
+    getAdminConfig,
+    saveAdminConfig,
+    checkDeployment,
+    listDeploymentLogs
   };
 }
 

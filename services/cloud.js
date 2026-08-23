@@ -405,6 +405,24 @@ module.exports = {
   getVideoProviderStatus() {
     return callApi({ action: "videoProviderStatus" });
   },
+  getAdminStatus() {
+    return callApi({ action: "getAdminStatus" });
+  },
+  getAdminConfig() {
+    return callApi({ action: "getAdminConfig" });
+  },
+  saveAdminConfig(config) {
+    return callApi({
+      action: "saveAdminConfig",
+      config
+    });
+  },
+  checkDeployment() {
+    return callApi({ action: "checkDeployment" });
+  },
+  listDeploymentLogs() {
+    return callApi({ action: "listDeploymentLogs" });
+  },
   createVideoTask(payload, options = {}) {
     return callApi({
       action: "createVideoTask",

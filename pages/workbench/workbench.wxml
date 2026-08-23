@@ -59,7 +59,7 @@
     hover-start-time="0"
     hover-stay-time="70"
   >
-    <view class="section-head">
+    <view class="recent-record-top">
       <view class="feature-card-leading">
         <view class="feature-card-icon recent-card-icon">记</view>
         <view class="feature-card-copy">
@@ -67,10 +67,14 @@
           <view class="section-title">制作记录</view>
         </view>
       </view>
-      <button class="small-btn plain-btn recent-more" catchtap="openRecords">
+      <button class="small-btn plain-btn recent-more recent-more-c" catchtap="openRecords">
         <text class="recent-more-label">查看全部</text>
         <text class="home-feature-arrow recent-more-arrow">›</text>
       </button>
+    </view>
+
+    <view wx:if="{{!records.length}}" class="recent-card-guide">
+      点击右上角查看全部记录。
     </view>
 
     <view wx:if="{{records.length}}" class="recent-list">
@@ -207,34 +211,62 @@
     </view>
   </view>
 
+  <view
+    wx:if="{{adminVisible}}"
+    class="card admin-entry-card home-feature-card workbench-link-card"
+    bindtap="openAdmin"
+    hover-class="workbench-link-card-hover"
+    hover-start-time="0"
+    hover-stay-time="70"
+  >
+    <view class="admin-entry-icon">管</view>
+    <view class="admin-entry-copy">
+      <view class="admin-entry-title">管理员配置</view>
+      <view class="admin-entry-description">调整生图、视频模型和检查线上部署</view>
+    </view>
+    <view class="home-feature-arrow admin-entry-arrow">›</view>
+  </view>
+
   <view class="card contact-author-card">
-    <view class="contact-author-heading">
+    <view
+      class="contact-author-heading"
+      bindtap="toggleAuthorQr"
+      hover-class="contact-author-heading-hover"
+    >
       <view class="contact-author-icon">联</view>
       <view class="contact-author-copy">
         <view class="section-kicker">联系作者</view>
         <view class="contact-author-title">添加作者微信</view>
-        <view class="contact-author-description">
+        <view wx:if="{{contactAuthorExpanded}}" class="contact-author-description">
           点击二维码可放大，长按识别添加好友
         </view>
       </view>
+      <view class="contact-author-toggle">
+        <text>{{contactAuthorExpanded ? '收起' : '展开'}}</text>
+        <text class="contact-author-toggle-arrow">
+          {{contactAuthorExpanded ? '⌃' : '⌄'}}
+        </text>
+      </view>
     </view>
-    <view class="contact-author-qr-shell">
-      <image
-        class="contact-author-qr"
-        src="{{authorQrPath}}"
-        mode="widthFix"
-        bindtap="previewAuthorQr"
-        show-menu-by-longpress="true"
-      ></image>
+    <view wx:if="{{contactAuthorExpanded}}" class="contact-author-body">
+      <view class="contact-author-qr-shell">
+        <image
+          class="contact-author-qr"
+          src="{{authorQrPath}}"
+          mode="widthFix"
+          bindtap="previewAuthorQr"
+          show-menu-by-longpress="true"
+        ></image>
+      </view>
+      <button
+        class="primary-btn contact-author-save-button"
+        bindtap="saveAuthorQr"
+        loading="{{savingAuthorQr}}"
+        disabled="{{savingAuthorQr}}"
+      >
+        {{savingAuthorQr ? '保存中...' : '保存二维码'}}
+      </button>
     </view>
-    <button
-      class="primary-btn contact-author-save-button"
-      bindtap="saveAuthorQr"
-      loading="{{savingAuthorQr}}"
-      disabled="{{savingAuthorQr}}"
-    >
-      {{savingAuthorQr ? '保存中...' : '保存二维码'}}
-    </button>
   </view>
 
   </view>

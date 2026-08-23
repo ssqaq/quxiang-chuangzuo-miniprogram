@@ -13,6 +13,7 @@ const jsonFiles = [
   "pages/workbench/workbench.json",
   "pages/publish-export/publish-export.json",
   "pages/photo-to-video/photo-to-video.json",
+  "pages/admin/admin.json",
   "cloudfunctions/api/package.json"
 ];
 const jsFiles = [
@@ -33,6 +34,7 @@ const jsFiles = [
   "pages/workbench/workbench.js",
   "pages/publish-export/publish-export.js",
   "pages/photo-to-video/photo-to-video.js",
+  "pages/admin/admin.js",
   "pages/index/index.js",
   "pages/records/records.js",
   "cloudfunctions/api/index.js",
@@ -54,6 +56,7 @@ const jsFiles = [
   "scripts/generation-experience-smoke.js",
   "scripts/photo-to-video-smoke.js",
   "scripts/video-provider-smoke.js",
+  "scripts/admin-config-smoke.js",
   "scripts/workbench-interaction-smoke.js"
 ];
 const pythonFiles = ["scripts/package-release.py"];
@@ -128,6 +131,10 @@ const required = [
   "pages/photo-to-video/photo-to-video.json",
   "pages/photo-to-video/photo-to-video.wxml",
   "pages/photo-to-video/photo-to-video.wxss",
+  "pages/admin/admin.js",
+  "pages/admin/admin.json",
+  "pages/admin/admin.wxml",
+  "pages/admin/admin.wxss",
   "pages/index/index.wxml",
   "pages/index/index.wxss",
   "utils/canvas-gesture.js",
@@ -201,6 +208,9 @@ const cloudJs = fs.readFileSync(path.join(root, "cloudfunctions/api/index.js"), 
 const clientCloudJs = fs.readFileSync(path.join(root, "services/cloud.js"), "utf8");
 const storageJs = fs.readFileSync(path.join(root, "utils/storage.js"), "utf8");
 const webPoseJs = fs.readFileSync(path.join(root, "utils/web-pose.js"), "utf8");
+const adminJs = fs.readFileSync(path.join(root, "pages/admin/admin.js"), "utf8");
+const adminWxml = fs.readFileSync(path.join(root, "pages/admin/admin.wxml"), "utf8");
+const adminWxss = fs.readFileSync(path.join(root, "pages/admin/admin.wxss"), "utf8");
 if (!projectConfig.setting || projectConfig.setting.minified !== true) {
   throw new Error("微信开发者工具 JS 压缩没有开启，请确认 project.config.json 的 setting.minified 为 true。");
 }
@@ -213,6 +223,23 @@ if (
   || !indexJs.includes('title: "圈像创作"')
 ) {
   throw new Error("小程序名称没有统一更新为“圈像创作”。");
+}
+if (
+  !appJson.pages.includes("pages/admin/admin")
+  || !adminJs.includes("cloud.getAdminStatus()")
+  || !adminJs.includes("cloud.getAdminConfig()")
+  || !adminJs.includes("cloud.saveAdminConfig")
+  || !adminJs.includes("cloud.checkDeployment()")
+  || !adminJs.includes("cloud.listDeploymentLogs()")
+  || !adminWxml.includes("生图模型")
+  || !adminWxml.includes("视频模型")
+  || !adminWxml.includes("立即检查线上部署")
+  || !adminWxml.includes("部署检查日志")
+  || !adminWxml.includes("API Key")
+  || !adminWxss.includes(".admin-grid")
+  || !adminWxss.includes(".deployment-grid")
+) {
+  throw new Error("管理员配置页或部署检查日志入口不完整。");
 }
 if (
   !indexWxml.includes('class="hero-heading"')
@@ -317,6 +344,7 @@ const commonFeatureHeadingCount = (
 const commonFeatureSubtitleCount = (
   workbenchWxml.match(/开始创作、查看记录、导出图片/g) || []
 ).length;
+const workbenchEntryCardCount = workbenchWxml.includes('wx:if="{{adminVisible}}"') ? 5 : 4;
 const diagnosticFeatureHeadingStyle = workbenchWxss.match(
   /\.diagnostic-feature-heading\s*\{([^}]*)\}/
 );
@@ -419,8 +447,8 @@ if (
   || !workbenchWxss.includes("min-height: 148rpx")
   || !workbenchWxss.includes("transition: transform 0.08s ease")
   || !workbenchWxss.includes("transform: scale(0.985)")
-  || (workbenchWxml.match(/hover-start-time="0"/g) || []).length !== 4
-  || (workbenchWxml.match(/hover-stay-time="70"/g) || []).length !== 4
+  || (workbenchWxml.match(/hover-start-time="0"/g) || []).length !== workbenchEntryCardCount
+  || (workbenchWxml.match(/hover-stay-time="70"/g) || []).length !== workbenchEntryCardCount
   || !workbenchJs.includes("openPage(url, failureTitle, logLabel)")
   || !workbenchJs.includes("replacePage(url, failureTitle, logLabel)")
   || !workbenchJs.includes("wx.redirectTo")
@@ -430,7 +458,7 @@ if (
   || workbenchJs.includes("wx.hideLoading")
   || workbenchJs.includes("this.data.navigating")
   || workbenchJs.includes("navigating: false")
-  || (workbenchWxml.match(/home-feature-arrow/g) || []).length !== 4
+  || (workbenchWxml.match(/home-feature-arrow/g) || []).length !== workbenchEntryCardCount
   || !workbenchWxml.includes("recent-more-arrow")
   || !workbenchWxml.includes("recent-more-label")
   || !workbenchWxss.includes(".home-feature-arrow")

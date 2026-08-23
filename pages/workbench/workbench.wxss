@@ -377,6 +377,17 @@ page {
   gap: 14rpx;
 }
 
+.recent-record-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14rpx;
+}
+
+.recent-record-top .feature-card-leading {
+  align-items: flex-start;
+}
+
 .section-kicker {
   color: #8b95a7;
   font-size: 21rpx;
@@ -490,6 +501,35 @@ page {
 .recent-more-arrow {
   margin-left: 6rpx;
   color: #7b8ba1;
+}
+
+.recent-more-c {
+  flex: none;
+  min-width: 126rpx;
+  width: 126rpx;
+  height: 56rpx;
+  min-height: 56rpx;
+  margin: 0;
+  padding: 0 12rpx;
+  border-radius: 14rpx;
+  color: #267861 !important;
+  background: #e4f5ef !important;
+  font-size: 22rpx;
+  line-height: 56rpx;
+}
+
+.recent-more-c .recent-more-arrow {
+  color: #267861;
+}
+
+.recent-card-guide {
+  margin: 14rpx 0 0 94rpx;
+  padding: 10rpx 14rpx;
+  border-radius: 12rpx;
+  color: #708696;
+  background: #f7fcfa;
+  font-size: 21rpx;
+  line-height: 30rpx;
 }
 
 .workbench-link-card {
@@ -663,6 +703,57 @@ page {
   border-bottom: 1rpx solid #e9eef7;
 }
 
+.admin-entry-card {
+  display: flex;
+  align-items: center;
+  min-height: 148rpx;
+  margin-top: 18rpx;
+  padding: 24rpx;
+  background: linear-gradient(135deg, #f1f6ff 0%, #ffffff 78%);
+}
+
+.admin-entry-icon {
+  display: flex;
+  flex: none;
+  width: 74rpx;
+  height: 74rpx;
+  align-items: center;
+  justify-content: center;
+  border-radius: 22rpx;
+  color: #1f6feb;
+  background: #e5efff;
+  font-size: 28rpx;
+  font-weight: 800;
+}
+
+.admin-entry-copy {
+  min-width: 0;
+  flex: 1;
+  margin-left: 18rpx;
+}
+
+.admin-entry-title {
+  color: #25334a;
+  font-size: 29rpx;
+  font-weight: 800;
+}
+
+.admin-entry-description {
+  margin-top: 8rpx;
+  overflow: hidden;
+  color: #7b899c;
+  font-size: 22rpx;
+  line-height: 32rpx;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-entry-arrow {
+  flex: none;
+  margin-left: 12rpx;
+  color: #1f6feb;
+}
+
 .interaction-log-count {
   flex: none;
   padding: 8rpx 12rpx;
@@ -702,23 +793,30 @@ page {
 
 .interaction-log-actions-primary {
   display: grid;
-  grid-template-columns: 1.15fr 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .interaction-log-button {
   flex: 1 1 0;
   min-width: 0;
-  width: 0;
+  width: 100%;
   height: 72rpx;
-  padding: 0 12rpx;
+  padding: 0;
   border-radius: 16rpx;
   font-size: 23rpx;
   line-height: 72rpx;
   white-space: nowrap;
+  transform: none;
+  opacity: 1;
 }
 
 .interaction-log-actions-primary .interaction-log-button {
-  width: auto;
+  width: 100%;
+}
+
+button.interaction-log-button.button-hover {
+  transform: none;
+  opacity: 1;
 }
 
 .interaction-log-primary-button {
@@ -747,6 +845,15 @@ page {
 .contact-author-heading {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  min-height: 76rpx;
+  padding: 2rpx 0;
+  border-radius: 18rpx;
+  transition: background-color 0.16s ease;
+}
+
+.contact-author-heading-hover {
+  background: rgba(231, 241, 255, 0.7);
 }
 
 .contact-author-icon {
@@ -765,6 +872,7 @@ page {
 }
 
 .contact-author-copy {
+  flex: 1;
   min-width: 0;
   margin-left: 18rpx;
 }
@@ -782,6 +890,27 @@ page {
   color: #74839a;
   font-size: 21rpx;
   line-height: 30rpx;
+}
+
+.contact-author-toggle {
+  display: flex;
+  flex: none;
+  margin-left: 14rpx;
+  align-items: center;
+  color: #2f70d4;
+  font-size: 21rpx;
+  line-height: 32rpx;
+}
+
+.contact-author-toggle-arrow {
+  margin-left: 6rpx;
+  font-size: 30rpx;
+  font-weight: 700;
+  line-height: 28rpx;
+}
+
+.contact-author-body {
+  animation: contact-author-body-in 160ms ease-out both;
 }
 
 .contact-author-qr-shell {
@@ -816,6 +945,17 @@ page {
   font-weight: 700;
   line-height: 1;
   box-sizing: border-box;
+}
+
+@keyframes contact-author-body-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6rpx);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .interaction-log-list {
@@ -920,6 +1060,20 @@ button::after {
   border-radius: 14rpx;
   font-size: 24rpx;
   line-height: 64rpx;
+}
+
+button.recent-more-c.small-btn {
+  box-sizing: border-box;
+  width: 126rpx;
+  min-width: 126rpx;
+  height: 56rpx;
+  min-height: 56rpx;
+  padding: 0 12rpx;
+  border-radius: 14rpx;
+  color: #267861 !important;
+  background: #e4f5ef !important;
+  font-size: 22rpx;
+  line-height: 56rpx;
 }
 
 @media (max-width: 340px) {

@@ -18,7 +18,8 @@ const requiredEnv = [
   "AI_IMAGE_MODEL",
   "AI_IMAGE_MODE",
   "AI_MAX_RETRIES",
-  "AI_IMAGE_RETRY_ENABLED"
+  "AI_IMAGE_RETRY_ENABLED",
+  "ADMIN_OPENIDS"
 ];
 const missingEnvTemplate = requiredEnv.filter(
   (name) => !new RegExp(`^${name}=`, "m").test(envExample)

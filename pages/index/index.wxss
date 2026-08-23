@@ -787,17 +787,24 @@
 }
 
 .auto-face-diagnostics-duration {
+  display: flex;
+  height: 42rpx;
+  align-items: center;
   color: #627086;
   font-size: 22rpx;
-  line-height: 28rpx;
+  line-height: 1;
 }
 
 .auto-face-diagnostics-state {
+  display: flex;
   flex: none;
+  box-sizing: border-box;
+  min-height: 42rpx;
+  align-items: center;
   padding: 7rpx 13rpx;
   border-radius: 999rpx;
   font-size: 20rpx;
-  line-height: 28rpx;
+  line-height: 1;
 }
 
 .auto-face-diagnostics-state.state-running {

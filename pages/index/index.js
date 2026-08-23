@@ -199,6 +199,10 @@ function createAutoFaceStatus() {
     message: "等待自动贴脸",
     details: null,
     shortDetail: "",
+    failureReason: "",
+    nextStepText: "",
+    manualGuideText: "",
+    requestId: "",
     durationText: "",
     updatedAt: ""
   };
@@ -221,9 +225,107 @@ function safeErrorInfo(error, fallbackMessage) {
   return {
     code: String(code || ""),
     message: String(message || "未知错误"),
+    status: Number(error && error.status) || 0,
+    retryable: Boolean(error && error.retryable),
     requestId: String(payload.requestId || ""),
     stack: error && error.stack ? String(error.stack).slice(0, 1200) : ""
   };
+}
+
+function getAutoFaceFailureGuide(errorInfo, cloudReady = true) {
+  const info = errorInfo && typeof errorInfo === "object" ? errorInfo : {};
+  const code = String(info.code || "").toLowerCase();
+  const message = String(info.message || "").trim();
+  const status = Number(info.status) || 0;
+  const searchText = `${code} ${message}`.toLowerCase();
+  const manualGuide = "请用一根手指拖动，圈住整张脸；不要只点一下。双指可以放大图片。";
+
+  if (!cloudReady || code === "cloud-unavailable") {
+    return {
+      reason: "当前没有连接云端，自动识别人脸没有发出去。",
+      nextStep: "请检查网络或稍后重新点击“自动识别人脸”。",
+      manualGuide
+    };
+  }
+  if (
+    code === "missing-api-key"
+    || /api[_ -]?key|没有配置.*视觉|未配置.*视觉/.test(searchText)
+  ) {
+    return {
+      reason: "云端视觉服务没有配置好，当前不能自动识别人脸。",
+      nextStep: "请先使用手动圈选；后台配置好视觉服务后再重试。",
+      manualGuide
+    };
+  }
+  if (code === "missing-main-image" || code === "empty-main-image") {
+    return {
+      reason: "主图没有成功上传到云端。",
+      nextStep: "请重新选择主图，等图片准备完成后再试。",
+      manualGuide
+    };
+  }
+  if (
+    code === "image-too-large"
+    || /图片过大|主图文件过大|too large|payload too large/.test(searchText)
+  ) {
+    return {
+      reason: "主图文件太大，云端视觉服务拒绝处理。",
+      nextStep: "请重新选择一张较小的图片，或直接手动圈选。",
+      manualGuide
+    };
+  }
+  if (
+    code === "empty-face-detection"
+    || /没有识别到|没有返回人脸|清晰人脸|face detection/.test(searchText)
+  ) {
+    return {
+      reason: "照片里没有识别到清晰、完整的人脸，可能是脸太小、太暗或被遮挡。",
+      nextStep: "换一张脸部更清楚、光线更好的照片，或直接手动圈选。",
+      manualGuide
+    };
+  }
+  if (
+    status === 408
+    || status === 504
+    || /timeout|timed out|超时/.test(searchText)
+  ) {
+    return {
+      reason: "云端识别等待超时，图片本身不一定有问题。",
+      nextStep: "请稍后重新点击“自动识别人脸”；连续超时就先手动圈选。",
+      manualGuide
+    };
+  }
+  if (
+    info.retryable
+    || status >= 500
+    || code === "retry-exhausted"
+    || /network|request:fail|fail to fetch|socket|网络|连接失败/.test(searchText)
+  ) {
+    return {
+      reason: "云端视觉服务或网络临时异常，没有正常返回结果。",
+      nextStep: "请稍后重试；如果连续失败，先手动圈选并保留请求编号。",
+      manualGuide
+    };
+  }
+
+  return {
+    reason: message && message !== "云端自动贴脸失败"
+      ? `服务端返回：${message}`
+      : "服务端没有返回可用的人脸识别结果。",
+    nextStep: "请重新点击“自动识别人脸”；如果连续失败，请保留请求编号联系后台。",
+    manualGuide
+  };
+}
+
+function getCanvasGestureTip(zoomed, manualGuideActive) {
+  if (manualGuideActive) {
+    return zoomed
+      ? "自动识别没成功：双指拖动找位置，单指拖动圈住整张脸"
+      : "自动识别没成功：单指拖动圈住整张脸，不要只点一下；双指可放大";
+  }
+  return zoomed
+    ? "双指拖动找位置，单指拖动圈住整张脸"
+    : "单指拖动圈住整张脸，不要只点一下；双指可放大";
 }
 
 function formatAutoFaceDetails(details) {
@@ -254,6 +356,9 @@ function formatAutoFaceShortDetail(details) {
   const cloudError = details.cloudError && typeof details.cloudError === "object"
     ? details.cloudError
     : null;
+  if (details.failureGuide && details.failureGuide.reason) {
+    return `原因：${details.failureGuide.reason}`;
+  }
   if (cloudError && cloudError.message) return `原因：${cloudError.message}`;
   if (details.message) return String(details.message);
   if (details.faceCount !== undefined) return `识别到 ${Number(details.faceCount) || 0} 张人脸`;
@@ -284,7 +389,8 @@ Page({
     canvasOffsetY: 0,
     canvasZoomPercent: 100,
     canvasZoomed: false,
-    canvasGestureTip: "双指捏合缩放，单指从任意位置拖到任意方向绘制红圈",
+    canvasGestureTip: getCanvasGestureTip(false, false),
+    manualGuideActive: false,
     drawing: false,
     loading: false,
     loadingText: "",
@@ -548,6 +654,16 @@ Page({
   recordAutoFaceStatus(state, stage, source, message, details) {
     const normalizedState = String(state || "");
     const normalizedStage = String(stage || "");
+    const failureGuide = details
+      && details.failureGuide
+      && typeof details.failureGuide === "object"
+      ? details.failureGuide
+      : null;
+    const cloudError = details
+      && details.cloudError
+      && typeof details.cloudError === "object"
+      ? details.cloudError
+      : null;
     const entry = {
       state: normalizedState,
       stateLabel: AUTO_FACE_STATE_LABELS[normalizedState] || normalizedState || "未知",
@@ -558,6 +674,20 @@ Page({
       details: details && typeof details === "object" ? clone(details) : null,
       summary: formatAutoFaceDetails(details),
       shortDetail: formatAutoFaceShortDetail(details),
+      failureReason: failureGuide && failureGuide.reason
+        ? String(failureGuide.reason)
+        : "",
+      nextStepText: failureGuide && failureGuide.nextStep
+        ? String(failureGuide.nextStep)
+        : "",
+      manualGuideText: failureGuide && failureGuide.manualGuide
+        ? String(failureGuide.manualGuide)
+        : "",
+      requestId: String(
+        (cloudError && cloudError.requestId)
+          || (details && details.requestId)
+          || ""
+      ),
       durationText: formatAutoFaceDuration(details),
       updatedAt: new Date().toISOString()
     };
@@ -598,7 +728,12 @@ Page({
 
   enterManualFaceCircle(cloudError) {
     const cloudInfo = cloudError || null;
-    this.setData({ step: 1 });
+    const failureGuide = getAutoFaceFailureGuide(cloudInfo, Boolean(cloudInfo));
+    this.setData({
+      step: 1,
+      manualGuideActive: true,
+      canvasGestureTip: getCanvasGestureTip(Boolean(this.data.canvasZoomed), true)
+    });
     this.drawCanvas();
     this.recordAutoFaceStatus(
       "manual-required",
@@ -607,14 +742,21 @@ Page({
       cloudInfo
         ? "云端自动贴脸不可用，已进入手动圈选"
         : "云端未连接，已进入手动圈选",
-      { cloudError: cloudInfo }
+      {
+        cloudError: cloudInfo,
+        failureGuide
+      }
     );
     const requestId = cloudInfo && cloudInfo.requestId;
+    const modalContent = [
+      `原因：${failureGuide.reason}`,
+      `下一步：${failureGuide.nextStep}`,
+      `手动圈选：${failureGuide.manualGuide}`,
+      requestId ? `请求编号：${requestId}` : ""
+    ].filter(Boolean).join("\n");
     wx.showModal({
-      title: "请手动圈选",
-      content: cloudInfo
-        ? `自动贴脸失败，已进入手动圈选。请在主图上拖动红圈。${requestId ? `\n请求编号：${requestId}` : ""}`
-        : "当前没有连接云端。已进入手动圈选，请在主图上拖动红圈。",
+      title: "自动贴脸没成功",
+      content: modalContent,
       showCancel: false
     });
   },
@@ -686,7 +828,12 @@ Page({
         webPoseAnalysisMeta: null
       });
       this.resetCanvasView();
-      this.setData({ step: 0 });
+      this.setData({
+        step: 0,
+        manualGuideActive: false,
+        canvasGestureTip: getCanvasGestureTip(false, false),
+        autoFaceStatus: createAutoFaceStatus()
+      });
       this.prepareCanvas(mainImage);
       this.preloadMainImageUpload(mainImage);
       diagnosticLog.info("creation", "main-image-ready", "主图选择和处理完成", {
@@ -739,7 +886,9 @@ Page({
           canvasOffsetY: 0,
           canvasZoomPercent: 100,
           canvasZoomed: false,
-          canvasGestureTip: "双指捏合缩放，单指从任意位置拖到任意方向绘制红圈"
+          canvasGestureTip: getCanvasGestureTip(false, false),
+          manualGuideActive: false,
+          autoFaceStatus: createAutoFaceStatus()
         });
         this._canvasView = {
           scale: MIN_SCALE,
@@ -896,9 +1045,10 @@ Page({
       canvasOffsetY: offset.y,
       canvasZoomPercent: Math.round(safeScale * 100),
       canvasZoomed: zoomed,
-      canvasGestureTip: zoomed
-        ? "双指拖动平移，单指从任意位置拖到任意方向绘制红圈"
-        : "双指捏合缩放，单指从任意位置拖到任意方向绘制红圈"
+      canvasGestureTip: getCanvasGestureTip(
+        zoomed,
+        Boolean(this.data.manualGuideActive)
+      )
     });
   },
 

@@ -330,7 +330,7 @@ if (
   appJson.pages[0] !== "pages/splash/splash"
   || appJson.pages[1] !== "pages/workbench/workbench"
   || !splashJs.includes("setTimeout")
-  || !splashJs.includes("REDIRECT_DELAY = 180")
+  || !splashJs.includes("REDIRECT_DELAY = 1180")
   || !splashJs.includes("openWorkbench()")
   || !splashJs.includes("wx.redirectTo")
   || !splashJs.includes('wx.reLaunch')
@@ -536,6 +536,8 @@ if (
   || !workbenchWxml.includes("diagnosticEvents")
   || !workbenchWxss.includes(".interaction-log-card")
   || !workbenchWxss.includes(".interaction-log-list")
+  || !workbenchWxss.includes(".diagnostic-toggle-head")
+  || !workbenchWxss.includes(".diagnostic-toggle-arrow-expanded")
   || !indexJs.includes('require("../../utils/diagnostic-log")')
   || !indexJs.includes('logMethod("auto-face"')
   || !photoToVideoJs.includes('require("../../utils/diagnostic-log")')

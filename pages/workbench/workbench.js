@@ -1,6 +1,7 @@
 const config = require("../../config");
 const cloud = require("../../services/cloud");
 const storage = require("../../utils/storage");
+const interactionLog = require("../../utils/interaction-log");
 const app = getApp();
 
 const ENTRY_MODES = [
@@ -50,12 +51,17 @@ Page({
     cloudReady: false,
     entryModes: ENTRY_MODES,
     hasDraft: false,
-    records: []
+    records: [],
+    interactionLogs: [],
+    interactionLogExpanded: false
   },
 
   onShow() {
     this._navigating = false;
     this.refreshWorkbench();
+    this.setData({
+      interactionLogs: interactionLog.read()
+    });
   },
 
   refreshWorkbench() {
@@ -73,23 +79,88 @@ Page({
     return draftExists;
   },
 
+  recordInteraction(event, message, details = {}) {
+    interactionLog.append({
+      event,
+      message,
+      route: details.route || "",
+      durationMs: details.durationMs,
+      error: details.error
+    });
+    this.setData({
+      interactionLogs: interactionLog.read()
+    });
+  },
+
+  toggleInteractionLogPanel() {
+    this.setData({
+      interactionLogExpanded: !this.data.interactionLogExpanded
+    });
+  },
+
+  copyInteractionLogs() {
+    const text = interactionLog.format(
+      this.data.interactionLogs,
+      config.appVersion
+    );
+    if (!wx.setClipboardData) {
+      wx.showToast({ title: "当前环境不支持复制日志", icon: "none" });
+      return;
+    }
+    wx.setClipboardData({
+      data: text,
+      success: () => wx.showToast({ title: "点击日志已复制", icon: "success" }),
+      fail: () => wx.showToast({ title: "复制点击日志失败", icon: "none" })
+    });
+  },
+
+  clearInteractionLogs() {
+    interactionLog.clear();
+    this.setData({
+      interactionLogs: [],
+      interactionLogExpanded: false
+    });
+    wx.showToast({ title: "点击日志已清空", icon: "success" });
+  },
+
   openPage(url, failureTitle, logLabel) {
     if (this._navigating) return;
     this._navigating = true;
+    const startedAt = Date.now();
+    this.recordInteraction(
+      "navigation-start",
+      "开始打开页面",
+      { route: url }
+    );
     try {
       wx.navigateTo({
         url,
         success: () => {
           console.info(`[workbench] ${logLabel}`, url);
+          this.recordInteraction(
+            "navigation-success",
+            logLabel,
+            { route: url, durationMs: Date.now() - startedAt }
+          );
         },
         fail: (error) => {
           console.error(`[workbench] ${failureTitle}`, error);
+          this.recordInteraction(
+            "navigation-failed",
+            failureTitle,
+            { route: url, durationMs: Date.now() - startedAt, error }
+          );
           this._navigating = false;
           wx.showToast({ title: failureTitle, icon: "none" });
         }
       });
     } catch (error) {
       console.error(`[workbench] ${failureTitle}`, error);
+      this.recordInteraction(
+        "navigation-failed",
+        failureTitle,
+        { route: url, durationMs: Date.now() - startedAt, error }
+      );
       this._navigating = false;
       wx.showToast({ title: failureTitle, icon: "none" });
     }
@@ -102,6 +173,10 @@ Page({
   openNewCreationPage(url) {
     if (this._navigating) return;
     this._navigating = true;
+    const startedAt = Date.now();
+    this.recordInteraction("new-creation-navigation-start", "开始打开新创作", {
+      route: url
+    });
     wx.showToast({
       title: "正在打开制作页",
       icon: "loading",
@@ -110,6 +185,11 @@ Page({
 
     const showNavigationFailure = (error) => {
       console.error("[workbench] 制作页打开失败", { url, error });
+      this.recordInteraction(
+        "new-creation-navigation-failed",
+        "制作页最终打开失败",
+        { route: url, durationMs: Date.now() - startedAt, error }
+      );
       this._navigating = false;
       wx.showModal({
         title: "制作页打开失败",
@@ -127,6 +207,11 @@ Page({
           url,
           success: () => {
             console.info("[workbench] 已通过重开方式进入制作页", url);
+            this.recordInteraction(
+              "new-creation-fallback-success",
+              "替换页面失败后已通过重开进入制作页",
+              { route: url, durationMs: Date.now() - startedAt }
+            );
           },
           fail: showNavigationFailure
         });
@@ -140,9 +225,19 @@ Page({
         url,
         success: () => {
           console.info("[workbench] 已打开制作页", url);
+          this.recordInteraction(
+            "new-creation-navigation-success",
+            "已打开制作页",
+            { route: url, durationMs: Date.now() - startedAt }
+          );
         },
         fail: (error) => {
           console.warn("[workbench] 替换页面失败，改用重开方式", { url, error });
+          this.recordInteraction(
+            "new-creation-redirect-failed",
+            "替换页面失败，准备自动重开",
+            { route: url, durationMs: Date.now() - startedAt, error }
+          );
           relaunch();
         }
       });
@@ -201,6 +296,9 @@ Page({
       ? dataset.mode
       : "custom";
     const target = buildNewCreationUrl(mode);
+    this.recordInteraction("new-creation-click", "点击开始新创作", {
+      route: target
+    });
     if (!this.data.hasDraft) {
       if (app && app.globalData) {
         app.globalData.pendingNewCreation = { mode, createdAt: Date.now() };
@@ -216,7 +314,13 @@ Page({
       cancelText: "保留草稿",
       success: (response) => {
         if (!response.confirm) return;
+        this.recordInteraction("draft-confirmed", "确认清除草稿并新建", {
+          route: target
+        });
         storage.clearProject();
+        this.recordInteraction("draft-cleared", "已清除旧草稿", {
+          route: target
+        });
         this.refreshWorkbench();
         if (app && app.globalData) {
           app.globalData.pendingNewCreation = { mode, createdAt: Date.now() };

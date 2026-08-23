@@ -116,6 +116,67 @@
     <view class="home-feature-arrow publish-export-arrow">›</view>
   </view>
 
+  <view class="card interaction-log-card">
+    <view class="section-head">
+      <view class="feature-card-leading">
+        <view class="feature-card-icon interaction-log-icon">查</view>
+        <view class="feature-card-copy">
+          <view class="section-kicker">排查工具</view>
+          <view class="section-title">点击链路日志</view>
+        </view>
+      </view>
+      <view class="interaction-log-count">{{interactionLogs.length}} 条</view>
+    </view>
+    <view class="interaction-log-description">
+      记录入口点击、跳转成功、失败和自动重开结果。
+    </view>
+    <view class="interaction-log-actions">
+      <button
+        class="small-btn plain-btn interaction-log-button"
+        size="mini"
+        bindtap="toggleInteractionLogPanel"
+      >
+        {{interactionLogExpanded ? '收起日志' : '查看日志'}}
+      </button>
+      <button
+        class="small-btn plain-btn interaction-log-button"
+        size="mini"
+        bindtap="copyInteractionLogs"
+      >
+        复制日志
+      </button>
+      <button
+        class="small-btn plain-btn interaction-log-button interaction-log-clear"
+        size="mini"
+        bindtap="clearInteractionLogs"
+      >
+        清空
+      </button>
+    </view>
+    <view wx:if="{{interactionLogExpanded}}" class="interaction-log-list">
+      <view wx:if="{{!interactionLogs.length}}" class="interaction-log-empty">
+        暂无点击日志
+      </view>
+      <view
+        wx:for="{{interactionLogs}}"
+        wx:key="time"
+        class="interaction-log-item"
+      >
+        <view class="interaction-log-item-head">
+          <text>{{item.event}}</text>
+          <text>{{item.time}}</text>
+        </view>
+        <view class="interaction-log-message">{{item.message}}</view>
+        <view wx:if="{{item.route}}" class="interaction-log-detail">
+          {{item.route}}
+        </view>
+        <view wx:if="{{item.error}}" class="interaction-log-error">
+          {{item.error}}
+        </view>
+      </view>
+    </view>
+  </view>
+
   </view>
 
   <view class="workbench-footer">

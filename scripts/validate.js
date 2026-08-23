@@ -26,6 +26,7 @@ const jsFiles = [
   "utils/canvas-gesture.js",
   "utils/circle-gesture.js",
   "utils/publish-export.js",
+  "utils/interaction-log.js",
   "pages/splash/splash.js",
   "pages/workbench/workbench.js",
   "pages/publish-export/publish-export.js",
@@ -44,10 +45,14 @@ const jsFiles = [
   "scripts/canvas-gesture-smoke.js",
   "scripts/circle-gesture-smoke.js",
   "scripts/auto-face-fallback-smoke.js",
-  "scripts/generation-experience-smoke.js"
+  "scripts/generation-experience-smoke.js",
+  "scripts/workbench-interaction-smoke.js"
 ];
 const pythonFiles = ["scripts/package-release.py"];
-const powerShellFiles = ["scripts/check-devtools.ps1"];
+const powerShellFiles = [
+  "scripts/check-devtools.ps1",
+  "scripts/refresh-preview.ps1"
+];
 
 for (const relative of jsonFiles) {
   const file = path.join(root, relative);
@@ -102,6 +107,9 @@ const required = [
   "assets/brand/brand-icon.png",
   "pages/workbench/workbench.wxml",
   "pages/workbench/workbench.wxss",
+  "utils/interaction-log.js",
+  "scripts/refresh-preview.ps1",
+  "一键刷新预览.cmd",
   "pages/publish-export/publish-export.js",
   "pages/publish-export/publish-export.json",
   "pages/publish-export/publish-export.wxml",
@@ -345,6 +353,21 @@ if (
   || !workbenchWxml.includes('bindtap="startNew"')
 ) {
   throw new Error("开始新创作没有配置稳定跳转和失败兜底逻辑。");
+}
+if (
+  !workbenchJs.includes("recordInteraction(event, message, details = {})")
+  || !workbenchJs.includes("toggleInteractionLogPanel()")
+  || !workbenchJs.includes("copyInteractionLogs()")
+  || !workbenchJs.includes("clearInteractionLogs()")
+  || !workbenchWxml.includes("点击链路日志")
+  || !workbenchWxml.includes("interactionLogs.length")
+  || !workbenchWxml.includes("bindtap=\"copyInteractionLogs\"")
+  || !workbenchWxss.includes(".interaction-log-card")
+  || !workbenchWxss.includes(".interaction-log-list")
+  || !fs.existsSync(path.join(root, "scripts", "refresh-preview.ps1"))
+  || !fs.existsSync(path.join(root, "一键刷新预览.cmd"))
+) {
+  throw new Error("点击链路日志或一键刷新预览功能不完整。");
 }
 if (
   !workbenchWxml.includes("降低AI识别率再导出照片")

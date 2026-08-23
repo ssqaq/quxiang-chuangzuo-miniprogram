@@ -594,6 +594,105 @@ page {
   color: #c48a61;
 }
 
+.interaction-log-card {
+  margin-top: 16rpx;
+  padding: 24rpx;
+  border-color: #dfe5f4;
+  background: linear-gradient(135deg, #f6f8ff 0%, #ffffff 78%);
+}
+
+.interaction-log-icon {
+  background: #edf1ff;
+  color: #5267c8;
+  box-shadow: 0 8rpx 18rpx rgba(82, 103, 200, 0.1);
+}
+
+.interaction-log-count {
+  flex: none;
+  color: #7f8aa4;
+  font-size: 21rpx;
+}
+
+.interaction-log-description {
+  margin: 16rpx 0 14rpx 94rpx;
+  color: #7d899b;
+  font-size: 21rpx;
+  line-height: 1.5;
+}
+
+.interaction-log-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+  margin-left: 94rpx;
+}
+
+.interaction-log-button {
+  min-width: 128rpx;
+  height: 52rpx;
+  line-height: 52rpx;
+  font-size: 21rpx;
+}
+
+.interaction-log-clear {
+  color: #b45b67 !important;
+}
+
+.interaction-log-list {
+  max-height: 520rpx;
+  margin-top: 18rpx;
+  padding: 14rpx;
+  overflow-y: auto;
+  border-radius: 16rpx;
+  background: #f7f8fc;
+}
+
+.interaction-log-empty {
+  padding: 24rpx 12rpx;
+  color: #9aa4b4;
+  font-size: 21rpx;
+  text-align: center;
+}
+
+.interaction-log-item {
+  padding: 14rpx 0;
+  border-bottom: 1rpx solid #e8ebf3;
+}
+
+.interaction-log-item:last-child {
+  border-bottom: 0;
+}
+
+.interaction-log-item-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12rpx;
+  color: #69758c;
+  font-size: 19rpx;
+}
+
+.interaction-log-message {
+  margin-top: 6rpx;
+  color: #2f3d55;
+  font-size: 22rpx;
+  line-height: 1.45;
+}
+
+.interaction-log-detail,
+.interaction-log-error {
+  margin-top: 5rpx;
+  overflow: hidden;
+  color: #8490a5;
+  font-size: 18rpx;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.interaction-log-error {
+  color: #c45d69;
+}
+
 .workbench-footer {
   padding: 28rpx 0 8rpx;
   color: #9aa4b4;
@@ -694,6 +793,11 @@ button::after {
 
   .entry-card {
     padding: 18rpx;
+  }
+
+  .interaction-log-description,
+  .interaction-log-actions {
+    margin-left: 78rpx;
   }
 
   .entry-description {
@@ -845,6 +949,10 @@ button::after {
 
   .entry-card {
     min-height: 182rpx;
+  }
+
+  .interaction-log-card {
+    margin-top: 20rpx;
   }
 }
 

@@ -1,4 +1,4 @@
-console.log("[api] build=0.13.6 marker=API_BUILD_TAG_20260823_54");
+console.log("[api] build=0.14.1 marker=API_BUILD_TAG_20260823_56");
 
 const cloud = require("wx-server-sdk");
 
@@ -75,17 +75,30 @@ function resolveImageConfig() {
 
 function resolveVideoConfig() {
   const provider = firstEnv(["AI_VIDEO_PROVIDER"]);
+  const baseUrl = firstEnv(["AI_VIDEO_BASE_URL"]);
   const endpoint = env("AI_VIDEO_ENDPOINT");
   const apiKey = firstEnv(["AI_VIDEO_API_KEY", "AI_VIDEO_KEY"]);
-  const model = env("AI_VIDEO_MODEL");
+  const model = env("AI_VIDEO_MODEL", "grok-imagine-video-1.5");
   return {
     provider,
+    baseUrl,
     endpoint,
+    queryEndpoint: env("AI_VIDEO_QUERY_ENDPOINT"),
     apiKey,
     model,
-    createPath: env("AI_VIDEO_CREATE_PATH", ""),
-    queryPath: env("AI_VIDEO_QUERY_PATH", ""),
-    configured: Boolean(provider && endpoint && apiKey && model)
+    createPath: env("AI_VIDEO_CREATE_PATH", "/v1/videos/generations"),
+    queryPath: env("AI_VIDEO_QUERY_PATH", "/v1/videos/{taskId}"),
+    resolution: env("AI_VIDEO_RESOLUTION", "720p"),
+    aspectRatio: env("AI_VIDEO_ASPECT_RATIO", ""),
+    prompt: env(
+      "AI_VIDEO_PROMPT",
+      "让照片中的人物自然轻微运动，保持人物身份、脸部、发型、服装和背景不变，镜头稳定，动作连贯，不要新增人物，不要变形。"
+    ),
+    timeoutMs: Math.max(
+      10000,
+      Math.min(15 * 60 * 1000, Number(env("AI_VIDEO_TIMEOUT_MS", "90000")) || 90000)
+    ),
+    configured: Boolean(provider && (baseUrl || endpoint) && apiKey && model)
   };
 }
 
@@ -494,6 +507,33 @@ async function requestJson(url, payload, apiKey, extraHeaders = {}, meta = {}) {
       "Content-Length": Buffer.byteLength(body),
       Authorization: `Bearer ${apiKey}`
     }, extraHeaders)
+  }, body, meta);
+  if (response.status < 200 || response.status >= 300) {
+    throw upstreamError(response);
+  }
+  return response.json || {};
+}
+
+async function requestJsonMethod(
+  url,
+  payload,
+  apiKey,
+  method = "POST",
+  extraHeaders = {},
+  meta = {}
+) {
+  const hasBody = payload !== null && payload !== undefined;
+  const body = hasBody ? JSON.stringify(payload) : null;
+  const headers = Object.assign({
+    Authorization: `Bearer ${apiKey}`
+  }, extraHeaders);
+  if (hasBody) {
+    headers["Content-Type"] = "application/json";
+    headers["Content-Length"] = Buffer.byteLength(body);
+  }
+  const response = await requestWithRetry(url, {
+    method,
+    headers
   }, body, meta);
   if (response.status < 200 || response.status >= 300) {
     throw upstreamError(response);
@@ -1290,6 +1330,164 @@ async function deleteRecord(event, context) {
   return jsonResponse(true, { recordId });
 }
 
+function replaceVideoTaskId(path, taskId) {
+  return String(path || "")
+    .replace(/\{taskId\}/g, encodeURIComponent(String(taskId || "")))
+    .replace(/\{requestId\}/g, encodeURIComponent(String(taskId || "")));
+}
+
+function videoCreateUrl(video) {
+  return video.endpoint || endpoint(video.baseUrl, video.createPath);
+}
+
+function videoQueryUrl(video, taskId) {
+  const path = replaceVideoTaskId(video.queryPath, taskId);
+  return video.queryEndpoint || endpoint(video.baseUrl, path);
+}
+
+function buildVideoGenerationPayload(payload = {}, imageBuffer, video = resolveVideoConfig()) {
+  if (!Buffer.isBuffer(imageBuffer) || !imageBuffer.length) {
+    const error = new Error("视频任务的源图片为空。");
+    error.code = "VIDEO_SOURCE_IMAGE_EMPTY";
+    error.retryable = false;
+    throw error;
+  }
+  const prompt = String(payload.prompt || video.prompt || "").trim();
+  if (!prompt) {
+    const error = new Error("视频提示词不能为空。");
+    error.code = "VIDEO_PROMPT_EMPTY";
+    error.retryable = false;
+    throw error;
+  }
+  const result = {
+    model: String(payload.model || video.model),
+    prompt,
+    image: toDataUrl(imageBuffer, detectMime(imageBuffer))
+  };
+  const duration = Number(payload.durationSeconds || payload.duration);
+  if (Number.isFinite(duration) && duration > 0) {
+    result.duration = duration;
+  }
+  const resolution = String(payload.resolution || video.resolution || "").trim();
+  if (resolution) result.resolution = resolution;
+  const aspectRatio = String(payload.aspectRatio || video.aspectRatio || "").trim();
+  if (aspectRatio) result.aspect_ratio = aspectRatio;
+  return result;
+}
+
+function firstVideoValue(values) {
+  return values.find((value) => value !== undefined && value !== null && value !== "");
+}
+
+function normalizeVideoCreateResponse(payload = {}) {
+  const data = payload && payload.data;
+  const output = payload && payload.output;
+  const taskId = firstVideoValue([
+    payload.request_id,
+    payload.requestId,
+    payload.task_id,
+    payload.taskId,
+    payload.id,
+    data && data.request_id,
+    data && data.requestId,
+    data && data.task_id,
+    data && data.taskId,
+    data && data.id,
+    output && output.request_id,
+    output && output.requestId,
+    output && output.task_id,
+    output && output.taskId,
+    output && output.id
+  ]);
+  if (!taskId) {
+    const error = new Error("视频创建接口没有返回任务编号。");
+    error.code = "VIDEO_CREATE_RESPONSE_INVALID";
+    error.retryable = false;
+    throw error;
+  }
+  const rawStatus = String(firstVideoValue([
+    payload.status,
+    payload.state,
+    data && data.status,
+    data && data.state,
+    output && output.status,
+    output && output.state,
+    "queued"
+  ]) || "queued").toLowerCase();
+  return {
+    taskId: String(taskId),
+    status: rawStatus === "done" ? "succeeded" : "processing",
+    providerStatus: rawStatus
+  };
+}
+
+function extractVideoUrl(payload = {}) {
+  const data = payload && payload.data;
+  const output = payload && payload.output;
+  const video = payload && payload.video;
+  const dataVideo = data && data.video;
+  const outputVideo = output && output.video;
+  const value = firstVideoValue([
+    typeof video === "string" ? video : "",
+    video && video.url,
+    payload.video_url,
+    payload.videoURL,
+    payload.url,
+    dataVideo && (typeof dataVideo === "string" ? dataVideo : dataVideo.url),
+    data && data.video_url,
+    data && data.videoURL,
+    data && data.url,
+    outputVideo && (typeof outputVideo === "string" ? outputVideo : outputVideo.url),
+    output && output.video_url,
+    output && output.videoURL,
+    output && output.url
+  ]);
+  return value ? String(value) : "";
+}
+
+function normalizeVideoQueryResponse(payload = {}) {
+  const data = payload && payload.data;
+  const output = payload && payload.output;
+  const rawStatus = String(firstVideoValue([
+    payload.status,
+    payload.state,
+    data && data.status,
+    data && data.state,
+    output && output.status,
+    output && output.state,
+    "processing"
+  ]) || "processing").toLowerCase();
+  const status = ["done", "succeeded", "success", "completed", "complete"].includes(rawStatus)
+    ? "succeeded"
+    : ["failed", "error", "cancelled", "canceled"].includes(rawStatus)
+      ? rawStatus === "cancelled" || rawStatus === "canceled" ? "cancelled" : "failed"
+      : "processing";
+  const errorValue = firstVideoValue([
+    payload.error && (payload.error.message || payload.error.code),
+    typeof payload.error === "string" ? payload.error : "",
+    payload.message,
+    data && data.error && (data.error.message || data.error.code),
+    output && output.error && (output.error.message || output.error.code)
+  ]);
+  return {
+    status,
+    providerStatus: rawStatus,
+    videoURL: extractVideoUrl(payload),
+    error: errorValue ? String(errorValue) : ""
+  };
+}
+
+function videoRequestMeta(requestId, action, video, allowRetry) {
+  return {
+    requestId,
+    action,
+    allowRetry,
+    maxAttempts: allowRetry ? Math.max(2, maxRetries() + 1) : 1,
+    retryStatuses: [408, 425, 429, 500, 502, 503, 504],
+    timeoutMs: video.timeoutMs
+  };
+}
+
 function videoProviderStatus() {
   const video = resolveVideoConfig();
   if (!video.configured) {
@@ -1297,14 +1495,18 @@ function videoProviderStatus() {
       configured: false,
       ready: false,
       provider: video.provider || "",
+      model: video.model,
+      resolution: video.resolution,
       message: "视频服务尚未配置，当前只能浏览页面和选择照片。"
     });
   }
   return jsonResponse(true, {
     configured: true,
-    ready: false,
+    ready: true,
     provider: video.provider,
-    message: "视频服务参数已填写，但 provider 适配协议尚未接入。"
+    model: video.model,
+    resolution: video.resolution,
+    message: `视频服务已连接，默认${video.resolution}，可以开始生成动态视频。`
   });
 }
 
@@ -1312,14 +1514,52 @@ async function createVideoTask(event) {
   const video = resolveVideoConfig();
   if (!video.configured) {
     return fail(
-      "视频服务未配置，请联系管理员配置 AI_VIDEO_PROVIDER、AI_VIDEO_ENDPOINT、AI_VIDEO_MODEL 和 AI_VIDEO_API_KEY。",
+      "视频服务未配置，请联系管理员配置 AI_VIDEO_PROVIDER、AI_VIDEO_BASE_URL、AI_VIDEO_MODEL 和 AI_VIDEO_API_KEY。",
       "VIDEO_PROVIDER_NOT_CONFIGURED"
     );
   }
-  return fail(
-    "视频 provider 适配器尚未接入，暂不能伪造生成成功。",
-    "VIDEO_PROVIDER_PROTOCOL_PENDING"
+  const payload = event.payload || {};
+  if (!payload.imageFileID) {
+    return fail("缺少视频源图片，请重新选择照片。", "VIDEO_SOURCE_IMAGE_MISSING");
+  }
+  const requestId = event.requestId;
+  const imageBuffer = await downloadCloudFile(payload.imageFileID, {
+    requestId,
+    action: "video.create",
+    fileType: "video-source"
+  });
+  const requestPayload = buildVideoGenerationPayload(payload, Buffer.from(imageBuffer), video);
+  log("info", "video.create.start", {
+    requestId,
+    provider: video.provider,
+    model: requestPayload.model,
+    resolution: requestPayload.resolution || "",
+    duration: requestPayload.duration || null,
+    imageBytes: Buffer.from(imageBuffer).length,
+    prompt: requestPayload.prompt
+  });
+  const response = await requestJsonMethod(
+    videoCreateUrl(video),
+    requestPayload,
+    video.apiKey,
+    "POST",
+    {},
+    videoRequestMeta(requestId, "video.create", video, false)
   );
+  const normalized = normalizeVideoCreateResponse(response);
+  log("info", "video.create.finish", {
+    requestId,
+    provider: video.provider,
+    taskId: normalized.taskId,
+    providerStatus: normalized.providerStatus,
+    durationMs: null
+  });
+  return jsonResponse(true, Object.assign({}, normalized, {
+    requestId,
+    provider: video.provider,
+    model: requestPayload.model,
+    resolution: requestPayload.resolution || ""
+  }));
 }
 
 async function queryVideoTask(event) {
@@ -1330,10 +1570,36 @@ async function queryVideoTask(event) {
       "VIDEO_PROVIDER_NOT_CONFIGURED"
     );
   }
-  return fail(
-    "视频 provider 适配器尚未接入，暂不能查询动态视频任务。",
-    "VIDEO_PROVIDER_PROTOCOL_PENDING"
+  const taskId = String(event.taskId || "").trim();
+  if (!taskId) {
+    return fail("缺少视频任务编号。", "VIDEO_TASK_ID_MISSING");
+  }
+  const response = await requestJsonMethod(
+    videoQueryUrl(video, taskId),
+    null,
+    video.apiKey,
+    "GET",
+    {},
+    videoRequestMeta(event.requestId, "video.query", video, true)
   );
+  const normalized = normalizeVideoQueryResponse(response);
+  if (normalized.status === "succeeded" && !normalized.videoURL) {
+    return fail(
+      "视频任务已完成，但服务没有返回视频地址。",
+      "VIDEO_RESULT_URL_MISSING",
+      {
+        taskId,
+        provider: video.provider,
+        providerStatus: normalized.providerStatus,
+        retryable: false
+      }
+    );
+  }
+  return jsonResponse(true, Object.assign({}, normalized, {
+    requestId: event.requestId,
+    taskId,
+    provider: video.provider
+  }));
 }
 
 exports.main = async (event = {}, context) => {
@@ -1406,7 +1672,12 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     normalizeFaceDetections,
     normalizeWebPoseSuggestions,
     resolveVideoConfig,
-    videoProviderStatus
+    videoProviderStatus,
+    buildVideoGenerationPayload,
+    normalizeVideoCreateResponse,
+    normalizeVideoQueryResponse,
+    videoCreateUrl,
+    videoQueryUrl
   };
 }
 

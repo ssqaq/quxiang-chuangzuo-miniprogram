@@ -180,13 +180,18 @@ AI_MASK_INVERT=false
 AI_MAX_RETRIES=2
 AI_IMAGE_RETRY_ENABLED=false
 
-# 转实况/动态视频专用：可换成第三个供应商
-AI_VIDEO_PROVIDER=
+# 转实况/动态视频专用：凌云中转站 + Grok 异步视频任务
+AI_VIDEO_PROVIDER=lingyun
+AI_VIDEO_BASE_URL=https://api.lingyunapi.xyz
 AI_VIDEO_ENDPOINT=
-AI_VIDEO_MODEL=
-AI_VIDEO_API_KEY=
-AI_VIDEO_CREATE_PATH=
-AI_VIDEO_QUERY_PATH=
+AI_VIDEO_QUERY_ENDPOINT=
+AI_VIDEO_MODEL=grok-imagine-video-1.5
+AI_VIDEO_API_KEY=你的凌云视频 API Key
+AI_VIDEO_CREATE_PATH=/v1/videos/generations
+AI_VIDEO_QUERY_PATH=/v1/videos/{taskId}
+AI_VIDEO_RESOLUTION=720p
+AI_VIDEO_ASPECT_RATIO=
+AI_VIDEO_TIMEOUT_MS=90000
 ```
 
 真实密钥只放云函数环境变量，不写进小程序前端。
@@ -260,9 +265,13 @@ user_quotas
 - 上传到视频服务的源图和返回结果会进入本地待清理队列，默认保留 24 小时，
   到期后再次打开本页面时自动清理；清理失败会保留并在后续重试，不影响已保存到相册的文件。
 
-当前没有接入真实视频 provider。`videoProviderStatus`、`createVideoTask`、
-`queryVideoTask` 已预留，但未配置或未完成 provider 适配时会返回明确错误，
-不会伪造“已生成”。
+当前已接入凌云中转站的 Grok 异步视频适配：创建任务使用
+`POST /v1/videos/generations`，随后使用 `GET /v1/videos/{taskId}` 轮询，
+默认清晰度为 720p。创建请求只发一次，避免网络抖动造成重复扣费；查询可以
+自动重试。真实模型名、路径和清晰度都可以通过云函数环境变量调整。
+
+价格按当前供应商报价记录：480p 约 0.2/秒、720p 约 0.3/秒、1080p 约 1.8/秒。
+正式测试会产生费用，当前代码不会自动替你生成真实视频。
 
 重要边界：普通 MP4 和静态照片不是 iPhone 原生 Live Photo，也不保证 Android
 系统相册按住播放。若要做真正的 Live Photo/Motion Photo，需要原生照片库或按

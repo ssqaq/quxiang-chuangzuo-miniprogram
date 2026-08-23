@@ -42,7 +42,21 @@ global.wx = {
     if (options.success) options.success();
   },
   navigateTo() {},
-  previewImage() {},
+  previewImage(options) {
+    events.push({ type: "previewImage", options });
+  },
+  getImageInfo(options) {
+    events.push({ type: "getImageInfo", options });
+    options.success({ path: "/tmp/author-wechat-qr.jpg" });
+  },
+  saveImageToPhotosAlbum(options) {
+    events.push({ type: "saveImageToPhotosAlbum", options });
+    options.success();
+    if (options.complete) options.complete();
+  },
+  openSetting(options) {
+    events.push({ type: "openSetting", options });
+  },
   redirectTo(options) {
     events.push({ type: "redirectTo", options });
     if (redirectMode === "timeout") return;
@@ -82,6 +96,18 @@ function hasEvent(event) {
 
 async function main() {
   page.onShow();
+  page.previewAuthorQr();
+  assert.ok(events.some((item) => (
+    item.type === "previewImage"
+    && item.options.current === "/assets/contact/author-wechat-qr.jpg"
+  )));
+  page.saveAuthorQr();
+  assert.ok(events.some((item) => (
+    item.type === "saveImageToPhotosAlbum"
+    && item.options.filePath === "/tmp/author-wechat-qr.jpg"
+  )));
+  assert.strictEqual(page.data.savingAuthorQr, false);
+
   page.startNew({
     currentTarget: {
       dataset: { mode: "custom" }

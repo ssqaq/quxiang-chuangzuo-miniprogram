@@ -16,9 +16,11 @@ module.exports = {
     quality: 82,
     minBytes: 262144
   },
-  appVersion: "0.13.8",
+  appVersion: "0.14.1",
   photoToVideo: {
     durationSeconds: 3,
+    resolution: "720p",
+    prompt: "让照片中的人物自然轻微运动，保持人物身份、脸部、发型、服装和背景不变，镜头稳定，动作连贯，不要新增人物，不要变形。",
     maxBatch: 9,
     maxConcurrent: 2,
     pollIntervalMs: 2500,

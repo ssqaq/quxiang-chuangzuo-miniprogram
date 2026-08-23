@@ -15,6 +15,7 @@ const {
   MAX_SCALE,
   clampOffset,
   createPinchState,
+  createTouchCoordinateContext,
   mapViewportPointToCanvas,
   resolveTouchPoint,
   resolveTouchPoints,
@@ -284,8 +285,6 @@ Page({
     canvasZoomPercent: 100,
     canvasZoomed: false,
     canvasGestureTip: "双指捏合缩放，单指从任意位置拖到任意方向绘制红圈",
-    pageScrollLocked: false,
-    pageScrollStyle: "",
     drawing: false,
     loading: false,
     loadingText: "",
@@ -316,8 +315,12 @@ Page({
     this._autoFaceDetectionCache = null;
     this._pageDestroyed = false;
     this._pageScrollTop = 0;
-    this._pinchScrollTop = null;
-    this._pageScrollRestorePending = false;
+    this._canvasViewportRect = null;
+    this._canvasDocumentRect = null;
+    this._gestureCoordinateContext = null;
+    this._gestureMode = null;
+    this._pinchState = null;
+    this._pinchAwaitingRelease = false;
     const isPreload = options.preload === "1";
     const entry = resolveEntryMode(options);
     const shouldCreateNew = options.new === "1";
@@ -396,25 +399,22 @@ Page({
   onPageScroll(event = {}) {
     const scrollTop = Number(event.scrollTop);
     if (!Number.isFinite(scrollTop)) return;
-    if (this._pageScrollLocked && Number.isFinite(this._pinchScrollTop)) {
-      if (Math.abs(scrollTop - this._pinchScrollTop) > 0.5) {
-        this.restorePageScrollPosition();
-      }
-      return;
-    }
     this._pageScrollTop = Math.max(0, scrollTop);
-    this._canvasPageScroll = Object.assign({}, this._canvasPageScroll, {
-      scrollTop: this._pageScrollTop
-    });
   },
 
   resetForNewCreation(mode) {
     const entry = resolveEntryMode({ mode }) || ENTRY_MODE_META.custom;
-    this.setPageScrollLock(false);
     this.clearCanvasDrawTimer();
     this.invalidateMainImageState();
     this._drawingStart = null;
+    this._drawingCurrent = null;
+    this._drawingTouchId = null;
+    this._gestureMode = null;
+    this._pinchState = null;
+    this._pinchAwaitingRelease = false;
+    this._gestureCoordinateContext = null;
     this._canvasViewportRect = null;
+    this._canvasDocumentRect = null;
     this._canvasView = {
       scale: MIN_SCALE,
       offsetX: 0,
@@ -436,8 +436,6 @@ Page({
       canvasOffsetY: 0,
       canvasZoomPercent: 100,
       canvasZoomed: false,
-      pageScrollLocked: false,
-      pageScrollStyle: "",
       drawing: false,
       loading: false,
       loadingText: "",
@@ -460,90 +458,16 @@ Page({
   },
 
   onUnload() {
-    this.setPageScrollLock(false);
     this._pageDestroyed = true;
+    this._gestureMode = null;
+    this._pinchState = null;
+    this._pinchAwaitingRelease = false;
+    this._gestureCoordinateContext = null;
     this.clearCanvasDrawTimer();
     this.stopGenerationTimer();
     diagnosticLog.info("creation", "page-unload", "制作页离开", {
       step: this.data.step,
       hasMainImage: Boolean(this.data.project && this.data.project.mainImage)
-    });
-  },
-
-  setPageScrollLock(locked) {
-    const nextLocked = Boolean(locked);
-    if (nextLocked) {
-      if (this._pageScrollLocked) return;
-      const scrollTop = this.getCurrentPageScrollTop();
-      this._pinchScrollTop = scrollTop;
-      this._pageScrollLocked = true;
-      this._pageScrollRestorePending = false;
-      const pageScrollStyle = [
-        "position: fixed",
-        `top: -${scrollTop}px`,
-        "left: 0",
-        "right: 0",
-        "width: 100%",
-        "height: 100vh",
-        "overflow: hidden",
-        "overscroll-behavior: none"
-      ].join(";");
-      if (!this._pageDestroyed) {
-        this.setData({
-          pageScrollLocked: true,
-          pageScrollStyle
-        }, () => {
-          this.restorePageScrollPosition(scrollTop);
-        });
-      }
-      return;
-    }
-    if (!this._pageScrollLocked) return;
-    const restoreTop = this._pinchScrollTop;
-    this._pageScrollLocked = false;
-    this._pinchScrollTop = null;
-    if (this._pageDestroyed) return;
-    this.setData({
-      pageScrollLocked: false,
-      pageScrollStyle: ""
-    }, () => {
-      this.restorePageScrollPosition(restoreTop);
-    });
-  },
-
-  getCurrentPageScrollTop() {
-    const candidates = [
-      this._canvasPageScroll && this._canvasPageScroll.scrollTop,
-      this._canvasPageScroll && this._canvasPageScroll.top,
-      this._pageScrollTop
-    ];
-    for (const candidate of candidates) {
-      const value = Number(candidate);
-      if (Number.isFinite(value) && value >= 0) return value;
-    }
-    return 0;
-  },
-
-  restorePageScrollPosition(scrollTop = this._pinchScrollTop) {
-    const target = Number(scrollTop);
-    if (
-      !Number.isFinite(target)
-      || target < 0
-      || typeof wx.pageScrollTo !== "function"
-    ) {
-      return;
-    }
-    this._pageScrollRestorePending = true;
-    wx.pageScrollTo({
-      scrollTop: target,
-      duration: 0,
-      complete: () => {
-        this._pageScrollRestorePending = false;
-        this._pageScrollTop = target;
-        this._canvasPageScroll = Object.assign({}, this._canvasPageScroll, {
-          scrollTop: target
-        });
-      }
     });
   },
 
@@ -746,7 +670,6 @@ Page({
         compressionQuality: prepared.compressionQuality,
         fileID: ""
       };
-      this.setPageScrollLock(false);
       this.invalidateMainImageState();
       this.updateProject({
         mainImage,
@@ -788,7 +711,6 @@ Page({
       success: (response) => {
         if (!response.confirm) return;
         this.clearCanvasDrawTimer();
-        this.setPageScrollLock(false);
         this._drawingStart = null;
         this.invalidateMainImageState();
         this.updateProject({
@@ -825,6 +747,11 @@ Page({
           offsetY: 0
         };
         this._canvasViewportRect = null;
+        this._canvasDocumentRect = null;
+        this._gestureCoordinateContext = null;
+        this._gestureMode = null;
+        this._pinchState = null;
+        this._pinchAwaitingRelease = false;
         diagnosticLog.info("creation", "main-image-cleared", "主图已清除", {
           step: "main-image"
         });
@@ -917,8 +844,23 @@ Page({
     query.exec((results) => {
       const rect = results && results[0];
       const scroll = results && results[1];
-      if (rect) this._canvasViewportRect = rect;
-      if (scroll) this._canvasPageScroll = scroll;
+      if (!rect) return;
+      const scrollTop = Number(scroll && scroll.scrollTop);
+      if (Number.isFinite(scrollTop)) {
+        this._pageScrollTop = Math.max(0, scrollTop);
+      }
+      this._canvasViewportRect = {
+        left: Number(rect.left) || 0,
+        top: Number(rect.top) || 0,
+        width: Number(rect.width) || this.data.canvasWidth,
+        height: Number(rect.height) || this.data.canvasHeight
+      };
+      this._canvasDocumentRect = {
+        left: this._canvasViewportRect.left,
+        top: this._canvasViewportRect.top + this._pageScrollTop,
+        width: this._canvasViewportRect.width,
+        height: this._canvasViewportRect.height
+      };
     });
   },
 
@@ -978,19 +920,55 @@ Page({
     this.zoomBy(-0.25);
   },
 
-  getViewportPoint(touch, eventContext) {
+  getCanvasCoordinateLayout() {
+    const documentRect = this._canvasDocumentRect;
+    const viewportRect = this._canvasViewportRect;
+    if (!documentRect && !viewportRect) return null;
+    const scrollTop = Math.max(0, Number(this._pageScrollTop) || 0);
+    const documentLeft = documentRect
+      ? Number(documentRect.left) || 0
+      : Number(viewportRect.left) || 0;
+    const documentTop = documentRect
+      ? Number(documentRect.top) || 0
+      : (Number(viewportRect.top) || 0) + scrollTop;
+    return {
+      documentLeft,
+      documentTop,
+      viewportLeft: documentLeft,
+      viewportTop: documentTop - scrollTop
+    };
+  },
+
+  getEventTouches(event, includeChanged = false) {
+    if (!event) return [];
+    const primary = includeChanged ? event.changedTouches : event.touches;
+    const fallback = includeChanged ? event.touches : event.changedTouches;
+    if (Array.isArray(primary) && primary.length) return primary;
+    return Array.isArray(fallback) ? fallback : [];
+  },
+
+  beginGestureCoordinateContext(touches) {
+    const layout = this.getCanvasCoordinateLayout();
+    if (!layout) {
+      this.refreshCanvasViewportRect();
+      return null;
+    }
+    const context = createTouchCoordinateContext(touches, layout);
+    this._gestureCoordinateContext = context;
+    return context;
+  },
+
+  getViewportPoint(touch) {
     return resolveTouchPoint(
       touch,
-      this._canvasViewportRect,
-      this._canvasPageScroll,
+      this._gestureCoordinateContext,
       this.data.canvasWidth,
-      this.data.canvasHeight,
-      eventContext
+      this.data.canvasHeight
     );
   },
 
-  getCanvasPoint(touch, eventContext) {
-    const viewportPoint = this.getViewportPoint(touch, eventContext);
+  getCanvasPoint(touch) {
+    const viewportPoint = this.getViewportPoint(touch);
     if (!viewportPoint) return null;
     return mapViewportPointToCanvas(
       viewportPoint,
@@ -1002,16 +980,27 @@ Page({
 
   getViewportTouches(event) {
     return resolveTouchPoints(
-      event,
-      this._canvasViewportRect,
-      this._canvasPageScroll,
+      this.getEventTouches(event),
+      this._gestureCoordinateContext,
       this.data.canvasWidth,
       this.data.canvasHeight
     );
   },
 
-  beginPinch(touches) {
-    if (!touches || touches.length < 2) return false;
+  beginPinch(event) {
+    const rawTouches = this.getEventTouches(event).slice(0, 2);
+    if (rawTouches.length < 2) return false;
+    if (!this.beginGestureCoordinateContext(rawTouches)) return false;
+    const touches = resolveTouchPoints(
+      rawTouches,
+      this._gestureCoordinateContext,
+      this.data.canvasWidth,
+      this.data.canvasHeight
+    );
+    if (touches.length < 2) {
+      this._gestureCoordinateContext = null;
+      return false;
+    }
     this.clearCanvasDrawTimer();
     this._drawingStart = null;
     this._drawingCurrent = null;
@@ -1024,8 +1013,8 @@ Page({
       this.data.canvasHeight
     );
     this._gestureMode = this._pinchState ? "pinch" : null;
-    this.setPageScrollLock(Boolean(this._pinchState));
-    this.setData({ drawing: false });
+    this._pinchAwaitingRelease = false;
+    if (this.data.drawing) this.setData({ drawing: false });
     return Boolean(this._pinchState);
   },
 
@@ -1065,32 +1054,36 @@ Page({
 
   onCanvasTouchStart(event) {
     if (!this.data.project.mainImage) return;
-    const touches = this.getViewportTouches(event);
-    if (touches.length >= 2) {
-      this.beginPinch(touches);
+    if (this._pinchAwaitingRelease) return;
+    const rawTouches = this.getEventTouches(event);
+    if (rawTouches.length >= 2) {
+      this.beginPinch(event);
       return;
     }
     if (this._gestureMode === "pinch") return;
-    const touch = event.touches && event.touches[0];
+    const touch = rawTouches[0];
     if (!touch) return;
+    if (!this.beginGestureCoordinateContext([touch])) return;
     this.clearCanvasDrawTimer();
     this._lastCanvasDrawAt = 0;
-    this._drawingStart = this.getCanvasPoint(event);
-    if (!this._drawingStart) return;
+    this._drawingStart = this.getCanvasPoint(touch);
+    if (!this._drawingStart) {
+      this._gestureCoordinateContext = null;
+      return;
+    }
     this._drawingCurrent = this._drawingStart;
     this._drawingTouchId = getTouchIdentifier(touch);
     this._gestureMode = "draw";
-    this.setPageScrollLock(true);
     this.setData({ drawing: true });
   },
 
   onCanvasTouchMove(event) {
-    if (this._gestureMode === "pinch" || this._gestureMode === "draw") {
-      this.restorePageScrollPosition(this._pinchScrollTop);
-    }
-    const touches = this.getViewportTouches(event);
-    if (touches.length >= 2) {
-      if (this._gestureMode !== "pinch") this.beginPinch(touches);
+    if (this._pinchAwaitingRelease) return;
+    const rawTouches = this.getEventTouches(event);
+    if (rawTouches.length >= 2) {
+      if (this._gestureMode !== "pinch" && !this.beginPinch(event)) return;
+      const touches = this.getViewportTouches(event);
+      if (touches.length < 2) return;
       const nextView = updatePinchView(
         this._pinchState,
         touches[0],
@@ -1098,15 +1091,16 @@ Page({
         this.data.canvasWidth,
         this.data.canvasHeight
       );
-      if (nextView) {
+      if (nextView && nextView.changed) {
         this.setCanvasView(nextView.scale, nextView.offsetX, nextView.offsetY);
       }
       return;
     }
+    if (this._gestureMode === "pinch") return;
     if (this._gestureMode !== "draw" || !this._drawingStart) return;
     const touch = this.getDrawingTouch(event);
     if (!touch) return;
-    this._drawingCurrent = this.getCanvasPoint(touch, event);
+    this._drawingCurrent = this.getCanvasPoint(touch);
     if (!this._drawingCurrent) return;
     const preview = this.circleFromPoints(this._drawingStart, this._drawingCurrent);
     this.scheduleCanvasDraw(preview);
@@ -1116,24 +1110,33 @@ Page({
     if (this._gestureMode === "pinch") {
       if (this.getActiveTouchCount(event) > 0) {
         this._pinchState = null;
+        this._pinchAwaitingRelease = true;
+        this._gestureCoordinateContext = null;
         this._drawingStart = null;
         this._drawingCurrent = null;
         this._drawingTouchId = null;
-        this.setPageScrollLock(true);
         return;
       }
       this._gestureMode = null;
       this._pinchState = null;
+      this._pinchAwaitingRelease = false;
+      this._gestureCoordinateContext = null;
       this._drawingStart = null;
       this._drawingCurrent = null;
       this._drawingTouchId = null;
-      this.setPageScrollLock(false);
+      return;
+    }
+    if (this._pinchAwaitingRelease) {
+      if (this.getActiveTouchCount(event) === 0) {
+        this._pinchAwaitingRelease = false;
+        this._gestureCoordinateContext = null;
+      }
       return;
     }
     if (this._gestureMode !== "draw" || !this._drawingStart) return;
     this.clearCanvasDrawTimer();
     const touch = this.getDrawingTouch(event, true);
-    const touchPoint = touch ? this.getCanvasPoint(touch, event) : null;
+    const touchPoint = touch ? this.getCanvasPoint(touch) : null;
     const endPoint = touchPoint
       ? touchPoint
       : (this._drawingCurrent || this._drawingStart);
@@ -1142,7 +1145,7 @@ Page({
     this._drawingCurrent = null;
     this._drawingTouchId = null;
     this._gestureMode = null;
-    this.setPageScrollLock(false);
+    this._gestureCoordinateContext = null;
     this.updateProject({ maskCircle: circle, maskFileID: "" });
     this.setData({ drawing: false, step: 1 });
     this.drawCanvas(circle);
@@ -1155,7 +1158,8 @@ Page({
     this._drawingTouchId = null;
     this._gestureMode = null;
     this._pinchState = null;
-    this.setPageScrollLock(false);
+    this._pinchAwaitingRelease = false;
+    this._gestureCoordinateContext = null;
     this.setData({ drawing: false });
     this.drawCanvas();
   },

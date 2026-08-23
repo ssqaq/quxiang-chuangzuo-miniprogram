@@ -593,7 +593,7 @@ Page({
     return this.setDataIfActive({ records });
   },
 
-  async pollVideoTask(taskId, run) {
+  async pollVideoTask(taskId, run, requestId) {
     const maxPolls = Number(config.photoToVideo.maxPolls) || 120;
     const interval = Number(config.photoToVideo.pollIntervalMs) || 2500;
     for (let count = 0; count < maxPolls; count += 1) {
@@ -601,16 +601,18 @@ Page({
       if (count === 0) {
         diagnosticLog.info("video", "poll-start", "开始轮询视频任务", {
           taskId,
+          requestId,
           maxPolls,
           interval
         });
       }
-      const result = await cloud.queryVideoTask(taskId);
+      const result = await cloud.queryVideoTask(taskId, { requestId });
       this.assertRunActive(run);
       const status = String(result && result.status || "").toLowerCase();
       if (["succeeded", "success", "completed"].includes(status)) {
         diagnosticLog.info("video", "poll-success", "视频任务完成", {
           taskId,
+          requestId: result && result.requestId || requestId,
           pollCount: count + 1,
           status
         });
@@ -619,6 +621,7 @@ Page({
       if (["failed", "error", "cancelled"].includes(status)) {
         diagnosticLog.error("video", "poll-failed", "视频任务返回失败状态", {
           taskId,
+          requestId: result && result.requestId || requestId,
           pollCount: count + 1,
           status,
           result
@@ -647,9 +650,19 @@ Page({
   async convertOne(record, run) {
     this.assertRunActive(run);
     const startedAt = Date.now();
+    const requestId = `video-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 10)}`;
+    const videoConfig = config.photoToVideo || {};
+    const prompt = String(
+      videoConfig.prompt
+      || "让照片中的人物自然轻微运动，保持人物身份、脸部、发型、服装和背景不变，镜头稳定，动作连贯，不要新增人物，不要变形。"
+    ).trim();
+    const resolution = String(videoConfig.resolution || "720p").trim();
     diagnosticLog.info("video", "convert-start", "开始处理一张照片转动态视频", {
       recordId: record.id,
-      projectName: record.projectName
+      projectName: record.projectName,
+      requestId,
+      prompt,
+      resolution
     });
     const sourcePath = await publishExport.resolveImageSource(record);
     this.assertRunActive(run);
@@ -659,18 +672,25 @@ Page({
     const created = await cloud.createVideoTask({
       imageFileID: upload.fileID,
       durationSeconds: config.photoToVideo.durationSeconds,
+      prompt,
+      resolution,
       mute: true,
       outputFormat: "mp4"
-    });
+    }, { requestId });
     if (!created || !created.taskId) {
       throw new Error("视频服务没有返回任务编号。");
     }
     diagnosticLog.info("video", "task-created", "视频任务已创建", {
       recordId: record.id,
       taskId: created.taskId,
+      requestId: created.requestId || requestId,
       durationMs: Date.now() - startedAt
     });
-    const result = await this.pollVideoTask(created.taskId, run);
+    const result = await this.pollVideoTask(
+      created.taskId,
+      run,
+      created.requestId || requestId
+    );
     const resultFileID = result && (result.resultFileID || result.videoFileID || "");
     if (resultFileID) {
       this.enqueuePhotoToVideoCleanup(resultFileID, "result");
@@ -699,6 +719,7 @@ Page({
     diagnosticLog.info("video", "convert-success", "照片转动态视频完成", {
       recordId: record.id,
       taskId: created.taskId,
+      requestId: result && result.requestId || created.requestId || requestId,
       durationMs: Date.now() - startedAt
     });
     return { videoPath };

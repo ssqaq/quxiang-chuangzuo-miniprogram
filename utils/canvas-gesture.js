@@ -1,5 +1,9 @@
 const MIN_SCALE = 1;
 const MAX_SCALE = 3.5;
+const PINCH_SCALE_THRESHOLD = 0.04;
+const PINCH_PAN_THRESHOLD = 10;
+const TOUCH_COORDINATE_PAGE = "page";
+const TOUCH_COORDINATE_CLIENT = "client";
 
 function finite(value, fallback = 0) {
   const number = Number(value);
@@ -44,162 +48,141 @@ function clampOffset(scale, width, height, offsetX, offsetY) {
   };
 }
 
-function isObject(value) {
-  return value !== null && typeof value === "object";
+function normalizeCoordinateLayout(layout) {
+  const source = layout && typeof layout === "object" ? layout : {};
+  const viewportLeft = finite(
+    source.viewportLeft !== undefined ? source.viewportLeft : source.left
+  );
+  const viewportTop = finite(
+    source.viewportTop !== undefined ? source.viewportTop : source.top
+  );
+  return {
+    documentLeft: finite(
+      source.documentLeft !== undefined ? source.documentLeft : viewportLeft
+    ),
+    documentTop: finite(
+      source.documentTop !== undefined ? source.documentTop : viewportTop
+    ),
+    viewportLeft,
+    viewportTop
+  };
 }
 
-function isEventLike(value) {
-  return isObject(value)
-    && (Array.isArray(value.touches) || Array.isArray(value.changedTouches));
+function hasFinitePair(source, xKey, yKey) {
+  return Boolean(source)
+    && Number.isFinite(Number(source[xKey]))
+    && Number.isFinite(Number(source[yKey]));
 }
 
-function isNearZero(value) {
-  return Math.abs(Number(value) || 0) <= 1;
-}
-
-function isViewportAtOrigin(rect) {
-  return !rect || (isNearZero(rect.left) && isNearZero(rect.top));
-}
-
-function isSuspiciousAbsoluteZero(x, y, rect) {
+function isSuspiciousAbsoluteZero(x, y, originX, originY) {
   return Number(x) === 0
     && Number(y) === 0
-    && rect
-    && !isViewportAtOrigin(rect);
+    && (Math.abs(finite(originX)) > 1 || Math.abs(finite(originY)) > 1);
 }
 
-function appendSource(sources, value) {
-  if (!isObject(value)) return;
-  sources.push(value);
-  if (isObject(value.detail)) sources.push(value.detail);
-  if (isObject(value._userTap)) sources.push(value._userTap);
+function hasReliablePair(source, xKey, yKey, originX, originY) {
+  if (!hasFinitePair(source, xKey, yKey)) return false;
+  return !isSuspiciousAbsoluteZero(
+    source[xKey],
+    source[yKey],
+    originX,
+    originY
+  );
 }
 
-function resolveTouchPoint(eventOrTouch, rect, scrollOffset, width, height, eventContext) {
-  if (!eventOrTouch && !eventContext) return null;
-  const safeWidth = Math.max(1, finite(width, 1));
-  const safeHeight = Math.max(1, finite(height, 1));
-  const hasRect = rect
-    && Number.isFinite(Number(rect.left))
-    && Number.isFinite(Number(rect.top));
-  const left = hasRect ? Number(rect.left) : 0;
-  const top = hasRect ? Number(rect.top) : 0;
-  const scrollLeft = finite(scrollOffset && (
-    scrollOffset.scrollLeft !== undefined
-      ? scrollOffset.scrollLeft
-      : scrollOffset.left
-  ));
-  const scrollTop = finite(scrollOffset && (
-    scrollOffset.scrollTop !== undefined
-      ? scrollOffset.scrollTop
-      : scrollOffset.top
-  ));
-  const localPair = (x, y) => {
-    const pointX = Number(x);
-    const pointY = Number(y);
-    if (!Number.isFinite(pointX) || !Number.isFinite(pointY)) return null;
-    return {
-      x: clamp(pointX, 0, safeWidth),
-      y: clamp(pointY, 0, safeHeight)
-    };
-  };
-
-  const absolutePair = (x, y, offsetX, offsetY) => {
-    const pointX = Number(x);
-    const pointY = Number(y);
-    if (
-      !Number.isFinite(pointX)
-      || !Number.isFinite(pointY)
-      || isSuspiciousAbsoluteZero(pointX, pointY, rect)
-    ) {
-      return null;
-    }
-    return {
-      x: clamp(pointX - offsetX, 0, safeWidth),
-      y: clamp(pointY - offsetY, 0, safeHeight)
-    };
-  };
-
-  const resolveSource = (source) => {
-    if (!isObject(source)) return null;
-
-    // 局部坐标不参与“伪零”判断：(0, 0) 在局部坐标系里是合法左上角。
-    const offsetPoint = localPair(
-      source.offsetX,
-      source.offsetY
-    );
-    if (offsetPoint) return offsetPoint;
-    const localPoint = localPair(source.x, source.y);
-    if (localPoint) return localPoint;
-
-    if (!hasRect) return null;
-
-    const clientPoint = absolutePair(
-      source.clientX,
-      source.clientY,
-      left,
-      top
-    );
-    if (clientPoint) return clientPoint;
-
-    const pagePoint = absolutePair(
-      source.pageX,
-      source.pageY,
-      left + scrollLeft,
-      top + scrollTop
-    );
-    if (pagePoint) return pagePoint;
-
-    // screen 坐标只有在前两种绝对坐标不可用时作为最后兜底。
-    // 不把它当局部坐标，仍按页面矩形和滚动量换算。
-    return absolutePair(
-      source.screenX,
-      source.screenY,
-      left + scrollLeft,
-      top + scrollTop
-    );
-  };
-
-  const event = isEventLike(eventOrTouch) ? eventOrTouch : eventContext;
-  const touchSources = [];
-  if (isEventLike(eventOrTouch)) {
-    (eventOrTouch.touches || []).forEach((touch) => appendSource(touchSources, touch));
-    (eventOrTouch.changedTouches || []).forEach((touch) => appendSource(touchSources, touch));
-  } else {
-    appendSource(touchSources, eventOrTouch);
+function selectTouchCoordinateMode(touches, layout) {
+  const list = Array.isArray(touches) ? touches.filter(Boolean) : [];
+  if (!list.length) return null;
+  const normalized = normalizeCoordinateLayout(layout);
+  if (list.every((touch) => hasReliablePair(
+    touch,
+    "pageX",
+    "pageY",
+    normalized.documentLeft,
+    normalized.documentTop
+  ))) {
+    return TOUCH_COORDINATE_PAGE;
   }
-  if (event && event !== eventOrTouch) {
-    (event.touches || []).forEach((touch) => appendSource(touchSources, touch));
-    (event.changedTouches || []).forEach((touch) => appendSource(touchSources, touch));
+  if (list.every((touch) => hasReliablePair(
+    touch,
+    "clientX",
+    "clientY",
+    normalized.viewportLeft,
+    normalized.viewportTop
+  ))) {
+    return TOUCH_COORDINATE_CLIENT;
   }
-
-  for (const source of touchSources) {
-    const point = resolveSource(source);
-    if (point) return point;
-  }
-
-  // 触摸对象没有可用坐标时，再检查事件级、detail 和 _userTap 字段。
-  const eventSources = [];
-  if (event) {
-    appendSource(eventSources, event.detail);
-    appendSource(eventSources, event._userTap);
-    appendSource(eventSources, event);
-  }
-  for (const source of eventSources) {
-    const point = resolveSource(source);
-    if (point) return point;
-  }
-
   return null;
 }
 
-function resolveTouchPoints(event, rect, scrollOffset, width, height) {
-  if (!event) return [];
-  const touches = Array.isArray(event.touches) && event.touches.length
-    ? event.touches
-    : (Array.isArray(event.changedTouches) ? event.changedTouches : []);
+function createTouchCoordinateContext(touches, layout) {
+  const normalized = normalizeCoordinateLayout(layout);
+  const mode = selectTouchCoordinateMode(touches, normalized);
+  if (!mode) return null;
+  return Object.assign({ mode }, normalized);
+}
+
+function resolveTouchPoint(touch, context, width, height) {
+  if (!touch || !context) return null;
+  const safeWidth = Math.max(1, finite(width, 1));
+  const safeHeight = Math.max(1, finite(height, 1));
+  let pointX;
+  let pointY;
+  let originX;
+  let originY;
+  if (context.mode === TOUCH_COORDINATE_PAGE) {
+    if (!hasReliablePair(
+      touch,
+      "pageX",
+      "pageY",
+      context.documentLeft,
+      context.documentTop
+    )) {
+      return null;
+    }
+    pointX = Number(touch.pageX);
+    pointY = Number(touch.pageY);
+    originX = finite(context.documentLeft);
+    originY = finite(context.documentTop);
+  } else if (context.mode === TOUCH_COORDINATE_CLIENT) {
+    if (!hasReliablePair(
+      touch,
+      "clientX",
+      "clientY",
+      context.viewportLeft,
+      context.viewportTop
+    )) {
+      return null;
+    }
+    pointX = Number(touch.clientX);
+    pointY = Number(touch.clientY);
+    originX = finite(context.viewportLeft);
+    originY = finite(context.viewportTop);
+  } else {
+    return null;
+  }
+  return {
+    x: clamp(pointX - originX, 0, safeWidth),
+    y: clamp(pointY - originY, 0, safeHeight)
+  };
+}
+
+function resolveTouchPoints(touchesOrEvent, context, width, height) {
+  const touches = Array.isArray(touchesOrEvent)
+    ? touchesOrEvent
+    : (
+      touchesOrEvent
+      && Array.isArray(touchesOrEvent.touches)
+      && touchesOrEvent.touches.length
+        ? touchesOrEvent.touches
+        : (
+          touchesOrEvent && Array.isArray(touchesOrEvent.changedTouches)
+            ? touchesOrEvent.changedTouches
+            : []
+        )
+    );
   return touches
-    .map((touch) => resolveTouchPoint(touch, rect, scrollOffset, width, height))
+    .map((touch) => resolveTouchPoint(touch, context, width, height))
     .filter((point) => point);
 }
 
@@ -226,14 +209,18 @@ function mapViewportPointToCanvas(point, view, width, height) {
 }
 
 function createPinchState(first, second, view, width, height) {
-  const startDistance = distance(first, second);
-  if (startDistance < 1) return null;
+  if (!first || !second) return null;
   const normalizedView = normalizeView(view);
+  const startMidpoint = midpoint(first, second);
   return {
-    startDistance,
+    mode: "pending",
+    startDistance: distance(first, second),
+    startMidpoint,
     startScale: normalizedView.scale,
+    startOffsetX: normalizedView.offsetX,
+    startOffsetY: normalizedView.offsetY,
     focus: mapViewportPointToCanvas(
-      midpoint(first, second),
+      startMidpoint,
       normalizedView,
       width,
       height
@@ -241,23 +228,66 @@ function createPinchState(first, second, view, width, height) {
   };
 }
 
+function unchangedPinchView(state) {
+  return {
+    mode: state && state.mode ? state.mode : "pending",
+    changed: false,
+    scale: finite(state && state.startScale, MIN_SCALE),
+    offsetX: finite(state && state.startOffsetX),
+    offsetY: finite(state && state.startOffsetY)
+  };
+}
+
 function updatePinchView(state, first, second, width, height) {
-  if (!state || !first || !second || state.startDistance < 1) return null;
+  if (!state || !first || !second) return null;
+  if (finite(state.startDistance) < 1) return unchangedPinchView(state);
   const currentDistance = distance(first, second);
-  if (currentDistance < 1) return null;
+  if (currentDistance < 1) return unchangedPinchView(state);
+  const currentMidpoint = midpoint(first, second);
+  const scaleChangeRatio = Math.abs(
+    currentDistance - state.startDistance
+  ) / state.startDistance;
+  const midpointDistance = distance(state.startMidpoint, currentMidpoint);
+  if (state.mode === "pending") {
+    if (scaleChangeRatio >= PINCH_SCALE_THRESHOLD) {
+      state.mode = "scale";
+    } else if (midpointDistance >= PINCH_PAN_THRESHOLD) {
+      state.mode = "pan";
+    } else {
+      return unchangedPinchView(state);
+    }
+  }
+
   const safeWidth = Math.max(1, finite(width, 1));
   const safeHeight = Math.max(1, finite(height, 1));
+  if (state.mode === "pan") {
+    const offset = clampOffset(
+      state.startScale,
+      safeWidth,
+      safeHeight,
+      state.startOffsetX + currentMidpoint.x - state.startMidpoint.x,
+      state.startOffsetY + currentMidpoint.y - state.startMidpoint.y
+    );
+    return {
+      mode: state.mode,
+      changed: true,
+      scale: state.startScale,
+      offsetX: offset.x,
+      offsetY: offset.y
+    };
+  }
+
+  if (state.mode !== "scale") return unchangedPinchView(state);
   const scale = clamp(
     state.startScale * currentDistance / state.startDistance,
     MIN_SCALE,
     MAX_SCALE
   );
-  const currentMidpoint = midpoint(first, second);
   const centerX = safeWidth / 2;
   const centerY = safeHeight / 2;
-  const rawOffsetX = currentMidpoint.x - centerX -
+  const rawOffsetX = state.startMidpoint.x - centerX -
     scale * (state.focus.x - centerX);
-  const rawOffsetY = currentMidpoint.y - centerY -
+  const rawOffsetY = state.startMidpoint.y - centerY -
     scale * (state.focus.y - centerY);
   const offset = clampOffset(
     scale,
@@ -267,6 +297,8 @@ function updatePinchView(state, first, second, width, height) {
     rawOffsetY
   );
   return {
+    mode: state.mode,
+    changed: true,
     scale,
     offsetX: offset.x,
     offsetY: offset.y
@@ -274,14 +306,20 @@ function updatePinchView(state, first, second, width, height) {
 }
 
 module.exports = {
-  MIN_SCALE,
   MAX_SCALE,
+  MIN_SCALE,
+  PINCH_PAN_THRESHOLD,
+  PINCH_SCALE_THRESHOLD,
+  TOUCH_COORDINATE_CLIENT,
+  TOUCH_COORDINATE_PAGE,
   clampOffset,
   createPinchState,
+  createTouchCoordinateContext,
   distance,
   mapViewportPointToCanvas,
   midpoint,
   resolveTouchPoint,
   resolveTouchPoints,
+  selectTouchCoordinateMode,
   updatePinchView
 };

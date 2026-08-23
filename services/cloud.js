@@ -405,10 +405,18 @@ module.exports = {
   getVideoProviderStatus() {
     return callApi({ action: "videoProviderStatus" });
   },
-  createVideoTask(payload) {
-    return callApi({ action: "createVideoTask", payload });
+  createVideoTask(payload, options = {}) {
+    return callApi({
+      action: "createVideoTask",
+      payload,
+      requestId: options.requestId || (payload && payload.requestId) || ""
+    });
   },
-  queryVideoTask(taskId) {
-    return callApi({ action: "queryVideoTask", taskId });
+  queryVideoTask(taskId, options = {}) {
+    return callApi({
+      action: "queryVideoTask",
+      taskId,
+      requestId: options.requestId || ""
+    });
   }
 };

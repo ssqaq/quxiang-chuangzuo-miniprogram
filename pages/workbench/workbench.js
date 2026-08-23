@@ -3,6 +3,7 @@ const cloud = require("../../services/cloud");
 const storage = require("../../utils/storage");
 const diagnosticLog = require("../../utils/diagnostic-log");
 const app = getApp();
+const AUTHOR_QR_PATH = "/assets/contact/author-wechat-qr.jpg";
 
 const ENTRY_MODES = [
   {
@@ -103,6 +104,8 @@ Page({
   data: {
     appVersion: config.appVersion,
     cloudReady: false,
+    authorQrPath: AUTHOR_QR_PATH,
+    savingAuthorQr: false,
     entryModes: ENTRY_MODES,
     hasDraft: false,
     records: [],
@@ -488,6 +491,69 @@ Page({
       "动态视频页打开失败",
       "已打开照片转动态视频"
     );
+  },
+
+  previewAuthorQr() {
+    const url = this.data.authorQrPath;
+    if (!url || !wx.previewImage) {
+      wx.showToast({ title: "当前环境不支持查看二维码", icon: "none" });
+      return;
+    }
+    wx.previewImage({
+      current: url,
+      urls: [url],
+      fail: () => {
+        wx.showToast({ title: "二维码打开失败", icon: "none" });
+      }
+    });
+  },
+
+  handleAuthorQrSaveFailure(error) {
+    const message = error && error.errMsg ? error.errMsg : "";
+    if (/auth deny|auth denied|authorize:fail|permission/i.test(message)) {
+      wx.showModal({
+        title: "需要相册权限",
+        content: "请在设置中允许保存到相册，再重新点击保存二维码。",
+        confirmText: "去设置",
+        success: (result) => {
+          if (result.confirm && wx.openSetting) {
+            wx.openSetting({});
+          }
+        }
+      });
+      return;
+    }
+    wx.showToast({ title: "二维码保存失败，请重试", icon: "none" });
+  },
+
+  saveAuthorQr() {
+    if (this.data.savingAuthorQr) return;
+    if (!wx.getImageInfo || !wx.saveImageToPhotosAlbum) {
+      wx.showToast({ title: "当前环境不支持保存二维码", icon: "none" });
+      return;
+    }
+    this.setData({ savingAuthorQr: true });
+    wx.getImageInfo({
+      src: this.data.authorQrPath,
+      success: (image) => {
+        wx.saveImageToPhotosAlbum({
+          filePath: image.path || this.data.authorQrPath,
+          success: () => {
+            wx.showToast({ title: "二维码已保存到相册", icon: "success" });
+          },
+          fail: (error) => {
+            this.handleAuthorQrSaveFailure(error);
+          },
+          complete: () => {
+            this.setData({ savingAuthorQr: false });
+          }
+        });
+      },
+      fail: () => {
+        this.setData({ savingAuthorQr: false });
+        wx.showToast({ title: "二维码读取失败", icon: "none" });
+      }
+    });
   },
 
   previewRecord(event) {

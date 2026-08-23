@@ -46,12 +46,14 @@ const jsFiles = [
   "scripts/image-smoke.js",
   "scripts/web-pose-smoke.js",
   "scripts/canvas-gesture-smoke.js",
+  "scripts/index-canvas-touch-smoke.js",
   "scripts/page-scroll-lock-smoke.js",
   "scripts/circle-gesture-smoke.js",
   "scripts/auto-face-fallback-smoke.js",
   "scripts/diagnostic-log-smoke.js",
   "scripts/generation-experience-smoke.js",
   "scripts/photo-to-video-smoke.js",
+  "scripts/video-provider-smoke.js",
   "scripts/workbench-interaction-smoke.js"
 ];
 const pythonFiles = ["scripts/package-release.py"];
@@ -111,6 +113,7 @@ const required = [
   "pages/splash/splash.wxml",
   "pages/splash/splash.wxss",
   "assets/brand/brand-icon.png",
+  "assets/contact/author-wechat-qr.jpg",
   "pages/workbench/workbench.wxml",
   "pages/workbench/workbench.wxss",
   "utils/interaction-log.js",
@@ -317,6 +320,18 @@ const commonFeatureSubtitleCount = (
 const diagnosticFeatureHeadingStyle = workbenchWxss.match(
   /\.diagnostic-feature-heading\s*\{([^}]*)\}/
 );
+const contactAuthorCardStyle = workbenchWxss.match(
+  /\.contact-author-card\s*\{([^}]*)\}/
+);
+const contactAuthorQrStyle = workbenchWxss.match(
+  /\.contact-author-qr\s*\{([^}]*)\}/
+);
+const contactAuthorSaveButtonStyle = workbenchWxss.match(
+  /\.contact-author-save-button\s*\{([^}]*)\}/
+);
+const recentCardEmptyStyle = workbenchWxss.match(
+  /\.recent-card-empty\s*\{([^}]*)\}/
+);
 if (
   !workbenchJs.includes("storage.loadProject()")
   || !workbenchJs.includes("storage.loadRecords()")
@@ -345,11 +360,30 @@ if (
   || workbenchWxml.indexOf("diagnostic-feature-heading") > workbenchWxml.indexOf('class="card interaction-log-card"')
   || !diagnosticFeatureHeadingStyle
   || !/margin-top:\s*28rpx/.test(diagnosticFeatureHeadingStyle[1])
+  || !workbenchWxml.includes('class="card contact-author-card"')
+  || workbenchWxml.indexOf("contact-author-card") < workbenchWxml.indexOf("interaction-log-card")
+  || !workbenchWxml.includes('src="{{authorQrPath}}"')
+  || !workbenchWxml.includes('bindtap="previewAuthorQr"')
+  || !workbenchWxml.includes('show-menu-by-longpress="true"')
+  || !workbenchWxml.includes('bindtap="saveAuthorQr"')
+  || !workbenchWxml.includes("保存二维码")
+  || !workbenchJs.includes('AUTHOR_QR_PATH = "/assets/contact/author-wechat-qr.jpg"')
+  || !workbenchJs.includes("previewAuthorQr()")
+  || !workbenchJs.includes("saveAuthorQr()")
+  || !workbenchJs.includes("wx.saveImageToPhotosAlbum")
+  || !contactAuthorCardStyle
+  || !/margin-top:\s*16rpx/.test(contactAuthorCardStyle[1])
+  || !contactAuthorQrStyle
+  || !/width:\s*420rpx/.test(contactAuthorQrStyle[1])
+  || !contactAuthorSaveButtonStyle
+  || !/width:\s*100%/.test(contactAuthorSaveButtonStyle[1])
   || workbenchWxml.includes("recent-empty-icon")
   || workbenchWxml.includes('wx:else class="recent-empty"')
-  || !workbenchWxml.includes("还没有制作记录，完成一张照片后会显示在这里。")
-  || !workbenchWxml.includes("recent-empty-copy")
-  || !workbenchWxml.includes("还没有制作记录，完成一张照片后会显示在这里。")
+  || workbenchWxml.includes("还没有制作记录，完成一张照片后会显示在这里。")
+  || workbenchWxml.includes("recent-empty-copy")
+  || !workbenchWxml.includes("'recent-card-filled' : 'recent-card-empty'")
+  || !recentCardEmptyStyle
+  || !/min-height:\s*0/.test(recentCardEmptyStyle[1])
   || !workbenchWxss.includes("white-space: nowrap")
   || !workbenchWxss.includes("text-overflow: ellipsis")
   || !workbenchWxss.includes("margin-left: 94rpx")
@@ -379,7 +413,7 @@ if (
   || !workbenchWxss.includes("margin-bottom: 6rpx")
   || !workbenchWxss.includes("font-size: 30rpx")
   || workbenchWxss.includes(".recent-empty-icon")
-  || !workbenchWxss.includes(".recent-empty-copy")
+  || workbenchWxss.includes(".recent-empty-copy")
   || !workbenchWxss.includes(".recent-card")
   || !workbenchWxss.includes(".home-feature-card")
   || !workbenchWxss.includes("min-height: 148rpx")
@@ -561,7 +595,11 @@ if (
   || !cloudJs.includes('action === "createVideoTask"')
   || !cloudJs.includes('action === "queryVideoTask"')
   || !cloudJs.includes("VIDEO_PROVIDER_NOT_CONFIGURED")
-  || !cloudJs.includes("VIDEO_PROVIDER_PROTOCOL_PENDING")
+  || !cloudJs.includes("buildVideoGenerationPayload")
+  || !cloudJs.includes("normalizeVideoCreateResponse")
+  || !cloudJs.includes("normalizeVideoQueryResponse")
+  || !cloudJs.includes("AI_VIDEO_BASE_URL")
+  || cloudJs.includes("VIDEO_PROVIDER_PROTOCOL_PENDING")
   || !photoToVideoJs.includes("maxConcurrent")
   || !photoToVideoJs.includes("PHOTO_TO_VIDEO_CANCELLED")
   || !photoToVideoJs.includes("resultFileID")
@@ -597,19 +635,25 @@ if (
 ) {
   throw new Error("主图清除按钮或红圈分层绘制结构不完整。");
 }
+const canvasTouchEvents = ["start", "move", "end", "cancel"];
 if (
-  !indexWxml.includes('<page-meta page-style="{{pageScrollStyle}}"></page-meta>')
-  || !indexJs.includes("pageScrollLocked: false")
-  || !indexJs.includes('pageScrollStyle: ""')
-  || !indexJs.includes("setPageScrollLock(locked)")
-  || !indexJs.includes("setPageScrollLock(true)")
-  || !indexJs.includes("setPageScrollLock(false)")
-  || !indexJs.includes("position: fixed")
-  || !indexJs.includes("top: -${scrollTop}px")
+  indexWxml.includes("<page-meta")
+  || indexJs.includes("pageScrollLocked")
+  || indexJs.includes("pageScrollStyle")
+  || indexJs.includes("setPageScrollLock")
+  || indexJs.includes("restorePageScrollPosition")
+  || indexJs.includes("wx.pageScrollTo")
+  || indexJs.includes("position: fixed")
+  || indexPageJson.disableScroll !== undefined
+  || indexWxml.includes("capture-catchtouch")
+  || canvasTouchEvents.some((eventName) => (
+    (indexWxml.match(new RegExp(`catchtouch${eventName}=\"onCanvasTouch`, "g")) || []).length !== 1
+  ))
   || !indexJs.includes("getActiveTouchCount(event)")
   || !indexJs.includes("this.getActiveTouchCount(event) > 0")
+  || !indexJs.includes("_pinchAwaitingRelease")
 ) {
-  throw new Error("图片双指手势的页面滚动锁定或释放链路不完整。");
+  throw new Error("图片双指手势仍包含旧滚动补偿、重复绑定或缺少抬手保护。");
 }
 if (
   !indexWxml.includes('class="canvas-viewport"')
@@ -623,19 +667,24 @@ if (
   || indexWxml.includes("canvas-zoom-reset")
   || indexWxml.includes("用手指从左上拖到右下")
   || !indexJs.includes("createPinchState")
+  || !indexJs.includes("createTouchCoordinateContext")
   || !indexJs.includes("updatePinchView")
   || !indexJs.includes("mapViewportPointToCanvas")
-  || !indexJs.includes("getViewportPoint(touch, eventContext)")
-  || !indexJs.includes("this.getCanvasPoint(event)")
+  || !indexJs.includes("getViewportPoint(touch)")
+  || !indexJs.includes("this.getCanvasPoint(touch)")
   || !indexJs.includes("resolveTouchPoints")
   || !indexJs.includes("zoomIn()")
   || !indexJs.includes("zoomOut()")
   || !indexJs.includes("resetCanvasView()")
   || !canvasGestureJs.includes("MAX_SCALE = 3.5")
+  || !canvasGestureJs.includes("PINCH_SCALE_THRESHOLD = 0.04")
+  || !canvasGestureJs.includes("PINCH_PAN_THRESHOLD = 10")
   || !canvasGestureJs.includes("createPinchState")
-  || !canvasGestureJs.includes("isSuspiciousAbsoluteZero")
+  || !canvasGestureJs.includes("createTouchCoordinateContext")
   || !canvasGestureJs.includes("resolveTouchPoints")
   || !canvasGestureJs.includes("updatePinchView")
+  || canvasGestureJs.includes("source.offsetX")
+  || canvasGestureJs.includes("source.screenX")
   || indexJs.includes("captureGestureEvent")
   || indexJs.includes("_lastGestureEvent")
 ) {

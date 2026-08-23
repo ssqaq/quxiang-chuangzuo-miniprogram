@@ -506,6 +506,10 @@ page {
   background: linear-gradient(135deg, #f2fcf8 0%, #ffffff 78%);
 }
 
+.recent-card-empty {
+  min-height: 0;
+}
+
 .recent-item {
   position: relative;
   display: flex;
@@ -523,18 +527,6 @@ page {
 .recent-info {
   min-width: 0;
   margin-left: 16rpx;
-}
-
-.recent-empty-copy {
-  min-width: 0;
-  margin-top: 10rpx;
-  margin-left: 94rpx;
-  overflow: hidden;
-  color: #7d899b;
-  font-size: 21rpx;
-  line-height: 1.45;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .publish-export-entry {
@@ -731,6 +723,87 @@ page {
   background: #fff1f2 !important;
 }
 
+.contact-author-card {
+  margin-top: 16rpx;
+  padding: 26rpx;
+  border-color: #d9e8fb;
+  background: linear-gradient(145deg, #f5f9ff 0%, #ffffff 72%);
+}
+
+.contact-author-heading {
+  display: flex;
+  align-items: center;
+}
+
+.contact-author-icon {
+  display: flex;
+  flex: none;
+  width: 76rpx;
+  height: 76rpx;
+  align-items: center;
+  justify-content: center;
+  border-radius: 24rpx;
+  background: #e7f1ff;
+  color: #2f70d4;
+  font-size: 26rpx;
+  font-weight: 800;
+  box-shadow: 0 8rpx 18rpx rgba(47, 112, 212, 0.12);
+}
+
+.contact-author-copy {
+  min-width: 0;
+  margin-left: 18rpx;
+}
+
+.contact-author-title {
+  margin-top: 2rpx;
+  color: #263550;
+  font-size: 30rpx;
+  font-weight: 800;
+  line-height: 40rpx;
+}
+
+.contact-author-description {
+  margin-top: 6rpx;
+  color: #74839a;
+  font-size: 21rpx;
+  line-height: 30rpx;
+}
+
+.contact-author-qr-shell {
+  margin-top: 22rpx;
+  padding: 16rpx;
+  overflow: hidden;
+  border: 1rpx solid #e2e8f2;
+  border-radius: 24rpx;
+  background: #ffffff;
+}
+
+.contact-author-qr {
+  display: block;
+  width: 420rpx;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+  border-radius: 18rpx;
+}
+
+.contact-author-save-button {
+  display: flex;
+  width: 100%;
+  height: 72rpx;
+  min-height: 72rpx;
+  margin: 18rpx 0 0;
+  padding: 0 20rpx;
+  align-items: center;
+  justify-content: center;
+  border-radius: 16rpx;
+  font-size: 25rpx;
+  font-weight: 700;
+  line-height: 1;
+  box-sizing: border-box;
+}
+
 .interaction-log-list {
   max-height: 520rpx;
   margin-top: 18rpx;
@@ -882,10 +955,6 @@ button::after {
   .photo-to-video-copy {
     margin-left: 14rpx;
     padding-right: 18rpx;
-  }
-
-  .recent-empty-copy {
-    margin-left: 78rpx;
   }
 
   .recent-more {

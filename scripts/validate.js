@@ -862,7 +862,10 @@ if (
   || indexJs.includes("pageScrollStyle")
   || indexJs.includes("setPageScrollLock")
   || indexJs.includes("restorePageScrollPosition")
-  || indexJs.includes("wx.pageScrollTo")
+  || (
+    indexJs.includes("wx.pageScrollTo")
+    && !indexJs.includes('query.select("#generation-results")')
+  )
   || indexJs.includes("position: fixed")
   || indexPageJson.disableScroll !== undefined
   || indexWxml.includes("capture-catchtouch")
@@ -1142,14 +1145,19 @@ if (
   || !indexWxml.includes('class="generation-check-row {{phaseIndex < generationPhaseIndex ? \'is-done\' : \'\'}')
   || !indexWxml.includes("等待上一项完成")
   || !indexWxml.includes("generation-waiting-footer")
+  || !indexWxml.includes('id="generation-results"')
   || !indexWxml.includes("generationElapsedSeconds")
   || !indexJs.includes("startGenerationTimer()")
   || !indexJs.includes("stopGenerationTimer()")
   || !indexJs.includes("generationWaitText")
+  || !indexJs.includes("scrollToGenerationResults()")
+  || !indexJs.includes('query.select("#generation-results")')
+  || !indexJs.includes("wx.pageScrollTo({")
   || !indexWxss.includes(".generation-waiting")
   || !indexWxss.includes(".generation-checklist")
   || !indexWxss.includes(".generation-check-row.is-current")
   || !indexWxss.includes(".generation-check-row.is-done")
+  || !indexWxss.includes("@keyframes generation-check-current-pulse")
   || !indexWxss.includes(".generation-waiting-footer")
 ) {
   throw new Error("第 5 步生成任务清单或操作卡结构不完整。");

@@ -977,6 +977,7 @@
   border-color: #a9caf7;
   background: #edf5ff;
   box-shadow: 0 6rpx 14rpx rgba(31, 111, 235, 0.08);
+  animation: generation-check-current-pulse 1.8s ease-in-out infinite;
 }
 
 .generation-check-row.is-done {
@@ -1060,6 +1061,17 @@
 
 .generation-check-row.is-done .generation-check-state {
   color: #2d9560;
+}
+
+@keyframes generation-check-current-pulse {
+  0%,
+  100% {
+    box-shadow: 0 6rpx 14rpx rgba(31, 111, 235, 0.08);
+  }
+
+  50% {
+    box-shadow: 0 8rpx 20rpx rgba(31, 111, 235, 0.16);
+  }
 }
 
 .generation-waiting-note {
@@ -1284,7 +1296,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .generation-waiting-spinner {
+  .generation-check-row.is-current {
     animation: none;
   }
 }

@@ -341,7 +341,7 @@
         </view>
       </view>
     </view>
-    <view wx:if="{{generatedResults.length}}" class="result-grid">
+    <view wx:if="{{generatedResults.length}}" id="generation-results" class="result-grid">
       <view wx:for="{{generatedResults}}" wx:key="id" class="result-card" data-url="{{item.tempFileURL || item.path}}" bindtap="previewImage">
         <image src="{{item.tempFileURL || item.path}}" mode="aspectFill"></image>
         <text>{{item.createdAt}}</text>

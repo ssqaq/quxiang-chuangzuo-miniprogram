@@ -10,17 +10,15 @@
   ></canvas>
 
   <view class="hero card">
-    <view>
+    <view class="hero-heading">
       <view class="hero-title">圈像创作</view>
-      <view class="hero-subtitle">区域锁定 · 人像参考 · AI 提示词</view>
-    </view>
-    <view class="hero-actions">
       <view class="status {{cloudReady ? 'status-ok' : 'status-offline'}}">
         <view class="status-dot"></view>
         <text>{{cloudReady ? '云端已连接' : '本地预览'}}</text>
       </view>
-      <button class="hero-back-button" bindtap="backToWorkbench">返回工作台</button>
     </view>
+    <view class="hero-subtitle">区域锁定 · 人像参考 · AI 提示词</view>
+    <button class="hero-back-button" bindtap="backToWorkbench">返回工作台</button>
   </view>
 
   <view wx:if="{{entryTitle}}" class="entry-hint entry-hint-{{entryTone}}">
@@ -336,10 +334,10 @@
   </view>
 
   <view class="nav-actions">
-    <button wx:if="{{step > 0}}" class="primary-btn {{step === 4 ? 'final-prev-button' : ''}}" bindtap="prevStep">上一步</button>
-    <button wx:if="{{step < steps.length - 1 && !(step === 2 && project.faceRefs.length) && step !== 3}}" class="primary-btn" bindtap="nextStep">下一步</button>
-    <button wx:if="{{step === 2 && project.faceRefs.length}}" class="primary-btn" bindtap="nextStep">去填写提示词</button>
-    <button wx:if="{{step === 3}}" class="primary-btn" bindtap="nextStep">去生成</button>
+    <button wx:if="{{step > 0}}" class="primary-btn nav-action-button {{step === 4 ? 'final-prev-button' : ''}}" bindtap="prevStep">上一步</button>
+    <button wx:if="{{step < steps.length - 1 && !(step === 2 && project.faceRefs.length) && step !== 3}}" class="primary-btn nav-action-button" bindtap="nextStep">下一步</button>
+    <button wx:if="{{step === 2 && project.faceRefs.length}}" class="primary-btn nav-action-button" bindtap="nextStep">去填写提示词</button>
+    <button wx:if="{{step === 3}}" class="primary-btn nav-action-button" bindtap="nextStep">去生成</button>
   </view>
 
   <view class="footer-note">版本 {{appVersion}} · {{statusText}}</view>

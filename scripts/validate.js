@@ -211,6 +211,49 @@ if (
 ) {
   throw new Error("小程序名称没有统一更新为“圈像创作”。");
 }
+if (
+  !indexWxml.includes('class="hero-heading"')
+  || !indexWxml.includes("区域锁定 · 人像参考 · AI 提示词")
+  || !indexWxml.includes('class="hero-back-button" bindtap="backToWorkbench"')
+  || indexWxml.includes('class="hero-actions"')
+) {
+  throw new Error("创作页顶部卡片没有使用方案 B 的标题、状态、说明和全宽返回按钮结构。");
+}
+const heroStyle = indexWxss.match(/\.hero\s*\{([^}]*)\}/);
+const heroHeadingStyle = indexWxss.match(/\.hero-heading\s*\{([^}]*)\}/);
+const heroSubtitleStyle = indexWxss.match(/\.hero-subtitle\s*\{([^}]*)\}/);
+const heroBackButtonStyle = indexWxss.match(/\.hero-back-button\s*\{([^}]*)\}/);
+const heroStatusStyle = indexWxss.match(/\.status\s*\{([^}]*)\}/);
+const navActionsStyle = indexWxss.match(/\.nav-actions\s*\{([^}]*)\}/);
+const navActionButtonsStyle = indexWxss.match(/\.nav-actions button\s*\{([^}]*)\}/);
+if (
+  !heroStyle
+  || !/flex-direction:\s*column/.test(heroStyle[1])
+  || !/align-items:\s*stretch/.test(heroStyle[1])
+  || !heroHeadingStyle
+  || !/justify-content:\s*space-between/.test(heroHeadingStyle[1])
+  || !heroSubtitleStyle
+  || !/white-space:\s*nowrap/.test(heroSubtitleStyle[1])
+  || !heroBackButtonStyle
+  || !/width:\s*100%/.test(heroBackButtonStyle[1])
+  || !/text-align:\s*center/.test(heroBackButtonStyle[1])
+  || !heroStatusStyle
+  || !/white-space:\s*nowrap/.test(heroStatusStyle[1])
+) {
+  throw new Error("创作页顶部卡片方案 B 的纵向排版、单行说明或全宽按钮样式不完整。");
+}
+if (
+  !indexWxml.includes('class="primary-btn nav-action-button" bindtap="nextStep">下一步</button>')
+  || !indexWxss.includes(".main-image-action-button,\n.nav-action-button")
+  || !navActionsStyle
+  || !/margin:\s*8rpx calc\(28rpx \+ 1px\) 0/.test(navActionsStyle[1])
+  || !navActionButtonsStyle
+  || !/width:\s*0/.test(navActionButtonsStyle[1])
+  || !/flex:\s*1 1 0/.test(navActionButtonsStyle[1])
+  || !/margin:\s*0/.test(navActionButtonsStyle[1])
+) {
+  throw new Error("底部步骤按钮没有收进卡片内边线，或没有复用“选择主图”的按钮规格。");
+}
 if (appJson.subpackages) {
   throw new Error("纯云端版本不应再配置本地人脸识别分包。");
 }
@@ -265,6 +308,15 @@ if (
 ) {
   throw new Error("启动页没有完整配置图标、品牌文案或自动进入首页逻辑。");
 }
+const commonFeatureHeadingCount = (
+  workbenchWxml.match(/<text>常用功能<\/text>/g) || []
+).length;
+const commonFeatureSubtitleCount = (
+  workbenchWxml.match(/开始创作、查看记录、导出图片/g) || []
+).length;
+const diagnosticFeatureHeadingStyle = workbenchWxss.match(
+  /\.diagnostic-feature-heading\s*\{([^}]*)\}/
+);
 if (
   !workbenchJs.includes("storage.loadProject()")
   || !workbenchJs.includes("storage.loadRecords()")
@@ -287,8 +339,12 @@ if (
   || !workbenchWxml.includes("workbench-feature-stack")
   || !workbenchWxml.includes("feature-group-heading")
   || !workbenchWxml.includes("feature-group-dot")
-  || !workbenchWxml.includes("开始创作、查看记录、导出图片")
-  || !workbenchWxml.includes("常用功能")
+  || commonFeatureHeadingCount !== 2
+  || commonFeatureSubtitleCount !== 2
+  || !workbenchWxml.includes('class="feature-group-heading diagnostic-feature-heading"')
+  || workbenchWxml.indexOf("diagnostic-feature-heading") > workbenchWxml.indexOf('class="card interaction-log-card"')
+  || !diagnosticFeatureHeadingStyle
+  || !/margin-top:\s*28rpx/.test(diagnosticFeatureHeadingStyle[1])
   || workbenchWxml.includes("recent-empty-icon")
   || workbenchWxml.includes('wx:else class="recent-empty"')
   || !workbenchWxml.includes("还没有制作记录，完成一张照片后会显示在这里。")
@@ -588,7 +644,7 @@ if (
 const mainImageActionStyle = fs.readFileSync(
   path.join(root, "pages/index/index.wxss"),
   "utf8"
-).match(/\.main-image-action-button\s*\{([^}]*)\}/);
+).match(/\.main-image-action-button,\s*\.nav-action-button\s*\{([^}]*)\}/);
 const mainImageActionsStyle = indexWxss.match(
   /\.main-image-actions button,\s*\.mask-action-row button\s*\{([^}]*)\}/
 );
@@ -892,7 +948,7 @@ if (
 }
 const finalPrevStyle = indexWxss.match(/\.nav-actions\s+\.final-prev-button\s*\{([^}]*)\}/);
 if (
-  !indexWxml.includes('class="primary-btn {{step === 4 ? \'final-prev-button\' : \'\'}')
+  !indexWxml.includes('class="primary-btn nav-action-button {{step === 4 ? \'final-prev-button\' : \'\'}')
   || !finalPrevStyle
   || !/background:\s*#1f6feb\s*!important/.test(finalPrevStyle[1])
   || !/color:\s*#ffffff\s*!important/.test(finalPrevStyle[1])

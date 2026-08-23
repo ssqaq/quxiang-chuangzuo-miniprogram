@@ -131,6 +131,14 @@
     <view class="home-feature-arrow photo-to-video-arrow">›</view>
   </view>
 
+  <view class="feature-group-heading diagnostic-feature-heading">
+    <view class="feature-group-title">
+      <view class="feature-group-dot"></view>
+      <text>常用功能</text>
+    </view>
+    <view class="feature-group-subtitle">开始创作、查看记录、导出图片</view>
+  </view>
+
   <view class="card interaction-log-card">
     <view class="section-head">
       <view class="feature-card-leading">

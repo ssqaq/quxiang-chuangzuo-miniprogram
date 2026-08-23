@@ -649,6 +649,10 @@ page {
   color: #7196d3;
 }
 
+.diagnostic-feature-heading {
+  margin-top: 28rpx;
+}
+
 .interaction-log-card {
   margin-top: 16rpx;
   padding: 26rpx;
@@ -911,6 +915,10 @@ button::after {
     font-size: 22rpx;
   }
 
+  .diagnostic-feature-heading {
+    margin-top: 24rpx;
+  }
+
   .entry-description {
     font-size: 20rpx;
   }
@@ -1064,6 +1072,10 @@ button::after {
 
   .interaction-log-card {
     margin-top: 20rpx;
+  }
+
+  .diagnostic-feature-heading {
+    margin-top: 32rpx;
   }
 }
 

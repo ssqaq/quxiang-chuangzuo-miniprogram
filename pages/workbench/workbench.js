@@ -41,7 +41,7 @@ function normalizeRecord(record) {
 }
 
 function buildNewCreationUrl(mode) {
-  return `/pages/index/index?mode=${mode}&new=1&preload=1`;
+  return `/pages/index/index?mode=${mode}&new=1`;
 }
 
 Page({
@@ -55,31 +55,7 @@ Page({
 
   onShow() {
     this._navigating = false;
-    const hasDraft = this.refreshWorkbench();
-    if (!hasDraft) {
-      this.preloadCreatePage(buildNewCreationUrl("custom"));
-    }
-  },
-
-  preloadCreatePage(url) {
-    if (
-      this._createPagePreloadStarted
-      || typeof wx === "undefined"
-      || typeof wx.preloadPage !== "function"
-    ) {
-      return;
-    }
-    this._createPagePreloadStarted = true;
-    wx.preloadPage({
-      url,
-      success: () => {
-        console.info("[workbench] 制作页预热完成");
-      },
-      fail: (error) => {
-        this._createPagePreloadStarted = false;
-        console.warn("[workbench] 制作页预热不可用，点击时正常打开", error);
-      }
-    });
+    this.refreshWorkbench();
   },
 
   refreshWorkbench() {
@@ -121,6 +97,59 @@ Page({
 
   navigateToIndex(url) {
     this.openPage(url, "制作页打开失败", "已打开制作页");
+  },
+
+  openNewCreationPage(url) {
+    if (this._navigating) return;
+    this._navigating = true;
+    wx.showToast({
+      title: "正在打开制作页",
+      icon: "loading",
+      duration: 800
+    });
+
+    const showNavigationFailure = (error) => {
+      console.error("[workbench] 制作页打开失败", { url, error });
+      this._navigating = false;
+      wx.showModal({
+        title: "制作页打开失败",
+        content: error && error.errMsg ? error.errMsg : "请重新点击进入",
+        showCancel: false,
+        fail: () => {
+          wx.showToast({ title: "制作页打开失败", icon: "none" });
+        }
+      });
+    };
+
+    const relaunch = () => {
+      try {
+        wx.reLaunch({
+          url,
+          success: () => {
+            console.info("[workbench] 已通过重开方式进入制作页", url);
+          },
+          fail: showNavigationFailure
+        });
+      } catch (error) {
+        showNavigationFailure(error);
+      }
+    };
+
+    try {
+      wx.redirectTo({
+        url,
+        success: () => {
+          console.info("[workbench] 已打开制作页", url);
+        },
+        fail: (error) => {
+          console.warn("[workbench] 替换页面失败，改用重开方式", { url, error });
+          relaunch();
+        }
+      });
+    } catch (error) {
+      console.warn("[workbench] 替换页面调用失败，改用重开方式", { url, error });
+      relaunch();
+    }
   },
 
   replacePage(url, failureTitle, logLabel) {
@@ -176,7 +205,7 @@ Page({
       if (app && app.globalData) {
         app.globalData.pendingNewCreation = { mode, createdAt: Date.now() };
       }
-      this.navigateToIndex(target);
+      this.openNewCreationPage(target);
       return;
     }
 
@@ -192,7 +221,7 @@ Page({
         if (app && app.globalData) {
           app.globalData.pendingNewCreation = { mode, createdAt: Date.now() };
         }
-        this.navigateToIndex(target);
+        this.openNewCreationPage(target);
       }
     });
   },

@@ -335,15 +335,16 @@ if (
   throw new Error("制作页云端记录读取没有延后到首屏显示之后。");
 }
 if (
-  !workbenchJs.includes("preloadCreatePage(url)")
-  || !workbenchJs.includes("wx.preloadPage")
-  || !workbenchJs.includes("buildNewCreationUrl")
-  || !workbenchJs.includes("new=1&preload=1")
+  !workbenchJs.includes("buildNewCreationUrl")
+  || !workbenchJs.includes("new=1")
   || !workbenchJs.includes("url,")
   || !workbenchJs.includes("pendingNewCreation")
-  || !workbenchJs.includes('this.openPage(url, "制作页打开失败", "已打开制作页")')
+  || !workbenchJs.includes("openNewCreationPage(url)")
+  || !workbenchJs.includes("wx.redirectTo")
+  || !workbenchJs.includes("wx.reLaunch")
+  || !workbenchWxml.includes('bindtap="startNew"')
 ) {
-  throw new Error("开始新创作没有配置制作页预热和快速复用逻辑。");
+  throw new Error("开始新创作没有配置稳定跳转和失败兜底逻辑。");
 }
 if (
   !workbenchWxml.includes("降低AI识别率再导出照片")

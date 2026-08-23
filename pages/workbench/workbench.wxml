@@ -38,7 +38,7 @@
       wx:key="mode"
       class="entry-card entry-card-{{item.tone}} home-feature-card workbench-link-card"
       data-mode="{{item.mode}}"
-      catchtap="startNew"
+      bindtap="startNew"
       hover-class="entry-card-hover"
       hover-start-time="0"
       hover-stay-time="70"

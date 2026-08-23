@@ -40,6 +40,17 @@ function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function createCancelledError() {
+  const error = new Error("页面已离开，已停止当前处理。");
+  error.code = "PHOTO_TO_VIDEO_CANCELLED";
+  error.cancelled = true;
+  return error;
+}
+
+function isCancelledError(error) {
+  return Boolean(error && (error.cancelled || error.code === "PHOTO_TO_VIDEO_CANCELLED"));
+}
+
 function saveImageToAlbum(filePath) {
   return new Promise((resolve, reject) => {
     if (!filePath || typeof wx.saveImageToPhotosAlbum !== "function") {
@@ -139,6 +150,7 @@ Page({
 
   onShow() {
     this._destroyed = false;
+    this._pageVisible = true;
     diagnosticLog.info("video", "page-show", "打开照片转动态视频页面");
     this.loadLocalRecords();
     this.refreshCloudRecords();
@@ -146,29 +158,71 @@ Page({
   },
 
   onHide() {
+    this._pageVisible = false;
+    this.cancelActiveRun();
     this.stopPreview();
-    this.clearPollTimer();
   },
 
   onUnload() {
     this._destroyed = true;
+    this._pageVisible = false;
+    this.cancelActiveRun();
     this.stopPreview();
-    this.clearPollTimer();
+  },
+
+  isPageActive() {
+    return !this._destroyed && this._pageVisible !== false;
+  },
+
+  isRunActive(run) {
+    return this.isPageActive() && run && !run.cancelled && this._activeRun === run;
+  },
+
+  setDataIfActive(data, callback) {
+    if (!this.isPageActive()) return false;
+    this.setData(data, callback);
+    return true;
+  },
+
+  beginRun() {
+    this.cancelActiveRun();
+    const run = {
+      id: `photo-to-video-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      cancelled: false
+    };
+    this._activeRun = run;
+    return run;
+  },
+
+  cancelActiveRun() {
+    const run = this._activeRun;
+    if (run) run.cancelled = true;
+    this._activeRun = null;
+    this.clearPollTimer(createCancelledError());
+  },
+
+  finishRun(run) {
+    if (this._activeRun === run) this._activeRun = null;
+  },
+
+  assertRunActive(run) {
+    if (!this.isRunActive(run)) throw createCancelledError();
   },
 
   loadLocalRecords() {
     const records = uniqueRecords(storage.loadRecords() || []);
-    this.setData({ archiveRecords: records }, () => this.refreshVisibleRecords());
+    this.setDataIfActive({ archiveRecords: records }, () => this.refreshVisibleRecords());
   },
 
   async refreshCloudRecords() {
-    if (!cloud.isCloudReady() || this.data.processing) return;
+    if (!this.isPageActive() || !cloud.isCloudReady() || this.data.processing) return;
     try {
       const result = await cloud.listRecords();
+      if (!this.isPageActive()) return;
       const records = uniqueRecords((result && result.records) || []);
       if (records.length) {
         storage.saveRecords(records);
-        this.setData({ archiveRecords: records }, () => this.refreshVisibleRecords());
+        this.setDataIfActive({ archiveRecords: records }, () => this.refreshVisibleRecords());
       }
       diagnosticLog.info("video", "records-refresh-success", "视频页读取制作记录完成", {
         recordCount: records.length
@@ -183,7 +237,7 @@ Page({
 
   async checkVideoProvider() {
     if (!cloud.isCloudReady()) {
-      this.setData({
+      this.setDataIfActive({
         providerReady: false,
         providerMessage: "当前是本地预览模式，视频服务未连接。"
       });
@@ -194,7 +248,7 @@ Page({
     }
     try {
       const result = await cloud.getVideoProviderStatus();
-      this.setData({
+      this.setDataIfActive({
         providerReady: Boolean(result && result.ready),
         providerMessage: result && result.message
           ? result.message
@@ -205,7 +259,7 @@ Page({
         message: result && result.message
       });
     } catch (error) {
-      this.setData({
+      this.setDataIfActive({
         providerReady: false,
         providerMessage: "视频服务状态读取失败，生成时会给出具体原因。"
       });
@@ -223,7 +277,7 @@ Page({
     const selectedRecords = this.data.scope === "all" || this.data.usingDevicePhotos
       ? safeRecords.map((item) => Object.assign({}, item, { selected: true }))
       : safeRecords.map((item, index) => Object.assign({}, item, { selected: index === 0 }));
-    this.setData({
+    this.setDataIfActive({
       records: selectedRecords,
       selectedCount: selectedRecords.filter((item) => item.selected).length
     }, () => {

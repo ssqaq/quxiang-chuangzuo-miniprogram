@@ -145,14 +145,11 @@
       </view>
     </view>
     <view class="interaction-log-description">
-      汇总本次启动的页面操作、上传、云函数、生图、视频、导出和错误编号。
+      记录启动、跳转和云端异常。
     </view>
-    <view class="diagnostic-session-summary">
-      会话开始：{{diagnosticSession.startedAt || '刚刚'}}
-    </view>
-    <view class="interaction-log-actions">
+    <view class="interaction-log-actions interaction-log-actions-primary">
       <button
-        class="small-btn plain-btn interaction-log-button"
+        class="small-btn plain-btn interaction-log-button interaction-log-primary-button"
         size="mini"
         bindtap="toggleDiagnosticPanel"
       >
@@ -163,7 +160,7 @@
         size="mini"
         bindtap="copyDiagnosticReport"
       >
-        复制排查报告
+        复制报告
       </button>
       <button
         class="small-btn plain-btn interaction-log-button interaction-log-clear"
@@ -174,6 +171,9 @@
       </button>
     </view>
     <view wx:if="{{diagnosticExpanded}}" class="interaction-log-list">
+      <view class="diagnostic-session-summary">
+        本次会话：{{diagnosticSession.startedAt || '刚刚'}}
+      </view>
       <view wx:if="{{!diagnosticEvents.length}}" class="interaction-log-empty">
         本次启动还没有排查日志
       </view>

@@ -21,8 +21,15 @@ if ([string]::IsNullOrWhiteSpace($CliPath)) {
 }
 
 if ([string]::IsNullOrWhiteSpace($CliPath)) {
-  $toolName = -join ([char[]](0x5fae, 0x4fe1, 0x5f00, 0x53d1, 0x8005, 0x5de5, 0x5177))
-  $CliPath = "D:\$toolName\cli.bat"
+  $searchRoots = @("D:\", "C:\Program Files", "C:\Program Files (x86)")
+  $CliPath = Get-ChildItem -LiteralPath $searchRoots -Directory -ErrorAction SilentlyContinue |
+    ForEach-Object {
+      $candidate = Join-Path $_.FullName "cli.bat"
+      if (Test-Path -LiteralPath $candidate) {
+        Get-Item -LiteralPath $candidate
+      }
+    } |
+    Select-Object -First 1 -ExpandProperty FullName
 }
 
 if (-not (Test-Path -LiteralPath $CliPath)) {

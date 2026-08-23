@@ -740,10 +740,10 @@
 }
 
 .auto-face-diagnostics {
-  margin-top: 24rpx;
-  padding: 22rpx;
+  margin-top: 20rpx;
+  padding: 20rpx;
   border: 1rpx solid #dfe6f1;
-  border-radius: 20rpx;
+  border-radius: 18rpx;
   background: #f8fbff;
 }
 
@@ -754,51 +754,82 @@
   gap: 16rpx;
 }
 
+.auto-face-diagnostics-leading {
+  min-width: 0;
+  flex: 1;
+}
+
 .auto-face-diagnostics-title {
   color: #1f2d3d;
-  font-size: 27rpx;
+  font-size: 28rpx;
   font-weight: 700;
 }
 
 .auto-face-diagnostics-message {
-  margin-top: 8rpx;
+  margin-top: 6rpx;
+  overflow: hidden;
   color: #627086;
-  font-size: 24rpx;
-  line-height: 36rpx;
+  font-size: 22rpx;
+  line-height: 32rpx;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .auto-face-diagnostics-state {
   flex: none;
-  padding: 6rpx 12rpx;
+  padding: 7rpx 13rpx;
   border-radius: 999rpx;
-  color: #1f6feb;
-  background: #eaf2ff;
-  font-size: 21rpx;
+  font-size: 20rpx;
+  line-height: 28rpx;
 }
 
-.auto-face-diagnostics-time {
+.auto-face-diagnostics-state.state-running {
+  color: #1f6feb;
+  background: #eaf2ff;
+}
+
+.auto-face-diagnostics-state.state-ready {
+  color: #23834b;
+  background: #eaf8ef;
+}
+
+.auto-face-diagnostics-state.state-manual-required,
+.auto-face-diagnostics-state.state-fallback {
+  color: #a14b58;
+  background: #fff0f1;
+}
+
+.auto-face-diagnostics-state.state-idle {
+  color: #718096;
+  background: #eef2f7;
+}
+
+.auto-face-diagnostics-meta {
+  display: flex;
+  gap: 18rpx;
   margin-top: 12rpx;
   color: #4e6a8a;
-  font-size: 22rpx;
+  font-size: 20rpx;
+  line-height: 28rpx;
 }
 
 .auto-face-log-actions {
   display: flex;
   gap: 12rpx;
-  margin-top: 16rpx;
 }
 
 .auto-face-log-button {
   flex: 1;
   min-width: 0;
-  height: 54rpx;
-  padding: 0 10rpx;
+  height: 56rpx;
+  margin: 0;
+  padding: 0 12rpx;
   border: 1rpx solid #cbd8e8;
   border-radius: 12rpx;
   color: #315273;
   background: #ffffff;
   font-size: 21rpx;
-  line-height: 54rpx;
+  line-height: 56rpx;
   white-space: nowrap;
 }
 
@@ -806,15 +837,29 @@
   border: 0;
 }
 
+.auto-face-log-primary {
+  display: block;
+  width: 100%;
+  margin-top: 16rpx;
+  color: #245c9c;
+  background: #edf5ff;
+  font-weight: 600;
+}
+
+.auto-face-log-panel {
+  margin-top: 14rpx;
+  padding-top: 14rpx;
+  border-top: 1rpx solid #e0e7f0;
+}
+
 .auto-face-log-clear {
   color: #a14b58;
 }
 
 .auto-face-log-list {
-  max-height: 420rpx;
-  margin-top: 16rpx;
+  max-height: 380rpx;
+  margin-top: 12rpx;
   padding-top: 12rpx;
-  border-top: 1rpx solid #e0e7f0;
   overflow: auto;
 }
 

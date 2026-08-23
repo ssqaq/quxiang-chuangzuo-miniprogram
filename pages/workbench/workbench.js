@@ -1,7 +1,7 @@
 const config = require("../../config");
 const cloud = require("../../services/cloud");
 const storage = require("../../utils/storage");
-const interactionLog = require("../../utils/interaction-log");
+const diagnosticLog = require("../../utils/diagnostic-log");
 const app = getApp();
 
 const ENTRY_MODES = [
@@ -45,6 +45,60 @@ function buildNewCreationUrl(mode) {
   return `/pages/index/index?mode=${mode}&new=1`;
 }
 
+const NEW_CREATION_NAVIGATION_TIMEOUT_MS = 1800;
+
+function summarizeAsset(asset) {
+  if (!asset || typeof asset !== "object") return null;
+  return {
+    name: asset.name || "",
+    size: Number(asset.size || asset.compressedSize || 0),
+    width: Number(asset.width || 0),
+    height: Number(asset.height || 0),
+    compressed: Boolean(asset.compressed),
+    uploaded: Boolean(asset.fileID)
+  };
+}
+
+function buildProjectSnapshot(project) {
+  const value = project && typeof project === "object" ? project : {};
+  return {
+    projectName: value.projectName || "",
+    hasMainImage: Boolean(value.mainImage),
+    mainImage: summarizeAsset(value.mainImage),
+    maskCircle: value.maskCircle || null,
+    hasMaskFile: Boolean(value.maskFileID),
+    faceReferenceCount: Array.isArray(value.faceRefs) ? value.faceRefs.length : 0,
+    wardrobeReferenceCount: Array.isArray(value.wardrobeRefs) ? value.wardrobeRefs.length : 0,
+    sceneDescription: value.sceneDescription || "",
+    poseDescription: value.poseDescription || "",
+    faceDirectionDescription: value.faceDirectionDescription || "",
+    lightingMakeupDescription: value.lightingMakeupDescription || "",
+    promptDraft: value.promptDraft || "",
+    negativePrompt: value.negativePrompt || "",
+    lockedElements: Array.isArray(value.lockedElements) ? value.lockedElements : [],
+    customLockedElements: Array.isArray(value.customLockedElements)
+      ? value.customLockedElements
+      : [],
+    resultCount: Array.isArray(value.results) ? value.results.length : 0
+  };
+}
+
+function formatDiagnosticEvent(item) {
+  const details = item && item.details && Object.keys(item.details).length
+    ? JSON.stringify(item.details)
+    : "";
+  return Object.assign({}, item, {
+    title: `${item.category || "app"} · ${item.event || "unknown"}`,
+    errorText: item.error && item.error.message || "",
+    detailText: details.slice(0, 800),
+    metaText: [
+      item.requestId ? `请求 ${item.requestId}` : "",
+      item.code ? `代码 ${item.code}` : "",
+      Number.isFinite(Number(item.durationMs)) ? `${item.durationMs} ms` : ""
+    ].filter(Boolean).join(" · ")
+  });
+}
+
 Page({
   data: {
     appVersion: config.appVersion,
@@ -52,16 +106,23 @@ Page({
     entryModes: ENTRY_MODES,
     hasDraft: false,
     records: [],
-    interactionLogs: [],
-    interactionLogExpanded: false
+    diagnosticEvents: [],
+    diagnosticExpanded: false,
+    diagnosticStats: {
+      eventCount: 0,
+      errorCount: 0,
+      warnCount: 0
+    },
+    diagnosticSession: {
+      startedAt: ""
+    }
   },
 
   onShow() {
+    this.clearNavigationWatchdog();
     this._navigating = false;
     this.refreshWorkbench();
-    this.setData({
-      interactionLogs: interactionLog.read()
-    });
+    this.refreshDiagnostics();
   },
 
   refreshWorkbench() {
@@ -79,48 +140,91 @@ Page({
     return draftExists;
   },
 
+  refreshDiagnostics() {
+    this.setData({
+      diagnosticEvents: diagnosticLog
+        .read({ limit: diagnosticLog.DISPLAY_LIMIT, newestFirst: true })
+        .map(formatDiagnosticEvent),
+      diagnosticStats: diagnosticLog.getStats(),
+      diagnosticSession: diagnosticLog.getSession()
+    });
+  },
+
   recordInteraction(event, message, details = {}) {
-    interactionLog.append({
-      event,
-      message,
+    const method = details.error ? diagnosticLog.error : diagnosticLog.info;
+    method("navigation", event, message, {
       route: details.route || "",
       durationMs: details.durationMs,
       error: details.error
     });
+    this.refreshDiagnostics();
+  },
+
+  toggleDiagnosticPanel() {
     this.setData({
-      interactionLogs: interactionLog.read()
+      diagnosticExpanded: !this.data.diagnosticExpanded
     });
   },
 
-  toggleInteractionLogPanel() {
-    this.setData({
-      interactionLogExpanded: !this.data.interactionLogExpanded
-    });
-  },
-
-  copyInteractionLogs() {
-    const text = interactionLog.format(
-      this.data.interactionLogs,
-      config.appVersion
-    );
+  async copyDiagnosticReport() {
     if (!wx.setClipboardData) {
-      wx.showToast({ title: "当前环境不支持复制日志", icon: "none" });
+      wx.showToast({ title: "当前环境不支持复制报告", icon: "none" });
       return;
     }
-    wx.setClipboardData({
-      data: text,
-      success: () => wx.showToast({ title: "点击日志已复制", icon: "success" }),
-      fail: () => wx.showToast({ title: "复制点击日志失败", icon: "none" })
-    });
+    try {
+      const report = await diagnosticLog.buildReport({
+        appVersion: config.appVersion,
+        cloudEnvId: config.cloudEnvId,
+        cloudFunctionName: config.cloudFunctionName,
+        cloudReady: cloud.isCloudReady(),
+        projectSnapshot: buildProjectSnapshot(storage.loadProject())
+      });
+      wx.setClipboardData({
+        data: JSON.stringify(report, null, 2),
+        success: () => wx.showToast({
+          title: "排查报告已复制，直接发给宝宝",
+          icon: "none",
+          duration: 2200
+        }),
+        fail: (error) => {
+          diagnosticLog.error("diagnostic", "report-copy-failed", "复制排查报告失败", {
+            error
+          });
+          this.refreshDiagnostics();
+          wx.showToast({ title: "复制排查报告失败", icon: "none" });
+        }
+      });
+    } catch (error) {
+      diagnosticLog.error("diagnostic", "report-build-failed", "生成排查报告失败", {
+        error
+      });
+      this.refreshDiagnostics();
+      wx.showToast({ title: "生成排查报告失败", icon: "none" });
+    }
   },
 
-  clearInteractionLogs() {
-    interactionLog.clear();
+  clearDiagnosticLogs() {
+    diagnosticLog.clear();
     this.setData({
-      interactionLogs: [],
-      interactionLogExpanded: false
+      diagnosticExpanded: false
     });
-    wx.showToast({ title: "点击日志已清空", icon: "success" });
+    this.refreshDiagnostics();
+    wx.showToast({ title: "本次排查日志已清空", icon: "success" });
+  },
+
+  clearNavigationWatchdog() {
+    if (this._navigationWatchdog) {
+      clearTimeout(this._navigationWatchdog);
+      this._navigationWatchdog = null;
+    }
+  },
+
+  startNavigationWatchdog(callback) {
+    this.clearNavigationWatchdog();
+    const timeoutMs = Number(this._navigationTimeoutMs) > 0
+      ? Number(this._navigationTimeoutMs)
+      : NEW_CREATION_NAVIGATION_TIMEOUT_MS;
+    this._navigationWatchdog = setTimeout(callback, timeoutMs);
   },
 
   openPage(url, failureTitle, logLabel) {
@@ -174,6 +278,8 @@ Page({
     if (this._navigating) return;
     this._navigating = true;
     const startedAt = Date.now();
+    let settled = false;
+    let fallbackStarted = false;
     this.recordInteraction("new-creation-navigation-start", "开始打开新创作", {
       route: url
     });
@@ -184,6 +290,9 @@ Page({
     });
 
     const showNavigationFailure = (error) => {
+      if (settled) return;
+      settled = true;
+      this.clearNavigationWatchdog();
       console.error("[workbench] 制作页打开失败", { url, error });
       this.recordInteraction(
         "new-creation-navigation-failed",
@@ -202,10 +311,15 @@ Page({
     };
 
     const relaunch = () => {
+      if (settled || fallbackStarted) return;
+      fallbackStarted = true;
       try {
         wx.reLaunch({
           url,
           success: () => {
+            if (settled) return;
+            settled = true;
+            this.clearNavigationWatchdog();
             console.info("[workbench] 已通过重开方式进入制作页", url);
             this.recordInteraction(
               "new-creation-fallback-success",
@@ -220,10 +334,24 @@ Page({
       }
     };
 
+    this.startNavigationWatchdog(() => {
+      if (settled || fallbackStarted) return;
+      console.warn("[workbench] 替换页面超时，改用重开方式", { url });
+      this.recordInteraction(
+        "new-creation-navigation-timeout",
+        "页面响应较慢，准备自动重开",
+        { route: url, durationMs: Date.now() - startedAt }
+      );
+      relaunch();
+    });
+
     try {
       wx.redirectTo({
         url,
         success: () => {
+          if (settled) return;
+          settled = true;
+          this.clearNavigationWatchdog();
           console.info("[workbench] 已打开制作页", url);
           this.recordInteraction(
             "new-creation-navigation-success",
@@ -232,6 +360,7 @@ Page({
           );
         },
         fail: (error) => {
+          if (settled || fallbackStarted) return;
           console.warn("[workbench] 替换页面失败，改用重开方式", { url, error });
           this.recordInteraction(
             "new-creation-redirect-failed",
@@ -242,7 +371,13 @@ Page({
         }
       });
     } catch (error) {
+      if (settled || fallbackStarted) return;
       console.warn("[workbench] 替换页面调用失败，改用重开方式", { url, error });
+      this.recordInteraction(
+        "new-creation-redirect-threw",
+        "页面跳转调用异常，准备自动重开",
+        { route: url, durationMs: Date.now() - startedAt, error }
+      );
       relaunch();
     }
   },
@@ -296,6 +431,14 @@ Page({
       ? dataset.mode
       : "custom";
     const target = buildNewCreationUrl(mode);
+    if (this._navigating) {
+      this.recordInteraction(
+        "new-creation-ignored",
+        "制作页正在打开，请稍候",
+        { route: target }
+      );
+      return;
+    }
     this.recordInteraction("new-creation-click", "点击开始新创作", {
       route: target
     });
@@ -307,13 +450,25 @@ Page({
       return;
     }
 
+    this.recordInteraction(
+      "draft-confirmation-shown",
+      "检测到未完成草稿，等待确认",
+      { route: target }
+    );
     wx.showModal({
-      title: "开始新的创作？",
-      content: "当前草稿会被清除，制作记录不会受影响。",
+      title: "手机上已有未完成创作",
+      content: "点击“清除并新建”会删除当前草稿，但不会影响制作记录。",
       confirmText: "清除并新建",
       cancelText: "保留草稿",
       success: (response) => {
-        if (!response.confirm) return;
+        if (!response.confirm) {
+          this.recordInteraction(
+            "draft-kept",
+            "已保留当前草稿",
+            { route: target }
+          );
+          return;
+        }
         this.recordInteraction("draft-confirmed", "确认清除草稿并新建", {
           route: target
         });
@@ -326,6 +481,14 @@ Page({
           app.globalData.pendingNewCreation = { mode, createdAt: Date.now() };
         }
         this.openNewCreationPage(target);
+      },
+      fail: (error) => {
+        this.recordInteraction(
+          "draft-confirmation-failed",
+          "草稿确认框没有正常显示",
+          { route: target, error }
+        );
+        wx.showToast({ title: "请再点一次开始新创作", icon: "none" });
       }
     });
   },

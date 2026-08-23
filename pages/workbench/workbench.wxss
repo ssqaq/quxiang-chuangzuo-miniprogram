@@ -675,6 +675,13 @@ page {
   line-height: 1.5;
 }
 
+.diagnostic-session-summary {
+  margin: -4rpx 0 14rpx 94rpx;
+  color: #929caf;
+  font-size: 19rpx;
+  line-height: 1.4;
+}
+
 .interaction-log-actions {
   display: flex;
   flex-wrap: wrap;
@@ -687,6 +694,11 @@ page {
   height: 52rpx;
   line-height: 52rpx;
   font-size: 21rpx;
+}
+
+.diagnostic-copy-button {
+  min-width: 188rpx;
+  color: #315fc7 !important;
 }
 
 .interaction-log-clear {
@@ -712,6 +724,20 @@ page {
 .interaction-log-item {
   padding: 14rpx 0;
   border-bottom: 1rpx solid #e8ebf3;
+}
+
+.interaction-log-item-error {
+  margin: 4rpx -8rpx;
+  padding: 14rpx 8rpx;
+  border-radius: 10rpx;
+  background: #fff1f3;
+}
+
+.interaction-log-item-warn {
+  margin: 4rpx -8rpx;
+  padding: 14rpx 8rpx;
+  border-radius: 10rpx;
+  background: #fff8e8;
 }
 
 .interaction-log-item:last-child {
@@ -853,6 +879,7 @@ button::after {
   }
 
   .interaction-log-description,
+  .diagnostic-session-summary,
   .interaction-log-actions {
     margin-left: 78rpx;
   }

@@ -1,4 +1,5 @@
 const config = require("../config");
+const diagnosticLog = require("../utils/diagnostic-log");
 
 function getAppInstance() {
   try {
@@ -27,7 +28,12 @@ function sleep(ms) {
 function callApi(data) {
   return new Promise((resolve, reject) => {
     if (!isCloudReady()) {
-      reject(new Error("还没有配置 CloudBase 环境 ID。"));
+      const error = new Error("还没有配置 CloudBase 环境 ID。");
+      diagnosticLog.error("cloud", "call-blocked", "云函数调用被阻止：云端未就绪", {
+        step: data && data.action,
+        error
+      });
+      reject(error);
       return;
     }
     const maxRetries = data && data.action === "generate"
@@ -46,6 +52,13 @@ function callApi(data) {
       action: requestData.action || "",
       requestId: requestData.requestId
     });
+    diagnosticLog.info("cloud", "call-start", "开始调用云函数", {
+      step: requestData.action || "",
+      requestId: requestData.requestId,
+      payloadSummary: requestData.payload || {},
+      recordId: requestData.recordId || "",
+      taskId: requestData.taskId || ""
+    });
     const invoke = (attempt) => {
       wx.cloud.callFunction({
         name: config.cloudFunctionName,
@@ -61,6 +74,14 @@ function callApi(data) {
                 action: requestData && requestData.action,
                 attempt: nextAttempt,
                 requestId: result.requestId || ""
+              });
+              diagnosticLog.warn("cloud", "call-retry", "云函数请求准备重试", {
+                step: requestData.action || "",
+                requestId: result.requestId || requestData.requestId,
+                attempt: nextAttempt,
+                maxRetries,
+                delayMs: retryDelay,
+                code: result.errorCode || result.code || ""
               });
               if (onRetry) {
                 onRetry({
@@ -81,6 +102,14 @@ function callApi(data) {
               attempt,
               errorCode: result.errorCode || result.code || ""
             });
+            diagnosticLog.error("cloud", "call-failed", "云函数返回失败结果", {
+              step: requestData.action || "",
+              requestId: result.requestId || requestData.requestId,
+              durationMs: Date.now() - requestStartedAt,
+              attempt,
+              code: result.errorCode || result.code || "",
+              error
+            });
             reject(error);
             return;
           }
@@ -91,6 +120,20 @@ function callApi(data) {
             ok: true,
             attempt
           });
+          diagnosticLog.info("cloud", "call-success", "云函数调用完成", {
+            step: requestData.action || "",
+            requestId: result && result.requestId || requestData.requestId,
+            durationMs: Date.now() - requestStartedAt,
+            attempt,
+            resultSummary: {
+              ok: result && result.ok,
+              recordId: result && result.recordId,
+              taskId: result && result.taskId,
+              status: result && result.status,
+              provider: result && result.provider,
+              model: result && result.model
+            }
+          });
           resolve(result);
         },
         fail(error) {
@@ -99,6 +142,14 @@ function callApi(data) {
             console.warn("[cloud] retry", {
               action: requestData && requestData.action,
               attempt: nextAttempt
+            });
+            diagnosticLog.warn("cloud", "call-retry", "云函数调用失败，准备重试", {
+              step: requestData.action || "",
+              requestId: requestData.requestId,
+              attempt: nextAttempt,
+              maxRetries,
+              delayMs: retryDelay,
+              error
             });
             if (onRetry) {
               onRetry({
@@ -119,6 +170,13 @@ function callApi(data) {
             attempt,
             errorCode: error && (error.errCode || error.code || "")
           });
+          diagnosticLog.error("cloud", "call-failed", "云函数调用最终失败", {
+            step: requestData.action || "",
+            requestId: requestData.requestId,
+            durationMs: Date.now() - requestStartedAt,
+            attempt,
+            error
+          });
           reject(error);
         }
       });
@@ -130,19 +188,35 @@ function callApi(data) {
 function uploadFile(filePath, folder) {
   return new Promise((resolve, reject) => {
     if (!isCloudReady()) {
-      reject(new Error("还没有配置 CloudBase 环境 ID。"));
+      const error = new Error("还没有配置 CloudBase 环境 ID。");
+      diagnosticLog.error("upload", "upload-blocked", "文件上传被阻止：云端未就绪", {
+        step: folder || "uploads",
+        filePath,
+        error
+      });
+      reject(error);
       return;
     }
     const safeName = String(filePath || "image.jpg").split(/[\\/]/).pop().replace(/[^\w.\-\u4e00-\u9fa5]/g, "_");
     const cloudPath = `${folder || "uploads"}/${Date.now()}-${Math.random().toString(16).slice(2)}-${safeName}`;
     const startedAt = Date.now();
     console.info("[cloud] upload.start", { folder: folder || "uploads", filePath });
+    diagnosticLog.info("upload", "upload-start", "开始上传文件", {
+      step: folder || "uploads",
+      filePath
+    });
     wx.cloud.uploadFile({
       cloudPath,
       filePath,
       success(response) {
         console.info("[cloud] upload.finish", {
           folder: folder || "uploads",
+          filePath,
+          durationMs: Date.now() - startedAt,
+          fileID: response && response.fileID || ""
+        });
+        diagnosticLog.info("upload", "upload-success", "文件上传完成", {
+          step: folder || "uploads",
           filePath,
           durationMs: Date.now() - startedAt,
           fileID: response && response.fileID || ""
@@ -157,6 +231,12 @@ function uploadFile(filePath, folder) {
           ok: false,
           errorCode: error && (error.errCode || error.code || "")
         });
+        diagnosticLog.error("upload", "upload-failed", "文件上传失败", {
+          step: folder || "uploads",
+          filePath,
+          durationMs: Date.now() - startedAt,
+          error
+        });
         reject(error);
       }
     });
@@ -166,16 +246,33 @@ function uploadFile(filePath, folder) {
 function getTempUrl(fileID) {
   return new Promise((resolve, reject) => {
     if (!isCloudReady() || !fileID) {
+      diagnosticLog.warn("cloud-file", "temp-url-skipped", "跳过获取云文件临时地址", {
+        fileID: fileID || "",
+        cloudReady: isCloudReady()
+      });
       resolve("");
       return;
     }
+    const startedAt = Date.now();
     wx.cloud.getTempFileURL({
       fileList: [fileID],
       success(response) {
         const item = response.fileList && response.fileList[0];
+        diagnosticLog.info("cloud-file", "temp-url-success", "云文件临时地址获取完成", {
+          fileID,
+          durationMs: Date.now() - startedAt,
+          hasUrl: Boolean(item && item.tempFileURL)
+        });
         resolve((item && item.tempFileURL) || "");
       },
-      fail: reject
+      fail(error) {
+        diagnosticLog.error("cloud-file", "temp-url-failed", "获取云文件临时地址失败", {
+          fileID,
+          durationMs: Date.now() - startedAt,
+          error
+        });
+        reject(error);
+      }
     });
   });
 }
@@ -183,20 +280,47 @@ function getTempUrl(fileID) {
 function downloadFile(fileID) {
   return new Promise((resolve, reject) => {
     if (!isCloudReady() || !fileID || !wx.cloud || typeof wx.cloud.downloadFile !== "function") {
-      reject(new Error("当前环境不支持读取云端视频。"));
+      const error = new Error("当前环境不支持读取云端视频。");
+      diagnosticLog.error("cloud-file", "download-blocked", "云文件下载被阻止", {
+        fileID: fileID || "",
+        error
+      });
+      reject(error);
       return;
     }
+    const startedAt = Date.now();
+    diagnosticLog.info("cloud-file", "download-start", "开始下载云文件", {
+      fileID
+    });
     wx.cloud.downloadFile({
       fileID,
       success(response) {
         const filePath = response && response.tempFilePath;
         if (!filePath) {
-          reject(new Error("云端视频下载后没有得到临时路径。"));
+          const error = new Error("云端视频下载后没有得到临时路径。");
+          diagnosticLog.error("cloud-file", "download-failed", "云文件下载结果缺少本地路径", {
+            fileID,
+            durationMs: Date.now() - startedAt,
+            error
+          });
+          reject(error);
           return;
         }
+        diagnosticLog.info("cloud-file", "download-success", "云文件下载完成", {
+          fileID,
+          filePath,
+          durationMs: Date.now() - startedAt
+        });
         resolve(filePath);
       },
-      fail: reject
+      fail(error) {
+        diagnosticLog.error("cloud-file", "download-failed", "云文件下载失败", {
+          fileID,
+          durationMs: Date.now() - startedAt,
+          error
+        });
+        reject(error);
+      }
     });
   });
 }

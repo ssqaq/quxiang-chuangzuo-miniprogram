@@ -105,32 +105,20 @@
     </view>
     <view wx:if="{{project.mainImage && autoFaceStatus.state !== 'idle'}}" class="auto-face-diagnostics">
       <view class="auto-face-diagnostics-head">
-        <view>
-          <view class="auto-face-diagnostics-title">自动贴脸诊断</view>
+        <view class="auto-face-diagnostics-leading">
+          <view class="auto-face-diagnostics-title">自动贴脸</view>
           <view class="auto-face-diagnostics-message">{{autoFaceStatus.message}}</view>
         </view>
-        <view class="auto-face-diagnostics-state">{{autoFaceStatus.state}}</view>
-      </view>
-      <view wx:if="{{autoFaceStatus.details && autoFaceStatus.details.clientTotalMs}}" class="auto-face-diagnostics-time">
-        本次客户端耗时：{{autoFaceStatus.details.clientTotalMs}} ms
-      </view>
-      <view class="auto-face-log-actions">
-        <button class="auto-face-log-button" size="mini" bindtap="toggleAutoFaceLogPanel">
-          {{autoFaceLogExpanded ? '收起运行日志' : '查看运行日志'}}（{{autoFaceLogs.length}}）
-        </button>
-        <button class="auto-face-log-button" size="mini" bindtap="copyAutoFaceLogs">复制日志</button>
-        <button class="auto-face-log-button auto-face-log-clear" size="mini" bindtap="clearAutoFaceLogs">清空</button>
-      </view>
-      <view wx:if="{{autoFaceLogExpanded}}" class="auto-face-log-list">
-        <view wx:if="{{!autoFaceLogs.length}}" class="auto-face-log-empty">暂无运行日志</view>
-        <view wx:for="{{autoFaceLogs}}" wx:key="updatedAt" class="auto-face-log-item">
-          <view class="auto-face-log-item-head">
-            <text>{{item.stage}}</text>
-            <text>{{item.updatedAt}}</text>
-          </view>
-          <view class="auto-face-log-message">{{item.message}}</view>
-          <view wx:if="{{item.summary}}" class="auto-face-log-detail">{{item.summary}}</view>
+        <view class="auto-face-diagnostics-state state-{{autoFaceStatus.state}}">
+          {{autoFaceStatus.stateLabel}}
         </view>
+      </view>
+      <view class="auto-face-diagnostics-meta">
+        <text wx:if="{{autoFaceStatus.durationText}}">{{autoFaceStatus.durationText}}</text>
+        <text>详细链路已写入故障排查报告</text>
+      </view>
+      <view class="auto-face-diagnostics-hint">
+        到工作台打开“故障排查报告”，可以复制完整运行链路。
       </view>
     </view>
   </view>

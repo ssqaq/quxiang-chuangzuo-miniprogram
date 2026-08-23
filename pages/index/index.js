@@ -2,6 +2,7 @@ const app = getApp();
 const config = require("../../config");
 const cloud = require("../../services/cloud");
 const storage = require("../../utils/storage");
+const diagnosticLog = require("../../utils/diagnostic-log");
 const {
   LOCKED_ELEMENTS,
   buildPrompt,
@@ -168,13 +169,36 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+const AUTO_FACE_STATE_LABELS = {
+  idle: "未开始",
+  running: "识别中",
+  ready: "已完成",
+  "manual-required": "需要手动",
+  fallback: "已切换手动"
+};
+
+const AUTO_FACE_STAGE_LABELS = {
+  idle: "等待开始",
+  "cloud-start": "开始识别",
+  "upload-complete": "图片准备完成",
+  "cloud-result": "识别结果返回",
+  "detect-complete": "识别完成",
+  "cache-hit": "复用已有结果",
+  "cloud-failed": "云端识别失败",
+  "cloud-unavailable": "云端未连接"
+};
+
 function createAutoFaceStatus() {
   return {
     state: "idle",
+    stateLabel: AUTO_FACE_STATE_LABELS.idle,
     stage: "idle",
+    stageLabel: AUTO_FACE_STAGE_LABELS.idle,
     source: "",
     message: "等待自动贴脸",
     details: null,
+    shortDetail: "",
+    durationText: "",
     updatedAt: ""
   };
 }
@@ -208,6 +232,35 @@ function formatAutoFaceDetails(details) {
   } catch (error) {
     return String(details);
   }
+}
+
+function formatAutoFaceDuration(details) {
+  if (!details || typeof details !== "object") return "";
+  const rawMs = Number(
+    details.clientTotalMs
+      || details.durationMs
+      || (details.timing && details.timing.totalMs)
+      || 0
+  );
+  if (!Number.isFinite(rawMs) || rawMs <= 0) return "";
+  return rawMs >= 1000
+    ? `用时 ${(rawMs / 1000).toFixed(1)} 秒`
+    : `用时 ${Math.round(rawMs)} 毫秒`;
+}
+
+function formatAutoFaceShortDetail(details) {
+  if (!details || typeof details !== "object") return "";
+  const cloudError = details.cloudError && typeof details.cloudError === "object"
+    ? details.cloudError
+    : null;
+  if (cloudError && cloudError.message) return `原因：${cloudError.message}`;
+  if (details.message) return String(details.message);
+  if (details.faceCount !== undefined) return `识别到 ${Number(details.faceCount) || 0} 张人脸`;
+  if (details.cacheHit) return "已复用本张主图的识别结果";
+  if (details.reused) return "已复用云端图片，跳过重复上传";
+  if (details.detectComplete) return "已完成位置确认";
+  if (details.code) return `错误码：${details.code}`;
+  return "";
 }
 
 Page({
@@ -252,14 +305,11 @@ Page({
     lockedSelectionCount: LOCKED_ELEMENTS.length,
     records: [],
     generatedResults: [],
-    autoFaceStatus: createAutoFaceStatus(),
-    autoFaceLogs: [],
-    autoFaceLogExpanded: false
+    autoFaceStatus: createAutoFaceStatus()
   },
 
   onLoad(options = {}) {
     const pageLoadStartedAt = Date.now();
-    this._autoFaceLogs = [];
     this._mainImagePrepareState = null;
     this._mainImageUploadState = null;
     this._autoFaceDetectionCache = null;
@@ -384,9 +434,7 @@ Page({
       customLockText: "",
       lockedSelectionCount: LOCKED_ELEMENTS.length,
       generatedResults: [],
-      autoFaceStatus: createAutoFaceStatus(),
-      autoFaceLogs: [],
-      autoFaceLogExpanded: false
+      autoFaceStatus: createAutoFaceStatus()
     });
     console.info("[index] 已复用预热制作页，进入新创作", { mode });
   },
@@ -396,6 +444,10 @@ Page({
     this._pageDestroyed = true;
     this.clearCanvasDrawTimer();
     this.stopGenerationTimer();
+    diagnosticLog.info("creation", "page-unload", "制作页离开", {
+      step: this.data.step,
+      hasMainImage: Boolean(this.data.project && this.data.project.mainImage)
+    });
   },
 
   setPageScrollLock(locked) {
@@ -440,6 +492,10 @@ Page({
         content: "已经等待超过 2 分钟，当前请求可能还在处理。请不要重复点击，完成后会自动显示结果。",
         showCancel: false
       });
+      diagnosticLog.warn("generation", "timeout-warning", "生图等待超过两分钟", {
+        step: "generate",
+        durationMs: GENERATION_TIMEOUT_MS
+      });
     }, GENERATION_TIMEOUT_MS);
   },
 
@@ -463,6 +519,10 @@ Page({
       generationPhaseIndex: phaseIndex >= 0 ? phaseIndex : this.data.generationPhaseIndex,
       generationWaitText
     }, extra));
+    diagnosticLog.info("generation", "phase", `生图进入${stage}阶段`, {
+      step: stage,
+      loadingText
+    });
   },
 
   backToWorkbench() {
@@ -477,55 +537,36 @@ Page({
   },
 
   recordAutoFaceStatus(state, stage, source, message, details) {
+    const normalizedState = String(state || "");
+    const normalizedStage = String(stage || "");
     const entry = {
-      state: String(state || ""),
-      stage: String(stage || ""),
+      state: normalizedState,
+      stateLabel: AUTO_FACE_STATE_LABELS[normalizedState] || normalizedState || "未知",
+      stage: normalizedStage,
+      stageLabel: AUTO_FACE_STAGE_LABELS[normalizedStage] || normalizedStage || "运行记录",
       source: String(source || ""),
       message: String(message || ""),
       details: details && typeof details === "object" ? clone(details) : null,
       summary: formatAutoFaceDetails(details),
+      shortDetail: formatAutoFaceShortDetail(details),
+      durationText: formatAutoFaceDuration(details),
       updatedAt: new Date().toISOString()
     };
-    this._autoFaceLogs = (this._autoFaceLogs || []).concat(entry).slice(-30);
     this.setData({
-      autoFaceStatus: entry,
-      autoFaceLogs: clone(this._autoFaceLogs)
+      autoFaceStatus: entry
     });
     const method = state === "manual-required" || state === "fallback" ? "warn" : "log";
     console[method]("[auto-face]", entry);
+    const logMethod = state === "manual-required" || state === "fallback"
+      ? diagnosticLog.warn
+      : diagnosticLog.info;
+    logMethod("auto-face", normalizedStage, message, {
+      step: normalizedStage,
+      source,
+      state: normalizedState,
+      details: entry.details
+    });
     return entry;
-  },
-
-  toggleAutoFaceLogPanel() {
-    this.setData({ autoFaceLogExpanded: !this.data.autoFaceLogExpanded });
-  },
-
-  copyAutoFaceLogs() {
-    const payload = {
-      appVersion: config.appVersion,
-      copiedAt: new Date().toISOString(),
-      status: this.data.autoFaceStatus,
-      logs: this._autoFaceLogs || []
-    };
-    const text = JSON.stringify(payload, null, 2);
-    if (!wx.setClipboardData) {
-      wx.showToast({ title: "当前环境不支持复制日志", icon: "none" });
-      return;
-    }
-    wx.setClipboardData({
-      data: text,
-      success: () => wx.showToast({ title: "日志已复制", icon: "success" }),
-      fail: () => wx.showToast({ title: "复制日志失败", icon: "none" })
-    });
-  },
-
-  clearAutoFaceLogs() {
-    this._autoFaceLogs = [];
-    this.setData({
-      autoFaceLogs: [],
-      autoFaceLogExpanded: false
-    });
-    wx.showToast({ title: "日志已清空", icon: "success" });
   },
 
   getMainImageKey(image) {

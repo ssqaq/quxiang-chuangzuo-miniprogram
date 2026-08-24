@@ -150,6 +150,13 @@ assert.ok(
   ),
   "淡化强度滑块没有使用连续步进。"
 );
+const fadeStrengthIndex = pageWxml.indexOf(">淡化强度</text>");
+const perturbStrengthIndex = pageWxml.indexOf(">扰动强度</text>");
+assert.ok(
+  fadeStrengthIndex >= 0
+    && perturbStrengthIndex > fadeStrengthIndex,
+  "扰动强度没有放在淡化强度下面。"
+);
 assert.ok(
   !pageWxml.includes('data-key="removeVisibleMarks"')
     && !pageWxml.includes('checked="{{removeVisibleMarks}}"')

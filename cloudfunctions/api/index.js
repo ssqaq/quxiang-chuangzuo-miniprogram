@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.23.0";
-const API_BUILD_MARKER = "API_BUILD_TAG_20260824_ADMIN_PROBE_HISTORY_V230";
+const API_BUILD_VERSION = "0.24.0";
+const API_BUILD_MARKER = "API_BUILD_TAG_20260824_PHOTO_VIDEO_IDLE_CLEANUP_V240";
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
 const cloud = require("wx-server-sdk");
@@ -55,6 +55,7 @@ const AUTO_FACE_FAILURE_CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const AUTO_FACE_FAILURE_CLEANUP_BATCH_SIZE = 100;
 const PHOTO_TO_VIDEO_TEMP_ASSET_COLLECTION = "photo_to_video_temp_assets";
 const PHOTO_TO_VIDEO_TEMP_ASSET_TTL_MS = 3 * 24 * 60 * 60 * 1000;
+const PHOTO_TO_VIDEO_IDLE_CLEANUP_MS = 2 * 60 * 60 * 1000;
 const PHOTO_TO_VIDEO_TEMP_ASSET_CLEANUP_BATCH_SIZE = 100;
 const MODEL_COST_CONFIG_VERSION = "2026-08-23-v1";
 const ADMIN_RUNTIME_CACHE_TTL_MS = 15000;
@@ -1132,13 +1133,13 @@ async function cleanupAutoFaceFailureLogs(baseDate = new Date()) {
 
 function normalizePhotoToVideoTempKind(value) {
   const kind = compactUsageText(value, 20).toLowerCase();
-  return ["source", "result"].includes(kind) ? kind : "";
+  return ["source", "result", "record"].includes(kind) ? kind : "";
 }
 
-function photoToVideoTempAssetDocumentId(fileID, kind) {
+function photoToVideoTempAssetDocumentId(targetID, kind) {
   return crypto
     .createHash("sha256")
-    .update(`${normalizePhotoToVideoTempKind(kind)}:${String(fileID || "")}`)
+    .update(`${normalizePhotoToVideoTempKind(kind)}:${String(targetID || "")}`)
     .digest("hex")
     .slice(0, 30);
 }
@@ -1147,12 +1148,46 @@ function photoToVideoTempCleanupCutoff(baseDate = new Date()) {
   return new Date(baseDate.getTime() - PHOTO_TO_VIDEO_TEMP_ASSET_TTL_MS);
 }
 
+function photoToVideoIdleCleanupCutoff(baseDate = new Date()) {
+  return new Date(baseDate.getTime() - PHOTO_TO_VIDEO_IDLE_CLEANUP_MS);
+}
+
+function photoToVideoCleanupState(row = {}, baseDate = new Date()) {
+  const now = baseDate instanceof Date ? baseDate : new Date(baseDate);
+  const idleCutoff = photoToVideoIdleCleanupCutoff(now);
+  const cleanupAfter = row.cleanupAfter ? new Date(row.cleanupAfter) : null;
+  const idleCleanupAfter = row.idleCleanupAfter ? new Date(row.idleCleanupAfter) : null;
+  const lastActiveAt = row.lastActiveAt ? new Date(row.lastActiveAt) : null;
+  const ttlDue = Boolean(
+    cleanupAfter
+    && Number.isFinite(cleanupAfter.getTime())
+    && cleanupAfter.getTime() <= now.getTime()
+  );
+  const idleDue = Boolean(
+    idleCleanupAfter
+    && Number.isFinite(idleCleanupAfter.getTime())
+    && idleCleanupAfter.getTime() <= now.getTime()
+  );
+  const recentlyActive = Boolean(
+    lastActiveAt
+    && Number.isFinite(lastActiveAt.getTime())
+    && lastActiveAt.getTime() > idleCutoff.getTime()
+  );
+  return {
+    ttlDue,
+    idleDue,
+    recentlyActive,
+    due: ttlDue || (idleDue && !recentlyActive)
+  };
+}
+
 function isPhotoToVideoCleanupTrigger(event = {}) {
   const source = event && typeof event === "object" ? event : {};
   return (
     source.Type === "Timer"
     || source.type === "timer"
     || source.triggerName === "photo-to-video-temp-cleanup"
+    || source.triggerName === "photo-to-video-idle-cleanup"
     || source.action === "cleanupPhotoToVideoTempAssets"
   );
 }
@@ -1183,58 +1218,180 @@ async function deletePhotoToVideoTempFile(fileID) {
 }
 
 async function registerPhotoToVideoTempAsset(event = {}, context) {
-  const fileID = String(event.fileID || "").trim();
   const kind = normalizePhotoToVideoTempKind(event.kind);
-  if (!/^cloud:\/\//i.test(fileID)) {
-    return fail("照片转视频临时文件必须是 cloud:// fileID。", "PHOTO_TO_VIDEO_TEMP_FILE_ID_INVALID");
-  }
+  const ownerOpenId = getOpenId(context);
+  const sessionId = compactUsageText(event.sessionId, 100);
+  let fileID = String(event.fileID || "").trim();
+  let recordId = String(event.recordId || "").trim();
   if (!kind) {
-    return fail("照片转视频临时文件类型只能是 source 或 result。", "PHOTO_TO_VIDEO_TEMP_KIND_INVALID");
+    return fail(
+      "照片转视频清理目标类型只能是 source、result 或 record。",
+      "PHOTO_TO_VIDEO_TEMP_KIND_INVALID"
+    );
+  }
+  if (kind === "record") {
+    if (!recordId) {
+      return fail("缺少照片转视频正式制作记录 ID。", "PHOTO_TO_VIDEO_RECORD_ID_INVALID");
+    }
+    const record = await readDocument(db.collection("generation_records").doc(recordId));
+    if (!record || record.openid !== ownerOpenId) {
+      return fail("无权登记这条照片转视频正式制作记录。", "forbidden");
+    }
+    fileID = String(record.fileID || "").trim();
+  } else if (!/^cloud:\/\//i.test(fileID)) {
+    return fail(
+      "照片转视频临时文件必须是 cloud:// fileID。",
+      "PHOTO_TO_VIDEO_TEMP_FILE_ID_INVALID"
+    );
   }
   const now = new Date();
-  const documentId = photoToVideoTempAssetDocumentId(fileID, kind);
+  const targetID = kind === "record" ? recordId : fileID;
+  const documentId = photoToVideoTempAssetDocumentId(targetID, kind);
+  const ref = db.collection(PHOTO_TO_VIDEO_TEMP_ASSET_COLLECTION).doc(documentId);
+  const previous = await readDocument(ref);
+  const defaultCleanupAfter = new Date(now.getTime() + PHOTO_TO_VIDEO_TEMP_ASSET_TTL_MS);
+  const previousCleanupAfter = previous && previous.cleanupAfter
+    ? new Date(previous.cleanupAfter)
+    : null;
+  const cleanupAfter = previousCleanupAfter
+    && Number.isFinite(previousCleanupAfter.getTime())
+    && previousCleanupAfter.getTime() < defaultCleanupAfter.getTime()
+    ? previousCleanupAfter
+    : defaultCleanupAfter;
   const data = {
     fileID,
+    recordId,
     kind,
-    ownerOpenId: getOpenId(context),
-    createdAt: now,
-    cleanupAfter: new Date(now.getTime() + PHOTO_TO_VIDEO_TEMP_ASSET_TTL_MS),
+    targetType: kind === "record" ? "record" : "file",
+    ownerOpenId,
+    sessionId,
+    createdAt: previous && previous.createdAt || now,
+    cleanupAfter,
+    lastActiveAt: now,
+    closedAt: null,
+    idleCleanupAfter: null,
     status: "pending",
     attempts: 0,
     lastError: "",
     updatedAt: now
   };
-  await db.collection(PHOTO_TO_VIDEO_TEMP_ASSET_COLLECTION)
-    .doc(documentId)
-    .set({ data });
+  await ref.set({ data });
   return jsonResponse(true, {
     accepted: true,
     fileID,
+    recordId,
     kind,
+    sessionId,
     cleanupAfter: data.cleanupAfter.toISOString()
   });
 }
 
-async function cleanupPhotoToVideoTempAssets(baseDate = new Date()) {
-  const cutoff = photoToVideoTempCleanupCutoff(baseDate);
-  const result = await db
-    .collection(PHOTO_TO_VIDEO_TEMP_ASSET_COLLECTION)
-    .where({ cleanupAfter: db.command.lte(cutoff) })
-    .orderBy("cleanupAfter", "asc")
+async function updatePhotoToVideoSession(event = {}, context, mode = "active") {
+  const ownerOpenId = getOpenId(context);
+  const sessionId = compactUsageText(event.sessionId, 100);
+  if (!sessionId) {
+    return fail("缺少照片转视频会话 ID。", "PHOTO_TO_VIDEO_SESSION_ID_INVALID");
+  }
+  const result = await db.collection(PHOTO_TO_VIDEO_TEMP_ASSET_COLLECTION)
+    .where({ sessionId })
     .limit(PHOTO_TO_VIDEO_TEMP_ASSET_CLEANUP_BATCH_SIZE)
     .get();
-  const rows = result && Array.isArray(result.data) ? result.data : [];
+  const rows = result && Array.isArray(result.data)
+    ? result.data.filter((row) => row && row.ownerOpenId === ownerOpenId)
+    : [];
+  const now = new Date();
+  const closing = mode === "close";
+  for (const row of rows) {
+    if (!row || !row._id) continue;
+    await db.collection(PHOTO_TO_VIDEO_TEMP_ASSET_COLLECTION).doc(row._id).update({
+      data: closing
+        ? {
+          closedAt: now,
+          idleCleanupAfter: new Date(now.getTime() + PHOTO_TO_VIDEO_IDLE_CLEANUP_MS),
+          lastActiveAt: row.lastActiveAt || now,
+          updatedAt: now,
+          status: "pending"
+        }
+        : {
+          closedAt: null,
+          idleCleanupAfter: null,
+          lastActiveAt: now,
+          updatedAt: now,
+          status: "pending"
+        }
+    });
+  }
+  return jsonResponse(true, {
+    accepted: true,
+    sessionId,
+    mode: closing ? "close" : "active",
+    matched: rows.length
+  });
+}
+
+async function cleanupPhotoToVideoFormalRecord(row) {
+  if (row.fileID) {
+    try {
+      await deletePhotoToVideoTempFile(row.fileID);
+    } catch (error) {
+      if (!isPhotoToVideoTempFileMissing(error)) throw error;
+    }
+  }
+  const result = await removeGenerationRecord(
+    String(row.recordId || ""),
+    String(row.ownerOpenId || "anonymous"),
+    { allowMissing: true, skipFileDelete: true }
+  );
+  if (!result || result.ok === false) {
+    throw new Error(result && result.message || "正式制作记录清理失败");
+  }
+  return result;
+}
+
+async function cleanupPhotoToVideoTempAssets(baseDate = new Date()) {
+  const now = baseDate instanceof Date ? baseDate : new Date(baseDate);
+  const cutoff = photoToVideoTempCleanupCutoff(now);
+  const idleCutoff = photoToVideoIdleCleanupCutoff(now);
+  const [idleResult, ttlResult] = await Promise.all([
+    db.collection(PHOTO_TO_VIDEO_TEMP_ASSET_COLLECTION)
+      .where({ idleCleanupAfter: db.command.lte(now) })
+      .limit(PHOTO_TO_VIDEO_TEMP_ASSET_CLEANUP_BATCH_SIZE)
+      .get(),
+    db.collection(PHOTO_TO_VIDEO_TEMP_ASSET_COLLECTION)
+      .where({ cleanupAfter: db.command.lte(now) })
+      .limit(PHOTO_TO_VIDEO_TEMP_ASSET_CLEANUP_BATCH_SIZE)
+      .get()
+  ]);
+  const rowsById = new Map();
+  [idleResult, ttlResult].forEach((result) => {
+    const rows = result && Array.isArray(result.data) ? result.data : [];
+    rows.forEach((row) => {
+      if (row && row._id) rowsById.set(row._id, row);
+    });
+  });
+  const rows = Array.from(rowsById.values());
   let removed = 0;
   let retried = 0;
   let failed = 0;
+  let skippedActive = 0;
   for (const row of rows) {
-    if (!row || !row._id || !row.fileID) continue;
+    const state = photoToVideoCleanupState(row, now);
+    if (!state.due) {
+      skippedActive += 1;
+      continue;
+    }
     try {
-      await deletePhotoToVideoTempFile(row.fileID);
+      if (row.kind === "record") {
+        await cleanupPhotoToVideoFormalRecord(row);
+      } else if (row.fileID) {
+        await deletePhotoToVideoTempFile(row.fileID);
+      } else {
+        throw new Error("照片转视频清理目标缺少 fileID 或 recordId");
+      }
       await db.collection(PHOTO_TO_VIDEO_TEMP_ASSET_COLLECTION).doc(row._id).remove();
       removed += 1;
     } catch (error) {
-      if (isPhotoToVideoTempFileMissing(error)) {
+      if (row.kind !== "record" && isPhotoToVideoTempFileMissing(error)) {
         await db.collection(PHOTO_TO_VIDEO_TEMP_ASSET_COLLECTION).doc(row._id).remove();
         removed += 1;
         continue;
@@ -1251,6 +1408,7 @@ async function cleanupPhotoToVideoTempAssets(baseDate = new Date()) {
       });
       log("warn", "photo-to-video-temp.cleanup-failed", {
         fileID: row.fileID,
+        recordId: row.recordId,
         kind: row.kind,
         error: normalizePhotoToVideoTempFileError(error)
       });
@@ -1259,10 +1417,12 @@ async function cleanupPhotoToVideoTempAssets(baseDate = new Date()) {
   const summary = {
     skipped: false,
     cutoff: cutoff.toISOString(),
+    idleCutoff: idleCutoff.toISOString(),
     scanned: rows.length,
     removed,
     retried,
     failed,
+    skippedActive,
     truncated: rows.length >= PHOTO_TO_VIDEO_TEMP_ASSET_CLEANUP_BATCH_SIZE
   };
   log("info", "photo-to-video-temp.cleanup", summary);
@@ -2254,7 +2414,9 @@ function adminOpenIds() {
 
 function isAdminContext(context) {
   const openid = getOpenId(context);
-  return openid !== "anonymous" && adminOpenIds().includes(openid);
+  if (openid === "anonymous") return false;
+  const configured = adminOpenIds();
+  return configured.includes(openid) || configured.includes(usageUserHash(openid));
 }
 
 function adminForbidden() {
@@ -2689,9 +2851,18 @@ function adminConfigView(configs, runtime, metadata = {}) {
 }
 
 async function getAdminStatus(context) {
+  const openid = getOpenId(context);
+  const identityHash = usageUserHash(openid);
+  const isAdmin = isAdminContext(context);
+  log("info", "admin.status", {
+    isAdmin,
+    openidConfigured: openid !== "anonymous",
+    identityHash
+  });
   return jsonResponse(true, {
-    isAdmin: isAdminContext(context),
-    openidConfigured: getOpenId(context) !== "anonymous"
+    isAdmin,
+    openidConfigured: openid !== "anonymous",
+    identityHash
   });
 }
 
@@ -5157,7 +5328,7 @@ async function listRecords(context) {
     .orderBy("createdAt", "desc")
     .limit(50)
     .get();
-  const records = result.data || [];
+  const records = (result.data || []).filter((item) => !item.isTombstone);
   const ids = records.map((item) => item.fileID).filter(Boolean);
   let urls = {};
   if (ids.length) {
@@ -5175,20 +5346,27 @@ async function listRecords(context) {
   });
 }
 
-async function deleteRecord(event, context) {
-  const openid = getOpenId(context);
-  const recordId = String(event.recordId || "");
-  if (!recordId) return fail("缺少记录 ID。", "missing-record-id");
-  const record = await db.collection("generation_records").doc(recordId).get();
-  if (!record.data || record.data.openid !== openid) return fail("无权删除这条记录。", "forbidden");
-  if (record.data.fileID) {
+async function removeGenerationRecord(recordId, openid, options = {}) {
+  const safeOpenid = String(openid || "anonymous");
+  const safeRecordId = String(recordId || "");
+  if (!safeRecordId) return fail("缺少记录 ID。", "missing-record-id");
+  const recordData = await readDocument(
+    db.collection("generation_records").doc(safeRecordId)
+  );
+  if (!recordData) {
+    return options.allowMissing
+      ? jsonResponse(true, { recordId: safeRecordId, missing: true })
+      : fail("无权删除这条记录。", "forbidden");
+  }
+  if (recordData.openid !== safeOpenid) return fail("无权删除这条记录。", "forbidden");
+  if (recordData.fileID && !options.skipFileDelete) {
     try {
-      await cloud.deleteFile({ fileList: [record.data.fileID] });
+      await cloud.deleteFile({ fileList: [recordData.fileID] });
     } catch (_) {
       // 文件已经不存在时，仍然允许清理数据库记录。
     }
   }
-  const repairContext = record.data.repairContext || {};
+  const repairContext = recordData.repairContext || {};
   const assetReferences = [
     { fileID: repairContext.mainInputFileID, kind: "main" },
     {
@@ -5207,11 +5385,11 @@ async function deleteRecord(event, context) {
       : [])
   ];
   const children = await db.collection("generation_records")
-    .where({ openid, parentRecordId: recordId })
+    .where({ openid: safeOpenid, parentRecordId: safeRecordId })
     .limit(1)
     .get();
   if (children && Array.isArray(children.data) && children.data.length) {
-    await db.collection("generation_records").doc(recordId).update({
+    await db.collection("generation_records").doc(safeRecordId).update({
       data: {
         fileID: "",
         tempFileURL: "",
@@ -5222,30 +5400,37 @@ async function deleteRecord(event, context) {
     });
     try {
       await db.runTransaction(
-        (transaction) => releaseUserAssets(openid, assetReferences, transaction),
+        (transaction) => releaseUserAssets(safeOpenid, assetReferences, transaction),
         5
       );
     } catch (error) {
       log("warn", "records.asset_release_failed", {
-        recordId,
+        recordId: safeRecordId,
         message: error && error.message
       });
     }
-    return jsonResponse(true, { recordId, tombstone: true });
+    return jsonResponse(true, { recordId: safeRecordId, tombstone: true });
   }
-  await db.collection("generation_records").doc(recordId).remove();
+  await db.collection("generation_records").doc(safeRecordId).remove();
   try {
     await db.runTransaction(
-      (transaction) => releaseUserAssets(openid, assetReferences, transaction),
+      (transaction) => releaseUserAssets(safeOpenid, assetReferences, transaction),
       5
     );
   } catch (error) {
     log("warn", "records.asset_release_failed", {
-      recordId,
+      recordId: safeRecordId,
       message: error && error.message
     });
   }
-  return jsonResponse(true, { recordId, removed: true });
+  return jsonResponse(true, { recordId: safeRecordId, removed: true });
+}
+
+async function deleteRecord(event, context) {
+  return removeGenerationRecord(
+    String(event && event.recordId || ""),
+    getOpenId(context)
+  );
 }
 
 function replaceVideoTaskId(path, taskId) {
@@ -5673,6 +5858,12 @@ exports.main = async (event = {}, context) => {
     else if (action === "registerPhotoToVideoTempAsset") {
       result = await registerPhotoToVideoTempAsset(requestEvent, context);
     }
+    else if (action === "markPhotoToVideoSessionActive") {
+      result = await updatePhotoToVideoSession(requestEvent, context, "active");
+    }
+    else if (action === "closePhotoToVideoSession") {
+      result = await updatePhotoToVideoSession(requestEvent, context, "close");
+    }
     else result = fail(`不支持的操作：${action || "空"}`, "unsupported-action");
     log("info", "function.finish", {
       requestId,
@@ -5761,8 +5952,12 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     normalizePhotoToVideoTempKind,
     photoToVideoTempAssetDocumentId,
     photoToVideoTempCleanupCutoff,
+    photoToVideoIdleCleanupCutoff,
+    photoToVideoCleanupState,
     isPhotoToVideoCleanupTrigger,
     registerPhotoToVideoTempAsset,
+    updatePhotoToVideoSession,
+    cleanupPhotoToVideoFormalRecord,
     cleanupPhotoToVideoTempAssets,
     dateKeyForTimeZone,
     shiftDateKey,
@@ -5796,6 +5991,7 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     ,
     adminOpenIds,
     isAdminContext,
+    usageUserHash,
     normalizeRuntimePatch,
     validateRuntimePatch,
     mergeRuntimeConfig,

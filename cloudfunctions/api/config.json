@@ -1,6 +1,11 @@
 {
   "triggers": [
     {
+      "name": "photo-to-video-idle-cleanup",
+      "type": "timer",
+      "config": "0 */15 * * * * *"
+    },
+    {
       "name": "photo-to-video-temp-cleanup",
       "type": "timer",
       "config": "0 0 3 * * * *"

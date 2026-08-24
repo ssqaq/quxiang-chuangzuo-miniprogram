@@ -41,15 +41,32 @@ const required = [
     && workbenchWxml.includes("生成动态视频，照片也会保留")]
   ,["临时云文件进入延迟清理队列", pageJs.includes("enqueuePhotoToVideoCleanup")
     && pageJs.includes("flushPhotoToVideoCleanup")
+    && configJs.includes("idlePeriodMs")
     && configJs.includes("gracePeriodMs")]
   ,["清理失败保留并重试", pageJs.includes("cleanup-failed")
     && pageJs.includes("retained.push")]
   ,["云文件清理 API 已接入", cloudJs.includes("function deleteFile")
     && storageJs.includes("PHOTO_TO_VIDEO_CLEANUP_KEY")
     && cloudJs.includes("registerPhotoToVideoTempAsset")]
-  ,["云端只登记照片转视频临时文件", cloudApiJs.includes("PHOTO_TO_VIDEO_TEMP_ASSET_COLLECTION")
-    && cloudApiJs.includes("cleanupPhotoToVideoTempAssets")]
-  ,["云端每天定时清理且保留三天", configJs.includes("3 * 24 * 60 * 60 * 1000")
+  ,["关闭页面上报两小时清理", pageJs.includes("closePhotoToVideoCleanupSession")
+    && cloudJs.includes("closePhotoToVideoSession")
+    && cloudApiJs.includes("idleCleanupAfter")]
+  ,["正式制作记录进入受限清理", pageJs.includes("registerPhotoToVideoRecord")
+    && cloudApiJs.includes('kind === "record"')
+    && cloudApiJs.includes("removeGenerationRecord")]
+  ,["本地记录和文件缓存进入清理", storageJs.includes("removeRecordsByIds")
+    && storageJs.includes("PHOTO_TO_VIDEO_SESSION_KEY")
+    && pageJs.includes("removeLocalTempFile")]
+  ,["云端登记照片转视频文件和记录", cloudApiJs.includes("PHOTO_TO_VIDEO_TEMP_ASSET_COLLECTION")
+    && cloudApiJs.includes("cleanupPhotoToVideoTempAssets")
+    && cloudApiJs.includes("photoToVideoCleanupState")]
+  ,["云端每15分钟检查且保留三天兜底", configJs.includes("2 * 60 * 60 * 1000")
+    && configJs.includes("3 * 24 * 60 * 60 * 1000")
+    && cloudTriggerConfig.triggers.some((item) => (
+      item.name === "photo-to-video-idle-cleanup"
+      && item.type === "timer"
+      && item.config === "0 */15 * * * * *"
+    ))
     && cloudTriggerConfig.triggers.some((item) => (
       item.name === "photo-to-video-temp-cleanup"
       && item.type === "timer"

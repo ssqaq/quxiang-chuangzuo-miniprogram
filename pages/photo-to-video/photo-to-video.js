@@ -72,6 +72,17 @@ function isCancelledError(error) {
   return Boolean(error && (error.cancelled || error.code === "PHOTO_TO_VIDEO_CANCELLED"));
 }
 
+function uniqueLocalPaths(paths) {
+  const seen = {};
+  return (Array.isArray(paths) ? paths : [])
+    .map((item) => String(item || "").trim())
+    .filter((item) => {
+      if (!item || isCloudFileId(item) || /^https?:\/\//i.test(item) || seen[item]) return false;
+      seen[item] = true;
+      return true;
+    });
+}
+
 function saveImageToAlbum(filePath) {
   return new Promise((resolve, reject) => {
     if (!filePath || typeof wx.saveImageToPhotosAlbum !== "function") {
@@ -172,6 +183,7 @@ Page({
   onShow() {
     this._destroyed = false;
     this._pageVisible = true;
+    this.openPhotoToVideoCleanupSession();
     if (this.data.processing && !this._activeRun) {
       this.setData({
         processing: false,
@@ -191,6 +203,7 @@ Page({
     this.cancelActiveRun();
     this.clearFinishTimer();
     this.stopPreview();
+    this.closePhotoToVideoCleanupSession();
   },
 
   onUnload() {
@@ -199,6 +212,7 @@ Page({
     this.cancelActiveRun();
     this.clearFinishTimer();
     this.stopPreview();
+    this.closePhotoToVideoCleanupSession();
   },
 
   isPageActive() {
@@ -254,6 +268,10 @@ Page({
     const cleanup = config.photoToVideo && config.photoToVideo.cleanup;
     return {
       enabled: cleanup ? cleanup.enabled !== false : true,
+      idlePeriodMs: Math.max(
+        15 * 60 * 1000,
+        Number(cleanup && cleanup.idlePeriodMs) || 2 * 60 * 60 * 1000
+      ),
       gracePeriodMs: Math.max(
         60 * 60 * 1000,
         Number(cleanup && cleanup.gracePeriodMs) || 24 * 60 * 60 * 1000
@@ -265,43 +283,195 @@ Page({
     };
   },
 
-  enqueuePhotoToVideoCleanup(fileID, kind) {
+  createPhotoToVideoSessionId() {
+    return `photo-video-session-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 10)}`;
+  },
+
+  openPhotoToVideoCleanupSession() {
     const cleanupConfig = this.getCleanupConfig();
-    if (!cleanupConfig.enabled || !fileID || !cloud.isCloudReady()) return;
+    if (!cleanupConfig.enabled) return "";
     const now = Date.now();
+    let session = storage.loadPhotoToVideoSession();
+    if (
+      !session
+      || !session.id
+      || (
+        Number(session.closedAt) > 0
+        && Number(session.cleanupAfter) > 0
+        && Number(session.cleanupAfter) <= now
+      )
+    ) {
+      session = {
+        id: this.createPhotoToVideoSessionId(),
+        openedAt: now,
+        updatedAt: now,
+        closedAt: 0,
+        cleanupAfter: 0
+      };
+    } else {
+      session = Object.assign({}, session, {
+        updatedAt: now,
+        closedAt: 0,
+        cleanupAfter: 0
+      });
+      const queue = storage.loadPhotoToVideoCleanup() || [];
+      queue.forEach((item) => {
+        if (item && item.sessionId === session.id) {
+          item.cleanupAfter = Number(item.hardCleanupAfter) || item.cleanupAfter;
+          item.updatedAt = now;
+        }
+      });
+      storage.savePhotoToVideoCleanup(queue);
+    }
+    this._cleanupSessionId = session.id;
+    this._sessionCloseReported = false;
+    storage.savePhotoToVideoSession(session);
+    if (cloud.isCloudReady() && typeof cloud.markPhotoToVideoSessionActive === "function") {
+      cloud.markPhotoToVideoSessionActive(session.id).catch((error) => {
+        diagnosticLog.warn("video", "cleanup-session-active-failed", "照片转视频会话恢复上报失败", {
+          sessionId: session.id,
+          error
+        });
+      });
+    }
+    return session.id;
+  },
+
+  trackCleanupRegistration(promise) {
+    if (!promise || typeof promise.then !== "function") return;
+    if (!this._cleanupRegistrations) this._cleanupRegistrations = new Set();
+    this._cleanupRegistrations.add(promise);
+    promise.finally(() => {
+      if (this._cleanupRegistrations) this._cleanupRegistrations.delete(promise);
+    });
+  },
+
+  closePhotoToVideoCleanupSession() {
+    const cleanupConfig = this.getCleanupConfig();
+    const sessionId = this._cleanupSessionId;
+    if (!cleanupConfig.enabled || !sessionId || this._sessionCloseReported) return;
+    this._sessionCloseReported = true;
+    const now = Date.now();
+    const cleanupAfter = now + cleanupConfig.idlePeriodMs;
+    const session = storage.loadPhotoToVideoSession();
+    if (session && session.id === sessionId) {
+      storage.savePhotoToVideoSession(Object.assign({}, session, {
+        closedAt: now,
+        cleanupAfter,
+        updatedAt: now
+      }));
+    }
+    const queue = storage.loadPhotoToVideoCleanup() || [];
+    queue.forEach((item) => {
+      if (item && item.sessionId === sessionId) {
+        item.cleanupAfter = Math.min(
+          Number(item.hardCleanupAfter) || cleanupAfter,
+          cleanupAfter
+        );
+        item.closedAt = now;
+        item.updatedAt = now;
+      }
+    });
+    storage.savePhotoToVideoCleanup(queue);
+    const pending = Array.from(this._cleanupRegistrations || []);
+    Promise.allSettled(pending).then(() => {
+      if (!cloud.isCloudReady() || typeof cloud.closePhotoToVideoSession !== "function") return;
+      return cloud.closePhotoToVideoSession(sessionId);
+    }).catch((error) => {
+      diagnosticLog.warn("video", "cleanup-session-close-failed", "照片转视频会话结束上报失败", {
+        sessionId,
+        error
+      });
+    });
+  },
+
+  enqueuePhotoToVideoCleanup(targetID, kind, options = {}) {
+    const cleanupConfig = this.getCleanupConfig();
+    if (!cleanupConfig.enabled || !targetID) return;
+    const sessionId = this._cleanupSessionId || this.openPhotoToVideoCleanupSession();
+    const now = Date.now();
+    const fileID = kind === "record" ? "" : String(targetID);
+    const recordId = kind === "record"
+      ? String(options.recordId || targetID)
+      : String(options.recordId || "");
+    const localPaths = uniqueLocalPaths(options.localPaths || []);
     const queue = Array.isArray(storage.loadPhotoToVideoCleanup())
       ? storage.loadPhotoToVideoCleanup()
       : [];
-    const key = `${kind || "file"}:${fileID}`;
+    const key = `${kind || "file"}:${kind === "record" ? recordId : fileID}`;
     const existing = queue.find((item) => item.key === key);
     if (existing) {
-      existing.cleanupAfter = Math.min(
-        Number(existing.cleanupAfter) || now + cleanupConfig.gracePeriodMs,
+      existing.hardCleanupAfter = Math.min(
+        Number(existing.hardCleanupAfter) || now + cleanupConfig.gracePeriodMs,
         now + cleanupConfig.gracePeriodMs
       );
+      existing.cleanupAfter = Number(existing.closedAt)
+        ? Math.min(
+          Number(existing.cleanupAfter) || existing.hardCleanupAfter,
+          existing.hardCleanupAfter
+        )
+        : existing.hardCleanupAfter;
+      existing.localPaths = uniqueLocalPaths((existing.localPaths || []).concat(localPaths));
+      existing.sessionId = sessionId;
       existing.updatedAt = now;
     } else {
       queue.push({
         key,
         fileID,
+        recordId,
         kind: kind || "file",
+        sessionId,
+        localPaths,
         createdAt: now,
         updatedAt: now,
+        hardCleanupAfter: now + cleanupConfig.gracePeriodMs,
         cleanupAfter: now + cleanupConfig.gracePeriodMs,
         attempts: 0,
         lastError: ""
       });
     }
     storage.savePhotoToVideoCleanup(queue);
-    if (typeof cloud.registerPhotoToVideoTempAsset === "function") {
-      cloud.registerPhotoToVideoTempAsset(fileID, kind || "file").catch((error) => {
+    if (!cloud.isCloudReady() || options.registerCloud === false) return;
+    let registration = null;
+    if (kind === "record" && typeof cloud.registerPhotoToVideoRecord === "function") {
+      registration = cloud.registerPhotoToVideoRecord(recordId, sessionId);
+    } else if (typeof cloud.registerPhotoToVideoTempAsset === "function") {
+      registration = cloud.registerPhotoToVideoTempAsset(fileID, kind || "file", {
+        sessionId,
+        recordId
+      });
+    }
+    if (registration) {
+      const tracked = registration.catch((error) => {
         diagnosticLog.warn("video", "cleanup-register-failed", "照片转视频临时云文件登记失败，保留本地清理队列", {
           fileID,
+          recordId,
           kind,
+          sessionId,
           error
         });
       });
+      this.trackCleanupRegistration(tracked);
     }
+  },
+
+  removeLocalTempFile(filePath) {
+    return new Promise((resolve) => {
+      if (!filePath || typeof wx.getFileSystemManager !== "function") {
+        resolve(false);
+        return;
+      }
+      const manager = wx.getFileSystemManager();
+      if (!manager || typeof manager.unlink !== "function") {
+        resolve(false);
+        return;
+      }
+      manager.unlink({
+        filePath,
+        success: () => resolve(true),
+        fail: () => resolve(false)
+      });
+    });
   },
 
   isCleanupNotFoundError(error) {
@@ -313,7 +483,6 @@ Page({
     const cleanupConfig = this.getCleanupConfig();
     if (
       !cleanupConfig.enabled
-      || !cloud.isCloudReady()
       || this._cleanupPromise
     ) {
       return this._cleanupPromise || null;
@@ -324,18 +493,42 @@ Page({
         ? storage.loadPhotoToVideoCleanup()
         : [];
       const due = queue
-        .filter((item) => item && item.fileID && Number(item.cleanupAfter) <= now)
+        .filter((item) => (
+          item
+          && (item.fileID || item.recordId)
+          && Number(item.cleanupAfter) <= now
+        ))
         .slice(0, cleanupConfig.maxQueueItems);
       if (!due.length) return;
       const dueKeys = new Set(due.map((item) => item.key));
       const retained = queue.filter((item) => !dueKeys.has(item.key));
+      const removedRecordIds = [];
       for (const item of due) {
         try {
-          await cloud.deleteFile(item.fileID);
-          diagnosticLog.info("video", "cleanup-success", "照片转视频临时云文件已清理", {
-            fileID: item.fileID,
-            kind: item.kind
-          });
+          if (item.kind === "record" && item.recordId) {
+            storage.removeRecordsByIds([item.recordId]);
+            removedRecordIds.push(String(item.recordId));
+            diagnosticLog.info("video", "record-cache-cleanup-success", "照片转视频正式制作记录本地缓存已清理", {
+              recordId: item.recordId
+            });
+          } else if (item.fileID) {
+            await Promise.all(
+              uniqueLocalPaths(item.localPaths || []).map((filePath) => this.removeLocalTempFile(filePath))
+            );
+            if (!cloud.isCloudReady()) {
+              throw new Error("云端未连接，保留照片转视频云文件清理任务。");
+            }
+            await cloud.deleteFile(item.fileID);
+            diagnosticLog.info("video", "cleanup-success", "照片转视频云文件已清理", {
+              fileID: item.fileID,
+              kind: item.kind
+            });
+          }
+          if (item.kind === "record") {
+            await Promise.all(
+              uniqueLocalPaths(item.localPaths || []).map((filePath) => this.removeLocalTempFile(filePath))
+            );
+          }
         } catch (error) {
           if (this.isCleanupNotFoundError(error)) {
             diagnosticLog.info("video", "cleanup-already-gone", "照片转视频临时云文件已不存在", {
@@ -357,6 +550,26 @@ Page({
         }
       }
       storage.savePhotoToVideoCleanup(retained);
+      if (removedRecordIds.length && this.isPageActive()) {
+        const removedIds = new Set(removedRecordIds);
+        this.setDataIfActive({
+          archiveRecords: (this.data.archiveRecords || []).filter(
+            (record) => !removedIds.has(String(record && record.id || ""))
+          ),
+          records: (this.data.records || []).filter(
+            (record) => !removedIds.has(String(record && record.id || ""))
+          )
+        });
+      }
+      const session = storage.loadPhotoToVideoSession();
+      if (
+        session
+        && Number(session.cleanupAfter) > 0
+        && Number(session.cleanupAfter) <= now
+        && !retained.some((item) => item && item.sessionId === session.id)
+      ) {
+        storage.clearPhotoToVideoSession();
+      }
     })().finally(() => {
       this._cleanupPromise = null;
     });
@@ -791,8 +1004,25 @@ Page({
     });
     const sourcePath = await publishExport.resolveImageSource(record);
     this.assertRunActive(run);
+    const recordId = String(record && record.id || "");
+    const isDeviceRecord = /^device-/i.test(recordId);
+    const isLocalRecord = /^local-/i.test(recordId);
+    if (recordId && !isDeviceRecord) {
+      this.enqueuePhotoToVideoCleanup(recordId, "record", {
+        recordId,
+        localPaths: [sourcePath],
+        registerCloud: !isLocalRecord
+      });
+      if (isLocalRecord && record.sourceFileID) {
+        this.enqueuePhotoToVideoCleanup(record.sourceFileID, "result", {
+          localPaths: [sourcePath]
+        });
+      }
+    }
     const upload = await cloud.uploadFile(sourcePath, "photo-to-video-input");
-    this.enqueuePhotoToVideoCleanup(upload.fileID, "source");
+    this.enqueuePhotoToVideoCleanup(upload.fileID, "source", {
+      localPaths: [sourcePath]
+    });
     this.assertRunActive(run);
     const created = await cloud.createVideoTask({
       imageFileID: upload.fileID,
@@ -821,6 +1051,18 @@ Page({
       this.enqueuePhotoToVideoCleanup(resultFileID, "result");
     }
     const resultPath = await this.resolveVideoPath(result);
+    if (resultFileID) {
+      this.enqueuePhotoToVideoCleanup(resultFileID, "result", {
+        localPaths: [resultPath]
+      });
+    }
+    if (recordId && !isDeviceRecord) {
+      this.enqueuePhotoToVideoCleanup(recordId, "record", {
+        recordId,
+        localPaths: [sourcePath, resultPath],
+        registerCloud: !isLocalRecord
+      });
+    }
     this.assertRunActive(run);
     await saveImageToAlbum(sourcePath);
     this.assertRunActive(run);

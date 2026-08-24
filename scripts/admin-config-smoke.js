@@ -17,6 +17,11 @@ assert.strictEqual(
   test.isAdminContext({ OPENID: "admin-openid-001" }),
   true
 );
+process.env.ADMIN_OPENIDS += `, ${test.usageUserHash("hash-admin-openid")}`;
+assert.strictEqual(
+  test.isAdminContext({ OPENID: "hash-admin-openid" }),
+  true
+);
 assert.strictEqual(
   test.isAdminContext({ OPENID: "normal-openid" }),
   false
@@ -61,6 +66,7 @@ api.main({
 }, { OPENID: "admin-openid-001" }).then((result) => {
   assert.strictEqual(result.ok, true);
   assert.strictEqual(result.isAdmin, true);
+  assert.match(result.identityHash, /^[0-9a-f]{12}$/);
   return api.main({
     action: "getAdminConfig",
     requestId: "admin-smoke-config"

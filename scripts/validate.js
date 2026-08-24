@@ -74,6 +74,7 @@ const jsFiles = [
   "scripts/model-failure-stats-smoke.js",
   "scripts/auto-face-failure-stats-smoke.js",
   "scripts/photo-to-video-cleanup-smoke.js",
+  "scripts/photo-to-video-session-smoke.js",
   "scripts/auto-face-probe-history-smoke.js"
 ];
 const pythonFiles = ["scripts/package-release.py"];
@@ -170,6 +171,7 @@ const required = [
   "cloudfunctions/api/index.js",
   "cloudfunctions/api/config.json",
   "scripts/photo-to-video-cleanup-smoke.js",
+  "scripts/photo-to-video-session-smoke.js",
   "scripts/auto-face-probe-history-smoke.js"
 ];
 for (const relative of required) {
@@ -270,12 +272,19 @@ if (
   || apiLock.version !== appConfig.appVersion
   || !appConfig.photoToVideo
   || !appConfig.photoToVideo.cleanup
+  || appConfig.photoToVideo.cleanup.idlePeriodMs !== 2 * 60 * 60 * 1000
   || appConfig.photoToVideo.cleanup.gracePeriodMs !== 3 * 24 * 60 * 60 * 1000
 ) {
-  throw new Error("小程序、云函数和锁文件版本不一致，或照片转视频清理保留期不是 3×24 小时。");
+  throw new Error("小程序、云函数和锁文件版本不一致，或照片转视频 2 小时/3×24 小时清理配置不正确。");
 }
 if (
   !Array.isArray(cloudTriggerConfig.triggers)
+  || !cloudTriggerConfig.triggers.some((item) => (
+    item
+    && item.name === "photo-to-video-idle-cleanup"
+    && item.type === "timer"
+    && item.config === "0 */15 * * * * *"
+  ))
   || !cloudTriggerConfig.triggers.some((item) => (
     item
     && item.name === "photo-to-video-temp-cleanup"
@@ -283,7 +292,7 @@ if (
     && item.config === "0 0 3 * * * *"
   ))
 ) {
-  throw new Error("照片转视频临时文件没有配置每天自动清理的 CloudBase 定时触发器。");
+  throw new Error("照片转视频没有配置每15分钟闲置清理和每天凌晨3点兜底清理触发器。");
 }
 if (!projectConfig.setting || projectConfig.setting.minified !== true) {
   throw new Error("微信开发者工具 JS 压缩没有开启，请确认 project.config.json 的 setting.minified 为 true。");
@@ -880,11 +889,18 @@ if (
   || !photoToVideoJs.includes("displayURL")
   || !storageJs.includes("loadPhotoToVideoCleanup")
   || !storageJs.includes("savePhotoToVideoCleanup")
+  || !storageJs.includes("loadPhotoToVideoSession")
+  || !storageJs.includes("removeRecordsByIds")
   || !clientCloudJs.includes("function deleteFile")
   || !clientCloudJs.includes("registerPhotoToVideoTempAsset")
+  || !clientCloudJs.includes("registerPhotoToVideoRecord")
+  || !clientCloudJs.includes("closePhotoToVideoSession")
   || !cloudJs.includes("PHOTO_TO_VIDEO_TEMP_ASSET_COLLECTION")
   || !cloudJs.includes("cleanupPhotoToVideoTempAssets")
+  || !cloudJs.includes("photoToVideoCleanupState")
+  || !cloudJs.includes("removeGenerationRecord")
   || !cloudJs.includes("isPhotoToVideoCleanupTrigger")
+  || !cleanupSmokeJs.includes("2 * 60 * 60 * 1000")
   || !cleanupSmokeJs.includes("3 * 24 * 60 * 60 * 1000")
 ) {
   throw new Error("照片转动态视频入口、长按预览或云函数接口骨架不完整。");

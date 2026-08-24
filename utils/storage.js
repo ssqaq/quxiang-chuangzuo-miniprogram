@@ -1,6 +1,7 @@
 const PROJECT_KEY = "display-tool-miniapp-project-v1";
 const RECORDS_KEY = "display-tool-miniapp-records-v1";
 const PHOTO_TO_VIDEO_CLEANUP_KEY = "display-tool-photo-to-video-cleanup-v1";
+const PHOTO_TO_VIDEO_SESSION_KEY = "display-tool-photo-to-video-session-v1";
 
 function read(key, fallback) {
   try {
@@ -45,6 +46,39 @@ module.exports = {
 
   savePhotoToVideoCleanup(items) {
     return write(PHOTO_TO_VIDEO_CLEANUP_KEY, items);
+  },
+
+  loadPhotoToVideoSession() {
+    return read(PHOTO_TO_VIDEO_SESSION_KEY, null);
+  },
+
+  savePhotoToVideoSession(session) {
+    return write(PHOTO_TO_VIDEO_SESSION_KEY, session);
+  },
+
+  clearPhotoToVideoSession() {
+    try {
+      wx.removeStorageSync(PHOTO_TO_VIDEO_SESSION_KEY);
+    } catch (error) {
+      console.warn("清理照片转视频会话缓存失败", error);
+    }
+  },
+
+  removeRecordsByIds(recordIds) {
+    const ids = new Set((Array.isArray(recordIds) ? recordIds : []).map(String));
+    if (!ids.size) return [];
+    const records = this.loadRecords() || [];
+    const retained = records.filter((record) => !ids.has(String(record && (record.id || record._id) || "")));
+    this.saveRecords(retained);
+    const project = this.loadProject();
+    if (project && Array.isArray(project.results)) {
+      this.saveProject(Object.assign({}, project, {
+        results: project.results.filter(
+          (record) => !ids.has(String(record && (record.id || record._id) || ""))
+        )
+      }));
+    }
+    return retained;
   },
 
   clearProject() {

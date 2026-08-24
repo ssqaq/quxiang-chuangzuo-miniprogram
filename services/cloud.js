@@ -334,11 +334,38 @@ function registerAsset(ticket, fileID, kind) {
   });
 }
 
-function registerPhotoToVideoTempAsset(fileID, kind) {
+function registerPhotoToVideoTempAsset(fileID, kind, options = {}) {
   return callApi({
     action: "registerPhotoToVideoTempAsset",
     fileID,
     kind,
+    sessionId: options.sessionId || "",
+    recordId: options.recordId || "",
+    retryLimit: 0,
+    silent: true
+  });
+}
+
+function registerPhotoToVideoRecord(recordId, sessionId) {
+  return registerPhotoToVideoTempAsset("", "record", {
+    recordId,
+    sessionId
+  });
+}
+
+function markPhotoToVideoSessionActive(sessionId) {
+  return callApi({
+    action: "markPhotoToVideoSessionActive",
+    sessionId,
+    retryLimit: 0,
+    silent: true
+  });
+}
+
+function closePhotoToVideoSession(sessionId) {
+  return callApi({
+    action: "closePhotoToVideoSession",
+    sessionId,
     retryLimit: 0,
     silent: true
   });
@@ -505,6 +532,9 @@ module.exports = {
   prepareAssetUpload,
   registerAsset,
   registerPhotoToVideoTempAsset,
+  registerPhotoToVideoRecord,
+  markPhotoToVideoSessionActive,
+  closePhotoToVideoSession,
   getTempUrl,
   downloadFile,
   deleteFile,

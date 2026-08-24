@@ -1083,13 +1083,17 @@ const actionButtonProperties = [
   "height",
   "min-height",
   "margin-top",
+  "margin-left",
+  "margin-right",
   "padding",
+  "max-width",
   "align-items",
   "justify-content",
   "border-radius",
   "font-size",
   "line-height",
-  "text-align"
+  "text-align",
+  "white-space"
 ];
 if (
   !actionButtonProperties.every((property) => (

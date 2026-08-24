@@ -310,32 +310,40 @@ slider {
 
 .export-button {
   display: flex;
-  width: 100%;
+  width: calc(100% + 48rpx) !important;
   height: 82rpx;
   min-height: 82rpx;
   margin-top: 22rpx;
+  margin-left: -24rpx;
+  margin-right: -24rpx;
   padding: 0;
+  max-width: none;
   align-items: center;
   justify-content: center;
   border-radius: 16rpx;
   font-size: 28rpx;
   line-height: 82rpx;
   text-align: center;
+  white-space: nowrap;
 }
 
 .back-button {
   display: flex;
-  width: 100%;
+  width: calc(100% + 48rpx) !important;
   height: 82rpx;
   min-height: 82rpx;
   margin-top: 14rpx;
+  margin-left: -24rpx;
+  margin-right: -24rpx;
   padding: 0;
+  max-width: none;
   align-items: center;
   justify-content: center;
   border-radius: 16rpx;
   font-size: 28rpx;
   line-height: 82rpx;
   text-align: center;
+  white-space: nowrap;
 }
 
 .export-progress-card {

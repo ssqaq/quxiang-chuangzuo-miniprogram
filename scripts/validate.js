@@ -637,6 +637,40 @@ if (
   throw new Error("模型调用失败统计、Top 5 原因或 Excel 失败明细功能不完整。");
 }
 if (
+  !clientCloudJs.includes('action: "exportModelFailureStats"')
+  || !clientCloudJs.includes("exportModelFailureStats(monthKey")
+  || !adminJs.includes("buildModelFailureView")
+  || !adminJs.includes("MODEL_FAILURE_AUTO_REFRESH_MS")
+  || !adminJs.includes("startModelFailureAutoRefresh")
+  || !adminJs.includes("selectModelFailureMonth")
+  || !adminJs.includes("openModelFailureUserDetail")
+  || !adminJs.includes("modelFailureDetailOpen")
+  || !adminJs.includes("exportModelFailureStats")
+  || !adminWxml.includes("modelFailureView.monthOptions")
+  || !adminWxml.includes("model-failure-month-picker")
+  || !adminWxml.includes("导出失败统计")
+  || !adminWxml.includes("openModelFailureUserDetail")
+  || !adminWxml.includes("modelFailureDetailOpen")
+  || !adminWxml.includes("failure-type-tag")
+  || !adminWxml.includes("failure-detail-list")
+  || !adminWxss.includes(".model-failure-month-picker")
+  || !adminWxss.includes(".model-failure-export-button")
+  || !adminWxss.includes(".failure-type-tag.is-danger")
+  || !adminWxss.includes(".failure-type-tag.is-warning")
+  || !adminWxss.includes(".failure-type-tag.is-violet")
+  || !adminWxss.includes(".failure-detail-list")
+  || !cloudJs.includes("buildModelFailureExportWorkbook")
+  || !cloudJs.includes("exportModelFailureStats")
+  || !cloudJs.includes("failureStats.monthly")
+  || !cloudJs.includes("users: Object.values(userMap)")
+  || !cloudJs.includes("failureStats.details")
+  || !cloudJs.includes("monthKey")
+  || !cloudJs.includes("userHash")
+  || !fs.existsSync(path.join(root, "scripts/model-failure-stats-smoke.js"))
+) {
+  throw new Error("模型失败统计的自动刷新、月份筛选、用户详情、颜色标记或 Excel 导出功能不完整。");
+}
+if (
   !clientCloudJs.includes('action: "reportAutoFaceFailure"')
   || !clientCloudJs.includes('action: "getAutoFaceFailureStats"')
   || !clientCloudJs.includes('action: "exportAutoFaceFailureStats"')

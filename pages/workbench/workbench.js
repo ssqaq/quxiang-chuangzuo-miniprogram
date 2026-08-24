@@ -48,6 +48,8 @@ function buildNewCreationUrl(mode) {
 }
 
 const NEW_CREATION_NAVIGATION_TIMEOUT_MS = 1800;
+const ADMIN_ACCESS_RETRY_DELAY_MS = 500;
+const ADMIN_ACCESS_MAX_RETRIES = 8;
 
 function summarizeAsset(asset) {
   if (!asset || typeof asset !== "object") return null;
@@ -125,11 +127,13 @@ Page({
 
   onHide() {
     this.clearPromoRefreshTimer();
+    this.clearAdminAccessRetry();
   },
 
   onUnload() {
     this.clearPromoRefreshTimer();
     this.clearNavigationWatchdog();
+    this.clearAdminAccessRetry();
   },
 
   refreshWorkbench() {
@@ -254,16 +258,36 @@ Page({
     }
   },
 
-  async refreshAdminAccess() {
+  clearAdminAccessRetry() {
+    if (this._adminAccessRetryTimer) {
+      clearTimeout(this._adminAccessRetryTimer);
+      this._adminAccessRetryTimer = null;
+    }
+  },
+
+  scheduleAdminAccessRetry(attempt = 0) {
+    if (attempt >= ADMIN_ACCESS_MAX_RETRIES || this._adminAccessRetryTimer) return;
+    this._adminAccessRetryTimer = setTimeout(() => {
+      this._adminAccessRetryTimer = null;
+      this.refreshAdminAccess(attempt + 1);
+    }, ADMIN_ACCESS_RETRY_DELAY_MS);
+  },
+
+  async refreshAdminAccess(attempt = 0) {
     if (!cloud.isCloudReady()) {
-      this.setData({ adminVisible: false });
+      this.scheduleAdminAccessRetry(attempt);
       return;
     }
     try {
       const result = await cloud.getAdminStatus();
+      if (result && result.unavailable) {
+        this.scheduleAdminAccessRetry(attempt);
+        return;
+      }
+      this.clearAdminAccessRetry();
       this.setData({ adminVisible: Boolean(result && result.isAdmin) });
     } catch (error) {
-      this.setData({ adminVisible: false });
+      this.scheduleAdminAccessRetry(attempt);
       diagnosticLog.warn("admin", "status-failed", "管理员入口状态读取失败", { error });
     }
   },

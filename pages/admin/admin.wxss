@@ -1440,6 +1440,7 @@ page {
   display: flex;
   min-width: 0;
   flex: none;
+  margin-right: 12rpx;
   align-items: center;
   gap: 8rpx;
 }
@@ -1454,14 +1455,16 @@ page {
   border-radius: 12rpx;
   color: #2f70d4;
   background: #f5f8fd;
-  font-size: 18rpx;
-  font-weight: 700;
+  font-size: 24rpx;
+  font-weight: 800;
   line-height: 46rpx;
   white-space: nowrap;
 }
 
 .model-failure-export-button {
   width: 176rpx;
+  font-size: 24rpx;
+  font-weight: 800;
 }
 
 .usage-failure-summary {
@@ -1479,16 +1482,16 @@ page {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  border: 1rpx solid #f1d8d8;
+  border: 1rpx solid #d2dbe7;
   border-radius: 16rpx;
-  background: #fff9f9;
+  background: #eef2f7;
   text-align: center;
 }
 
 .usage-failure-summary-item text {
   display: block;
   overflow: hidden;
-  color: #9a6d74;
+  color: #718098;
   font-size: 18rpx;
   line-height: 26rpx;
   text-overflow: ellipsis;
@@ -1497,13 +1500,13 @@ page {
 
 .usage-failure-summary-item text + text {
   margin-top: 4rpx;
-  color: #b43e4b;
+  color: #4a5d78;
   font-size: 30rpx;
   font-weight: 800;
 }
 
 .usage-failure-summary-model text + text {
-  color: #8d5560;
+  color: #526780;
   font-size: 20rpx;
   font-weight: 700;
 }
@@ -1512,18 +1515,18 @@ page {
   margin-top: 14rpx;
   padding: 14rpx 16rpx;
   border-radius: 16rpx;
-  background: #fffafa;
+  background: #f1f4f8;
 }
 
 .usage-failure-list-title {
-  color: #7f3c47;
+  color: #596b84;
   font-size: 21rpx;
   font-weight: 800;
 }
 
 .usage-failure-row {
   padding: 12rpx 0;
-  border-bottom: 1rpx solid #f2e4e4;
+  border-bottom: 1rpx solid #dce3ec;
 }
 
 .usage-failure-row:last-child {
@@ -1541,7 +1544,7 @@ page {
 .usage-failure-label {
   min-width: 0;
   overflow: hidden;
-  color: #4a2f35;
+  color: #526780;
   font-size: 20rpx;
   font-weight: 700;
   line-height: 28rpx;
@@ -1552,7 +1555,7 @@ page {
 .usage-failure-count,
 .usage-failure-row-detail text {
   flex: none;
-  color: #a36c74;
+  color: #718098;
   font-size: 18rpx;
   line-height: 26rpx;
 }
@@ -1565,7 +1568,7 @@ page {
 
 .usage-failure-user-row {
   padding: 14rpx 0;
-  border-bottom: 1rpx solid #f2e4e4;
+  border-bottom: 1rpx solid #dce3ec;
 }
 
 .usage-failure-user-row:last-child {
@@ -3179,6 +3182,52 @@ page {
   font-size: 24rpx;
   font-weight: 800;
   line-height: 34rpx;
+}
+
+.usage-collapsed-statistics-card {
+  margin-top: 16rpx;
+  padding: 4rpx 12rpx;
+  overflow: hidden;
+  border: 1rpx solid #dce3ec;
+  border-radius: 18rpx;
+  background: #f7f9fb;
+}
+
+.usage-collapsed-statistics-card > .usage-subsection-head {
+  min-height: 72rpx;
+  margin-top: 0;
+  padding: 8rpx 0;
+  border-bottom: 0;
+}
+
+.usage-collapsed-statistics-card > .usage-subsection-head + .usage-subsection-head,
+.usage-collapsed-statistics-card > .usage-subsection-body + .usage-subsection-head {
+  border-top: 1rpx solid #e6ebf1;
+}
+
+.usage-collapsed-statistics-card .usage-subsection-title,
+.usage-collapsed-statistics-card .usage-daily-title {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+  font-size: 24rpx;
+  line-height: 34rpx;
+}
+
+.usage-collapsed-statistics-card > .usage-subsection-body {
+  padding-bottom: 12rpx;
+}
+
+.usage-collapsed-statistics-card .usage-subsection-toggle {
+  min-width: 96rpx;
+  min-height: 46rpx;
+  padding: 0 12rpx;
+  border: 1rpx solid #c8d3e1;
+  border-radius: 12rpx;
+  color: #526984;
+  background: #f5f7fa;
+  font-size: 18rpx;
+  font-weight: 800;
 }
 
 .usage-user-list,

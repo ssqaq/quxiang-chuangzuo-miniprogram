@@ -1180,21 +1180,22 @@
 
         <view
           wx:if="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData) && !monitorOnlyAbnormal}}"
-          class="usage-subsection-head"
+          class="usage-collapsed-statistics-card"
         >
-          <view class="usage-subsection-title usage-daily-title">最近{{usageStats.days}}天每日明细</view>
-          <view
-            class="usage-subsection-toggle"
-            data-usage-section="daily"
-            catchtap="toggleUsageSection"
-            hover-class="control-tap"
-            role="button"
-            aria-label="{{usageSections.daily ? '收起每日明细' : '展开每日明细'}}"
-          >
-            <text>{{usageSections.daily ? '收起' : '展开'}}</text>
-            <text class="usage-subsection-chevron {{usageSections.daily ? 'is-open' : ''}}">⌄</text>
+          <view class="usage-subsection-head">
+            <view class="usage-subsection-title usage-daily-title">最近{{usageStats.days}}天每日明细</view>
+            <view
+              class="usage-subsection-toggle"
+              data-usage-section="daily"
+              catchtap="toggleUsageSection"
+              hover-class="control-tap"
+              role="button"
+              aria-label="{{usageSections.daily ? '收起每日明细' : '展开每日明细'}}"
+            >
+              <text>{{usageSections.daily ? '收起' : '展开'}}</text>
+              <text class="usage-subsection-chevron {{usageSections.daily ? 'is-open' : ''}}">⌄</text>
+            </view>
           </view>
-        </view>
         <view
           wx:if="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData) && !monitorOnlyAbnormal && usageSections.daily}}"
           class="usage-subsection-body"
@@ -1217,23 +1218,20 @@
         <view wx:if="{{!usageStats.daily.length}}" class="admin-empty usage-empty">还没有模型调用记录，部署后有调用就会自动统计。</view>
         </view>
 
-        <view
-          wx:if="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData) && !monitorOnlyAbnormal}}"
-          class="usage-subsection-head"
-        >
-          <view class="usage-subsection-title">按用户统计</view>
-          <view
-            class="usage-subsection-toggle"
-            data-usage-section="users"
-            catchtap="toggleUsageSection"
-            hover-class="control-tap"
-            role="button"
-            aria-label="{{usageSections.users ? '收起按用户统计' : '展开按用户统计'}}"
-          >
-            <text>{{usageSections.users ? '收起' : '展开'}}</text>
-            <text class="usage-subsection-chevron {{usageSections.users ? 'is-open' : ''}}">⌄</text>
+          <view class="usage-subsection-head">
+            <view class="usage-subsection-title">按用户统计</view>
+            <view
+              class="usage-subsection-toggle"
+              data-usage-section="users"
+              catchtap="toggleUsageSection"
+              hover-class="control-tap"
+              role="button"
+              aria-label="{{usageSections.users ? '收起按用户统计' : '展开按用户统计'}}"
+            >
+              <text>{{usageSections.users ? '收起' : '展开'}}</text>
+              <text class="usage-subsection-chevron {{usageSections.users ? 'is-open' : ''}}">⌄</text>
+            </view>
           </view>
-        </view>
         <view
           wx:if="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData) && !monitorOnlyAbnormal && usageSections.users}}"
           class="usage-subsection-body"
@@ -1257,23 +1255,20 @@
         <view wx:if="{{!usageStats.users.length}}" class="admin-empty usage-empty">还没有按用户统计的数据。</view>
         </view>
 
-        <view
-          wx:if="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData) && !monitorOnlyAbnormal}}"
-          class="usage-subsection-head"
-        >
-          <view class="usage-subsection-title">按模型名称分组</view>
-          <view
-            class="usage-subsection-toggle"
-            data-usage-section="models"
-            catchtap="toggleUsageSection"
-            hover-class="control-tap"
-            role="button"
-            aria-label="{{usageSections.models ? '收起按模型名称分组' : '展开按模型名称分组'}}"
-          >
-            <text>{{usageSections.models ? '收起' : '展开'}}</text>
-            <text class="usage-subsection-chevron {{usageSections.models ? 'is-open' : ''}}">⌄</text>
+          <view class="usage-subsection-head">
+            <view class="usage-subsection-title">按模型名称分组</view>
+            <view
+              class="usage-subsection-toggle"
+              data-usage-section="models"
+              catchtap="toggleUsageSection"
+              hover-class="control-tap"
+              role="button"
+              aria-label="{{usageSections.models ? '收起按模型名称分组' : '展开按模型名称分组'}}"
+            >
+              <text>{{usageSections.models ? '收起' : '展开'}}</text>
+              <text class="usage-subsection-chevron {{usageSections.models ? 'is-open' : ''}}">⌄</text>
+            </view>
           </view>
-        </view>
         <view
           wx:if="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData) && !monitorOnlyAbnormal && usageSections.models}}"
           class="usage-subsection-body"
@@ -1296,23 +1291,20 @@
         <view wx:if="{{!usageStats.models.length}}" class="admin-empty usage-empty">还没有按模型分组的数据。</view>
         </view>
 
-        <view
-          wx:if="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData) && !monitorOnlyAbnormal}}"
-          class="usage-subsection-head"
-        >
-          <view class="usage-subsection-title">按月份统计</view>
-          <view
-            class="usage-subsection-toggle"
-            data-usage-section="monthly"
-            catchtap="toggleUsageSection"
-            hover-class="control-tap"
-            role="button"
-            aria-label="{{usageSections.monthly ? '收起按月份统计' : '展开按月份统计'}}"
-          >
-            <text>{{usageSections.monthly ? '收起' : '展开'}}</text>
-            <text class="usage-subsection-chevron {{usageSections.monthly ? 'is-open' : ''}}">⌄</text>
+          <view class="usage-subsection-head">
+            <view class="usage-subsection-title">按月份统计</view>
+            <view
+              class="usage-subsection-toggle"
+              data-usage-section="monthly"
+              catchtap="toggleUsageSection"
+              hover-class="control-tap"
+              role="button"
+              aria-label="{{usageSections.monthly ? '收起按月份统计' : '展开按月份统计'}}"
+            >
+              <text>{{usageSections.monthly ? '收起' : '展开'}}</text>
+              <text class="usage-subsection-chevron {{usageSections.monthly ? 'is-open' : ''}}">⌄</text>
+            </view>
           </view>
-        </view>
         <view
           wx:if="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData) && !monitorOnlyAbnormal && usageSections.monthly}}"
           class="usage-subsection-body"
@@ -1333,6 +1325,7 @@
           </view>
         </scroll-view>
         <view wx:if="{{!usageStats.monthly.length}}" class="admin-empty usage-empty">还没有月度统计数据。</view>
+        </view>
         </view>
         </view>
       </view>

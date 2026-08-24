@@ -1,4 +1,4 @@
-const API_BUILD_VERSION = "0.35.15";
+const API_BUILD_VERSION = "0.35.16";
 const API_BUILD_MARKER = "API_BUILD_TAG_20260824_PUBLISH_EXPORT_BACK_BUTTON_V3513";
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
@@ -14,11 +14,1081 @@ const crypto = require("crypto");
 const jpeg = require("jpeg-js");
 const { PNG } = require("pngjs");
 const XLSX = require("xlsx");
-const publishExportCore = require("./lib/publish-export-core");
+const publishExportCore = (() => {
+  const module = { exports: {} };
+  const LOCAL_LIMITS = Object.freeze({
+    workerMaxEdge: 2048,
+    mainThreadMaxEdge: 1536,
+    maxPixels: 4194304,
+    fftProxyMaxEdge: 1024
+  });
+  
+  const DEFAULT_OPTIONS = Object.freeze({
+    format: "jpg",
+    quality: 88,
+    maxLongEdge: 2048,
+    colorOptimize: true,
+    gentleSoften: true,
+    gentleSharpen: true,
+    cameraNoise: true,
+    cameraNoiseStrength: 3,
+    frequencyPerturb: true,
+    frequencyStrength: 3,
+    removeVisibleMarks: true,
+    watermarkStrength: 3,
+    resamplePerturb: true
+  });
+  
+  function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+  }
+  
+  function clampByte(value) {
+    return Math.max(0, Math.min(255, Math.round(value)));
+  }
+  
+  function clampStrength(value, fallback) {
+    const number = Number(value);
+    return Number.isFinite(number)
+      ? clamp(Math.round(number * 10) / 10, 1, 5)
+      : fallback;
+  }
+  
+  function boolValue(value, fallback) {
+    return value === undefined || value === null ? fallback : Boolean(value);
+  }
+  
+  function normalizeFormat(value) {
+    return String(value || "").toLowerCase() === "png" ? "png" : "jpg";
+  }
+  
+  function normalizeMaxLongEdge(value) {
+    const number = Number(value);
+    if (number === 4096) return 4096;
+    if (number === 1536) return 1536;
+    return 2048;
+  }
+  
+  function normalizeOptions(input = {}) {
+    const source = input && typeof input === "object" ? input : {};
+    const quality = Number(source.quality);
+    return {
+      format: normalizeFormat(source.format || DEFAULT_OPTIONS.format),
+      quality: clamp(
+        Number.isFinite(quality) ? Math.round(quality) : DEFAULT_OPTIONS.quality,
+        60,
+        100
+      ),
+      maxLongEdge: normalizeMaxLongEdge(
+        source.maxLongEdge === undefined ? source.maxEdge : source.maxLongEdge
+      ),
+      colorOptimize: boolValue(
+        source.colorOptimize === undefined ? source.colorCorrect : source.colorOptimize,
+        DEFAULT_OPTIONS.colorOptimize
+      ),
+      gentleSoften: boolValue(
+        source.gentleSoften === undefined ? source.denoise : source.gentleSoften,
+        DEFAULT_OPTIONS.gentleSoften
+      ),
+      gentleSharpen: boolValue(
+        source.gentleSharpen === undefined ? source.sharpen : source.gentleSharpen,
+        DEFAULT_OPTIONS.gentleSharpen
+      ),
+      cameraNoise: boolValue(source.cameraNoise, DEFAULT_OPTIONS.cameraNoise),
+      cameraNoiseStrength: clampStrength(
+        source.cameraNoiseStrength,
+        DEFAULT_OPTIONS.cameraNoiseStrength
+      ),
+      frequencyPerturb: boolValue(
+        source.frequencyPerturb,
+        DEFAULT_OPTIONS.frequencyPerturb
+      ),
+      frequencyStrength: clampStrength(
+        source.frequencyStrength,
+        DEFAULT_OPTIONS.frequencyStrength
+      ),
+      removeVisibleMarks: boolValue(
+        source.removeVisibleMarks,
+        DEFAULT_OPTIONS.removeVisibleMarks
+      ),
+      watermarkStrength: clampStrength(
+        source.watermarkStrength,
+        DEFAULT_OPTIONS.watermarkStrength
+      ),
+      resamplePerturb: boolValue(
+        source.resamplePerturb,
+        DEFAULT_OPTIONS.resamplePerturb
+      )
+    };
+  }
+  
+  function getOutputSize(width, height, maxLongEdge) {
+    const sourceWidth = Math.max(1, Number(width) || 1);
+    const sourceHeight = Math.max(1, Number(height) || 1);
+    const limit = Math.max(256, Number(maxLongEdge) || DEFAULT_OPTIONS.maxLongEdge);
+    const scale = Math.min(1, limit / Math.max(sourceWidth, sourceHeight));
+    return {
+      width: Math.max(1, Math.round(sourceWidth * scale)),
+      height: Math.max(1, Math.round(sourceHeight * scale))
+    };
+  }
+  
+  function chooseLocalMode(width, height, options = {}, workerAvailable = true) {
+    const normalized = normalizeOptions(options);
+    const output = getOutputSize(width, height, normalized.maxLongEdge);
+    const maxEdge = Math.max(output.width, output.height);
+    const pixels = output.width * output.height;
+    if (normalized.maxLongEdge >= 4096) {
+      return {
+        mode: "cloud",
+        reason: "4096px 图片交给云端处理，避免普通手机内存不足。",
+        output
+      };
+    }
+    if (pixels > LOCAL_LIMITS.maxPixels) {
+      return {
+        mode: "cloud",
+        reason: "图片像素过大，交给云端处理。",
+        output
+      };
+    }
+    if (workerAvailable && maxEdge <= LOCAL_LIMITS.workerMaxEdge) {
+      return { mode: "local-worker", reason: "", output };
+    }
+    if (maxEdge <= LOCAL_LIMITS.mainThreadMaxEdge) {
+      return { mode: "local-main", reason: "", output };
+    }
+    return {
+      mode: "cloud",
+      reason: "当前手机本地处理能力不够，交给云端处理。",
+      output
+    };
+  }
+  
+  function hashString(value) {
+    const text = String(value || "");
+    let hash = 2166136261;
+    for (let index = 0; index < text.length; index += 1) {
+      hash ^= text.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return hash >>> 0;
+  }
+  
+  function randomAt(seed, index) {
+    let value = (hashString(seed) ^ Math.imul(index + 1, 2654435761)) >>> 0;
+    value += 0x6d2b79f5;
+    value = Math.imul(value ^ (value >>> 15), value | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+  }
+  
+  function luma(r, g, b) {
+    return r * 0.299 + g * 0.587 + b * 0.114;
+  }
+  
+  function applyColorCorrection(data) {
+    for (let index = 0; index < data.length; index += 4) {
+      const oldLuma = luma(data[index], data[index + 1], data[index + 2]);
+      for (let channel = 0; channel < 3; channel += 1) {
+        const value = data[index + channel];
+        const centered = (value - 128) * 1.035 + 128;
+        data[index + channel] = clampByte(
+          oldLuma + (centered - oldLuma) * 1.035
+        );
+      }
+    }
+  }
+  
+  function applyBoxSoften(data, width, height) {
+    const source = new Uint8ClampedArray(data);
+    const offsets = [-1, 0, 1];
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const target = (y * width + x) * 4;
+        let red = 0;
+        let green = 0;
+        let blue = 0;
+        let count = 0;
+        offsets.forEach((dy) => {
+          const sampleY = clamp(y + dy, 0, height - 1);
+          offsets.forEach((dx) => {
+            const sampleX = clamp(x + dx, 0, width - 1);
+            const sourceIndex = (sampleY * width + sampleX) * 4;
+            red += source[sourceIndex];
+            green += source[sourceIndex + 1];
+            blue += source[sourceIndex + 2];
+            count += 1;
+          });
+        });
+        data[target] = clampByte(red / count);
+        data[target + 1] = clampByte(green / count);
+        data[target + 2] = clampByte(blue / count);
+        data[target + 3] = source[target + 3];
+      }
+    }
+  }
+  
+  function applyUnsharp(data, width, height) {
+    const source = new Uint8ClampedArray(data);
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const target = (y * width + x) * 4;
+        const center = [
+          source[target],
+          source[target + 1],
+          source[target + 2]
+        ];
+        const neighbours = [0, 0, 0];
+        let count = 0;
+        for (let dy = -1; dy <= 1; dy += 1) {
+          for (let dx = -1; dx <= 1; dx += 1) {
+            if (dx === 0 && dy === 0) continue;
+            const sampleX = clamp(x + dx, 0, width - 1);
+            const sampleY = clamp(y + dy, 0, height - 1);
+            const sourceIndex = (sampleY * width + sampleX) * 4;
+            neighbours[0] += source[sourceIndex];
+            neighbours[1] += source[sourceIndex + 1];
+            neighbours[2] += source[sourceIndex + 2];
+            count += 1;
+          }
+        }
+        for (let channel = 0; channel < 3; channel += 1) {
+          const difference = center[channel] - neighbours[channel] / count;
+          data[target + channel] = clampByte(center[channel] + difference * 0.22);
+        }
+        data[target + 3] = source[target + 3];
+      }
+    }
+  }
+  
+  function applyCameraNoise(data, strength, seed) {
+    const amount = 0.9 + clampStrength(strength, 3) * 0.72;
+    for (let index = 0; index < data.length; index += 4) {
+      const noise = (randomAt(seed, index / 4) - 0.5) * amount;
+      data[index] = clampByte(data[index] + noise);
+      data[index + 1] = clampByte(data[index + 1] + noise);
+      data[index + 2] = clampByte(data[index + 2] + noise);
+    }
+  }
+  
+  function edgeDensity(source, width, height, x, y) {
+    let count = 0;
+    for (let dy = -2; dy <= 2; dy += 1) {
+      for (let dx = -2; dx <= 2; dx += 1) {
+        const sampleX = clamp(x + dx, 0, width - 1);
+        const sampleY = clamp(y + dy, 0, height - 1);
+        const index = (sampleY * width + sampleX) * 4;
+        const left = (sampleY * width + clamp(sampleX - 1, 0, width - 1)) * 4;
+        const top = (clamp(sampleY - 1, 0, height - 1) * width + sampleX) * 4;
+        const gradient = Math.abs(
+          luma(source[index], source[index + 1], source[index + 2])
+          - luma(source[left], source[left + 1], source[left + 2])
+        ) + Math.abs(
+          luma(source[index], source[index + 1], source[index + 2])
+          - luma(source[top], source[top + 1], source[top + 2])
+        );
+        if (gradient > 55) count += 1;
+      }
+    }
+    return count;
+  }
+  
+  function applyVisibleMarkFade(data, width, height, strength) {
+    const source = new Uint8ClampedArray(data);
+    const amount = 0.06 + clampStrength(strength, 1) * 0.025;
+    for (let y = 1; y < height - 1; y += 1) {
+      for (let x = 1; x < width - 1; x += 1) {
+        const index = (y * width + x) * 4;
+        const left = index - 4;
+        const right = index + 4;
+        const top = index - width * 4;
+        const bottom = index + width * 4;
+        const current = luma(source[index], source[index + 1], source[index + 2]);
+        const horizontal = Math.abs(
+          luma(source[right], source[right + 1], source[right + 2])
+          - luma(source[left], source[left + 1], source[left + 2])
+        );
+        const vertical = Math.abs(
+          luma(source[bottom], source[bottom + 1], source[bottom + 2])
+          - luma(source[top], source[top + 1], source[top + 2])
+        );
+        const gradient = Math.sqrt(horizontal * horizontal + vertical * vertical);
+        const density = edgeDensity(source, width, height, x, y);
+        if (gradient < 70 || gradient > 230 || density < 2 || density > 16) continue;
+        const neighbour = [
+          source[left],
+          source[left + 1],
+          source[left + 2]
+        ];
+        const rightWeight = [
+          source[right],
+          source[right + 1],
+          source[right + 2]
+        ];
+        for (let channel = 0; channel < 3; channel += 1) {
+          const average = (neighbour[channel] + rightWeight[channel]) / 2;
+          data[index + channel] = clampByte(
+            source[index + channel] * (1 - amount) + average * amount
+          );
+        }
+        data[index + 3] = source[index + 3];
+        void current;
+      }
+    }
+  }
+  
+  function nextPowerOfTwo(value) {
+    let result = 1;
+    while (result < value) result *= 2;
+    return result;
+  }
+  
+  function mirrorIndex(index, size) {
+    if (size <= 1) return 0;
+    const period = size * 2 - 2;
+    let value = index % period;
+    if (value < 0) value += period;
+    return value < size ? value : period - value;
+  }
+  
+  function resizeLuma(data, width, height, targetWidth, targetHeight) {
+    const result = new Float64Array(targetWidth * targetHeight);
+    for (let y = 0; y < targetHeight; y += 1) {
+      const sourceY = targetHeight === 1
+        ? 0
+        : (y / (targetHeight - 1)) * (height - 1);
+      const y0 = Math.floor(sourceY);
+      const y1 = Math.min(height - 1, y0 + 1);
+      const yWeight = sourceY - y0;
+      for (let x = 0; x < targetWidth; x += 1) {
+        const sourceX = targetWidth === 1
+          ? 0
+          : (x / (targetWidth - 1)) * (width - 1);
+        const x0 = Math.floor(sourceX);
+        const x1 = Math.min(width - 1, x0 + 1);
+        const xWeight = sourceX - x0;
+        const i00 = (y0 * width + x0) * 4;
+        const i10 = (y0 * width + x1) * 4;
+        const i01 = (y1 * width + x0) * 4;
+        const i11 = (y1 * width + x1) * 4;
+        const top = luma(data[i00], data[i00 + 1], data[i00 + 2]) * (1 - xWeight)
+          + luma(data[i10], data[i10 + 1], data[i10 + 2]) * xWeight;
+        const bottom = luma(data[i01], data[i01 + 1], data[i01 + 2]) * (1 - xWeight)
+          + luma(data[i11], data[i11 + 1], data[i11 + 2]) * xWeight;
+        result[y * targetWidth + x] = top * (1 - yWeight) + bottom * yWeight;
+      }
+    }
+    return result;
+  }
+  
+  function fft1d(real, imaginary, offset, stride, size, inverse) {
+    for (let index = 1, bit = 0; index < size; index += 1) {
+      let mask = size >> 1;
+      for (; bit & mask; mask >>= 1) bit ^= mask;
+      bit ^= mask;
+      if (index < bit) {
+        const a = offset + index * stride;
+        const b = offset + bit * stride;
+        let temp = real[a];
+        real[a] = real[b];
+        real[b] = temp;
+        temp = imaginary[a];
+        imaginary[a] = imaginary[b];
+        imaginary[b] = temp;
+      }
+    }
+    for (let length = 2; length <= size; length <<= 1) {
+      const angle = (inverse ? 2 : -2) * Math.PI / length;
+      const stepReal = Math.cos(angle);
+      const stepImaginary = Math.sin(angle);
+      for (let start = 0; start < size; start += length) {
+        let currentReal = 1;
+        let currentImaginary = 0;
+        const half = length >> 1;
+        for (let index = 0; index < half; index += 1) {
+          const even = offset + (start + index) * stride;
+          const odd = offset + (start + index + half) * stride;
+          const productReal = currentReal * real[odd] - currentImaginary * imaginary[odd];
+          const productImaginary = currentReal * imaginary[odd]
+            + currentImaginary * real[odd];
+          const evenReal = real[even];
+          const evenImaginary = imaginary[even];
+          real[even] = evenReal + productReal;
+          imaginary[even] = evenImaginary + productImaginary;
+          real[odd] = evenReal - productReal;
+          imaginary[odd] = evenImaginary - productImaginary;
+          const nextReal = currentReal * stepReal - currentImaginary * stepImaginary;
+          currentImaginary = currentReal * stepImaginary
+            + currentImaginary * stepReal;
+          currentReal = nextReal;
+        }
+      }
+    }
+    if (inverse) {
+      for (let index = 0; index < size; index += 1) {
+        const position = offset + index * stride;
+        real[position] /= size;
+        imaginary[position] /= size;
+      }
+    }
+  }
+  
+  function fft2d(real, imaginary, width, height, inverse) {
+    for (let y = 0; y < height; y += 1) {
+      fft1d(real, imaginary, y * width, 1, width, inverse);
+    }
+    for (let x = 0; x < width; x += 1) {
+      fft1d(real, imaginary, x, width, height, inverse);
+    }
+  }
+  
+  function applyFrequencyPerturb(data, width, height, strength, seed) {
+    const scale = Math.min(
+      1,
+      LOCAL_LIMITS.fftProxyMaxEdge / Math.max(width, height)
+    );
+    const proxyWidth = Math.max(2, Math.round(width * scale));
+    const proxyHeight = Math.max(2, Math.round(height * scale));
+    const paddedWidth = nextPowerOfTwo(proxyWidth);
+    const paddedHeight = nextPowerOfTwo(proxyHeight);
+    const real = new Float64Array(paddedWidth * paddedHeight);
+    const imaginary = new Float64Array(real.length);
+    const proxy = resizeLuma(data, width, height, proxyWidth, proxyHeight);
+    for (let y = 0; y < paddedHeight; y += 1) {
+      for (let x = 0; x < paddedWidth; x += 1) {
+        real[y * paddedWidth + x] = proxy[
+          mirrorIndex(y, proxyHeight) * proxyWidth + mirrorIndex(x, proxyWidth)
+        ];
+      }
+    }
+    fft2d(real, imaginary, paddedWidth, paddedHeight, false);
+    const safeStrength = clampStrength(strength, 3);
+    for (let y = 0; y < paddedHeight; y += 1) {
+      for (let x = 0; x < paddedWidth; x += 1) {
+        const mirrorX = (paddedWidth - x) % paddedWidth;
+        const mirrorY = (paddedHeight - y) % paddedHeight;
+        const pairIndex = Math.min(
+          y * paddedWidth + x,
+          mirrorY * paddedWidth + mirrorX
+        );
+        const normalizedX = Math.min(x, paddedWidth - x) / (paddedWidth / 2);
+        const normalizedY = Math.min(y, paddedHeight - y) / (paddedHeight / 2);
+        const radius = Math.sqrt(
+          normalizedX * normalizedX + normalizedY * normalizedY
+        );
+        if (radius < 0.35 || (x === 0 && y === 0)) continue;
+        const factor = 1 + (randomAt(`${seed}:fft`, pairIndex) - 0.5)
+          * (0.018 + safeStrength * 0.006);
+        const index = y * paddedWidth + x;
+        real[index] *= factor;
+        imaginary[index] *= factor;
+      }
+    }
+    fft2d(real, imaginary, paddedWidth, paddedHeight, true);
+    const maxDelta = [6, 8, 12, 16, 20][safeStrength - 1];
+    for (let y = 0; y < height; y += 1) {
+      const sourceY = height === 1 ? 0 : (y / (height - 1)) * (proxyHeight - 1);
+      const y0 = Math.floor(sourceY);
+      const y1 = Math.min(proxyHeight - 1, y0 + 1);
+      const yWeight = sourceY - y0;
+      for (let x = 0; x < width; x += 1) {
+        const sourceX = width === 1 ? 0 : (x / (width - 1)) * (proxyWidth - 1);
+        const x0 = Math.floor(sourceX);
+        const x1 = Math.min(proxyWidth - 1, x0 + 1);
+        const xWeight = sourceX - x0;
+        const sourceIndex = (y * width + x) * 4;
+        const p00 = real[y0 * paddedWidth + x0] - proxy[y0 * proxyWidth + x0];
+        const p10 = real[y0 * paddedWidth + x1] - proxy[y0 * proxyWidth + x1];
+        const p01 = real[y1 * paddedWidth + x0] - proxy[y1 * proxyWidth + x0];
+        const p11 = real[y1 * paddedWidth + x1] - proxy[y1 * proxyWidth + x1];
+        const top = p00 * (1 - xWeight) + p10 * xWeight;
+        const bottom = p01 * (1 - xWeight) + p11 * xWeight;
+        const delta = clamp(
+          (top * (1 - yWeight) + bottom * yWeight) * 1.6,
+          -maxDelta,
+          maxDelta
+        );
+        data[sourceIndex] = clampByte(data[sourceIndex] + delta);
+        data[sourceIndex + 1] = clampByte(data[sourceIndex + 1] + delta);
+        data[sourceIndex + 2] = clampByte(data[sourceIndex + 2] + delta);
+      }
+    }
+  }
+  
+  function resizeRgba(data, width, height, targetWidth, targetHeight) {
+    const source = data instanceof Uint8ClampedArray
+      ? data
+      : new Uint8ClampedArray(data);
+    if (width === targetWidth && height === targetHeight) {
+      return new Uint8ClampedArray(source);
+    }
+    const result = new Uint8ClampedArray(targetWidth * targetHeight * 4);
+    for (let y = 0; y < targetHeight; y += 1) {
+      const sourceY = targetHeight === 1
+        ? 0
+        : (y / (targetHeight - 1)) * (height - 1);
+      const y0 = Math.floor(sourceY);
+      const y1 = Math.min(height - 1, y0 + 1);
+      const yWeight = sourceY - y0;
+      for (let x = 0; x < targetWidth; x += 1) {
+        const sourceX = targetWidth === 1
+          ? 0
+          : (x / (targetWidth - 1)) * (width - 1);
+        const x0 = Math.floor(sourceX);
+        const x1 = Math.min(width - 1, x0 + 1);
+        const xWeight = sourceX - x0;
+        const target = (y * targetWidth + x) * 4;
+        const i00 = (y0 * width + x0) * 4;
+        const i10 = (y0 * width + x1) * 4;
+        const i01 = (y1 * width + x0) * 4;
+        const i11 = (y1 * width + x1) * 4;
+        for (let channel = 0; channel < 3; channel += 1) {
+          const top = source[i00 + channel] * (1 - xWeight)
+            + source[i10 + channel] * xWeight;
+          const bottom = source[i01 + channel] * (1 - xWeight)
+            + source[i11 + channel] * xWeight;
+          result[target + channel] = clampByte(
+            top * (1 - yWeight) + bottom * yWeight
+          );
+        }
+        result[target + 3] = source[i00 + 3];
+      }
+    }
+    return result;
+  }
+  
+  function processRgba(input = {}) {
+    const width = Math.max(1, Number(input.width) || 1);
+    const height = Math.max(1, Number(input.height) || 1);
+    const options = normalizeOptions(input.options);
+    const data = input.data instanceof Uint8ClampedArray
+      ? new Uint8ClampedArray(input.data)
+      : new Uint8ClampedArray(input.data || width * height * 4);
+    const seed = String(input.seed || "publish-export");
+    if (options.colorOptimize) applyColorCorrection(data);
+    if (options.gentleSoften) applyBoxSoften(data, width, height);
+    if (options.gentleSharpen) applyUnsharp(data, width, height);
+    if (options.cameraNoise) {
+      applyCameraNoise(data, options.cameraNoiseStrength, `${seed}:grain`);
+    }
+    if (options.removeVisibleMarks) {
+      applyVisibleMarkFade(data, width, height, options.watermarkStrength);
+    }
+    if (options.frequencyPerturb) {
+      applyFrequencyPerturb(
+        data,
+        width,
+        height,
+        options.frequencyStrength,
+        `${seed}:frequency`
+      );
+    }
+    if (options.resamplePerturb && width > 16 && height > 16) {
+      const ratio = 1 - (0.004 + options.frequencyStrength * 0.001);
+      const smallWidth = Math.max(8, Math.round(width * ratio));
+      const smallHeight = Math.max(8, Math.round(height * ratio));
+      const resampled = resizeRgba(data, width, height, smallWidth, smallHeight);
+      const restored = resizeRgba(resampled, smallWidth, smallHeight, width, height);
+      for (let index = 0; index < data.length; index += 4) {
+        data[index] = restored[index];
+        data[index + 1] = restored[index + 1];
+        data[index + 2] = restored[index + 2];
+        data[index + 3] = input.data && input.data[index + 3] !== undefined
+          ? input.data[index + 3]
+          : data[index + 3];
+      }
+    }
+    return data;
+  }
+  
+  function optionsHashPayload(options = {}) {
+    const normalized = normalizeOptions(options);
+    return JSON.stringify(normalized);
+  }
+  
+  module.exports = {
+    DEFAULT_OPTIONS,
+    LOCAL_LIMITS,
+    clampByte,
+    getOutputSize,
+    chooseLocalMode,
+    normalizeOptions,
+    optionsHashPayload,
+    resizeRgba,
+    processRgba,
+    fft1d,
+    fft2d
+  };
+  
+  return module.exports;
+})();
 const {
   buildAndroidMotionPhoto: buildAndroidMotionPhotoBuffer,
   normalizeSourceToJpeg
-} = require("./lib/android-motion-photo");
+} = (() => {
+  const module = { exports: {} };
+  "use strict";
+  
+  const jpeg = require("jpeg-js");
+  const { PNG } = require("pngjs");
+  
+  const XMP_HEADER = Buffer.from("http://ns.adobe.com/xap/1.0/\0", "ascii");
+  const DEFAULT_MAX_EDGE = 1280;
+  const DEFAULT_JPEG_QUALITY = 95;
+  const DEFAULT_PRESENTATION_TIMESTAMP_US = 33333;
+  const MAX_SOURCE_BYTES = 20 * 1024 * 1024;
+  const MAX_VIDEO_BYTES = 80 * 1024 * 1024;
+  const MAX_OUTPUT_BYTES = 100 * 1024 * 1024;
+  
+  function motionPhotoError(message, code) {
+    const error = new Error(message);
+    error.code = code;
+    error.retryable = false;
+    return error;
+  }
+  
+  function assertBufferWithinLimit(buffer, limit, emptyMessage, largeMessage, codePrefix) {
+    if (!Buffer.isBuffer(buffer) || !buffer.length) {
+      throw motionPhotoError(emptyMessage, `${codePrefix}_EMPTY`);
+    }
+    if (buffer.length > limit) {
+      throw motionPhotoError(largeMessage, `${codePrefix}_TOO_LARGE`);
+    }
+  }
+  
+  function detectImageType(buffer) {
+    if (!Buffer.isBuffer(buffer) || buffer.length < 12) return "";
+    if (buffer[0] === 0xff && buffer[1] === 0xd8) return "jpeg";
+    if (
+      buffer[0] === 0x89
+      && buffer[1] === 0x50
+      && buffer[2] === 0x4e
+      && buffer[3] === 0x47
+      && buffer[4] === 0x0d
+      && buffer[5] === 0x0a
+      && buffer[6] === 0x1a
+      && buffer[7] === 0x0a
+    ) return "png";
+    if (
+      buffer.subarray(0, 4).toString("ascii") === "RIFF"
+      && buffer.subarray(8, 12).toString("ascii") === "WEBP"
+    ) return "webp";
+    return "";
+  }
+  
+  function readExifOrientation(buffer) {
+    if (detectImageType(buffer) !== "jpeg") return 1;
+    let offset = 2;
+    while (offset + 4 <= buffer.length && buffer[offset] === 0xff) {
+      const marker = buffer[offset + 1];
+      if (marker === 0xda || marker === 0xd9) break;
+      const segmentLength = buffer.readUInt16BE(offset + 2);
+      if (segmentLength < 2 || offset + 2 + segmentLength > buffer.length) break;
+      if (
+        marker === 0xe1
+        && segmentLength >= 16
+        && buffer.subarray(offset + 4, offset + 10).toString("binary") === "Exif\0\0"
+      ) {
+        const tiff = offset + 10;
+        const byteOrder = buffer.subarray(tiff, tiff + 2).toString("ascii");
+        const littleEndian = byteOrder === "II";
+        if (!littleEndian && byteOrder !== "MM") return 1;
+        const readUInt16 = (position) => (
+          littleEndian ? buffer.readUInt16LE(position) : buffer.readUInt16BE(position)
+        );
+        const readUInt32 = (position) => (
+          littleEndian ? buffer.readUInt32LE(position) : buffer.readUInt32BE(position)
+        );
+        if (readUInt16(tiff + 2) !== 42) return 1;
+        const ifdOffset = readUInt32(tiff + 4);
+        const ifd = tiff + ifdOffset;
+        if (ifd < tiff || ifd + 2 > offset + 2 + segmentLength) return 1;
+        const count = readUInt16(ifd);
+        for (let index = 0; index < count; index += 1) {
+          const entry = ifd + 2 + index * 12;
+          if (entry + 12 > offset + 2 + segmentLength) break;
+          if (readUInt16(entry) !== 0x0112) continue;
+          const orientation = readUInt16(entry + 8);
+          return orientation >= 1 && orientation <= 8 ? orientation : 1;
+        }
+        return 1;
+      }
+      offset += 2 + segmentLength;
+    }
+    return 1;
+  }
+  
+  function applyExifOrientation(image, orientation) {
+    const sourceWidth = Number(image && image.width) || 0;
+    const sourceHeight = Number(image && image.height) || 0;
+    const source = image && image.data;
+    if (!sourceWidth || !sourceHeight || !source || orientation === 1) {
+      return image;
+    }
+    const swapsAxes = orientation >= 5 && orientation <= 8;
+    const width = swapsAxes ? sourceHeight : sourceWidth;
+    const height = swapsAxes ? sourceWidth : sourceHeight;
+    const output = Buffer.allocUnsafe(width * height * 4);
+    for (let y = 0; y < sourceHeight; y += 1) {
+      for (let x = 0; x < sourceWidth; x += 1) {
+        let targetX = x;
+        let targetY = y;
+        if (orientation === 2) {
+          targetX = sourceWidth - 1 - x;
+        } else if (orientation === 3) {
+          targetX = sourceWidth - 1 - x;
+          targetY = sourceHeight - 1 - y;
+        } else if (orientation === 4) {
+          targetY = sourceHeight - 1 - y;
+        } else if (orientation === 5) {
+          targetX = y;
+          targetY = x;
+        } else if (orientation === 6) {
+          targetX = sourceHeight - 1 - y;
+          targetY = x;
+        } else if (orientation === 7) {
+          targetX = sourceHeight - 1 - y;
+          targetY = sourceWidth - 1 - x;
+        } else if (orientation === 8) {
+          targetX = y;
+          targetY = sourceWidth - 1 - x;
+        }
+        const sourceOffset = (y * sourceWidth + x) * 4;
+        const targetOffset = (targetY * width + targetX) * 4;
+        output[targetOffset] = source[sourceOffset];
+        output[targetOffset + 1] = source[sourceOffset + 1];
+        output[targetOffset + 2] = source[sourceOffset + 2];
+        output[targetOffset + 3] = source[sourceOffset + 3];
+      }
+    }
+    return { width, height, data: output };
+  }
+  
+  function compositeAlphaOnWhite(image) {
+    const output = Buffer.from(image.data);
+    for (let offset = 0; offset + 3 < output.length; offset += 4) {
+      const alpha = output[offset + 3];
+      if (alpha < 255) {
+        output[offset] = Math.round((output[offset] * alpha + 255 * (255 - alpha)) / 255);
+        output[offset + 1] = Math.round(
+          (output[offset + 1] * alpha + 255 * (255 - alpha)) / 255
+        );
+        output[offset + 2] = Math.round(
+          (output[offset + 2] * alpha + 255 * (255 - alpha)) / 255
+        );
+        output[offset + 3] = 255;
+      }
+    }
+    return {
+      width: image.width,
+      height: image.height,
+      data: output
+    };
+  }
+  
+  function resizeRgba(image, maxEdge) {
+    const sourceWidth = image.width;
+    const sourceHeight = image.height;
+    const longest = Math.max(sourceWidth, sourceHeight);
+    if (longest <= maxEdge) return image;
+    const scale = maxEdge / longest;
+    const width = Math.max(1, Math.round(sourceWidth * scale));
+    const height = Math.max(1, Math.round(sourceHeight * scale));
+    const output = Buffer.allocUnsafe(width * height * 4);
+    for (let targetY = 0; targetY < height; targetY += 1) {
+      const sourceY = (targetY + 0.5) / scale - 0.5;
+      const y0 = Math.max(0, Math.min(sourceHeight - 1, Math.floor(sourceY)));
+      const y1 = Math.max(0, Math.min(sourceHeight - 1, y0 + 1));
+      const yWeight = Math.max(0, Math.min(1, sourceY - y0));
+      for (let targetX = 0; targetX < width; targetX += 1) {
+        const sourceX = (targetX + 0.5) / scale - 0.5;
+        const x0 = Math.max(0, Math.min(sourceWidth - 1, Math.floor(sourceX)));
+        const x1 = Math.max(0, Math.min(sourceWidth - 1, x0 + 1));
+        const xWeight = Math.max(0, Math.min(1, sourceX - x0));
+        const targetOffset = (targetY * width + targetX) * 4;
+        const topLeft = (y0 * sourceWidth + x0) * 4;
+        const topRight = (y0 * sourceWidth + x1) * 4;
+        const bottomLeft = (y1 * sourceWidth + x0) * 4;
+        const bottomRight = (y1 * sourceWidth + x1) * 4;
+        for (let channel = 0; channel < 4; channel += 1) {
+          const top = image.data[topLeft + channel] * (1 - xWeight)
+            + image.data[topRight + channel] * xWeight;
+          const bottom = image.data[bottomLeft + channel] * (1 - xWeight)
+            + image.data[bottomRight + channel] * xWeight;
+          output[targetOffset + channel] = Math.round(
+            top * (1 - yWeight) + bottom * yWeight
+          );
+        }
+      }
+    }
+    return { width, height, data: output };
+  }
+  
+  function decodeSourceImage(buffer) {
+    const type = detectImageType(buffer);
+    if (type === "webp") {
+      throw motionPhotoError(
+        "安卓实况首版暂不支持 WebP，请换成 JPG 或 PNG；普通视频仍可保存。",
+        "MOTION_PHOTO_WEBP_UNSUPPORTED"
+      );
+    }
+    if (type === "jpeg") {
+      let decoded;
+      try {
+        decoded = jpeg.decode(buffer, {
+          useTArray: true,
+          formatAsRGBA: true,
+          tolerantDecoding: false,
+          maxResolutionInMP: 50,
+          maxMemoryUsageInMB: 256
+        });
+      } catch (error) {
+        throw motionPhotoError(
+          `JPG 读取失败：${error && error.message ? error.message : "文件已损坏"}`,
+          "MOTION_PHOTO_JPEG_INVALID"
+        );
+      }
+      return applyExifOrientation(decoded, readExifOrientation(buffer));
+    }
+    if (type === "png") {
+      try {
+        return PNG.sync.read(buffer, {
+          checkCRC: true,
+          skipRescale: false
+        });
+      } catch (error) {
+        throw motionPhotoError(
+          `PNG 读取失败：${error && error.message ? error.message : "文件已损坏"}`,
+          "MOTION_PHOTO_PNG_INVALID"
+        );
+      }
+    }
+    throw motionPhotoError(
+      "安卓实况只支持 JPG 或 PNG 源照片。",
+      "MOTION_PHOTO_IMAGE_UNSUPPORTED"
+    );
+  }
+  
+  function normalizeSourceToJpeg(buffer, options = {}) {
+    assertBufferWithinLimit(
+      buffer,
+      Number(options.maxSourceBytes) || MAX_SOURCE_BYTES,
+      "源照片为空。",
+      "源照片过大，最大支持 20MB。",
+      "MOTION_PHOTO_SOURCE"
+    );
+    const maxEdge = Math.max(
+      64,
+      Math.min(4096, Number(options.maxEdge) || DEFAULT_MAX_EDGE)
+    );
+    const quality = Math.max(
+      50,
+      Math.min(100, Number(options.quality) || DEFAULT_JPEG_QUALITY)
+    );
+    const decoded = compositeAlphaOnWhite(decodeSourceImage(buffer));
+    const resized = resizeRgba(decoded, maxEdge);
+    const encoded = jpeg.encode({
+      width: resized.width,
+      height: resized.height,
+      data: resized.data
+    }, quality);
+    const jpegBuffer = Buffer.from(encoded && encoded.data || []);
+    if (
+      jpegBuffer.length < 4
+      || jpegBuffer[0] !== 0xff
+      || jpegBuffer[1] !== 0xd8
+      || jpegBuffer[jpegBuffer.length - 2] !== 0xff
+      || jpegBuffer[jpegBuffer.length - 1] !== 0xd9
+    ) {
+      throw motionPhotoError(
+        "源照片转换成 JPG 失败。",
+        "MOTION_PHOTO_JPEG_ENCODE_FAILED"
+      );
+    }
+    return {
+      buffer: jpegBuffer,
+      width: resized.width,
+      height: resized.height,
+      quality,
+      maxEdge
+    };
+  }
+  
+  function assertJpegBuffer(buffer) {
+    assertBufferWithinLimit(
+      buffer,
+      MAX_SOURCE_BYTES,
+      "实况封面 JPG 为空。",
+      "实况封面 JPG 过大。",
+      "MOTION_PHOTO_JPEG"
+    );
+    if (
+      buffer[0] !== 0xff
+      || buffer[1] !== 0xd8
+      || buffer[buffer.length - 2] !== 0xff
+      || buffer[buffer.length - 1] !== 0xd9
+    ) {
+      throw motionPhotoError(
+        "实况封面必须是完整 JPG，且不能已经带视频尾部。",
+        "MOTION_PHOTO_JPEG_INVALID"
+      );
+    }
+  }
+  
+  function assertMp4Buffer(buffer) {
+    assertBufferWithinLimit(
+      buffer,
+      MAX_VIDEO_BYTES,
+      "动态视频为空。",
+      "动态视频过大，最大支持 80MB。",
+      "MOTION_PHOTO_VIDEO"
+    );
+    if (
+      buffer.length < 12
+      || buffer.subarray(4, 8).toString("ascii") !== "ftyp"
+    ) {
+      throw motionPhotoError(
+        "动态视频不是有效的 MP4 文件。",
+        "MOTION_PHOTO_MP4_INVALID"
+      );
+    }
+    const firstBoxLength = buffer.readUInt32BE(0);
+    if (firstBoxLength !== 0 && (firstBoxLength < 8 || firstBoxLength > buffer.length)) {
+      throw motionPhotoError(
+        "动态视频的 MP4 文件头已损坏。",
+        "MOTION_PHOTO_MP4_INVALID"
+      );
+    }
+  }
+  
+  function buildMotionPhotoXmp(imageLengthBytes, videoLengthBytes, presentationTimestampUs) {
+    return [
+      '<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>',
+      '<x:xmpmeta xmlns:x="adobe:ns:meta/">',
+      '  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">',
+      '    <rdf:Description xmlns:GCamera="http://ns.google.com/photos/1.0/camera/"',
+      '      xmlns:Container="http://ns.google.com/photos/1.0/container/"',
+      '      xmlns:Item="http://ns.google.com/photos/1.0/container/item/"',
+      '      GCamera:MicroVideo="1"',
+      '      GCamera:MicroVideoVersion="1"',
+      `      GCamera:MicroVideoOffset="${videoLengthBytes}"`,
+      `      GCamera:MicroVideoPresentationTimestampUs="${presentationTimestampUs}"`,
+      '      GCamera:MotionPhoto="1"',
+      '      GCamera:MotionPhotoVersion="1"',
+      `      GCamera:MotionPhotoPresentationTimestampUs="${presentationTimestampUs}">`,
+      '      <Container:Directory>',
+      '        <rdf:Seq>',
+      '          <rdf:li rdf:parseType="Resource">',
+      `            <Container:Item Item:Mime="image/jpeg" Item:Semantic="Primary" Item:Length="${imageLengthBytes}" Item:Padding="0"/>`,
+      '          </rdf:li>',
+      '          <rdf:li rdf:parseType="Resource">',
+      `            <Container:Item Item:Mime="video/mp4" Item:Semantic="MotionPhoto" Item:Length="${videoLengthBytes}" Item:Padding="0"/>`,
+      '          </rdf:li>',
+      '        </rdf:Seq>',
+      '      </Container:Directory>',
+      '    </rdf:Description>',
+      '  </rdf:RDF>',
+      '</x:xmpmeta>',
+      '<?xpacket end="w"?>'
+    ].join("\n");
+  }
+  
+  function buildXmpApp1Segment(imageLengthBytes, videoLengthBytes, presentationTimestampUs) {
+    const xml = Buffer.from(buildMotionPhotoXmp(
+      imageLengthBytes,
+      videoLengthBytes,
+      presentationTimestampUs
+    ), "utf8");
+    const payload = Buffer.concat([XMP_HEADER, xml]);
+    if (payload.length + 2 > 0xffff) {
+      throw motionPhotoError(
+        "Motion Photo XMP 元数据过大。",
+        "MOTION_PHOTO_XMP_TOO_LARGE"
+      );
+    }
+    const segment = Buffer.allocUnsafe(payload.length + 4);
+    segment[0] = 0xff;
+    segment[1] = 0xe1;
+    segment.writeUInt16BE(payload.length + 2, 2);
+    payload.copy(segment, 4);
+    return segment;
+  }
+  
+  function jpegXmpInsertionOffset(jpegBuffer) {
+    let offset = 2;
+    if (
+      jpegBuffer.length >= 6
+      && jpegBuffer[offset] === 0xff
+      && jpegBuffer[offset + 1] === 0xe0
+    ) {
+      const length = jpegBuffer.readUInt16BE(offset + 2);
+      if (length >= 2 && offset + 2 + length <= jpegBuffer.length) {
+        offset += 2 + length;
+      }
+    }
+    return offset;
+  }
+  
+  function buildAndroidMotionPhoto(jpegBuffer, mp4Buffer, options = {}) {
+    assertJpegBuffer(jpegBuffer);
+    assertMp4Buffer(mp4Buffer);
+    const presentationTimestampUs = Math.max(
+      0,
+      Math.round(
+        Number(options.presentationTimestampUs) || DEFAULT_PRESENTATION_TIMESTAMP_US
+      )
+    );
+    const xmpSegment = buildXmpApp1Segment(
+      jpegBuffer.length,
+      mp4Buffer.length,
+      presentationTimestampUs
+    );
+    const insertionOffset = jpegXmpInsertionOffset(jpegBuffer);
+    const stillImage = Buffer.concat([
+      jpegBuffer.subarray(0, insertionOffset),
+      xmpSegment,
+      jpegBuffer.subarray(insertionOffset)
+    ]);
+    const output = Buffer.concat([stillImage, mp4Buffer]);
+    if (output.length > MAX_OUTPUT_BYTES) {
+      throw motionPhotoError(
+        "安卓实况文件过大，最大支持 100MB。",
+        "MOTION_PHOTO_OUTPUT_TOO_LARGE"
+      );
+    }
+    return {
+      buffer: output,
+      jpegLengthBytes: stillImage.length,
+      sourceJpegLengthBytes: jpegBuffer.length,
+      videoLengthBytes: mp4Buffer.length,
+      presentationTimestampUs,
+      format: "android-motion-photo"
+    };
+  }
+  
+  module.exports = {
+    DEFAULT_JPEG_QUALITY,
+    DEFAULT_MAX_EDGE,
+    DEFAULT_PRESENTATION_TIMESTAMP_US,
+    MAX_OUTPUT_BYTES,
+    MAX_SOURCE_BYTES,
+    MAX_VIDEO_BYTES,
+    applyExifOrientation,
+    assertJpegBuffer,
+    assertMp4Buffer,
+    buildAndroidMotionPhoto,
+    buildMotionPhotoXmp,
+    buildXmpApp1Segment,
+    detectImageType,
+    jpegXmpInsertionOffset,
+    normalizeSourceToJpeg,
+    readExifOrientation,
+    resizeRgba
+  };
+  
+  return module.exports;
+})();
 
 // CloudBase 某些部署实例会丢失自定义相对模块，入口必须可以单文件启动。
 const DEFAULT_RETRY_STATUSES = new Set([408, 409, 425, 429, 500, 502, 503, 504]);
@@ -8371,8 +9441,24 @@ function deterministicAppleContentIdentifier(openid, requestId, taskId) {
   ].join("-");
 }
 
+function normalizeAppleLivePhotoWorkerUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  try {
+    const parsed = new URL(raw);
+    if (!parsed.pathname || parsed.pathname === "/") {
+      parsed.pathname = "/v1/apple-live-photo";
+    }
+    return parsed.toString();
+  } catch (_) {
+    return raw;
+  }
+}
+
 function resolveAppleLivePhotoWorkerConfig() {
-  const url = env("APPLE_LIVE_PHOTO_WORKER_URL").trim();
+  const url = normalizeAppleLivePhotoWorkerUrl(
+    env("APPLE_LIVE_PHOTO_WORKER_URL")
+  );
   const token = env("APPLE_LIVE_PHOTO_WORKER_TOKEN").trim();
   return {
     url,
@@ -8460,7 +9546,10 @@ async function callAppleLivePhotoWorker(payload, config, meta = {}) {
     !response.buffer
     || response.buffer.length < 64
     || response.buffer.subarray(0, 4).toString("binary") !== "PK\u0003\u0004"
-    || !response.buffer.includes(Buffer.from("1000LIVP", "ascii"))
+    || (
+      !response.buffer.includes(Buffer.from("1000LIVP", "ascii"))
+      && !response.buffer.includes(Buffer.from("313030304C495650", "ascii"))
+    )
   ) {
     const error = new Error("Apple Live Photo 媒体服务返回的 LIVP 无效。");
     error.code = "APPLE_LIVE_PHOTO_WORKER_RESULT_INVALID";
@@ -9387,5 +10476,3 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     getAdminRuntimeCache: () => adminRuntimeCache
   };
 }
-
-

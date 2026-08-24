@@ -120,17 +120,17 @@ const AUTO_FACE_FAILURE_SECTION_KEYS = Object.freeze([
   "users",
   "monthly"
 ]);
-const MONITOR_LAYOUT_STORAGE_KEY = "admin-monitor-layout-v2";
+const MONITOR_LAYOUT_STORAGE_KEY = "admin-monitor-layout-v3";
 const AUTO_FACE_FAILURE_AUTO_REFRESH_MS = 10 * 60 * 1000;
 const MODEL_FAILURE_AUTO_REFRESH_MS = 10 * 60 * 1000;
 
 function defaultUsageSections() {
   return {
     failure: true,
-    daily: true,
-    users: true,
+    daily: false,
+    users: false,
     models: false,
-    monthly: true
+    monthly: false
   };
 }
 
@@ -3127,7 +3127,7 @@ Page({
   persistMonitorLayout() {
     try {
       wx.setStorageSync(MONITOR_LAYOUT_STORAGE_KEY, {
-        version: 3,
+        version: 4,
         monitorExpanded: Boolean(this.data.monitorExpanded),
         monitorSections: Object.assign({}, this.data.monitorSections),
         usageSections: Object.assign({}, this.data.usageSections),

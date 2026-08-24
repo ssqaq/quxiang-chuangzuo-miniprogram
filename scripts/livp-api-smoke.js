@@ -81,6 +81,10 @@ async function main() {
   const helpers = api.__test;
   const cloud = require("../cloudfunctions/api/node_modules/wx-server-sdk");
   const db = helpers.getTestDatabase();
+  assert.strictEqual(
+    helpers.resolveAppleLivePhotoWorkerConfig().url,
+    `http://127.0.0.1:${port}/v1/apple-live-photo`
+  );
 
   const originalCollection = db.collection;
   const originalRunTransaction = db.runTransaction;

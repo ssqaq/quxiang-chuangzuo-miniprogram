@@ -1622,6 +1622,32 @@ Page({
         "cloud",
         "正在使用云端自动贴脸"
       );
+      if (typeof cloud.probeAutoFace === "function") {
+        const probeStartedAt = Date.now();
+        cloud.probeAutoFace()
+          .then((probe) => {
+            diagnosticLog.info("auto-face", "cloud-probe", "自动贴脸云端探针返回", {
+              requestId: probe && probe.requestId || "",
+              durationMs: Date.now() - probeStartedAt,
+              buildVersion: probe && probe.buildVersion || "",
+              buildMarker: probe && probe.buildMarker || "",
+              cloudEnvConfigured: Boolean(
+                probe && probe.runtime && probe.runtime.cloudEnvConfigured
+              ),
+              visionConfigured: Boolean(
+                probe && probe.vision && probe.vision.configured
+              ),
+              visionProvider: probe && probe.vision && probe.vision.provider || "",
+              visionModel: probe && probe.vision && probe.vision.model || ""
+            });
+          })
+          .catch((error) => {
+            diagnosticLog.warn("auto-face", "cloud-probe-failed", "自动贴脸云端探针失败", {
+              durationMs: Date.now() - probeStartedAt,
+              error
+            });
+          });
+      }
       wx.showLoading({ title: "云端识别人脸中", mask: true });
       try {
         const uploadStartedAt = Date.now();

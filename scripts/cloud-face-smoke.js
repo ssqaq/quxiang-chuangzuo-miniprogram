@@ -46,6 +46,18 @@ withEnv({
   assert.strictEqual(config.model, "qwen3-vl-plus");
   assert.strictEqual(config.faceModel, "qwen3-vl-flash");
   assert.strictEqual(config.timeoutMs, 25000);
+
+  const probe = test.buildAutoFaceProbe();
+  assert.strictEqual(probe.buildVersion, "0.21.11");
+  assert.strictEqual(
+    probe.buildMarker,
+    "API_BUILD_TAG_20260824_AUTO_FACE_PROBE_V2111"
+  );
+  assert.strictEqual(probe.vision.configured, true);
+  assert.strictEqual(probe.vision.apiKeyConfigured, true);
+  assert.strictEqual(probe.vision.provider, "dashscope");
+  assert.strictEqual(probe.vision.model, "qwen3-vl-flash");
+  assert.strictEqual(JSON.stringify(probe).includes("vision-only-test-key"), false);
 });
 
 withEnv({

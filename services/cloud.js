@@ -506,6 +506,12 @@ module.exports = {
   detectFaceCircle(payload) {
     return callApi({ action: "detectFaceCircle", payload });
   },
+  probeAutoFace() {
+    return callApi({
+      action: "probeAutoFace",
+      retryLimit: 0
+    });
+  },
   generateImage(payload, options = {}) {
     return callApi({
       action: "generate",

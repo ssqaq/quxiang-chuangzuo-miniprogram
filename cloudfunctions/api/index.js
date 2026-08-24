@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.21.6";
-const API_BUILD_MARKER = "API_BUILD_TAG_20260823_ADMIN_CONFIG_LOGS_V216";
+const API_BUILD_VERSION = "0.21.11";
+const API_BUILD_MARKER = "API_BUILD_TAG_20260824_AUTO_FACE_PROBE_V2111";
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
 const cloud = require("wx-server-sdk");
@@ -111,6 +111,30 @@ function resolveVisionConfig() {
         Number(env("AI_VISION_MAX_IMAGE_BYTES", String(5 * 1024 * 1024))) || 5 * 1024 * 1024
       )
     )
+  };
+}
+
+function buildAutoFaceProbe() {
+  const vision = resolveVisionConfig();
+  return {
+    buildVersion: API_BUILD_VERSION,
+    buildMarker: API_BUILD_MARKER,
+    runtime: {
+      nodeVersion: process.version,
+      cloudEnvConfigured: Boolean(env("CLOUDBASE_ENV_ID"))
+    },
+    vision: {
+      configured: Boolean(
+        vision.apiKey &&
+        (vision.endpoint || vision.baseUrl) &&
+        (vision.faceModel || vision.model)
+      ),
+      apiKeyConfigured: Boolean(vision.apiKey),
+      endpointConfigured: Boolean(vision.endpoint || vision.baseUrl),
+      provider: vision.provider || "",
+      model: vision.faceModel || vision.model || ""
+    },
+    checkedAt: new Date().toISOString()
   };
 }
 
@@ -2991,6 +3015,13 @@ async function detectFaceCircle(event, context) {
   });
 }
 
+async function probeAutoFace(event) {
+  return jsonResponse(true, Object.assign({
+    action: "probeAutoFace",
+    requestId: event.requestId
+  }, buildAutoFaceProbe()));
+}
+
 async function analyzeWebPoses(event) {
   const payload = event.payload || {};
   const vision = resolveVisionConfig();
@@ -5181,6 +5212,7 @@ exports.main = async (event = {}, context) => {
     let result;
     if (action === "analyze") result = await analyze(requestEvent, context);
     else if (action === "detectFaceCircle") result = await detectFaceCircle(requestEvent, context);
+    else if (action === "probeAutoFace") result = await probeAutoFace(requestEvent);
     else if (action === "analyzeWebPoses") result = await analyzeWebPoses(requestEvent, context);
     else if (action === "prepareAssetUpload") result = await prepareAssetUpload(requestEvent, context);
     else if (action === "registerAsset") result = await registerAsset(requestEvent, context);
@@ -5295,7 +5327,8 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     normalizeVideoCreateResponse,
     normalizeVideoQueryResponse,
     videoCreateUrl,
-    videoQueryUrl
+    videoQueryUrl,
+    buildAutoFaceProbe
     ,
     adminOpenIds,
     isAdminContext,

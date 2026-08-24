@@ -115,6 +115,19 @@ async function main() {
   assert.strictEqual(all.logs.length, 2);
   assert.strictEqual(all.nextOffset, 2);
 
+  const abnormal = await api.main({
+    action: "getAdminDiagnosticLogs",
+    requestId: "diagnostic-admin-abnormal",
+    hours: 72,
+    level: "abnormal"
+  }, { OPENID: "diagnostic-admin" });
+  assert.strictEqual(abnormal.ok, true);
+  assert.strictEqual(abnormal.summary.total, 2);
+  assert.strictEqual(abnormal.summary.errorCount, 1);
+  assert.strictEqual(abnormal.summary.warnCount, 1);
+  assert.strictEqual(abnormal.summary.infoCount, 0);
+  assert.ok(abnormal.logs.every((item) => ["error", "warn"].includes(item.level)));
+
   const next = await api.main({
     action: "getAdminDiagnosticLogs",
     requestId: "diagnostic-admin-next",

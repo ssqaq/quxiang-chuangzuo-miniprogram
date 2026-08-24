@@ -129,12 +129,31 @@ async function runCoreTests() {
     () => core.normalizeKeys([{ name: "invalid", direction: "descending" }]),
     "INDEX_DIRECTION_INVALID"
   );
+  const invalidArrayKeys = [
+    [{ name: "", direction: 1 }],
+    [{ name: "   ", direction: 1 }],
+    [{ name: 123, direction: 1 }],
+    [{ Name: true, Direction: 1 }],
+    [{ name: ["userId"], direction: 1 }],
+    [null],
+    [["userId", 1]]
+  ];
+  invalidArrayKeys.forEach((keys) => {
+    assertErrorCode(
+      () => core.normalizeKeys(keys),
+      "INDEX_KEY_INVALID"
+    );
+  });
   assert.deepStrictEqual(
     core.normalizeKeys({ userId: 1, createdAt: "-1" }),
     [
       { name: "userId", direction: 1 },
       { name: "createdAt", direction: -1 }
     ]
+  );
+  assertErrorCode(
+    () => core.normalizeKeys({ "   ": 1 }),
+    "INDEX_KEY_INVALID"
   );
   assert.deepStrictEqual(
     core.normalizeIndex({
@@ -299,6 +318,34 @@ async function runCoreTests() {
     missingDirection.results[0].error.code,
     "INDEX_RESPONSE_INVALID"
   );
+
+  const invalidResponseKeyNames = [
+    "",
+    123,
+    true,
+    ["userId"]
+  ];
+  for (const invalidName of invalidResponseKeyNames) {
+    const invalidKeyResponse = await inspectOne(baseSpec, {
+      Indexes: [{
+        Name: baseSpec.name,
+        Keys: [
+          { Name: "createdAt", Direction: "-1" },
+          { Name: invalidName, Direction: "1" }
+        ],
+        Unique: false
+      }]
+    });
+    assert.strictEqual(
+      invalidKeyResponse.results[0].status,
+      "check-failed"
+    );
+    assert.strictEqual(
+      invalidKeyResponse.results[0].error.code,
+      "INDEX_RESPONSE_INVALID"
+    );
+    assert.strictEqual(invalidKeyResponse.ok, false);
+  }
 
   for (const invalidResponse of [
     undefined,
@@ -476,6 +523,38 @@ async function runCoreTests() {
     {
       ...baseSpec,
       keys: [{ name: "", direction: 1 }]
+    },
+    {
+      ...baseSpec,
+      keys: [
+        { name: "userId", direction: 1 },
+        { name: "", direction: -1 }
+      ]
+    },
+    {
+      ...baseSpec,
+      keys: [
+        { name: "userId", direction: 1 },
+        { name: 123, direction: -1 }
+      ]
+    },
+    {
+      ...baseSpec,
+      keys: [
+        { name: "userId", direction: 1 },
+        { name: true, direction: -1 }
+      ]
+    },
+    {
+      ...baseSpec,
+      keys: [
+        { name: "userId", direction: 1 },
+        { name: ["createdAt"], direction: -1 }
+      ]
+    },
+    {
+      ...baseSpec,
+      keys: { "   ": 1 }
     },
     {
       ...baseSpec,

@@ -16,24 +16,52 @@ function normalizeDirection(value) {
   throw createError("INDEX_DIRECTION_INVALID");
 }
 
+function isPlainObject(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
 function normalizeKeys(value) {
   if (Array.isArray(value)) {
     return value.map((item) => {
-      const source = item && typeof item === "object" ? item : {};
+      if (!isPlainObject(item)) {
+        throw createError("INDEX_KEY_INVALID");
+      }
+      const hasUpperName = Object.prototype.hasOwnProperty.call(item, "Name");
+      const name = hasUpperName ? item.Name : item.name;
+      if (typeof name !== "string" || !name.trim()) {
+        throw createError("INDEX_KEY_INVALID");
+      }
+      const hasUpperDirection = Object.prototype.hasOwnProperty.call(
+        item,
+        "Direction"
+      );
       return {
-        name: String(source.Name ?? source.name ?? ""),
+        name,
         direction: normalizeDirection(
-          source.Direction ?? source.direction
+          hasUpperDirection ? item.Direction : item.direction
         )
       };
-    }).filter((item) => item.name);
+    });
+  }
+
+  if (isPlainObject(value)) {
+    return Object.entries(value).map(([name, direction]) => {
+      if (!name.trim()) {
+        throw createError("INDEX_KEY_INVALID");
+      }
+      return {
+        name,
+        direction: normalizeDirection(direction)
+      };
+    });
   }
 
   if (value && typeof value === "object") {
-    return Object.entries(value).map(([name, direction]) => ({
-      name,
-      direction: normalizeDirection(direction)
-    }));
+    throw createError("INDEX_KEY_INVALID");
   }
 
   return [];

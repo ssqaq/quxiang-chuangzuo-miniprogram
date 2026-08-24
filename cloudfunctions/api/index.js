@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.22.0";
-const API_BUILD_MARKER = "API_BUILD_TAG_20260824_ADMIN_PROBE_STATS_V220";
+const API_BUILD_VERSION = "0.22.1";
+const API_BUILD_MARKER = "API_BUILD_TAG_20260824_ADMIN_PROBE_STATS_PHOTO_VIDEO_CLEANUP_V221";
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
 const cloud = require("wx-server-sdk");
@@ -5003,6 +5003,13 @@ async function deleteRecord(event, context) {
   const repairContext = record.data.repairContext || {};
   const assetReferences = [
     { fileID: repairContext.mainInputFileID, kind: "main" },
+    {
+      fileID: repairContext.originalMainFileID
+        && repairContext.originalMainFileID !== repairContext.mainInputFileID
+        ? repairContext.originalMainFileID
+        : "",
+      kind: "main"
+    },
     { fileID: repairContext.maskFileID, kind: "mask" },
     ...(Array.isArray(repairContext.faceFileIDs)
       ? repairContext.faceFileIDs.map((fileID) => ({ fileID, kind: "face" }))

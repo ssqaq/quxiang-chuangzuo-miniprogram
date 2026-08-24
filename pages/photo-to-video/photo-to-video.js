@@ -552,6 +552,7 @@ Page({
     const item = normalizeRecord(record, 0);
     const previewToken = (this._previewToken || 0) + 1;
     this._previewToken = previewToken;
+    this._previewFallbackToken = 0;
     this._previewRecord = item;
     const imageCandidate = item.displayURL || item.sourcePath || "";
     const imagePath = isCloudFileId(imageCandidate) ? "" : imageCandidate;
@@ -608,7 +609,13 @@ Page({
 
   onPreviewImageError() {
     const record = this._previewRecord;
-    if (!record || !record.sourceFileID || this._previewFallbackLoading) return;
+    if (
+      !record
+      || !record.sourceFileID
+      || this._previewFallbackLoading
+      || this._previewFallbackToken === this._previewToken
+    ) return;
+    this._previewFallbackToken = this._previewToken;
     this._previewFallbackLoading = true;
     const previewToken = this._previewToken;
     publishExport.resolveImageSource(Object.assign({}, record, {

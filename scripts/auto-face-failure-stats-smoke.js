@@ -27,8 +27,8 @@ const dangerousReport = test.normalizeAutoFaceFailureReport({
   probe: {
     status: "ok",
     requestId: "probe-1",
-    buildVersion: "0.22.0",
-    buildMarker: "API_BUILD_TAG_20260824_ADMIN_PROBE_STATS_V220",
+    buildVersion: "0.22.1",
+    buildMarker: "API_BUILD_TAG_20260824_ADMIN_PROBE_STATS_PHOTO_VIDEO_CLEANUP_V221",
     nodeVersion: "Nodejs16.13",
     cloudEnvConfigured: true,
     visionConfigured: true,
@@ -54,7 +54,7 @@ assert.ok(!Object.prototype.hasOwnProperty.call(dangerousReport, "stack"));
 assert.ok(!dangerousReport.message.includes("sk-test-secret"));
 assert.ok(!dangerousReport.message.includes("C:\\secret\\face.png"));
 assert.strictEqual(dangerousReport.probe.status, "ok");
-assert.strictEqual(dangerousReport.probe.buildVersion, "0.22.0");
+assert.strictEqual(dangerousReport.probe.buildVersion, "0.22.1");
 assert.strictEqual(dangerousReport.probe.visionConfigured, true);
 
 function event(dayOffset, failureType, index = 0) {
@@ -77,9 +77,9 @@ function event(dayOffset, failureType, index = 0) {
       appVersion: "0.20.2",
       probe: {
         status: probeStatus,
-        buildVersion: probeStatus === "ok" ? "0.22.0" : "0.21.11",
+        buildVersion: probeStatus === "ok" ? "0.22.1" : "0.21.11",
         buildMarker: probeStatus === "ok"
-          ? "API_BUILD_TAG_20260824_ADMIN_PROBE_STATS_V220"
+          ? "API_BUILD_TAG_20260824_ADMIN_PROBE_STATS_PHOTO_VIDEO_CLEANUP_V221"
           : "API_BUILD_TAG_20260824_AUTO_FACE_PROBE_V2111",
         visionConfigured: probeStatus === "ok" && index % 2 === 0,
         provider: "dashscope",
@@ -137,7 +137,7 @@ assert.strictEqual(
 assert.strictEqual(stats.byType[0].type, "network", "失败类型应按次数倒序");
 assert.ok(stats.recent[0].createdAt, "最近记录缺少时间");
 assert.ok(stats.recent.every((item) => !Object.prototype.hasOwnProperty.call(item, "stack")));
-assert.ok(stats.recent.some((item) => item.probe && item.probe.buildVersion === "0.22.0"));
+assert.ok(stats.recent.some((item) => item.probe && item.probe.buildVersion === "0.22.1"));
 
 async function main() {
   test.resetAutoFaceFailureTestEvents();

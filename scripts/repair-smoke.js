@@ -26,11 +26,15 @@ async function main() {
   const identityItem = selectable
     .flatMap((group) => group.items)
     .find((item) => item.key === "identity");
+  const outsideGroup = selectable.find((group) => group.key === "background");
   const outsideItem = selectable
     .flatMap((group) => group.items)
     .find((item) => item.key === "outsideChanged");
   assert.strictEqual(identityItem.checked, true);
   assert.strictEqual(outsideItem.checked, true);
+  assert.strictEqual(identityItem.label, "脸部身份不像原始主图人物");
+  assert.strictEqual(outsideItem.label, "红圈外的内容被改动");
+  assert.strictEqual(outsideGroup.selectedCount, 1);
   assert.strictEqual(
     canRepairRecord({ id: "local-1", fileID: "cloud://local" }, true),
     false
@@ -48,11 +52,13 @@ async function main() {
     projectName: "smoke",
     issues: ["identity"],
     hasFaceReferences: true,
+    hasOriginalMainImage: true,
     hasWardrobeReferences: false,
     maskGeometry: { x: 100, y: 80, width: 120, height: 140 }
   });
-  assert.ok(prompt.includes("红圈外内容被改动"));
-  assert.ok(prompt.includes("身份"));
+  assert.ok(prompt.includes("红圈外所有像素"));
+  assert.ok(prompt.includes("原始主图"));
+  assert.ok(prompt.includes("脸部身份不像原始主图人物"));
   assert.ok(prompt.includes("x=100"));
 
   await assert.rejects(

@@ -105,21 +105,6 @@
       </view>
     </view>
 
-    <view class="option-line">
-      <view class="option-label">最长边</view>
-      <view class="choice-list">
-        <button
-          wx:for="{{sizeOptions}}"
-          wx:key="value"
-          class="choice-button {{maxEdge === item.value ? 'choice-button-active' : ''}}"
-          data-size="{{item.value}}"
-          bindtap="changeMaxEdge"
-        >
-          {{item.label}}
-        </button>
-      </view>
-    </view>
-
     <view wx:if="{{format === 'jpg'}}" class="quality-line">
       <view class="quality-head">
         <text class="option-label">JPG 品质</text>

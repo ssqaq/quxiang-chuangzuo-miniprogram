@@ -13,12 +13,6 @@ const FORMAT_OPTIONS = [
   { value: "png", label: "PNG" }
 ];
 
-const SIZE_OPTIONS = [
-  { value: 1536, label: "1536px" },
-  { value: 2048, label: "2048px" },
-  { value: 4096, label: "4096px" }
-];
-
 function normalizeRecord(record, index) {
   const item = record && typeof record === "object" ? record : {};
   return {
@@ -61,7 +55,6 @@ Page({
   data: {
     scopeOptions: SCOPE_OPTIONS,
     formatOptions: FORMAT_OPTIONS,
-    sizeOptions: SIZE_OPTIONS,
     scope: "latest",
     usingDevicePhotos: false,
     format: "jpg",
@@ -146,16 +139,6 @@ Page({
       && event.currentTarget.dataset.format;
     if (format !== "jpg" && format !== "png") return;
     this.setData({ format });
-  },
-
-  changeMaxEdge(event = {}) {
-    const value = Number(
-      event.currentTarget
-      && event.currentTarget.dataset
-      && event.currentTarget.dataset.size
-    );
-    if (!value) return;
-    this.setData({ maxEdge: value });
   },
 
   changeQuality(event = {}) {

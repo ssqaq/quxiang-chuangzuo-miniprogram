@@ -310,12 +310,10 @@ slider {
 
 .export-button {
   display: flex;
-  width: calc(100% + 48rpx) !important;
+  width: 100% !important;
   height: 82rpx;
   min-height: 82rpx;
   margin-top: 22rpx;
-  margin-left: -24rpx;
-  margin-right: -24rpx;
   padding: 0;
   max-width: none;
   align-items: center;
@@ -329,12 +327,10 @@ slider {
 
 .back-button {
   display: flex;
-  width: calc(100% + 48rpx) !important;
+  width: 100% !important;
   height: 82rpx;
   min-height: 82rpx;
   margin-top: 14rpx;
-  margin-left: -24rpx;
-  margin-right: -24rpx;
   padding: 0;
   max-width: none;
   align-items: center;

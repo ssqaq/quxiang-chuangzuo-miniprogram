@@ -141,7 +141,7 @@
       disabled="{{processing || !selectedCount}}"
       bindtap="startConvert"
     >
-      {{processing ? '正在生成动态视频...' : '开始生成并保存照片和视频'}}
+      {{processing ? '正在生成动态视频...' : '开始保存'}}
     </button>
     <button class="plain-btn back-button" bindtap="backToWorkbench">返回工作台</button>
   </view>

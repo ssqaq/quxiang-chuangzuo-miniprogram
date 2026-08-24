@@ -1083,8 +1083,6 @@ const actionButtonProperties = [
   "height",
   "min-height",
   "margin-top",
-  "margin-left",
-  "margin-right",
   "padding",
   "max-width",
   "align-items",
@@ -1139,6 +1137,7 @@ if (
   || !photoToVideoJs.includes("onPreviewTouchStart()")
   || !photoToVideoJs.includes("retryOne(event = {})")
   || !photoToVideoWxml.includes("照片转动态视频")
+  || !photoToVideoWxml.includes("开始保存")
   || !photoToVideoWxml.includes("不会自动变成系统实况照片")
   || !photoToVideoWxml.includes('class="live-preview-touch-layer"')
   || !photoToVideoWxml.includes('id="photo-to-video-preview"')

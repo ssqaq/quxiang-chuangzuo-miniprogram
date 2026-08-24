@@ -1,4 +1,4 @@
-<view class="page publish-export-page {{records.length ? 'publish-export-page-with-actions' : ''}}">
+<view class="page publish-export-page">
   <view class="card publish-export-intro">
     <view class="section-title">降低AI识别率再导出</view>
   </view>
@@ -231,7 +231,7 @@
     </view>
   </view>
 
-  <view wx:if="{{records.length}}" class="scheme6-fixed-actions">
+  <view wx:if="{{records.length}}" class="scheme6-actions">
     <button
       class="primary-btn export-button scheme6-export-button"
       loading="{{processing}}"

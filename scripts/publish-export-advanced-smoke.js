@@ -178,12 +178,14 @@ assert.ok(
   "可见标记淡化没有显示默认开启的开关，或没有接入导出参数。"
 );
 assert.ok(
-  pageWxml.includes("scheme6-fixed-actions")
+  pageWxml.includes("scheme6-actions")
+    && !pageWxml.includes("scheme6-fixed-actions")
     && pageWxml.includes("scheme6-export-button")
     && pageWxml.includes("scheme6-back-button")
-    && pageWxss.includes(".scheme6-fixed-actions")
-    && pageWxss.includes("position: fixed"),
-  "方案6固定底部操作栏没有完整接入。"
+    && pageWxss.includes(".scheme6-actions")
+    && !pageWxss.includes(".scheme6-fixed-actions")
+    && !/\.scheme6-actions\s*\{[^}]*position\s*:\s*fixed/i.test(pageWxss),
+  "方案6底部操作栏没有改成跟随页面滚动。"
 );
 assert.ok(
   !pageWxml.includes("高级处理后再导出照片"),

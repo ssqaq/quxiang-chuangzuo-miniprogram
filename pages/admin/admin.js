@@ -888,6 +888,7 @@ function formFromConfig(result) {
   const points = source.points || {};
   const costs = source.costs || {};
   const faceCosts = costs.face || {};
+  const analysisCosts = costs.analysis || faceCosts;
   const imageCosts = costs.image || {};
   const videoCosts = costs.video || {};
   return {
@@ -942,6 +943,8 @@ function formFromConfig(result) {
     costs: {
       faceInputPerMillionTokens: String(faceCosts.inputPerMillionTokens || 0.15),
       faceOutputPerMillionTokens: String(faceCosts.outputPerMillionTokens || 1.5),
+      analysisInputPerMillionTokens: String(analysisCosts.inputPerMillionTokens || faceCosts.inputPerMillionTokens || 0.15),
+      analysisOutputPerMillionTokens: String(analysisCosts.outputPerMillionTokens || faceCosts.outputPerMillionTokens || 1.5),
       image1K: String(imageCosts.perImage && imageCosts.perImage["1K"] || 0.015),
       image2K: String(imageCosts.perImage && imageCosts.perImage["2K"] || 0.025),
       image4K: String(imageCosts.perImage && imageCosts.perImage["4K"] || 0.035),
@@ -1008,6 +1011,10 @@ function formToConfig(form) {
       face: {
         inputPerMillionTokens: Number(form.costs.faceInputPerMillionTokens || 0),
         outputPerMillionTokens: Number(form.costs.faceOutputPerMillionTokens || 0)
+      },
+      analysis: {
+        inputPerMillionTokens: Number(form.costs.analysisInputPerMillionTokens || 0),
+        outputPerMillionTokens: Number(form.costs.analysisOutputPerMillionTokens || 0)
       },
       image: {
         defaultResolution: "1K",

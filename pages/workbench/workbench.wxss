@@ -1207,6 +1207,22 @@ button.diagnostic-copy-button.button-hover {
   line-height: 28rpx;
 }
 
+.expand-toggle {
+  display: flex;
+  flex: none;
+  align-items: center;
+  color: #2f70d4;
+  font-size: 21rpx;
+  line-height: 32rpx;
+}
+
+.expand-toggle-arrow {
+  margin-left: 6rpx;
+  font-size: 30rpx;
+  font-weight: 700;
+  line-height: 28rpx;
+}
+
 .contact-author-body {
   animation: contact-author-body-in 160ms ease-out both;
 }

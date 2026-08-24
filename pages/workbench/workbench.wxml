@@ -196,9 +196,9 @@
         <view class="interaction-log-count">
           {{diagnosticStats.eventCount}} 条 · {{diagnosticStats.errorCount}} 错误 · {{diagnosticStats.warnCount}} 提醒
         </view>
-        <view class="diagnostic-toggle-indicator">
+        <view class="diagnostic-toggle-indicator expand-toggle">
           <text>{{diagnosticExpanded ? '收起' : '展开'}}</text>
-          <text class="diagnostic-toggle-arrow {{diagnosticExpanded ? 'diagnostic-toggle-arrow-expanded' : ''}}">
+          <text class="diagnostic-toggle-arrow expand-toggle-arrow {{diagnosticExpanded ? 'diagnostic-toggle-arrow-expanded' : ''}}">
             ⌄
           </text>
         </view>
@@ -319,9 +319,9 @@
           点击二维码可放大，长按识别添加好友
         </view>
       </view>
-      <view class="contact-author-toggle">
+      <view class="contact-author-toggle expand-toggle">
         <text>{{contactAuthorExpanded ? '收起' : '展开'}}</text>
-        <text class="contact-author-toggle-arrow">
+        <text class="contact-author-toggle-arrow expand-toggle-arrow">
           {{contactAuthorExpanded ? '⌃' : '⌄'}}
         </text>
       </view>

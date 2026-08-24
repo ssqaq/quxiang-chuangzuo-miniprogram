@@ -9,7 +9,13 @@
   </view>
 
   <view wx:if="{{loading}}" class="card admin-state-card">
-    正在读取管理员配置...
+    <view>正在读取管理员配置...</view>
+    <view wx:if="{{canRetry}}" class="admin-retry-button" bindtap="loadAdminPage">重新读取</view>
+  </view>
+
+  <view wx:if="{{!loading && !isAdmin && canRetry}}" class="card admin-state-card">
+    <view>{{message || '管理员页面暂时无法打开。'}}</view>
+    <view class="admin-retry-button" bindtap="loadAdminPage">重新读取</view>
   </view>
 
   <view wx:if="{{!loading && isAdmin}}" class="admin-content">
@@ -64,6 +70,18 @@
         <view class="quick-launch-state">{{entryHealth.face.label}}</view>
       </view>
       <view
+        class="quick-launch quick-analysis {{activeConfigSection === 'analysis' ? 'is-active' : ''}} {{entryHealth.analysis.abnormal ? 'is-abnormal' : ''}}"
+        data-section="analysis"
+        bindtap="toggleConfigSection"
+        hover-class="control-tap"
+        role="button"
+        aria-label="打开图片分析模型配置"
+      >
+        <view class="quick-launch-icon">图</view>
+        <view class="quick-launch-name">图片</view>
+        <view class="quick-launch-state">{{entryHealth.analysis.label}}</view>
+      </view>
+      <view
         class="quick-launch quick-image {{activeConfigSection === 'image' ? 'is-active' : ''}} {{entryHealth.image.abnormal ? 'is-abnormal' : ''}}"
         data-section="image"
         bindtap="toggleConfigSection"
@@ -71,7 +89,7 @@
         role="button"
         aria-label="打开生图模型配置"
       >
-        <view class="quick-launch-icon">图</view>
+        <view class="quick-launch-icon">生</view>
         <view class="quick-launch-name">生图</view>
         <view class="quick-launch-state">{{entryHealth.image.label}}</view>
       </view>
@@ -149,6 +167,27 @@
         </view>
       </view>
       <view
+        class="current-config-row {{entryHealth.analysis.abnormal ? 'is-abnormal' : ''}}"
+        data-section="analysis"
+        bindtap="toggleConfigSection"
+        hover-class="control-tap"
+        role="button"
+        aria-label="查看图片分析模型配置"
+      >
+        <view class="current-config-main">
+          <view class="current-config-title">图片分析模型</view>
+          <view class="current-config-meta">
+            {{analysisConfigSummary.provider}} / {{analysisConfigSummary.model}}
+          </view>
+        </view>
+        <view class="current-config-side">
+          <view class="config-state {{entryHealth.analysis.abnormal ? 'is-off' : 'is-ready'}}">
+            {{entryHealth.analysis.label}}
+          </view>
+          <text class="current-config-arrow">›</text>
+        </view>
+      </view>
+      <view
         class="current-config-row {{entryHealth.image.abnormal ? 'is-abnormal' : ''}}"
         data-section="image"
         bindtap="toggleConfigSection"
@@ -204,7 +243,7 @@
           <text class="today-label">失败</text>
         </view>
         <view class="today-item">
-          <text class="today-value">¥{{usageStats.today.estimatedCost}}</text>
+          <text class="today-value">¥{{usageStats.today.estimatedCostDisplay}}</text>
           <text class="today-label">预计成本</text>
         </view>
       </view>
@@ -227,6 +266,17 @@
           <view class="admin-field admin-field-wide"><text>Base URL</text><input value="{{form.face.baseUrl}}" data-section="face" data-key="baseUrl" bindinput="onInput" /></view>
           <view class="admin-field admin-field-wide"><text>Endpoint（可空）</text><input value="{{form.face.endpoint}}" data-section="face" data-key="endpoint" bindinput="onInput" /></view>
           <view class="admin-field"><text>超时毫秒</text><input type="number" value="{{form.face.timeoutMs}}" data-section="face" data-key="timeoutMs" bindinput="onInput" /></view>
+        </view>
+      </view>
+
+      <view wx:if="{{activeConfigSection === 'analysis'}}" class="config-editor-body">
+        <view class="config-helper">图片分析模型独立保存 Provider、地址、模型和超时；API Key 继续从云函数环境变量读取，不会写入数据库。</view>
+        <view class="admin-grid">
+          <view class="admin-field"><text>Provider</text><input value="{{form.analysis.provider}}" data-section="analysis" data-key="provider" bindinput="onInput" /></view>
+          <view class="admin-field"><text>Model</text><input value="{{form.analysis.model}}" data-section="analysis" data-key="model" bindinput="onInput" /></view>
+          <view class="admin-field admin-field-wide"><text>Base URL</text><input value="{{form.analysis.baseUrl}}" data-section="analysis" data-key="baseUrl" bindinput="onInput" /></view>
+          <view class="admin-field admin-field-wide"><text>Endpoint（可空）</text><input value="{{form.analysis.endpoint}}" data-section="analysis" data-key="endpoint" bindinput="onInput" /></view>
+          <view class="admin-field"><text>超时毫秒</text><input type="number" value="{{form.analysis.timeoutMs}}" data-section="analysis" data-key="timeoutMs" bindinput="onInput" /></view>
         </view>
       </view>
 
@@ -298,11 +348,14 @@
               <view class="cost-trend-title">最近7天成本</view>
               <view class="cost-trend-total">合计 ¥{{costTrend.totalCost}}</view>
             </view>
-            <view class="config-state {{usageStats.unavailable ? 'is-off' : 'is-ready'}}">
-              {{usageStats.unavailable ? '读取失败' : '已更新'}}
+            <view class="config-state {{moduleStates.usage.status === 'failed' ? 'is-off' : 'is-ready'}}">
+              {{moduleStates.usage.label}}
             </view>
           </view>
-          <view wx:if="{{costTrend.hasCost}}" class="cost-chart">
+          <view wx:if="{{moduleStates.usage.status === 'loading'}}" class="usage-message">
+            正在读取最近7天成本...
+          </view>
+          <view wx:elif="{{costTrend.hasCost}}" class="cost-chart">
             <view wx:for="{{costTrend.days}}" wx:key="dateKey" class="cost-chart-item">
               <view class="cost-chart-value">¥{{item.cost}}</view>
               <view class="cost-chart-track">
@@ -333,10 +386,13 @@
             >{{userStatsExporting ? '生成中' : '导出 Excel'}}</button>
           </view>
         </view>
+        <view wx:if="{{moduleStates.users.status === 'loading'}}" class="usage-message">
+          正在读取用户统计...
+        </view>
         <view wx:if="{{userStats.message}}" class="usage-message {{userStats.unavailable ? 'is-warn' : ''}}">
           {{userStats.message}}
         </view>
-        <view class="user-summary-grid">
+        <view wx:if="{{moduleStates.users.status !== 'loading'}}" class="user-summary-grid">
           <view class="user-summary-card user-summary-total">
             <text>总用户</text>
             <text>{{userStats.total}}</text>
@@ -352,15 +408,15 @@
             <text>{{userStats.femaleRatio}}%</text>
           </view>
         </view>
-        <view class="gender-ratio-bar">
+        <view wx:if="{{moduleStates.users.status !== 'loading'}}" class="gender-ratio-bar">
           <view class="gender-ratio-male" style="width: {{userStats.maleRatio}}%;"></view>
           <view class="gender-ratio-female" style="width: {{userStats.femaleRatio}}%;"></view>
         </view>
-        <view class="gender-ratio-legend">
+        <view wx:if="{{moduleStates.users.status !== 'loading'}}" class="gender-ratio-legend">
           <text>男 {{userStats.maleRatio}}%</text>
           <text>女 {{userStats.femaleRatio}}%</text>
         </view>
-        <view wx:if="{{userStats.users.length}}" class="admin-user-list">
+        <view wx:if="{{moduleStates.users.status !== 'loading' && userStats.users.length}}" class="admin-user-list">
           <view wx:for="{{userStats.users}}" wx:key="userHash" class="admin-user-row">
             <image wx:if="{{item.avatarUrl}}" class="admin-user-avatar" src="{{item.avatarUrl}}" mode="aspectFill"></image>
             <view wx:else class="admin-user-avatar admin-user-avatar-empty">人</view>
@@ -372,7 +428,7 @@
             <view class="admin-user-gender gender-{{item.gender}}">{{item.genderText}}</view>
           </view>
         </view>
-        <view wx:else class="admin-empty">还没有已完善资料的用户。</view>
+        <view wx:elif="{{moduleStates.users.status !== 'loading'}}" class="admin-empty">还没有已完善资料的用户。</view>
         <button
           wx:if="{{userStats.nextOffset !== null}}"
           class="user-load-more"
@@ -467,10 +523,13 @@
           </view>
           <button class="usage-refresh-button" bindtap="refreshAutoFaceProbeHistory">刷新</button>
         </view>
+        <view wx:if="{{moduleStates.probeHistory.status === 'loading'}}" class="usage-message">
+          正在读取探针历史...
+        </view>
         <view wx:if="{{autoFaceProbeHistory.message}}" class="usage-message {{autoFaceProbeHistory.unavailable ? 'is-warn' : ''}}">
           {{autoFaceProbeHistory.message}}
         </view>
-        <view wx:if="{{!autoFaceProbeHistory.history.length && !autoFaceProbeHistory.message}}" class="admin-empty">
+        <view wx:if="{{moduleStates.probeHistory.status !== 'loading' && !autoFaceProbeHistory.history.length && !autoFaceProbeHistory.message}}" class="admin-empty">
           还没有探针历史，点击“立即检查线上部署”生成第一条。
         </view>
         <view wx:for="{{autoFaceProbeHistory.history}}" wx:key="checkedAt" class="auto-face-probe-history-row">
@@ -507,11 +566,14 @@
           </view>
         </view>
 
+        <view wx:if="{{moduleStates.usage.status === 'loading'}}" class="usage-message">
+          正在读取模型用量和成本...
+        </view>
         <view wx:if="{{usageStats.message}}" class="usage-message {{usageStats.unavailable ? 'is-warn' : ''}}">
           {{usageStats.message}}
         </view>
 
-        <view class="usage-summary-grid">
+        <view wx:if="{{moduleStates.usage.status !== 'loading'}}" class="usage-summary-grid">
           <view class="usage-summary-item">
             <text>今天</text>
             <text>{{usageStats.today.total}}</text>
@@ -529,7 +591,7 @@
           </view>
         </view>
 
-        <view class="usage-cost-summary">
+        <view wx:if="{{moduleStates.usage.status !== 'loading'}}" class="usage-cost-summary">
           <view class="usage-cost-item">
             <text>今日预计成本</text>
             <text>¥{{usageStats.today.estimatedCost}}</text>
@@ -547,7 +609,7 @@
           </view>
         </view>
 
-        <view class="usage-type-grid">
+        <view wx:if="{{moduleStates.usage.status !== 'loading'}}" class="usage-type-grid">
           <view wx:for="{{usageStats.cards}}" wx:key="key" class="usage-type-card usage-type-{{item.key}}">
             <view class="usage-type-top">
               <view class="usage-type-icon">{{item.icon}}</view>
@@ -563,7 +625,7 @@
           </view>
         </view>
 
-        <view class="usage-failure-panel">
+        <view wx:if="{{moduleStates.usage.status !== 'loading'}}" class="usage-failure-panel">
           <view class="usage-subsection-title usage-failure-heading">失败情况</view>
           <view class="usage-failure-summary">
             <view class="usage-failure-summary-item">
@@ -615,14 +677,15 @@
           </view>
         </view>
 
-        <view class="usage-daily-title">最近{{usageStats.days}}天每日明细</view>
-        <scroll-view wx:if="{{usageStats.daily.length}}" class="usage-daily-list" scroll-y>
+        <view wx:if="{{moduleStates.usage.status !== 'loading'}}" class="usage-daily-title">最近{{usageStats.days}}天每日明细</view>
+        <scroll-view wx:if="{{moduleStates.usage.status !== 'loading' && usageStats.daily.length}}" class="usage-daily-list" scroll-y>
           <view wx:for="{{usageStats.daily}}" wx:key="dateKey" class="usage-daily-row">
             <view class="usage-daily-date">
               <text>{{item.dateLabel}}</text>
               <text>合计 {{item.total}} 次</text>
             </view>
             <view class="usage-daily-values">
+              <text>图片 {{item.analysis.total}}</text>
               <text>生图 {{item.image.total}}</text>
               <text>人脸 {{item.face.total}}</text>
               <text>视频 {{item.video.total}}</text>
@@ -630,16 +693,17 @@
             <view class="usage-daily-result">成功 {{item.success}} · 失败 {{item.failure}}</view>
           </view>
         </scroll-view>
-        <view wx:else class="admin-empty usage-empty">还没有模型调用记录，部署后有调用就会自动统计。</view>
+        <view wx:elif="{{moduleStates.usage.status !== 'loading'}}" class="admin-empty usage-empty">还没有模型调用记录，部署后有调用就会自动统计。</view>
 
-        <view class="usage-subsection-title">按用户统计</view>
-        <view wx:if="{{usageStats.users.length}}" class="usage-user-list">
+        <view wx:if="{{moduleStates.usage.status !== 'loading'}}" class="usage-subsection-title">按用户统计</view>
+        <view wx:if="{{moduleStates.usage.status !== 'loading' && usageStats.users.length}}" class="usage-user-list">
           <view wx:for="{{usageStats.users}}" wx:key="userHash" class="usage-user-row">
             <view class="usage-user-top">
               <text>用户 {{item.userHash}}</text>
               <text>¥{{item.estimatedCost}} · {{item.total}} 次</text>
             </view>
             <view class="usage-user-detail">
+              <text>图片 {{item.byType.analysis.total}}</text>
               <text>生图 {{item.byType.image.total}}</text>
               <text>人脸 {{item.byType.face.total}}</text>
               <text>视频 {{item.byType.video.total}}</text>
@@ -648,10 +712,10 @@
             </view>
           </view>
         </view>
-        <view wx:else class="admin-empty usage-empty">还没有按用户统计的数据。</view>
+        <view wx:elif="{{moduleStates.usage.status !== 'loading'}}" class="admin-empty usage-empty">还没有按用户统计的数据。</view>
 
-        <view class="usage-subsection-title">按模型名称分组</view>
-        <view wx:if="{{usageStats.models.length}}" class="usage-model-list">
+        <view wx:if="{{moduleStates.usage.status !== 'loading'}}" class="usage-subsection-title">按模型名称分组</view>
+        <view wx:if="{{moduleStates.usage.status !== 'loading' && usageStats.models.length}}" class="usage-model-list">
           <view wx:for="{{usageStats.models}}" wx:key="model" class="usage-model-row">
             <view class="usage-model-top">
               <text>{{item.provider}} / {{item.model}}</text>
@@ -666,16 +730,17 @@
             </view>
           </view>
         </view>
-        <view wx:else class="admin-empty usage-empty">还没有按模型分组的数据。</view>
+        <view wx:elif="{{moduleStates.usage.status !== 'loading'}}" class="admin-empty usage-empty">还没有按模型分组的数据。</view>
 
-        <view class="usage-subsection-title">按月份统计</view>
-        <scroll-view wx:if="{{usageStats.monthly.length}}" class="usage-monthly-list" scroll-y>
+        <view wx:if="{{moduleStates.usage.status !== 'loading'}}" class="usage-subsection-title">按月份统计</view>
+        <scroll-view wx:if="{{moduleStates.usage.status !== 'loading' && usageStats.monthly.length}}" class="usage-monthly-list" scroll-y>
           <view wx:for="{{usageStats.monthly}}" wx:key="monthKey" class="usage-monthly-row">
             <view class="usage-daily-date">
               <text>{{item.monthKey}}</text>
               <text>预计 ¥{{item.estimatedCost}} · {{item.total}} 次</text>
             </view>
             <view class="usage-daily-values">
+              <text>图片 ¥{{item.analysis.estimatedCost}}</text>
               <text>人脸 ¥{{item.face.estimatedCost}}</text>
               <text>生图 ¥{{item.image.estimatedCost}}</text>
               <text>视频 ¥{{item.video.estimatedCost}}</text>
@@ -683,7 +748,7 @@
             <view class="usage-daily-result">Token {{item.totalTokens}} · 视频 {{item.videoDurationSeconds}} 秒</view>
           </view>
         </scroll-view>
-        <view wx:else class="admin-empty usage-empty">还没有月度统计数据。</view>
+        <view wx:elif="{{moduleStates.usage.status !== 'loading'}}" class="admin-empty usage-empty">还没有月度统计数据。</view>
       </view>
 
       <view class="card admin-section auto-face-failure-section">
@@ -702,11 +767,14 @@
           </button>
         </view>
 
+        <view wx:if="{{moduleStates.autoFaceFailure.status === 'loading'}}" class="usage-message">
+          正在读取自动贴脸失败统计...
+        </view>
         <view wx:if="{{autoFaceFailureStats.message}}" class="usage-message {{autoFaceFailureStats.unavailable ? 'is-warn' : ''}}">
           {{autoFaceFailureStats.message}}
         </view>
 
-        <view class="auto-face-failure-summary">
+        <view wx:if="{{moduleStates.autoFaceFailure.status !== 'loading'}}" class="auto-face-failure-summary">
           <view class="auto-face-failure-summary-item">
             <text>今天</text>
             <text>{{autoFaceFailureStats.today}}</text>
@@ -724,7 +792,7 @@
           </view>
         </view>
 
-        <view class="auto-face-probe-summary">
+        <view wx:if="{{moduleStates.autoFaceFailure.status !== 'loading'}}" class="auto-face-probe-summary">
           <view class="auto-face-probe-summary-item">
             <text>探针正常</text>
             <text>{{autoFaceFailureStats.probeSummary.ok}}</text>
@@ -743,14 +811,14 @@
           </view>
         </view>
 
-        <view class="auto-face-failure-subtitle">探针汇总</view>
-        <view class="auto-face-probe-hint">
+        <view wx:if="{{moduleStates.autoFaceFailure.status !== 'loading'}}" class="auto-face-failure-subtitle">探针汇总</view>
+        <view wx:if="{{moduleStates.autoFaceFailure.status !== 'loading'}}" class="auto-face-probe-hint">
           <text>视觉配置已就绪 {{autoFaceFailureStats.probeSummary.visionConfigured}} 次</text>
           <text>未就绪 {{autoFaceFailureStats.probeSummary.visionUnavailable}} 次</text>
         </view>
 
-        <view class="auto-face-failure-subtitle">失败类型</view>
-        <view wx:if="{{autoFaceFailureStats.byType.length}}" class="auto-face-failure-type-list">
+        <view wx:if="{{moduleStates.autoFaceFailure.status !== 'loading'}}" class="auto-face-failure-subtitle">失败类型</view>
+        <view wx:if="{{moduleStates.autoFaceFailure.status !== 'loading' && autoFaceFailureStats.byType.length}}" class="auto-face-failure-type-list">
           <view wx:for="{{autoFaceFailureStats.byType}}" wx:key="type" class="auto-face-failure-type-row">
             <view>
               <text class="auto-face-failure-type-label">{{item.label}}</text>
@@ -759,10 +827,10 @@
             <text class="auto-face-failure-type-count">{{item.count}} 次</text>
           </view>
         </view>
-        <view wx:else class="admin-empty usage-empty">最近 30 天没有自动贴脸失败记录。</view>
+        <view wx:elif="{{moduleStates.autoFaceFailure.status !== 'loading'}}" class="admin-empty usage-empty">最近 30 天没有自动贴脸失败记录。</view>
 
-        <view class="auto-face-failure-subtitle">最近失败记录</view>
-        <view wx:if="{{autoFaceFailureStats.recent.length}}" class="auto-face-failure-recent-list">
+        <view wx:if="{{moduleStates.autoFaceFailure.status !== 'loading'}}" class="auto-face-failure-subtitle">最近失败记录</view>
+        <view wx:if="{{moduleStates.autoFaceFailure.status !== 'loading' && autoFaceFailureStats.recent.length}}" class="auto-face-failure-recent-list">
           <view wx:for="{{autoFaceFailureStats.recent}}" wx:key="createdAtText" class="auto-face-failure-recent-row">
             <view class="auto-face-failure-recent-top">
               <text>{{item.createdAtText}} · {{item.failureTypeLabel}}</text>
@@ -778,7 +846,7 @@
             <view class="auto-face-failure-recent-message">{{item.message}}</view>
           </view>
         </view>
-        <view wx:else class="admin-empty usage-empty">还没有最近失败记录。</view>
+        <view wx:elif="{{moduleStates.autoFaceFailure.status !== 'loading'}}" class="admin-empty usage-empty">还没有最近失败记录。</view>
       </view>
 
       <view class="card admin-section deployment-log-card">
@@ -789,14 +857,19 @@
           </view>
           <text class="admin-log-count">{{logs.length}} 条</text>
         </view>
-        <view wx:if="{{!logs.length}}" class="admin-empty">还没有检查记录，点击上面的按钮生成第一条。</view>
+        <view wx:if="{{moduleStates.logs.status === 'loading'}}" class="usage-message">
+          正在读取部署日志...
+        </view>
+        <view wx:if="{{moduleStates.logs.status !== 'loading' && !logs.length}}" class="admin-empty">
+          还没有检查记录，点击上面的按钮生成第一条。
+        </view>
         <view wx:for="{{logs}}" wx:key="checkedAt" class="admin-log-item">
           <view class="admin-log-top">
             <text>{{item.checkedAtText}}</text>
             <text class="{{item.ok ? 'log-ok' : 'log-warn'}}">{{item.statusText}}</text>
           </view>
           <view class="admin-log-meta">{{item.buildVersion}} · {{item.buildMarker}}</view>
-          <view class="admin-log-meta">{{item.faceText}} · {{item.imageText}} · {{item.videoText}}</view>
+          <view class="admin-log-meta">{{item.faceText}} · {{item.analysisText}} · {{item.imageText}} · {{item.videoText}}</view>
         </view>
       </view>
     </view>

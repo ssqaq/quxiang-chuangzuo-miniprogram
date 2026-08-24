@@ -40,10 +40,21 @@ const patch = test.normalizeRuntimePatch({
     model: "smoke-video-model",
     apiKey: "must-be-dropped"
   },
+  analysis: {
+    provider: "smoke-analysis-provider",
+    model: "smoke-analysis-model",
+    timeoutMs: 18000,
+    apiKey: "must-be-dropped"
+  },
   apiKey: "must-be-dropped"
 });
 assert.deepStrictEqual(patch.image, { model: "smoke-image-model" });
 assert.deepStrictEqual(patch.video, { model: "smoke-video-model" });
+assert.deepStrictEqual(patch.analysis, {
+  provider: "smoke-analysis-provider",
+  model: "smoke-analysis-model",
+  timeoutMs: 18000
+});
 assert.deepStrictEqual(test.validateRuntimePatch(patch), []);
 assert.ok(test.validateRuntimePatch({
   image: { mode: "not-supported" }
@@ -51,12 +62,29 @@ assert.ok(test.validateRuntimePatch({
 assert.ok(test.validateRuntimePatch({
   video: { baseUrl: "javascript:alert(1)" }
 }).length > 0);
+assert.ok(test.validateRuntimePatch({
+  analysis: { timeoutMs: 4999 }
+}).length > 0);
+assert.ok(test.validateRuntimePatch({
+  analysis: { endpoint: "javascript:alert(1)" }
+}).length > 0);
 
 const merged = test.mergeRuntimeConfig(
-  { image: { model: "old-image" }, video: { resolution: "480p" } },
-  { image: { model: "new-image" }, video: { timeoutMs: 120000 } }
+  {
+    face: { model: "face-model" },
+    analysis: { model: "old-analysis" },
+    image: { model: "old-image" },
+    video: { resolution: "480p" }
+  },
+  {
+    analysis: { model: "new-analysis" },
+    image: { model: "new-image" },
+    video: { timeoutMs: 120000 }
+  }
 );
 assert.strictEqual(merged.image.model, "new-image");
+assert.strictEqual(merged.face.model, "face-model");
+assert.strictEqual(merged.analysis.model, "new-analysis");
 assert.strictEqual(merged.video.resolution, "480p");
 assert.strictEqual(merged.video.timeoutMs, 120000);
 
@@ -75,10 +103,15 @@ api.main({
   assert.strictEqual(result.ok, true);
   assert.strictEqual(result.admin, true);
   assert.ok(result.effective.face.model);
+  assert.ok(result.effective.analysis.model);
   assert.ok(result.effective.image.model);
   assert.ok(result.effective.video.model);
   assert.strictEqual(
     Object.prototype.hasOwnProperty.call(result.effective.face, "apiKey"),
+    false
+  );
+  assert.strictEqual(
+    Object.prototype.hasOwnProperty.call(result.effective.analysis, "apiKey"),
     false
   );
   assert.strictEqual(

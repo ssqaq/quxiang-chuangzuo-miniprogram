@@ -67,6 +67,7 @@ const jsFiles = [
   "scripts/photo-to-video-smoke.js",
   "scripts/video-provider-smoke.js",
   "scripts/admin-config-smoke.js",
+  "scripts/analysis-model-smoke.js",
   "scripts/user-profile-smoke.js",
   "scripts/database-init-smoke.js",
   "scripts/points-checkin-smoke.js",
@@ -353,6 +354,7 @@ if (
   || !cloudJs.includes("getAutoFaceProbeHistory")
   || !cloudJs.includes("autoFaceProbeHistoryCutoff")
   || !adminWxml.includes("生图模型")
+  || !adminWxml.includes("图片分析模型")
   || !adminWxml.includes("人脸识别模型")
   || !adminWxml.includes("视频模型")
   || !adminWxml.includes("检查线上部署")
@@ -381,8 +383,11 @@ if (
   !adminWxml.includes("线上运行状态")
   || !adminWxml.includes("模型、积分与成本配置")
   || !adminWxml.includes("更多监控与历史")
-  || (adminWxml.match(/class="quick-launch /g) || []).length !== 6
+  || (adminWxml.match(/class="quick-launch /g) || []).length !== 7
   || adminWxml.indexOf("quick-face") > adminWxml.indexOf("quick-image")
+  || adminWxml.indexOf("quick-face") > adminWxml.indexOf("quick-analysis")
+  || adminWxml.indexOf("quick-analysis") > adminWxml.indexOf("quick-image")
+  || adminWxml.indexOf("quick-image") > adminWxml.indexOf("quick-video")
   || adminWxml.indexOf("quick-costs") > adminWxml.indexOf("quick-users")
   || !adminWxss.includes("grid-template-columns: repeat(4, minmax(0, 1fr))")
   || adminWxml.includes('class="console-back"') && adminWxml.includes("<button class=\"console-back\"")
@@ -414,7 +419,7 @@ if (
   || !/align-items:\s*center/.test(adminFaceProbeSummaryStyle[1])
   || !/justify-content:\s*center/.test(adminFaceProbeSummaryStyle[1])
 ) {
-  throw new Error("方案9管理页六入口四列、全宽卡片或统计内容居中样式不完整。");
+  throw new Error("管理页七入口四列、图片分析独立配置或统计内容居中样式不完整。");
 }
 if (
   !appJson.pages.includes("pages/profile/profile")
@@ -453,6 +458,8 @@ if (
 }
 if (
   !adminJs.includes("face: {")
+  || !adminJs.includes("analysis: {")
+  || !adminJs.includes("buildAnalysisConfigSummary")
   || !adminJs.includes("buildCostTrend")
   || !adminJs.includes("formatUserStats")
   || !adminJs.includes("exportUserStats")
@@ -489,8 +496,13 @@ if (
   || !cloudJs.includes("video.create")
   || !cloudJs.includes("video.query")
   || !cloudJs.includes("aggregateModelUsageEvents")
+  || !cloudJs.includes('MODEL_USAGE_TYPES = ["image", "analysis", "face", "video"]')
+  || !cloudJs.includes("visionConfigForAction")
+  || !cloudJs.includes("resolveAnalysisConfig")
+  || !adminWxml.includes("图片 {{item.analysis.total}}")
+  || !adminWxml.includes("图片 {{item.byType.analysis.total}}")
 ) {
-  throw new Error("三类模型用量统计入口或统计规则不完整。");
+  throw new Error("四类模型用量统计入口或统计规则不完整。");
 }
 if (
   !clientCloudJs.includes("exportModelUsageStats")
@@ -509,6 +521,7 @@ if (
   || !cloudJs.includes("userHash")
   || !cloudJs.includes("shiftMonthKey")
   || !cloudJs.includes("MODEL_COST_CONFIG_VERSION")
+  || !cloudJs.includes("analysis.estimatedCost")
 ) {
   throw new Error("模型成本、按用户/模型、月度统计或 Excel 导出功能不完整。");
 }
@@ -1388,7 +1401,7 @@ if (
 }
 if (
   !cloudJs.includes('action === "analyzeWebPoses"')
-  || !cloudJs.includes("async function analyzeWebPoses(event)")
+  || !cloudJs.includes("async function analyzeWebPoses(event, context)")
   || !cloudJs.includes("normalizeWebPoseSuggestions")
   || !webPoseJs.includes("【网感姿势授权开始】")
 ) {

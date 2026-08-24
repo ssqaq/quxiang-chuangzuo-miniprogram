@@ -11,6 +11,13 @@ function emptyForm() {
       model: "",
       timeoutMs: "30000"
     },
+    analysis: {
+      provider: "",
+      baseUrl: "",
+      endpoint: "",
+      model: "",
+      timeoutMs: "30000"
+    },
     image: {
       provider: "",
       baseUrl: "",
@@ -60,13 +67,22 @@ function emptyForm() {
 }
 
 const USAGE_TYPE_META = [
-  { key: "image", title: "生图模型", icon: "图" },
   { key: "face", title: "人脸识别", icon: "脸" },
+  { key: "analysis", title: "图片分析", icon: "图" },
+  { key: "image", title: "生图模型", icon: "生" },
   { key: "video", title: "视频模型", icon: "视" }
 ];
 
+// 控制台首页只展示到小数点后 4 位，底层统计金额仍保留原值。
+function formatCostDisplay(value) {
+  const amount = Math.max(0, Number(value) || 0);
+  const truncated = Math.floor(amount * 10000) / 10000;
+  return truncated.toFixed(4).replace(/\.?(0+)$/, "");
+}
+
 const CONFIG_SECTION_TITLES = Object.freeze({
   face: "人脸识别模型",
+  analysis: "图片分析模型",
   image: "生图模型",
   video: "视频模型",
   points: "签到与积分规则",
@@ -96,6 +112,7 @@ function emptyUsageCounter() {
     success: 0,
     failure: 0,
     estimatedCost: 0,
+    estimatedCostDisplay: "0",
     pricedCost: 0,
     unavailableCostCount: 0,
     inputTokens: 0,
@@ -135,6 +152,7 @@ function emptyUsageStats() {
     last30d: emptyUsageCounter(),
     summary: {
       image: emptyUsageCounter(),
+      analysis: emptyUsageCounter(),
       face: emptyUsageCounter(),
       video: emptyUsageCounter()
     },
@@ -236,6 +254,84 @@ function emptyCostTrend() {
     totalCost: 0,
     hasCost: false
   };
+}
+
+const ADMIN_MODULE_KEYS = [
+  "usage",
+  "users",
+  "autoFaceFailure",
+  "probeHistory",
+  "logs"
+];
+
+function moduleStateLabel(status) {
+  if (status === "loading") return "读取中";
+  if (status === "ready") return "已读取";
+  if (status === "failed") return "读取失败";
+  return "未读取";
+}
+
+function createModuleState(status = "idle", hasData = false, message = "") {
+  return {
+    status,
+    label: moduleStateLabel(status),
+    hasData: Boolean(hasData),
+    message: message || ""
+  };
+}
+
+function emptyAdminModuleStates(status = "idle") {
+  return ADMIN_MODULE_KEYS.reduce((result, key) => {
+    result[key] = createModuleState(status);
+    return result;
+  }, {});
+}
+
+function loadingAdminModuleStates(previous = {}) {
+  return ADMIN_MODULE_KEYS.reduce((result, key) => {
+    const previousState = previous[key] || {};
+    result[key] = createModuleState(
+      "loading",
+      Boolean(previousState.hasData),
+      previousState.message || ""
+    );
+    return result;
+  }, {});
+}
+
+function updateAdminModuleState(states, key, status, hasData, message = "") {
+  const previous = states && states[key] ? states[key] : createModuleState();
+  return Object.assign({}, states || {}, {
+    [key]: createModuleState(
+      status,
+      hasData === undefined ? previous.hasData : hasData,
+      message
+    )
+  });
+}
+
+function withTimeout(promise, timeoutMs, label) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      const error = new Error(`${label}超过${Math.round(timeoutMs / 1000)}秒未返回`);
+      error.code = "ADMIN_LOAD_TIMEOUT";
+      reject(error);
+    }, timeoutMs);
+    Promise.resolve(promise).then((value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(value);
+    }).catch((error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(error);
+    });
+  });
 }
 
 function formatAdminDate(value) {
@@ -393,12 +489,16 @@ function buildDashboardStatus(
   autoFaceProbeHistory
 ) {
   const face = effective && effective.face || {};
+  const analysis = effective && effective.analysis || {};
   const image = effective && effective.image || {};
   const video = effective && effective.video || {};
   const configReady = Boolean(
     face.apiKeyConfigured
     && face.provider
     && face.model
+    && analysis.apiKeyConfigured
+    && analysis.provider
+    && analysis.model
     && image.apiKeyConfigured
     && image.provider
     && image.model
@@ -486,6 +586,27 @@ function buildFaceConfigSummary(
   };
 }
 
+function emptyAnalysisConfigSummary() {
+  return {
+    provider: "未读取",
+    model: "未读取",
+    ready: false
+  };
+}
+
+function buildAnalysisConfigSummary(effective) {
+  const analysis = effective && effective.analysis || {};
+  return {
+    provider: analysis.provider || "未读取",
+    model: analysis.model || "未读取",
+    ready: Boolean(
+      analysis.apiKeyConfigured
+      && analysis.provider
+      && analysis.model
+    )
+  };
+}
+
 function formatUsageStats(result) {
   const source = result || {};
   const summary = source.summary || {};
@@ -517,6 +638,7 @@ function formatUsageStats(result) {
     totalTokens: Number(item.totalTokens) || 0,
     videoDurationSeconds: Number(item.videoDurationSeconds) || 0,
     image: Object.assign(emptyUsageCounter(), item.image || {}),
+    analysis: Object.assign(emptyUsageCounter(), item.analysis || {}),
     face: Object.assign(emptyUsageCounter(), item.face || {}),
     video: Object.assign(emptyUsageCounter(), item.video || {})
   }));
@@ -533,6 +655,7 @@ function formatUsageStats(result) {
     totalTokens: Number(item.totalTokens) || 0,
     videoDurationSeconds: Number(item.videoDurationSeconds) || 0,
     image: Object.assign(emptyUsageCounter(), item.image || {}),
+    analysis: Object.assign(emptyUsageCounter(), item.analysis || {}),
     face: Object.assign(emptyUsageCounter(), item.face || {}),
     video: Object.assign(emptyUsageCounter(), item.video || {})
   }));
@@ -599,7 +722,9 @@ function formatUsageStats(result) {
     }))
   });
   return Object.assign(emptyUsageStats(), source, {
-    today: Object.assign(emptyUsageCounter(), source.today || {}),
+    today: Object.assign(emptyUsageCounter(), source.today || {}, {
+      estimatedCostDisplay: formatCostDisplay(source.today && source.today.estimatedCost)
+    }),
     last7d: Object.assign(emptyUsageCounter(), source.last7d || {}),
     last30d: Object.assign(emptyUsageCounter(), source.last30d || {}),
     cards,
@@ -685,11 +810,13 @@ function buildEntryHealth(
   autoFaceProbe,
   autoFaceProbeHistory,
   autoFaceFailureStats,
-  userStats
+  userStats,
+  moduleStates
 ) {
   const configs = effective || {};
   const usage = usageStats || emptyUsageStats();
   const today = usage.today || emptyUsageCounter();
+  const states = moduleStates || emptyAdminModuleStates("ready");
   const currentProbe = autoFaceProbe || emptyAutoFaceProbe();
   const history = autoFaceProbeHistory && Array.isArray(autoFaceProbeHistory.history)
     ? autoFaceProbeHistory.history
@@ -702,6 +829,12 @@ function buildEntryHealth(
     return Boolean(value.apiKeyConfigured && value.provider && value.model);
   };
   const failureFor = (section) => Number(today[section] && today[section].failure) || 0;
+  const stateLabel = (key, normalLabel = "正常") => {
+    const state = states[key] || createModuleState("ready", true);
+    if (state.status === "loading") return "读取中";
+    if (state.status === "failed") return "读取失败";
+    return normalLabel;
+  };
   const faceAbnormal = !configReady("face")
     || latestProbeStatus === "failed"
     || failureFor("face") > 0
@@ -710,6 +843,10 @@ function buildEntryHealth(
     face: {
       abnormal: faceAbnormal,
       label: faceAbnormal ? "异常" : "正常"
+    },
+    analysis: {
+      abnormal: !configReady("analysis") || failureFor("analysis") > 0,
+      label: !configReady("analysis") || failureFor("analysis") > 0 ? "异常" : "正常"
     },
     image: {
       abnormal: !configReady("image") || failureFor("image") > 0,
@@ -721,12 +858,14 @@ function buildEntryHealth(
     },
     points: { abnormal: false, label: "正常" },
     costs: {
-      abnormal: Boolean(usage.unavailable),
-      label: usage.unavailable ? "读取失败" : "正常"
+      abnormal: (states.usage && states.usage.status === "failed")
+        || Boolean(usage.unavailable),
+      label: stateLabel("usage")
     },
     users: {
-      abnormal: Boolean(userStats && userStats.unavailable),
-      label: userStats && userStats.unavailable ? "读取失败" : "正常"
+      abnormal: (states.users && states.users.status === "failed")
+        || Boolean(userStats && userStats.unavailable),
+      label: stateLabel("users")
     }
   };
 }
@@ -734,6 +873,7 @@ function buildEntryHealth(
 function formFromConfig(result) {
   const source = result && result.effective ? result.effective : {};
   const face = source.face || {};
+  const analysis = source.analysis || {};
   const image = source.image || {};
   const video = source.video || {};
   const points = source.points || {};
@@ -748,6 +888,13 @@ function formFromConfig(result) {
       endpoint: face.endpoint || "",
       model: face.model || "",
       timeoutMs: String(face.timeoutMs || 30000)
+    },
+    analysis: {
+      provider: analysis.provider || "",
+      baseUrl: analysis.baseUrl || "",
+      endpoint: analysis.endpoint || "",
+      model: analysis.model || "",
+      timeoutMs: String(analysis.timeoutMs || 30000)
     },
     image: {
       provider: image.provider || "",
@@ -805,6 +952,13 @@ function formToConfig(form) {
       endpoint: String(form.face.endpoint || "").trim(),
       model: String(form.face.model || "").trim(),
       timeoutMs: Number(form.face.timeoutMs || 0)
+    },
+    analysis: {
+      provider: String(form.analysis.provider || "").trim(),
+      baseUrl: String(form.analysis.baseUrl || "").trim(),
+      endpoint: String(form.analysis.endpoint || "").trim(),
+      model: String(form.analysis.model || "").trim(),
+      timeoutMs: Number(form.analysis.timeoutMs || 0)
     },
     image: {
       provider: String(form.image.provider || "").trim(),
@@ -875,6 +1029,7 @@ function displayLog(item) {
       : "未知时间",
     statusText: value.ok ? "检查通过" : "需要处理",
     faceText: value.face && value.face.ready ? "人脸可用" : "人脸未就绪",
+    analysisText: value.analysis && value.analysis.ready ? "图片分析可用" : "图片分析未就绪",
     imageText: value.image && value.image.ready ? "生图可用" : "生图未就绪",
     videoText: value.video && value.video.ready ? "视频可用" : "视频未就绪"
   });
@@ -943,8 +1098,11 @@ Page({
     autoFaceFailureStats: emptyAutoFaceFailureStats(),
     autoFaceProbe: emptyAutoFaceProbe(),
     autoFaceProbeHistory: emptyAutoFaceProbeHistory(),
+    moduleStates: emptyAdminModuleStates(),
+    probeHistoryLoading: false,
     dashboardStatus: emptyDashboardStatus(),
     faceConfigSummary: emptyFaceConfigSummary(),
+    analysisConfigSummary: emptyAnalysisConfigSummary(),
     entryHealth: buildEntryHealth(),
     activeConfigSection: "",
     activeConfigTitle: "",
@@ -952,23 +1110,240 @@ Page({
   },
 
   onLoad() {
+    this._adminLoadToken = 0;
     this.loadAdminPage();
+  },
+
+  onUnload() {
+    this._adminLoadToken = (this._adminLoadToken || 0) + 1;
   },
 
   onPullDownRefresh() {
     this.loadAdminPage().finally(() => wx.stopPullDownRefresh());
   },
 
+  isCurrentAdminLoad(token) {
+    return token === this._adminLoadToken;
+  },
+
+  buildAdminDerivedPatch(overrides = {}, moduleStates = this.data.moduleStates) {
+    const hasOwnValue = (key) => Object.prototype.hasOwnProperty.call(overrides, key);
+    const effective = hasOwnValue("effective") ? overrides.effective : this.data.effective;
+    const usageStats = hasOwnValue("usageStats") ? overrides.usageStats : this.data.usageStats;
+    const autoFaceProbe = hasOwnValue("autoFaceProbe")
+      ? overrides.autoFaceProbe
+      : this.data.autoFaceProbe;
+    const autoFaceProbeHistory = hasOwnValue("autoFaceProbeHistory")
+      ? overrides.autoFaceProbeHistory
+      : this.data.autoFaceProbeHistory;
+    const autoFaceFailureStats = hasOwnValue("autoFaceFailureStats")
+      ? overrides.autoFaceFailureStats
+      : this.data.autoFaceFailureStats;
+    const userStats = hasOwnValue("userStats") ? overrides.userStats : this.data.userStats;
+    return {
+      dashboardStatus: buildDashboardStatus(
+        effective,
+        usageStats,
+        autoFaceProbe,
+        autoFaceProbeHistory
+      ),
+      faceConfigSummary: buildFaceConfigSummary(
+        effective,
+        autoFaceProbe,
+        autoFaceProbeHistory
+      ),
+      analysisConfigSummary: buildAnalysisConfigSummary(effective),
+      entryHealth: buildEntryHealth(
+        effective,
+        usageStats,
+        autoFaceProbe,
+        autoFaceProbeHistory,
+        autoFaceFailureStats,
+        userStats,
+        moduleStates
+      )
+    };
+  },
+
+  async loadAdminModule(
+    token,
+    key,
+    task,
+    formatter,
+    applyResult,
+    options = {}
+  ) {
+    if (!this.isCurrentAdminLoad(token) || !this.data.isAdmin) {
+      return { ok: false, stale: true };
+    }
+    const currentStates = this.data.moduleStates || emptyAdminModuleStates();
+    const loadingStates = updateAdminModuleState(
+      currentStates,
+      key,
+      "loading",
+      undefined,
+      ""
+    );
+    const loadingPatch = {
+      moduleStates: loadingStates
+    };
+    if (options.loadingKey) loadingPatch[options.loadingKey] = true;
+    this.setData(Object.assign(
+      loadingPatch,
+      this.buildAdminDerivedPatch({}, loadingStates)
+    ));
+    const label = options.label || key;
+    const timeoutMs = Number(options.timeoutMs) || 12000;
+    try {
+      const rawResult = await withTimeout(task(), timeoutMs, label);
+      if (!this.isCurrentAdminLoad(token) || !this.data.isAdmin) {
+        return { ok: false, stale: true };
+      }
+      const formatted = formatter ? formatter(rawResult) : rawResult;
+      const unavailable = Boolean(formatted && formatted.unavailable);
+      const currentStates = this.data.moduleStates || emptyAdminModuleStates();
+      const previousState = currentStates[key] || createModuleState("loading");
+      const nextStates = updateAdminModuleState(
+        currentStates,
+        key,
+        unavailable ? "failed" : "ready",
+        unavailable ? previousState.hasData : true,
+        formatted && formatted.message
+      );
+      const patch = {};
+      if (!unavailable || !previousState.hasData) {
+        Object.assign(patch, applyResult(formatted));
+      }
+      if (options.loadingKey) patch[options.loadingKey] = false;
+      patch.moduleStates = nextStates;
+      Object.assign(patch, this.buildAdminDerivedPatch(patch, nextStates));
+      this.setData(patch);
+      if (unavailable) {
+        diagnosticLog.warn("admin", "module-load-unavailable", `${label}返回不可用状态`, {
+          error: formatted && formatted.message
+        });
+      } else {
+        diagnosticLog.info("admin", "module-loaded", `${label}读取完成`, {});
+      }
+      return { ok: !unavailable, value: formatted, unavailable };
+    } catch (error) {
+      if (!this.isCurrentAdminLoad(token) || !this.data.isAdmin) {
+        return { ok: false, stale: true, error };
+      }
+      const currentStates = this.data.moduleStates || emptyAdminModuleStates();
+      const previousState = currentStates[key] || createModuleState("loading");
+      const message = error && error.code === "ADMIN_LOAD_TIMEOUT"
+        ? `${label}读取超时，请点击刷新。`
+        : `${label}读取失败，请点击刷新。`;
+      const nextStates = updateAdminModuleState(
+        currentStates,
+        key,
+        "failed",
+        previousState.hasData,
+        message
+      );
+      const patch = {
+        moduleStates: nextStates
+      };
+      if (options.loadingKey) patch[options.loadingKey] = false;
+      Object.assign(patch, this.buildAdminDerivedPatch({}, nextStates));
+      this.setData(patch);
+      diagnosticLog.warn("admin", "module-load-failed", `${label}读取失败`, { error });
+      return { ok: false, error };
+    }
+  },
+
+  loadAdminBackground(token) {
+    return Promise.all([
+      this.loadAdminModule(
+        token,
+        "usage",
+        () => cloud.getModelUsageStats(30),
+        formatUsageStats,
+        (usageStats) => ({
+          usageStats,
+          costTrend: buildCostTrend(usageStats)
+        }),
+        {
+          label: "模型用量和成本",
+          loadingKey: "usageLoading"
+        }
+      ),
+      this.loadAdminModule(
+        token,
+        "users",
+        () => cloud.getAdminUserStats(0, 20),
+        formatUserStats,
+        (userStats) => ({ userStats }),
+        {
+          label: "用户统计",
+          loadingKey: "userStatsLoading"
+        }
+      ),
+      this.loadAdminModule(
+        token,
+        "autoFaceFailure",
+        () => cloud.getAutoFaceFailureStats(),
+        formatAutoFaceFailureStats,
+        (autoFaceFailureStats) => ({ autoFaceFailureStats }),
+        {
+          label: "自动贴脸失败统计",
+          loadingKey: "autoFaceFailureLoading"
+        }
+      ),
+      this.loadAdminModule(
+        token,
+        "probeHistory",
+        () => cloud.getAutoFaceProbeHistory(),
+        formatAutoFaceProbeHistory,
+        (autoFaceProbeHistory) => ({ autoFaceProbeHistory }),
+        {
+          label: "探针历史",
+          loadingKey: "probeHistoryLoading"
+        }
+      ),
+      this.loadAdminModule(
+        token,
+        "logs",
+        () => cloud.listDeploymentLogs(),
+        (result) => result || {},
+        (result) => ({
+          logs: (result.logs || []).map(displayLog)
+        }),
+        {
+          label: "部署日志"
+        }
+      )
+    ]);
+  },
+
   async loadAdminPage() {
+    const token = (this._adminLoadToken || 0) + 1;
+    this._adminLoadToken = token;
     if (!cloud.isCloudReady()) {
-      this.setData({ loading: false, message: "云端未连接，无法读取管理员配置。" });
+      this.setData({
+        loading: false,
+        isAdmin: false,
+        canRetry: true,
+        message: "云端未连接，无法读取管理员配置。"
+      });
       return;
     }
-    this.setData({ loading: true, message: "" });
+    this.setData({ loading: true, canRetry: false, message: "" });
     try {
-      const status = await cloud.getAdminStatus();
+      const status = await withTimeout(
+        cloud.getAdminStatus(),
+        8000,
+        "管理员权限"
+      );
+      if (!this.isCurrentAdminLoad(token)) return;
       if (!status || !status.isAdmin) {
-        this.setData({ loading: false, isAdmin: false, message: "当前账号没有管理员权限。" });
+        this.setData({
+          loading: false,
+          isAdmin: false,
+          canRetry: false,
+          message: "当前账号没有管理员权限。"
+        });
         wx.showModal({
           title: "无权访问",
           content: "当前微信账号不在管理员白名单中。",
@@ -977,101 +1352,40 @@ Page({
         });
         return;
       }
-      const [result, logs] = await Promise.all([
-        cloud.getAdminConfig(),
-        cloud.listDeploymentLogs()
-      ]);
-      let usageStats = emptyUsageStats();
-      try {
-        usageStats = formatUsageStats(await cloud.getModelUsageStats(30));
-      } catch (error) {
-        usageStats = Object.assign(usageStats, {
-          unavailable: true,
-          message: "用量统计暂时读取失败，请点击刷新。"
-        });
-        diagnosticLog.warn("admin", "usage-load-failed", "模型用量统计读取失败", { error });
-      }
-      let autoFaceFailureStats = emptyAutoFaceFailureStats();
-      try {
-        autoFaceFailureStats = formatAutoFaceFailureStats(
-          await cloud.getAutoFaceFailureStats()
-        );
-      } catch (error) {
-        autoFaceFailureStats = Object.assign(autoFaceFailureStats, {
-          unavailable: true,
-          message: "自动贴脸失败统计暂时读取失败，请点击刷新。"
-        });
-        diagnosticLog.warn(
-          "admin",
-          "auto-face-failure-load-failed",
-          "自动贴脸失败统计读取失败",
-          { error }
-        );
-      }
-      let autoFaceProbeHistory = emptyAutoFaceProbeHistory();
-      try {
-        autoFaceProbeHistory = formatAutoFaceProbeHistory(
-          await cloud.getAutoFaceProbeHistory()
-        );
-      } catch (error) {
-        autoFaceProbeHistory = Object.assign(autoFaceProbeHistory, {
-          unavailable: true,
-          message: "探针历史暂时读取失败，请点击刷新。"
-        });
-        diagnosticLog.warn("admin", "auto-face-probe-history-load-failed", "探针历史读取失败", {
-          error
-        });
-      }
-      let userStats = emptyUserStats();
-      try {
-        userStats = formatUserStats(await cloud.getAdminUserStats(0, 20));
-      } catch (error) {
-        userStats = Object.assign(userStats, {
-          unavailable: true,
-          message: "用户统计暂时读取失败，请点击刷新。"
-        });
-        diagnosticLog.warn("admin", "user-stats-load-failed", "用户统计读取失败", { error });
-      }
-      const effective = result.effective || null;
-      const autoFaceProbe = this.data.autoFaceProbe;
-      this.setData({
+      const result = await withTimeout(
+        cloud.getAdminConfig({ retryLimit: 1 }),
+        10000,
+        "管理员配置"
+      );
+      if (!this.isCurrentAdminLoad(token)) return;
+      const effective = result && result.effective ? result.effective : null;
+      const moduleStates = loadingAdminModuleStates(this.data.moduleStates);
+      const basePatch = {
         loading: false,
         isAdmin: true,
+        canRetry: false,
         form: formFromConfig(result),
         defaults: result.defaults || null,
         effective,
-        logs: (logs.logs || []).map(displayLog),
-        usageStats,
-        costTrend: buildCostTrend(usageStats),
-        userStats,
-        autoFaceFailureStats,
-        autoFaceProbeHistory,
-        dashboardStatus: buildDashboardStatus(
-          effective,
-          usageStats,
-          autoFaceProbe,
-          autoFaceProbeHistory
-        ),
-        faceConfigSummary: buildFaceConfigSummary(
-          effective,
-          autoFaceProbe,
-          autoFaceProbeHistory
-        ),
-        entryHealth: buildEntryHealth(
-          effective,
-          usageStats,
-          autoFaceProbe,
-          autoFaceProbeHistory,
-          autoFaceFailureStats,
-          userStats
-        ),
+        moduleStates,
         message: ""
-      });
+      };
+      Object.assign(basePatch, this.buildAdminDerivedPatch(basePatch, moduleStates));
+      this.setData(basePatch);
       diagnosticLog.info("admin", "config-loaded", "管理员配置读取完成", {
         runtimeConfigVersion: result.version || 0
       });
+      this.loadAdminBackground(token);
     } catch (error) {
-      this.setData({ loading: false, message: "管理员配置读取失败，请检查云函数部署和白名单。" });
+      if (!this.isCurrentAdminLoad(token)) return;
+      const message = error && error.code === "ADMIN_LOAD_TIMEOUT"
+        ? "管理员配置读取超时，请点击重新读取。"
+        : "管理员配置读取失败，请检查云函数部署和白名单。";
+      this.setData({
+        loading: false,
+        canRetry: true,
+        message
+      });
       diagnosticLog.error("admin", "config-load-failed", "管理员配置读取失败", { error });
     }
   },
@@ -1164,6 +1478,7 @@ Page({
           this.data.autoFaceProbe,
           autoFaceProbeHistory
         ),
+        analysisConfigSummary: buildAnalysisConfigSummary(this.data.effective),
         entryHealth: buildEntryHealth(
           this.data.effective,
           this.data.usageStats,
@@ -1339,6 +1654,7 @@ Page({
       this.data.autoFaceProbe,
       autoFaceProbeHistory
     );
+    patch.analysisConfigSummary = buildAnalysisConfigSummary(effective);
     patch.entryHealth = buildEntryHealth(
       effective,
       patch.usageStats || usageStats,
@@ -1476,6 +1792,7 @@ Page({
           this.data.autoFaceProbe,
           this.data.autoFaceProbeHistory
         ),
+        analysisConfigSummary: buildAnalysisConfigSummary(effective),
         entryHealth: buildEntryHealth(
           effective,
           this.data.usageStats,
@@ -1545,6 +1862,7 @@ Page({
           autoFaceProbe,
           autoFaceProbeHistory
         ),
+        analysisConfigSummary: buildAnalysisConfigSummary(this.data.effective),
         entryHealth: buildEntryHealth(
           this.data.effective,
           this.data.usageStats,

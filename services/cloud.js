@@ -623,8 +623,12 @@ module.exports = {
       silent: true
     });
   },
-  getAdminConfig() {
-    return callApi({ action: "getAdminConfig" });
+  getAdminConfig(options = {}) {
+    return callApi({
+      action: "getAdminConfig",
+      retryLimit: options.retryLimit,
+      silent: Boolean(options.silent)
+    });
   },
   getAdminUserStats(offset = 0, limit = 20) {
     return callApi({

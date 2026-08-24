@@ -62,6 +62,21 @@ const sourceEvents = [
     retryable: false
   },
   {
+    requestId: "failure-analysis-1",
+    usageType: "analysis",
+    action: "analyze",
+    provider: "vision-provider",
+    model: "analysis-model-a",
+    userHash: "user-b",
+    dateKey: "2026-08-21",
+    success: false,
+    status: 500,
+    errorCode: "provider-error",
+    errorMessage: "图片分析服务异常",
+    errorStatus: 500,
+    retryable: true
+  },
+  {
     requestId: "failure-4",
     usageType: "video",
     action: "video.create",
@@ -134,14 +149,14 @@ const sourceEvents = [
 const normalizedEvents = sourceEvents.map((item) => test.normalizeModelUsageEvent(item));
 const stats = test.aggregateModelUsageEvents(normalizedEvents, 30, baseDate);
 
-assert.strictEqual(stats.last30d.total, 8);
-assert.strictEqual(stats.last30d.failure, 7);
-assert.strictEqual(stats.failureStats.total, 7);
-assert.strictEqual(stats.failureStats.failureRate, 87.5);
+assert.strictEqual(stats.last30d.total, 9);
+assert.strictEqual(stats.last30d.failure, 8);
+assert.strictEqual(stats.failureStats.total, 8);
+assert.strictEqual(stats.failureStats.failureRate, 88.89);
 assert.strictEqual(stats.failureStats.topFailureReasons.length, 5);
 assert.strictEqual(stats.failureStats.topFailureReasons[0].code, "upstream-timeout");
 assert.strictEqual(stats.failureStats.topFailureReasons[0].count, 2);
-assert.strictEqual(stats.failureStats.failureDetails.length, 7);
+assert.strictEqual(stats.failureStats.failureDetails.length, 8);
 assert.strictEqual(stats.failureStats.failedModels[0].failure, 3);
 assert.ok(
   stats.failureStats.topFailureReasons.some((item) => item.label.includes("参数不正确")),

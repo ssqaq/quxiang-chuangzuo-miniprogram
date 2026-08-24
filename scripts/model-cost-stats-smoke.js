@@ -44,6 +44,22 @@ assert.strictEqual(imageBilling.billingSource, "estimated");
 assert.strictEqual(imageBilling.imageResolution, "2K");
 assert.strictEqual(imageBilling.estimatedCost, 0.025);
 
+const analysisBilling = test.buildUsageBilling(
+  { action: "analyze" },
+  {
+    json: {
+      usage: {
+        prompt_tokens: 1000000,
+        completion_tokens: 1000000,
+        total_tokens: 2000000
+      }
+    }
+  },
+  costs
+);
+assert.strictEqual(analysisBilling.billingSource, "actual");
+assert.strictEqual(analysisBilling.estimatedCost, 1.65);
+
 const videoBilling = test.buildUsageBilling(
   {
     action: "video.create",
@@ -59,6 +75,22 @@ assert.strictEqual(videoBilling.estimatedCost, 0.9);
 
 const baseDate = new Date("2026-08-23T12:00:00.000Z");
 const events = [
+  {
+    requestId: "analysis-1",
+    usageType: "analysis",
+    action: "analyze",
+    provider: "vision-provider",
+    model: "analysis-model",
+    userHash: "user-a",
+    dateKey: "2026-08-23",
+    success: true,
+    billingSource: "actual",
+    inputTokens: 1000000,
+    outputTokens: 1000000,
+    totalTokens: 2000000,
+    estimatedCost: 1.65,
+    costBreakdown: { inputCost: 0.15, outputCost: 1.5 }
+  },
   {
     requestId: "face-1",
     usageType: "face",
@@ -116,15 +148,16 @@ const events = [
 
 const normalized = events.map((item) => test.normalizeModelUsageEvent(item));
 const stats = test.aggregateModelUsageEvents(normalized, 30, baseDate);
-assert.strictEqual(stats.today.total, 2);
-assert.strictEqual(stats.today.estimatedCost, 3.175);
-assert.strictEqual(stats.last30d.total, 3);
+assert.strictEqual(stats.today.total, 3);
+assert.strictEqual(stats.today.estimatedCost, 4.825);
+assert.strictEqual(stats.last30d.total, 4);
+assert.strictEqual(stats.summary.analysis.total, 1);
 assert.strictEqual(stats.summary.face.total, 1);
 assert.strictEqual(stats.summary.image.total, 1);
 assert.strictEqual(stats.summary.video.total, 1);
 assert.strictEqual(stats.users[0].userHash, "user-a");
-assert.strictEqual(stats.users[0].total, 2);
-assert.strictEqual(stats.models.length, 3);
+assert.strictEqual(stats.users[0].total, 3);
+assert.strictEqual(stats.models.length, 4);
 assert.ok(stats.monthly.some((item) => item.monthKey === "2026-08"));
 assert.strictEqual(stats.daily[0].dateKey, "2026-08-23");
 assert.strictEqual(stats.daily[0].image.imageResolutions["2K"].count, 1);

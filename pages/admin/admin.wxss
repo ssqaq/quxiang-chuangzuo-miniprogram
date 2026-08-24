@@ -261,6 +261,11 @@ page {
   background: #eceffd;
 }
 
+.quick-analysis .quick-launch-icon {
+  color: #2f74b5;
+  background: #e8f4ff;
+}
+
 .quick-video .quick-launch-icon {
   color: #14815a;
   background: #e8f7f0;
@@ -831,6 +836,11 @@ page {
   background: #fbf9ff;
 }
 
+.usage-type-analysis {
+  border-color: #d7e7ff;
+  background: #f7fbff;
+}
+
 .usage-type-video {
   border-color: #d9eee7;
   background: #f7fcfa;
@@ -862,6 +872,11 @@ page {
 .usage-type-face .usage-type-icon {
   color: #7653bd;
   background: #eee8ff;
+}
+
+.usage-type-analysis .usage-type-icon {
+  color: #2f74b5;
+  background: #e8f4ff;
 }
 
 .usage-type-video .usage-type-icon {

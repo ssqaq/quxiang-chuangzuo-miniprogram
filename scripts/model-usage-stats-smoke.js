@@ -56,6 +56,22 @@ async function main() {
     assert.strictEqual(response.status, 503);
   });
 
+  await withServer(200, async (url) => {
+    const response = await cloud.__test.requestWithRetry(
+      url,
+      { method: "POST", headers: {} },
+      Buffer.from("analysis"),
+      {
+        requestId: "usage-analysis",
+        action: "analyze",
+        provider: "demo-analysis",
+        model: "demo-analysis-model",
+        allowRetry: false
+      }
+    );
+    assert.strictEqual(response.status, 200);
+  });
+
   await withServer(201, async (url) => {
     const response = await cloud.__test.requestWithRetry(
       url,
@@ -89,10 +105,10 @@ async function main() {
   });
 
   const events = cloud.__test.getModelUsageTestEvents();
-  assert.strictEqual(events.length, 3);
+  assert.strictEqual(events.length, 4);
   assert.deepStrictEqual(
     events.map((item) => item.usageType).sort(),
-    ["face", "image", "video"]
+    ["analysis", "face", "image", "video"]
   );
   assert.strictEqual(events.find((item) => item.usageType === "face").failure, undefined);
   assert.strictEqual(events.find((item) => item.usageType === "face").success, false);
@@ -103,11 +119,12 @@ async function main() {
     dateKey: "2026-08-23"
   }));
   const stats = cloud.__test.aggregateModelUsageEvents(normalizedEvents, 30, fixedDate);
-  assert.strictEqual(stats.today.total, 3);
-  assert.strictEqual(stats.today.success, 2);
+  assert.strictEqual(stats.today.total, 4);
+  assert.strictEqual(stats.today.success, 3);
   assert.strictEqual(stats.today.failure, 1);
   assert.strictEqual(stats.summary.image.total, 1);
   assert.strictEqual(stats.summary.face.failure, 1);
+  assert.strictEqual(stats.summary.analysis.success, 1);
   assert.strictEqual(stats.summary.video.success, 1);
   assert.strictEqual(stats.daily[0].dateKey, "2026-08-23");
 
@@ -123,7 +140,7 @@ async function main() {
     { OPENID: "stats-admin" }
   );
   assert.strictEqual(adminStats.ok, true);
-  assert.strictEqual(adminStats.last30d.total, 3);
+  assert.strictEqual(adminStats.last30d.total, 4);
   assert.strictEqual(adminStats.summary.video.total, 1);
 
   console.log("model usage stats smoke: OK");

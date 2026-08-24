@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.28.3";
-const API_BUILD_MARKER = "API_BUILD_TAG_20260824_BACKGROUND_REFERENCE_V283";
+const API_BUILD_VERSION = "0.28.4";
+const API_BUILD_MARKER = "API_BUILD_TAG_20260824_ANALYSIS_MODEL_V284";
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
 const cloud = require("wx-server-sdk");
@@ -21,7 +21,7 @@ const ADMIN_RUNTIME_CONFIG_ID = "global";
 const ADMIN_DEPLOYMENT_LOG_COLLECTION = "admin_deployment_logs";
 const MODEL_USAGE_EVENT_COLLECTION = "model_usage_events";
 const MODEL_USAGE_TIME_ZONE = "Asia/Shanghai";
-const MODEL_USAGE_TYPES = ["image", "face", "video"];
+const MODEL_USAGE_TYPES = ["image", "analysis", "face", "video"];
 const AUTO_FACE_FAILURE_LOG_COLLECTION = "auto_face_failure_logs";
 const AUTO_FACE_FAILURE_TIME_ZONE = "Asia/Shanghai";
 const AUTO_FACE_PROBE_LOG_COLLECTION = "auto_face_probe_logs";
@@ -164,6 +164,35 @@ function resolveFaceConfig(overrides = {}) {
     ),
     maxImageBytes: vision.maxImageBytes
   };
+}
+
+function resolveAnalysisConfig(overrides = {}) {
+  const source = overrides && overrides.analysis ? overrides.analysis : overrides;
+  const vision = resolveVisionConfig();
+  return {
+    provider: overrideString(source, "provider", vision.provider),
+    baseUrl: overrideString(source, "baseUrl", vision.baseUrl),
+    endpoint: overrideString(source, "endpoint", vision.endpoint),
+    apiKey: vision.apiKey,
+    model: overrideString(source, "model", vision.model || "qwen3-vl-flash"),
+    timeoutMs: clampNumber(
+      hasOwn(source, "timeoutMs") ? source.timeoutMs : vision.timeoutMs,
+      vision.timeoutMs,
+      5000,
+      60000
+    ),
+    maxImageBytes: vision.maxImageBytes
+  };
+}
+
+function visionConfigForAction(action, configs = {}) {
+  if (action === "analyze" || action === "analyzeWebPoses") {
+    return configs.analysis || resolveAnalysisConfig();
+  }
+  if (action === "detectFaceCircle") {
+    return configs.face || resolveFaceConfig();
+  }
+  return configs.vision || resolveVisionConfig();
 }
 
 function buildAutoFaceProbe(faceConfig) {
@@ -515,7 +544,7 @@ function buildUsageBilling(meta = {}, response = {}, costs = resolveCostConfig()
     costBreakdown: {},
     costConfigVersion: costs.version
   };
-  if (usageType === "face") {
+  if (usageType === "face" || usageType === "analysis") {
     const usage = extractModelUsage(payload);
     if (usage.inputTokens === null || usage.outputTokens === null) return base;
     const inputCost = roundCost(
@@ -819,6 +848,7 @@ let autoFaceFailureCleanupPromise = null;
 
 function modelUsageTypeForAction(action) {
   if (action === "generate") return "image";
+  if (action === "analyze" || action === "analyzeWebPoses") return "analysis";
   if (action === "detectFaceCircle") return "face";
   if (action === "video.create") return "video";
   return "";
@@ -1732,6 +1762,7 @@ function emptyUsageCounters() {
 function createUsageTypeMap() {
   return {
     image: emptyUsageCounters(),
+    analysis: emptyUsageCounters(),
     face: emptyUsageCounters(),
     video: emptyUsageCounters()
   };
@@ -2499,6 +2530,9 @@ function hasOwn(object, key) {
 function normalizeRuntimePatch(input = {}) {
   const source = input && typeof input === "object" ? input : {};
   const faceSource = source.face && typeof source.face === "object" ? source.face : {};
+  const analysisSource = source.analysis && typeof source.analysis === "object"
+    ? source.analysis
+    : {};
   const imageSource = source.image && typeof source.image === "object" ? source.image : {};
   const videoSource = source.video && typeof source.video === "object" ? source.video : {};
   const pointsSource = source.points && typeof source.points === "object" ? source.points : {};
@@ -2568,6 +2602,7 @@ function normalizeRuntimePatch(input = {}) {
     "defaultDurationSeconds"
   ];
   const faceConfig = {};
+  const analysis = {};
   const image = {};
   const video = {};
   const points = {};
@@ -2577,6 +2612,9 @@ function normalizeRuntimePatch(input = {}) {
   const videoPricing = {};
   faceKeys.forEach((key) => {
     if (hasOwn(faceSource, key)) faceConfig[key] = faceSource[key];
+  });
+  faceKeys.forEach((key) => {
+    if (hasOwn(analysisSource, key)) analysis[key] = analysisSource[key];
   });
   imageKeys.forEach((key) => {
     if (hasOwn(imageSource, key)) image[key] = imageSource[key];
@@ -2616,7 +2654,7 @@ function normalizeRuntimePatch(input = {}) {
   if (Object.keys(face).length) costs.face = face;
   if (Object.keys(imagePricing).length) costs.image = imagePricing;
   if (Object.keys(videoPricing).length) costs.video = videoPricing;
-  return { face: faceConfig, image, video, points, costs };
+  return { face: faceConfig, analysis, image, video, points, costs };
 }
 
 function isValidHttpUrl(value) {
@@ -2638,6 +2676,7 @@ function isValidEndpointOrPath(value) {
 function validateRuntimePatch(patch) {
   const errors = [];
   const face = patch.face || {};
+  const analysis = patch.analysis || {};
   const image = patch.image || {};
   const video = patch.video || {};
   const points = patch.points || {};
@@ -2648,6 +2687,8 @@ function validateRuntimePatch(patch) {
   [
     ["face.baseUrl", face.baseUrl],
     ["face.endpoint", face.endpoint],
+    ["analysis.baseUrl", analysis.baseUrl],
+    ["analysis.endpoint", analysis.endpoint],
     ["image.baseUrl", image.baseUrl],
     ["image.endpoint", image.endpoint],
     ["video.baseUrl", video.baseUrl],
@@ -2675,6 +2716,14 @@ function validateRuntimePatch(patch) {
   ) {
     errors.push("face.timeoutMs 必须在 5000～60000 之间");
   }
+  if (
+    analysis.timeoutMs !== undefined
+    && (!Number.isFinite(Number(analysis.timeoutMs))
+      || Number(analysis.timeoutMs) < 5000
+      || Number(analysis.timeoutMs) > 60000)
+  ) {
+    errors.push("analysis.timeoutMs 必须在 5000～60000 之间");
+  }
   if (image.timeoutMs !== undefined && (!Number.isFinite(Number(image.timeoutMs)) || Number(image.timeoutMs) < 5000 || Number(image.timeoutMs) > 120000)) {
     errors.push("image.timeoutMs 必须在 5000～120000 之间");
   }
@@ -2687,6 +2736,8 @@ function validateRuntimePatch(patch) {
   [
     ["face.provider", face.provider],
     ["face.model", face.model],
+    ["analysis.provider", analysis.provider],
+    ["analysis.model", analysis.model],
     ["image.provider", image.provider],
     ["image.model", image.model],
     ["image.size", image.size],
@@ -2774,6 +2825,7 @@ function mergeRuntimeConfig(current, patch) {
   const patchCosts = patch.costs || {};
   return {
     face: Object.assign({}, existing.face || {}, patch.face || {}),
+    analysis: Object.assign({}, existing.analysis || {}, patch.analysis || {}),
     image: Object.assign({}, existing.image || {}, patch.image || {}),
     video: Object.assign({}, existing.video || {}, patch.video || {}),
     points: Object.assign({}, existing.points || {}, patch.points || {}),
@@ -2799,6 +2851,7 @@ function mergeRuntimeConfig(current, patch) {
 
 function redactConfig(config, defaults) {
   const face = config.face || {};
+  const analysis = config.analysis || {};
   const image = config.image || {};
   const video = config.video || {};
   const points = config.points || {};
@@ -2811,6 +2864,14 @@ function redactConfig(config, defaults) {
       model: face.faceModel || face.model || "",
       timeoutMs: Number(face.timeoutMs || 0),
       apiKeyConfigured: Boolean(defaults.face && defaults.face.apiKey)
+    },
+    analysis: {
+      provider: analysis.provider || "",
+      baseUrl: analysis.baseUrl || "",
+      endpoint: analysis.endpoint || "",
+      model: analysis.model || "",
+      timeoutMs: Number(analysis.timeoutMs || 0),
+      apiKeyConfigured: Boolean(defaults.analysis && defaults.analysis.apiKey)
     },
     image: {
       provider: image.provider || "",
@@ -2905,8 +2966,16 @@ async function loadAdminRuntimeConfig(force = false) {
 async function resolveEffectiveConfigs() {
   const runtime = await loadAdminRuntimeConfig();
   return {
-    runtime: runtime || { face: {}, image: {}, video: {}, points: {}, costs: {} },
+    runtime: runtime || {
+      face: {},
+      analysis: {},
+      image: {},
+      video: {},
+      points: {},
+      costs: {}
+    },
     face: resolveFaceConfig(runtime && runtime.face),
+    analysis: resolveAnalysisConfig(runtime && runtime.analysis),
     image: resolveImageConfig(runtime && runtime.image),
     video: resolveVideoConfig(runtime && runtime.video),
     points: resolvePointsConfig(runtime && runtime.points),
@@ -2916,20 +2985,30 @@ async function resolveEffectiveConfigs() {
 
 function adminConfigView(configs, runtime, metadata = {}) {
   const faceDefaults = resolveFaceConfig();
+  const analysisDefaults = resolveAnalysisConfig();
   const imageDefaults = resolveImageConfig();
   const videoDefaults = resolveVideoConfig();
   const pointDefaults = resolvePointsConfig();
   const costDefaults = resolveCostConfig();
-  const overrides = runtime || { face: {}, image: {}, video: {}, points: {}, costs: {} };
+  const overrides = runtime || {
+    face: {},
+    analysis: {},
+    image: {},
+    video: {},
+    points: {},
+    costs: {}
+  };
   return {
     defaults: redactConfig({
       face: faceDefaults,
+      analysis: analysisDefaults,
       image: imageDefaults,
       video: videoDefaults,
       points: pointDefaults,
       costs: costDefaults
     }, {
       face: faceDefaults,
+      analysis: analysisDefaults,
       image: imageDefaults,
       video: videoDefaults,
       points: pointDefaults,
@@ -2937,6 +3016,7 @@ function adminConfigView(configs, runtime, metadata = {}) {
     }),
     overrides: redactConfig(overrides, {
       face: faceDefaults,
+      analysis: analysisDefaults,
       image: imageDefaults,
       video: videoDefaults,
       points: pointDefaults,
@@ -2944,12 +3024,14 @@ function adminConfigView(configs, runtime, metadata = {}) {
     }),
     effective: redactConfig({
       face: configs.face,
+      analysis: configs.analysis,
       image: configs.image,
       video: configs.video,
       points: configs.points,
       costs: configs.costs
     }, {
       face: configs.face,
+      analysis: configs.analysis,
       image: configs.image,
       video: configs.video,
       points: configs.points,
@@ -3119,6 +3201,7 @@ async function saveAdminConfig(event, context) {
   const data = {
     _id: ADMIN_RUNTIME_CONFIG_ID,
     face: next.face,
+    analysis: next.analysis,
     image: next.image,
     video: next.video,
     points: next.points,
@@ -3134,6 +3217,7 @@ async function saveAdminConfig(event, context) {
   adminRuntimeCache = {
     value: {
       face: next.face,
+      analysis: next.analysis,
       image: next.image,
       video: next.video,
       points: next.points,
@@ -3145,6 +3229,7 @@ async function saveAdminConfig(event, context) {
     updatedBy: getOpenId(context),
     version: data.version,
     faceFields: Object.keys(patch.face),
+    analysisFields: Object.keys(patch.analysis),
     imageFields: Object.keys(patch.image),
     videoFields: Object.keys(patch.video),
     pointsFields: Object.keys(patch.points),
@@ -3185,6 +3270,11 @@ async function checkDeployment(event, context) {
     (configs.image.baseUrl || configs.image.endpoint) &&
     configs.image.model
   );
+  const analysisReady = Boolean(
+    configs.analysis.apiKey
+    && (configs.analysis.baseUrl || configs.analysis.endpoint)
+    && configs.analysis.model
+  );
   const videoReady = Boolean(configs.video.configured);
   const result = {
     buildVersion: API_BUILD_VERSION,
@@ -3195,6 +3285,12 @@ async function checkDeployment(event, context) {
       provider: configs.face.provider || "",
       model: configs.face.model || "",
       apiKeyConfigured: Boolean(configs.face.apiKey)
+    },
+    analysis: {
+      ready: analysisReady,
+      provider: configs.analysis.provider || "",
+      model: configs.analysis.model || "",
+      apiKeyConfigured: Boolean(configs.analysis.apiKey)
     },
     image: {
       ready: imageReady,
@@ -3216,7 +3312,7 @@ async function checkDeployment(event, context) {
   };
   const logWritten = await writeDeploymentLog(Object.assign({}, result, {
     requestId: event.requestId,
-    ok: faceReady || imageReady || videoReady,
+    ok: faceReady || analysisReady || imageReady || videoReady,
     checkedBy: getOpenId(context)
   }));
   return jsonResponse(true, Object.assign(result, {
@@ -3346,6 +3442,7 @@ function buildModelUsageExportWorkbook(stats = {}) {
     "成功",
     "失败",
     "预计成本（元）",
+    "图片分析成本（元）",
     "人脸成本（元）",
     "生图成本（元）",
     "视频成本（元）",
@@ -3363,6 +3460,7 @@ function buildModelUsageExportWorkbook(stats = {}) {
   ]];
   (Array.isArray(stats.daily) ? stats.daily : []).forEach((item) => {
     const image = item.image || {};
+    const analysis = item.analysis || {};
     const face = item.face || {};
     const video = item.video || {};
     const imageResolutions = item.imageResolutions || image.imageResolutions || {};
@@ -3373,6 +3471,7 @@ function buildModelUsageExportWorkbook(stats = {}) {
       Number(item.success) || 0,
       Number(item.failure) || 0,
       formatExportNumber(item.estimatedCost),
+      formatExportNumber(analysis.estimatedCost),
       formatExportNumber(face.estimatedCost),
       formatExportNumber(image.estimatedCost),
       formatExportNumber(video.estimatedCost),
@@ -3457,6 +3556,7 @@ function buildModelUsageExportWorkbook(stats = {}) {
     "成功",
     "失败",
     "预计成本（元）",
+    "图片分析成本（元）",
     "人脸成本（元）",
     "生图成本（元）",
     "视频成本（元）",
@@ -3471,6 +3571,7 @@ function buildModelUsageExportWorkbook(stats = {}) {
       Number(item.success) || 0,
       Number(item.failure) || 0,
       formatExportNumber(item.estimatedCost),
+      formatExportNumber(item.analysis && item.analysis.estimatedCost),
       formatExportNumber(item.face && item.face.estimatedCost),
       formatExportNumber(item.image && item.image.estimatedCost),
       formatExportNumber(item.video && item.video.estimatedCost),
@@ -3543,9 +3644,11 @@ async function exportModelUsageStats(event, context) {
   });
 }
 
-async function analyze(event) {
+async function analyze(event, context) {
   const payload = event.payload || {};
-  const vision = resolveVisionConfig();
+  const configs = await resolveEffectiveConfigs();
+  const vision = visionConfigForAction("analyze", configs);
+  const costs = configs.costs;
   if (!vision.apiKey) {
     return fail(
       "云函数还没有配置 AI_VISION_API_KEY（兼容 AI_API_KEY）。",
@@ -3578,7 +3681,10 @@ async function analyze(event) {
   try {
     response = await requestJson(url, Object.assign({}, requestPayload, {
       response_format: { type: "json_object" }
-    }), vision.apiKey, {}, visionRequestMeta(event.requestId, "analyze", vision));
+    }), vision.apiKey, {}, Object.assign(
+      visionRequestMeta(event.requestId, "analyze", vision, costs),
+      { userHash: usageUserHash(getOpenId(context)) }
+    ));
   } catch (error) {
     if (error.status !== 400) throw error;
     response = await requestJson(
@@ -3586,7 +3692,10 @@ async function analyze(event) {
       requestPayload,
       vision.apiKey,
       {},
-      visionRequestMeta(event.requestId, "analyze", vision)
+      Object.assign(
+        visionRequestMeta(event.requestId, "analyze", vision, costs),
+        { userHash: usageUserHash(getOpenId(context)) }
+      )
     );
   }
   const rawText = extractText(response);
@@ -3602,7 +3711,7 @@ async function detectFaceCircle(event, context) {
   const detectionStartedAt = Date.now();
   const payload = event.payload || {};
   const configs = await resolveEffectiveConfigs();
-  const vision = configs.face;
+  const vision = visionConfigForAction("detectFaceCircle", configs);
   const costs = configs.costs;
   if (!vision.apiKey) {
     return fail(
@@ -3861,9 +3970,11 @@ async function probeAutoFace(event, context) {
   }, probe));
 }
 
-async function analyzeWebPoses(event) {
+async function analyzeWebPoses(event, context) {
   const payload = event.payload || {};
-  const vision = resolveVisionConfig();
+  const configs = await resolveEffectiveConfigs();
+  const vision = visionConfigForAction("analyzeWebPoses", configs);
+  const costs = configs.costs;
   if (!vision.apiKey) {
     return fail(
       "云函数还没有配置 AI_VISION_API_KEY（兼容 AI_API_KEY）。",
@@ -3905,7 +4016,10 @@ async function analyzeWebPoses(event) {
   try {
     response = await requestJson(url, Object.assign({}, requestPayload, {
       response_format: { type: "json_object" }
-    }), vision.apiKey, {}, visionRequestMeta(event.requestId, "analyzeWebPoses", vision));
+    }), vision.apiKey, {}, Object.assign(
+      visionRequestMeta(event.requestId, "analyzeWebPoses", vision, costs),
+      { userHash: usageUserHash(getOpenId(context)) }
+    ));
   } catch (error) {
     if (error.status !== 400) throw error;
     response = await requestJson(
@@ -3913,7 +4027,10 @@ async function analyzeWebPoses(event) {
       requestPayload,
       vision.apiKey,
       {},
-      visionRequestMeta(event.requestId, "analyzeWebPoses", vision)
+      Object.assign(
+        visionRequestMeta(event.requestId, "analyzeWebPoses", vision, costs),
+        { userHash: usageUserHash(getOpenId(context)) }
+      )
     );
   }
   const rawText = extractText(response);
@@ -6603,6 +6720,8 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     invertMask,
     resolveVisionConfig,
     resolveFaceConfig,
+    resolveAnalysisConfig,
+    visionConfigForAction,
     resolveImageConfig,
     resolveEffectiveConfigs,
     assertVisionImageSize,

@@ -679,13 +679,87 @@
       aria-label="{{monitorExpanded ? '收起运行监控' : '展开运行监控'}}"
     >
       <view>
-        <view class="monitor-toggle-title">更多监控与历史</view>
-        <view class="monitor-toggle-subtitle">用户端日志、探针、接口耗时、失败统计、用量和部署日志</view>
+        <view class="monitor-toggle-title">运行监控</view>
+        <view class="monitor-toggle-subtitle">
+          {{deployment && deployment.face.ready && deployment.analysis.ready && deployment.image.ready && deployment.video.ready ? '部署检查通过' : '部署状态待确认'}}
+          · 自动贴脸失败 {{autoFaceFailureStats.total30d || 0}} 条
+          · 错误日志 {{diagnosticLogs.summary.errorCount || 0}} 条
+        </view>
       </view>
-      <text class="monitor-toggle-arrow">{{monitorExpanded ? '⌃' : '›'}}</text>
+      <view class="monitor-toggle-actions">
+        <view
+          class="monitor-all-button"
+          data-expanded="1"
+          catchtap="setAllMonitorSections"
+          hover-class="control-tap"
+          role="button"
+          aria-label="全部展开监控模块"
+        >全展开</view>
+        <view
+          class="monitor-all-button"
+          data-expanded="0"
+          catchtap="setAllMonitorSections"
+          hover-class="control-tap"
+          role="button"
+          aria-label="全部收起监控模块"
+        >全收起</view>
+        <text class="monitor-toggle-arrow">{{monitorExpanded ? '⌃' : '⌄'}}</text>
+      </view>
     </view>
 
     <view wx:if="{{monitorExpanded}}" class="monitor-content">
+      <view class="monitor-overview-card">
+        <view class="monitor-overview-main">
+          <view class="monitor-overview-kicker">系统运行概览</view>
+          <view class="monitor-overview-title">{{dashboardStatus.title}}</view>
+          <view class="monitor-overview-note">
+            部署检查通过；自动贴脸有 {{autoFaceFailureStats.total30d || 0}} 条失败待查看。
+          </view>
+        </view>
+        <view class="monitor-overview-stats">
+          <view>
+            <text>今日成本</text>
+            <text>¥{{usageStats.today.estimatedCostDisplay}}</text>
+          </view>
+          <view>
+            <text>错误日志</text>
+            <text>{{diagnosticLogs.summary.errorCount || 0}}</text>
+          </view>
+          <view>
+            <text>部署记录</text>
+            <text>{{logs.length}}</text>
+          </view>
+        </view>
+      </view>
+
+      <view
+        class="monitor-deployment-group {{monitorSections.deployment ? 'is-open' : 'is-collapsed'}}"
+      >
+        <view
+          class="monitor-section-head"
+          data-section="deployment"
+          catchtap="toggleMonitorSection"
+          hover-class="control-tap"
+          role="button"
+          aria-label="{{monitorSections.deployment ? '收起部署与探针' : '展开部署与探针'}}"
+        >
+          <view class="monitor-section-head-main">
+            <view class="monitor-section-title-row">
+              <text class="monitor-status-dot {{deployment && deployment.face.ready && deployment.analysis.ready && deployment.image.ready && deployment.video.ready ? '' : 'is-danger'}}"></text>
+              <text class="monitor-section-title">部署与探针</text>
+            </view>
+            <text class="monitor-section-summary">
+              {{deployment && deployment.face.ready && deployment.analysis.ready && deployment.image.ready && deployment.video.ready ? '运行正常' : '需要处理'}}
+              · 探针历史 {{autoFaceProbeHistory.history.length}} 条
+            </text>
+          </view>
+          <view class="monitor-section-toggle-button">
+            <text>{{monitorSections.deployment ? '收起' : '展开'}}</text>
+            <text class="monitor-section-chevron {{monitorSections.deployment ? 'is-open' : ''}}">⌄</text>
+          </view>
+        </view>
+
+        <view wx:if="{{monitorSections.deployment}}" class="monitor-deployment-body">
       <view wx:if="{{deployment}}" class="card admin-section deployment-card">
         <view class="admin-section-head">
           <view>
@@ -809,8 +883,41 @@
           </view>
         </view>
       </view>
+        <view class="card admin-section deployment-log-card">
+          <view class="admin-section-head">
+            <view>
+              <view class="admin-section-title">部署检查日志</view>
+              <view class="admin-section-help">只记录版本、状态和配置完整性，不记录 Key 和素材。</view>
+            </view>
+            <view class="admin-section-tools">
+              <view class="config-state {{moduleStates.logs.status === 'failed' ? 'is-off' : 'is-ready'}}">
+                {{moduleStates.logs.label}}
+              </view>
+              <text class="admin-log-count">{{logs.length}} 条</text>
+            </view>
+          </view>
+          <view wx:if="{{moduleStates.logs.status === 'loading'}}" class="usage-message">
+            正在读取部署日志...
+          </view>
+          <view wx:if="{{moduleStates.logs.status === 'failed'}}" class="usage-message is-warn">
+            {{moduleStates.logs.message || '部署日志读取失败，请点击一键刷新全部。'}}
+          </view>
+          <view wx:if="{{(moduleStates.logs.status === 'ready' || moduleStates.logs.hasData) && !logs.length}}" class="admin-empty">
+            还没有检查记录，点击上面的按钮生成第一条。
+          </view>
+          <view wx:for="{{logs}}" wx:key="checkedAt" class="admin-log-item">
+            <view class="admin-log-top">
+              <text>{{item.checkedAtText}}</text>
+              <text class="{{item.ok ? 'log-ok' : 'log-warn'}}">{{item.statusText}}</text>
+            </view>
+            <view class="admin-log-meta">{{item.buildVersion}} · {{item.buildMarker}}</view>
+            <view class="admin-log-meta">{{item.faceText}} · {{item.analysisText}} · {{item.imageText}} · {{item.videoText}}</view>
+          </view>
+        </view>
+        </view>
+      </view>
 
-      <view class="card admin-section usage-section">
+      <view class="card admin-section usage-section monitor-fold-card {{monitorSections.usage ? 'is-open' : 'is-collapsed'}}">
         <view class="admin-section-head">
           <view>
             <view class="admin-section-title">模型用量统计</view>
@@ -826,9 +933,21 @@
             <view class="config-state {{moduleStates.usage.status === 'failed' ? 'is-off' : 'is-ready'}}">
               {{moduleStates.usage.label}}
             </view>
+            <view
+              class="monitor-section-toggle-button"
+              data-section="usage"
+              catchtap="toggleMonitorSection"
+              hover-class="control-tap"
+              role="button"
+              aria-label="{{monitorSections.usage ? '收起模型用量统计' : '展开模型用量统计'}}"
+            >
+              <text>{{monitorSections.usage ? '收起' : '展开'}}</text>
+              <text class="monitor-section-chevron {{monitorSections.usage ? 'is-open' : ''}}">⌄</text>
+            </view>
           </view>
         </view>
 
+        <view wx:if="{{monitorSections.usage}}" class="monitor-fold-body">
         <view wx:if="{{moduleStates.usage.status === 'loading'}}" class="usage-message">
           正在读取模型用量和成本...
         </view>
@@ -1016,9 +1135,10 @@
           </view>
         </scroll-view>
         <view wx:elif="{{moduleStates.usage.status === 'ready' || moduleStates.usage.hasData}}" class="admin-empty usage-empty">还没有月度统计数据。</view>
+        </view>
       </view>
 
-      <view class="card admin-section auto-face-failure-section">
+      <view class="card admin-section auto-face-failure-section monitor-fold-card {{monitorSections.autoFaceFailure ? 'is-open' : 'is-collapsed'}}">
         <view class="admin-section-head">
           <view>
             <view class="admin-section-title">自动贴脸失败统计</view>
@@ -1030,15 +1150,27 @@
             </view>
             <button
               class="usage-refresh-button"
-              bindtap="refreshAutoFaceFailureStats"
+              catchtap="refreshAutoFaceFailureStats"
               loading="{{autoFaceFailureLoading}}"
               disabled="{{autoFaceFailureLoading}}"
             >
               {{autoFaceFailureLoading ? '刷新中' : '刷新统计'}}
             </button>
+            <view
+              class="monitor-section-toggle-button"
+              data-section="autoFaceFailure"
+              catchtap="toggleMonitorSection"
+              hover-class="control-tap"
+              role="button"
+              aria-label="{{monitorSections.autoFaceFailure ? '收起自动贴脸失败统计' : '展开自动贴脸失败统计'}}"
+            >
+              <text>{{monitorSections.autoFaceFailure ? '收起' : '展开'}}</text>
+              <text class="monitor-section-chevron {{monitorSections.autoFaceFailure ? 'is-open' : ''}}">⌄</text>
+            </view>
           </view>
         </view>
 
+        <view wx:if="{{monitorSections.autoFaceFailure}}" class="monitor-fold-body">
         <view wx:if="{{moduleStates.autoFaceFailure.status === 'loading'}}" class="usage-message">
           正在读取自动贴脸失败统计...
         </view>
@@ -1122,9 +1254,10 @@
           </view>
         </view>
         <view wx:elif="{{moduleStates.autoFaceFailure.status === 'ready' || moduleStates.autoFaceFailure.hasData}}" class="admin-empty usage-empty">还没有最近失败记录。</view>
+        </view>
       </view>
 
-      <view class="card admin-section diagnostic-admin-section">
+      <view class="card admin-section diagnostic-admin-section monitor-fold-card {{monitorSections.diagnosticLogs ? 'is-open' : 'is-collapsed'}}">
         <view class="admin-section-head">
           <view>
             <view class="admin-section-title">用户端日志</view>
@@ -1136,13 +1269,25 @@
             </view>
             <button
               class="usage-refresh-button"
-              bindtap="refreshDiagnosticLogs"
+              catchtap="refreshDiagnosticLogs"
               loading="{{diagnosticLogsLoading}}"
               disabled="{{diagnosticLogsLoading}}"
             >{{diagnosticLogsLoading ? '读取中' : '刷新'}}</button>
+            <view
+              class="monitor-section-toggle-button"
+              data-section="diagnosticLogs"
+              catchtap="toggleMonitorSection"
+              hover-class="control-tap"
+              role="button"
+              aria-label="{{monitorSections.diagnosticLogs ? '收起用户端日志' : '展开用户端日志'}}"
+            >
+              <text>{{monitorSections.diagnosticLogs ? '收起' : '展开'}}</text>
+              <text class="monitor-section-chevron {{monitorSections.diagnosticLogs ? 'is-open' : ''}}">⌄</text>
+            </view>
           </view>
         </view>
 
+        <view wx:if="{{monitorSections.diagnosticLogs}}" class="monitor-fold-body">
         <view wx:if="{{moduleStates.diagnosticLogs.status === 'loading'}}" class="usage-message">
           正在整理用户端日志...
         </view>
@@ -1300,39 +1445,10 @@
           loading="{{diagnosticLogsLoading}}"
           disabled="{{diagnosticLogsLoading}}"
         >{{diagnosticLogsLoading ? '加载中...' : '继续加载20条'}}</button>
+        </view>
       </view>
 
-      <view class="card admin-section deployment-log-card">
-        <view class="admin-section-head">
-          <view>
-            <view class="admin-section-title">部署检查日志</view>
-            <view class="admin-section-help">只记录版本、状态和配置完整性，不记录 Key 和素材。</view>
-          </view>
-          <view class="admin-section-tools">
-            <view class="config-state {{moduleStates.logs.status === 'failed' ? 'is-off' : 'is-ready'}}">
-              {{moduleStates.logs.label}}
-            </view>
-            <text class="admin-log-count">{{logs.length}} 条</text>
-          </view>
-        </view>
-        <view wx:if="{{moduleStates.logs.status === 'loading'}}" class="usage-message">
-          正在读取部署日志...
-        </view>
-        <view wx:if="{{moduleStates.logs.status === 'failed'}}" class="usage-message is-warn">
-          {{moduleStates.logs.message || '部署日志读取失败，请点击一键刷新全部。'}}
-        </view>
-        <view wx:if="{{(moduleStates.logs.status === 'ready' || moduleStates.logs.hasData) && !logs.length}}" class="admin-empty">
-          还没有检查记录，点击上面的按钮生成第一条。
-        </view>
-        <view wx:for="{{logs}}" wx:key="checkedAt" class="admin-log-item">
-          <view class="admin-log-top">
-            <text>{{item.checkedAtText}}</text>
-            <text class="{{item.ok ? 'log-ok' : 'log-warn'}}">{{item.statusText}}</text>
-          </view>
-          <view class="admin-log-meta">{{item.buildVersion}} · {{item.buildMarker}}</view>
-          <view class="admin-log-meta">{{item.faceText}} · {{item.analysisText}} · {{item.imageText}} · {{item.videoText}}</view>
-        </view>
-      </view>
+
     </view>
   </view>
 </view>

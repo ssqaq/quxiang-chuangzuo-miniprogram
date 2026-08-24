@@ -89,7 +89,7 @@ page.setData = (next) => {
 };
 
 function diagnosticEvents() {
-  return page.data.diagnosticEvents || [];
+  return diagnosticLog.read({ newestFirst: true }) || [];
 }
 
 function hasEvent(event) {
@@ -98,32 +98,16 @@ function hasEvent(event) {
 
 async function main() {
   page.onShow();
-  assert.strictEqual(page.data.diagnosticExpanded, false);
+  assert.strictEqual(typeof page.copyDiagnosticReport, "undefined");
+  assert.strictEqual(typeof page.clearDiagnosticLogs, "undefined");
   diagnosticLog.info("app", "smoke-ok", "启动成功", {
     route: "pages/workbench/workbench"
   });
   diagnosticLog.warn("cloud", "smoke-warn", "云端响应较慢", {
     durationMs: 1200
   });
-  page.refreshDiagnostics();
-  assert.strictEqual(page.data.diagnosticGroups.length, 2);
-  assert.strictEqual(page.data.diagnosticGroups[0].key, "abnormal");
-  assert.strictEqual(page.data.diagnosticGroups[0].events[0].level, "warn");
-  assert.strictEqual(page.data.diagnosticGroups[1].key, "normal");
-  assert.strictEqual(page.data.diagnosticGroups[1].events[0].expanded, false);
-  const warnSequence = page.data.diagnosticGroups[0].events[0].sequence;
-  page.toggleDiagnosticEvent({
-    currentTarget: {
-      dataset: { sequence: warnSequence }
-    }
-  });
-  assert.strictEqual(page.data.diagnosticGroups[0].events[0].expanded, false);
-  page.toggleDiagnosticPanel();
-  assert.strictEqual(page.data.diagnosticExpanded, true);
-  page.toggleDiagnosticPanel();
-  assert.strictEqual(page.data.diagnosticExpanded, false);
-  page.toggleDiagnosticPanel();
-  assert.strictEqual(page.data.diagnosticExpanded, true);
+  assert.ok(hasEvent("smoke-ok"));
+  assert.ok(hasEvent("smoke-warn"));
 
   page.previewAuthorQr();
   assert.strictEqual(
@@ -219,12 +203,6 @@ async function main() {
   await new Promise((resolve) => setTimeout(resolve, 20));
   assert.ok(hasEvent("new-creation-navigation-timeout"));
   assert.ok(hasEvent("new-creation-fallback-success"));
-
-  await page.copyDiagnosticReport();
-  assert.ok(events.some((item) => item.type === "clipboard"));
-  page.clearDiagnosticLogs();
-  assert.strictEqual(page.data.diagnosticEvents.length, 0);
-  assert.strictEqual(page.data.diagnosticExpanded, false);
 
   let checkInCalls = 0;
   let resolveCheckIn = null;

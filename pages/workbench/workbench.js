@@ -61,129 +61,6 @@ function summarizeAsset(asset) {
   };
 }
 
-function buildProjectSnapshot(project) {
-  const value = project && typeof project === "object" ? project : {};
-  return {
-    projectName: value.projectName || "",
-    hasMainImage: Boolean(value.mainImage),
-    mainImage: summarizeAsset(value.mainImage),
-    maskCircle: value.maskCircle || null,
-    hasMaskFile: Boolean(value.maskFileID),
-    faceReferenceCount: Array.isArray(value.faceRefs) ? value.faceRefs.length : 0,
-    wardrobeReferenceCount: Array.isArray(value.wardrobeRefs) ? value.wardrobeRefs.length : 0,
-    sceneDescription: value.sceneDescription || "",
-    poseDescription: value.poseDescription || "",
-    faceDirectionDescription: value.faceDirectionDescription || "",
-    lightingMakeupDescription: value.lightingMakeupDescription || "",
-    promptDraft: value.promptDraft || "",
-    negativePrompt: value.negativePrompt || "",
-    lockedElements: Array.isArray(value.lockedElements) ? value.lockedElements : [],
-    customLockedElements: Array.isArray(value.customLockedElements)
-      ? value.customLockedElements
-      : [],
-    resultCount: Array.isArray(value.results) ? value.results.length : 0
-  };
-}
-
-function formatDiagnosticTime(value) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return String(value || "");
-  const pad = (number) => String(number).padStart(2, "0");
-  return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
-}
-
-function formatDiagnosticEvent(item) {
-  const details = item && item.details && Object.keys(item.details).length
-    ? JSON.stringify(item.details)
-    : "";
-  const level = item && item.level || "info";
-  const categoryLabels = {
-    app: "应用启动",
-    navigation: "页面操作",
-    cloud: "云端服务",
-    points: "积分服务",
-    admin: "管理员",
-    diagnostic: "排查记录"
-  };
-  const date = new Date(item.time);
-  const pad = (value) => String(value).padStart(2, "0");
-  const displayTime = Number.isNaN(date.getTime())
-    ? String(item.time || "")
-    : `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
-  return Object.assign({}, item, {
-    title: `${item.category || "app"} · ${item.event || "unknown"}`,
-    categoryLabel: categoryLabels[item.category] || "运行记录",
-    levelLabel: level === "error" ? "错误" : (level === "warn" ? "提醒" : "正常"),
-    displayTime,
-    errorText: item.error && item.error.message || "",
-    detailText: details.slice(0, 800),
-    metaText: [
-      item.requestId ? `请求 ${item.requestId}` : "",
-      item.code ? `代码 ${item.code}` : "",
-      Number.isFinite(Number(item.durationMs)) ? `${item.durationMs} ms` : ""
-    ].filter(Boolean).join(" · "),
-    expanded: level !== "info"
-  });
-}
-
-function buildDiagnosticGroups(events = []) {
-  const abnormal = [];
-  const normal = [];
-  events.forEach((item) => {
-    if (item.level === "error" || item.level === "warn") {
-      abnormal.push(item);
-    } else {
-      normal.push(item);
-    }
-  });
-  const errorCount = abnormal.filter((item) => item.level === "error").length;
-  const warnCount = abnormal.filter((item) => item.level === "warn").length;
-  return [
-    abnormal.length
-      ? {
-        key: "abnormal",
-        title: "异常记录",
-        note: `${errorCount} 个错误 · ${warnCount} 个提醒`,
-        count: abnormal.length,
-        tone: "abnormal",
-        events: abnormal
-      }
-      : null,
-    normal.length
-      ? {
-        key: "normal",
-        title: "正常记录",
-        note: "启动和服务过程",
-        count: normal.length,
-        tone: "normal",
-        events: normal
-      }
-      : null
-  ].filter(Boolean);
-}
-
-function buildDiagnosticSummary(stats = {}) {
-  const errorCount = Number(stats.errorCount) || 0;
-  const warnCount = Number(stats.warnCount) || 0;
-  if (errorCount || warnCount) {
-    const issueCount = errorCount + warnCount;
-    return {
-      title: `发现 ${issueCount} 条异常记录`,
-      description: errorCount
-        ? "有错误需要优先排查，点开异常记录查看详情。"
-        : "有提醒信息，点开异常记录查看具体原因。",
-      tone: errorCount ? "error" : "warn",
-      icon: errorCount ? "!" : "!"
-    };
-  }
-  return {
-    title: "本次运行正常",
-    description: "没有发现错误，可以继续使用。",
-    tone: "ok",
-    icon: "✓"
-  };
-}
-
 function buildCheckInToast(result = {}) {
   const copy = config.points.copy;
   const duplicate = Boolean(result.duplicate);
@@ -211,23 +88,6 @@ Page({
     entryModes: ENTRY_MODES,
     hasDraft: false,
     records: [],
-    diagnosticEvents: [],
-    diagnosticGroups: [],
-    diagnosticExpanded: false,
-    diagnosticStats: {
-      eventCount: 0,
-      errorCount: 0,
-      warnCount: 0
-    },
-    diagnosticSummary: {
-      title: "本次运行正常",
-      description: "没有发现错误，可以继续使用。",
-      tone: "ok",
-      icon: "✓"
-    },
-    diagnosticSession: {
-      startedAt: ""
-    },
     points: {
       accountBound: false,
       pointsBalance: 0,
@@ -254,11 +114,7 @@ Page({
     this.clearNavigationWatchdog();
     this._navigating = false;
     this.refreshWorkbench();
-    this.setData({
-      diagnosticExpanded: false
-    });
     const refreshSecondary = () => {
-      this.refreshDiagnostics();
       this.refreshAdminAccess();
       this.refreshPoints();
     };
@@ -292,23 +148,6 @@ Page({
       records
     });
     return draftExists;
-  },
-
-  refreshDiagnostics() {
-    const diagnosticEvents = diagnosticLog
-      .read({ limit: diagnosticLog.DISPLAY_LIMIT, newestFirst: true })
-      .map(formatDiagnosticEvent);
-    const diagnosticStats = diagnosticLog.getStats();
-    const diagnosticSession = diagnosticLog.getSession();
-    this.setData({
-      diagnosticEvents,
-      diagnosticGroups: buildDiagnosticGroups(diagnosticEvents),
-      diagnosticStats,
-      diagnosticSummary: buildDiagnosticSummary(diagnosticStats),
-      diagnosticSession: Object.assign({}, diagnosticSession, {
-        startedAtText: formatDiagnosticTime(diagnosticSession.startedAt)
-      })
-    });
   },
 
   normalizePoints(result = {}) {
@@ -444,73 +283,6 @@ Page({
       durationMs: details.durationMs,
       error: details.error
     });
-    this.refreshDiagnostics();
-  },
-
-  toggleDiagnosticPanel() {
-    this.setData({
-      diagnosticExpanded: !this.data.diagnosticExpanded
-    });
-  },
-
-  toggleDiagnosticEvent(event) {
-    const sequence = Number(event && event.currentTarget && event.currentTarget.dataset
-      ? event.currentTarget.dataset.sequence
-      : 0);
-    if (!sequence) return;
-    this.setData({
-      diagnosticGroups: (this.data.diagnosticGroups || []).map((group) => Object.assign({}, group, {
-        events: (group.events || []).map((item) => item.sequence === sequence
-          ? Object.assign({}, item, { expanded: !item.expanded })
-          : item)
-      }))
-    });
-  },
-
-  async copyDiagnosticReport() {
-    if (!wx.setClipboardData) {
-      wx.showToast({ title: "当前环境不支持复制报告", icon: "none" });
-      return;
-    }
-    try {
-      const report = await diagnosticLog.buildReport({
-        appVersion: config.appVersion,
-        cloudEnvId: config.cloudEnvId,
-        cloudFunctionName: config.cloudFunctionName,
-        cloudReady: cloud.isCloudReady(),
-        projectSnapshot: buildProjectSnapshot(storage.loadProject())
-      });
-      wx.setClipboardData({
-        data: JSON.stringify(report, null, 2),
-        success: () => wx.showToast({
-          title: "排查报告已复制，直接发给宝宝",
-          icon: "none",
-          duration: 2200
-        }),
-        fail: (error) => {
-          diagnosticLog.error("diagnostic", "report-copy-failed", "复制排查报告失败", {
-            error
-          });
-          this.refreshDiagnostics();
-          wx.showToast({ title: "复制排查报告失败", icon: "none" });
-        }
-      });
-    } catch (error) {
-      diagnosticLog.error("diagnostic", "report-build-failed", "生成排查报告失败", {
-        error
-      });
-      this.refreshDiagnostics();
-      wx.showToast({ title: "生成排查报告失败", icon: "none" });
-    }
-  },
-
-  clearDiagnosticLogs() {
-    diagnosticLog.clear();
-    this.setData({
-      diagnosticExpanded: false
-    });
-    this.refreshDiagnostics();
-    wx.showToast({ title: "本次排查日志已清空", icon: "success" });
   },
 
   clearNavigationWatchdog() {

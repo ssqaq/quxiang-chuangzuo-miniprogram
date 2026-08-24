@@ -422,7 +422,10 @@ const adminFaceProbeSummaryStyle = adminWxss.match(/\.auto-face-probe-summary-it
 if (
   !adminWxml.includes("线上运行状态")
   || !adminWxml.includes("模型、积分与成本配置")
-  || !adminWxml.includes("更多监控与历史")
+  || (
+    !adminWxml.includes("更多监控与历史")
+    && !adminWxml.includes("运行监控")
+  )
   || (adminWxml.match(/class="quick-launch /g) || []).length !== 7
   || adminWxml.indexOf("quick-face") > adminWxml.indexOf("quick-image")
   || adminWxml.indexOf("quick-face") > adminWxml.indexOf("quick-analysis")
@@ -798,8 +801,8 @@ const commonFeatureSubtitleCount = (
   workbenchWxml.match(/class="feature-group-subtitle"/g) || []
 ).length;
 const workbenchEntryCardCount = workbenchWxml.includes('wx:if="{{adminVisible}}"') ? 6 : 5;
-const diagnosticFeatureHeadingStyle = workbenchWxss.match(
-  /\.diagnostic-feature-heading\s*\{([^}]*)\}/
+const serviceFeatureHeadingStyle = workbenchWxss.match(
+  /\.service-feature-heading\s*\{([^}]*)\}/
 );
 const contactAuthorCardStyle = workbenchWxss.match(
   /\.contact-author-card\s*\{([^}]*)\}/
@@ -837,10 +840,10 @@ if (
   || !workbenchWxml.includes("feature-group-dot")
   || commonFeatureHeadingCount !== 1
   || commonFeatureSubtitleCount !== 2
-  || !workbenchWxml.includes('class="feature-group-heading diagnostic-feature-heading"')
-  || workbenchWxml.indexOf("diagnostic-feature-heading") > workbenchWxml.indexOf('class="card interaction-log-card"')
-  || !diagnosticFeatureHeadingStyle
-  || !/margin-top:\s*28rpx/.test(diagnosticFeatureHeadingStyle[1])
+  || !workbenchWxml.includes('class="feature-group-heading service-feature-heading"')
+  || workbenchWxml.indexOf("service-feature-heading") > workbenchWxml.indexOf('class="card contact-author-card"')
+  || !serviceFeatureHeadingStyle
+  || !/margin-top:\s*28rpx/.test(serviceFeatureHeadingStyle[1])
   || !workbenchWxml.includes('class="card contact-author-card"')
   || workbenchWxml.indexOf("contact-author-card") < workbenchWxml.indexOf("interaction-log-card")
   || !workbenchWxml.includes('src="{{authorQrPath}}"')
@@ -867,9 +870,9 @@ if (
   || !/min-height:\s*0/.test(recentCardEmptyStyle[1])
   || !workbenchWxss.includes("white-space: nowrap")
   || !workbenchWxss.includes("text-overflow: ellipsis")
-  || !workbenchWxss.includes(".diagnostic-summary")
-  || !workbenchWxss.includes(".diagnostic-group-abnormal")
-  || !workbenchWxss.includes(".diagnostic-event-detail")
+  || workbenchWxss.includes(".diagnostic-summary")
+  || workbenchWxss.includes(".diagnostic-group-abnormal")
+  || workbenchWxss.includes(".diagnostic-event-detail")
   || !workbenchWxss.includes("margin-left: 0")
   || !workbenchWxss.includes(".workbench-feature-stack .entry-grid")
   || !workbenchWxss.includes(".workbench-feature-stack .recent-card")
@@ -959,46 +962,27 @@ if (
 }
 if (
   !workbenchJs.includes('require("../../utils/diagnostic-log")')
-  || !workbenchJs.includes("refreshDiagnostics()")
-  || !workbenchJs.includes("toggleDiagnosticPanel()")
-  || !workbenchJs.includes("diagnosticExpanded: false")
-  || !workbenchJs.includes("copyDiagnosticReport()")
-  || !workbenchJs.includes("clearDiagnosticLogs()")
+  || workbenchJs.includes("refreshDiagnostics()")
+  || workbenchJs.includes("toggleDiagnosticPanel()")
+  || workbenchJs.includes("diagnosticExpanded")
+  || workbenchJs.includes("copyDiagnosticReport()")
+  || workbenchJs.includes("clearDiagnosticLogs()")
   || !workbenchJs.includes("refreshAdminAccess()")
   || !workbenchJs.includes("adminVisible")
   || !workbenchJs.includes("new-creation-navigation-timeout")
   || !workbenchJs.includes("draft-auto-clear")
-  || !workbenchWxml.includes("查看问题报告")
   || !workbenchWxml.includes("<text>其他服务</text>")
-  || !workbenchWxml.includes("作品记录、图片优化和更多工具")
-  || !workbenchWxml.includes("服务记录")
-  || !workbenchWxml.includes("查看问题报告")
-  || !workbenchWxml.includes('wx:if="{{adminVisible}}" class="card interaction-log-card"')
+  || !workbenchWxml.includes("联系客服和更多工具")
+  || workbenchWxml.includes("服务记录")
+  || workbenchWxml.includes("查看问题报告")
+  || workbenchWxml.includes("interaction-log-card")
   || !workbenchWxml.includes("联系作者")
   || !workbenchWxml.includes("添加微信咨询")
   || workbenchWxml.indexOf('class="card admin-entry-card') < workbenchWxml.indexOf('class="card contact-author-card"')
-  || !workbenchWxml.includes("diagnosticStats.eventCount")
-  || !workbenchWxml.includes('catchtap="toggleDiagnosticPanel"')
-  || !workbenchWxml.includes("diagnosticExpanded ? '收起' : '展开'")
-  || !workbenchWxml.includes("diagnostic-expanded-content")
-  || !(
-    workbenchWxml.includes("bindtap=\"copyDiagnosticReport\"")
-    || workbenchWxml.includes("catchtap=\"copyDiagnosticReport\"")
-  )
-  || !workbenchWxml.includes("复制报告")
-  || !workbenchWxml.includes("interaction-log-primary-button")
-  || !workbenchWxss.includes("height: 72rpx")
-  || !workbenchWxss.includes("flex: 1 1 0")
-  || !workbenchWxss.includes("gap: 12rpx")
-  || !workbenchWxss.includes(".interaction-log-primary-button")
-  || (
-    !workbenchWxml.includes("diagnosticEvents")
-    && !workbenchWxml.includes("diagnosticGroups")
-  )
-  || !workbenchWxss.includes(".interaction-log-card")
-  || !workbenchWxss.includes(".interaction-log-list")
-  || !workbenchWxss.includes(".diagnostic-toggle-head")
-  || !workbenchWxss.includes(".diagnostic-toggle-arrow-expanded")
+  || workbenchWxss.includes(".interaction-log-card")
+  || workbenchWxss.includes(".interaction-log-list")
+  || workbenchWxss.includes(".diagnostic-toggle-head")
+  || workbenchWxss.includes(".diagnostic-toggle-arrow-expanded")
   || !indexJs.includes('require("../../utils/diagnostic-log")')
   || !indexJs.includes('logMethod("auto-face"')
   || !photoToVideoJs.includes('require("../../utils/diagnostic-log")')
@@ -1073,8 +1057,8 @@ if (
   || !publishExportJs.includes("publishExport.resolveImageSource")
   || !publishExportJs.includes("publishExport.renderToTempFile")
   || !publishExportJs.includes("publishExport.saveToAlbum")
-  || !publishExportWxml.includes("降低AI识别率再导出")
-  || publishExportWxml.includes("高级处理后再导出照片")
+   || !publishExportWxml.includes("降低AI识别率再导出")
+   || publishExportWxml.includes("高级处理后再导出照片")
   || !publishExportWxml.includes("1. 导入照片")
   || !publishExportWxml.includes("从手机相册选择照片导入")
   || !publishExportWxml.includes("选择照片")

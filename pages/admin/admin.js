@@ -103,6 +103,24 @@ const MONITOR_SECTION_KEYS = Object.freeze([
   "diagnosticLogs",
   "deployment"
 ]);
+const USAGE_SECTION_KEYS = Object.freeze([
+  "failure",
+  "daily",
+  "users",
+  "models",
+  "monthly"
+]);
+const MONITOR_LAYOUT_STORAGE_KEY = "admin-monitor-layout-v2";
+
+function defaultUsageSections() {
+  return {
+    failure: true,
+    daily: true,
+    users: true,
+    models: false,
+    monthly: true
+  };
+}
 
 function emptyDashboardStatus() {
   return {
@@ -1489,11 +1507,14 @@ Page({
       autoFaceFailure: false,
       diagnosticLogs: false,
       deployment: false
-    }
+    },
+    usageSections: defaultUsageSections(),
+    monitorOnlyAbnormal: false
   },
 
   onLoad() {
     this._adminLoadToken = 0;
+    this.restoreMonitorLayout();
     this.loadAdminPage();
   },
 
@@ -1671,7 +1692,7 @@ Page({
           offset: 0,
           limit: 20,
           hours: this.data.diagnosticHours,
-          level: this.data.diagnosticLevel,
+          level: this.data.monitorOnlyAbnormal ? "abnormal" : this.data.diagnosticLevel,
           category: this.data.diagnosticCategory,
           userHash: this.data.diagnosticUserHash
         }),
@@ -2071,7 +2092,7 @@ Page({
         offset: offset || 0,
         limit: 20,
         hours: this.data.diagnosticHours,
-        level: this.data.diagnosticLevel,
+        level: this.data.monitorOnlyAbnormal ? "abnormal" : this.data.diagnosticLevel,
         category: this.data.diagnosticCategory,
         userHash: this.data.diagnosticUserHash
       }),
@@ -2226,7 +2247,7 @@ Page({
           offset: 0,
           limit: 20,
           hours: this.data.diagnosticHours,
-          level: this.data.diagnosticLevel,
+          level: this.data.monitorOnlyAbnormal ? "abnormal" : this.data.diagnosticLevel,
           category: this.data.diagnosticCategory,
           userHash: this.data.diagnosticUserHash
         }),
@@ -2402,7 +2423,7 @@ Page({
   toggleMonitor() {
     this.setData({
       monitorExpanded: !this.data.monitorExpanded
-    });
+    }, () => this.persistMonitorLayout());
   },
 
   toggleMonitorSection(event) {
@@ -2414,7 +2435,7 @@ Page({
     if (!MONITOR_SECTION_KEYS.includes(section)) return;
     this.setData({
       [`monitorSections.${section}`]: !this.data.monitorSections[section]
-    });
+    }, () => this.persistMonitorLayout());
   },
 
   setAllMonitorSections(event) {
@@ -2427,7 +2448,101 @@ Page({
     MONITOR_SECTION_KEYS.forEach((section) => {
       patch[`monitorSections.${section}`] = expanded;
     });
-    this.setData(patch);
+    USAGE_SECTION_KEYS.forEach((section) => {
+      patch[`usageSections.${section}`] = expanded;
+    });
+    this.setData(patch, () => this.persistMonitorLayout());
+  },
+
+  restoreMonitorLayout() {
+    let stored = {};
+    try {
+      stored = wx.getStorageSync(MONITOR_LAYOUT_STORAGE_KEY) || {};
+    } catch (error) {
+      stored = {};
+    }
+    const storedMonitorSections = stored.monitorSections || {};
+    const storedUsageSections = stored.usageSections || {};
+    const monitorSections = {};
+    MONITOR_SECTION_KEYS.forEach((section) => {
+      monitorSections[section] = typeof storedMonitorSections[section] === "boolean"
+        ? storedMonitorSections[section]
+        : Boolean(this.data.monitorSections[section]);
+    });
+    const usageSections = {};
+    USAGE_SECTION_KEYS.forEach((section) => {
+      usageSections[section] = typeof storedUsageSections[section] === "boolean"
+        ? storedUsageSections[section]
+        : Boolean(this.data.usageSections[section]);
+    });
+    this.setData({
+      monitorExpanded: typeof stored.monitorExpanded === "boolean"
+        ? stored.monitorExpanded
+        : this.data.monitorExpanded,
+      monitorSections,
+      usageSections,
+      monitorOnlyAbnormal: Boolean(stored.monitorOnlyAbnormal)
+    });
+  },
+
+  persistMonitorLayout() {
+    try {
+      wx.setStorageSync(MONITOR_LAYOUT_STORAGE_KEY, {
+        version: 2,
+        monitorExpanded: Boolean(this.data.monitorExpanded),
+        monitorSections: Object.assign({}, this.data.monitorSections),
+        usageSections: Object.assign({}, this.data.usageSections),
+        monitorOnlyAbnormal: Boolean(this.data.monitorOnlyAbnormal)
+      });
+    } catch (error) {
+      // 本地缓存不可用时不影响管理页继续使用。
+    }
+  },
+
+  toggleUsageSection(event) {
+    const section = String(
+      event && event.currentTarget && event.currentTarget.dataset
+        ? event.currentTarget.dataset.usageSection
+        : ""
+    );
+    if (!USAGE_SECTION_KEYS.includes(section)) return;
+    this.setData({
+      [`usageSections.${section}`]: !this.data.usageSections[section]
+    }, () => this.persistMonitorLayout());
+  },
+
+  jumpToMonitorSection(event) {
+    const section = String(
+      event && event.currentTarget && event.currentTarget.dataset
+        ? event.currentTarget.dataset.section
+        : ""
+    );
+    if (!MONITOR_SECTION_KEYS.includes(section)) return;
+    this.setData({
+      monitorExpanded: true,
+      [`monitorSections.${section}`]: true
+    }, () => {
+      this.persistMonitorLayout();
+      if (typeof wx.pageScrollTo === "function") {
+        wx.pageScrollTo({
+          selector: `#monitor-section-${section}`,
+          duration: 220
+        });
+      }
+    });
+  },
+
+  toggleMonitorOnlyAbnormal() {
+    this.setData({
+      monitorOnlyAbnormal: !this.data.monitorOnlyAbnormal,
+      monitorExpanded: true,
+      "monitorSections.diagnosticLogs": true,
+      "monitorSections.usage": true,
+      "usageSections.failure": true
+    }, () => {
+      this.persistMonitorLayout();
+      this.refreshDiagnosticLogs(true);
+    });
   },
 
   async saveConfig() {

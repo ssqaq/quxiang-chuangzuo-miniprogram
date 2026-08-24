@@ -688,6 +688,13 @@
       </view>
       <view class="monitor-toggle-actions">
         <view
+          class="monitor-filter-button {{monitorOnlyAbnormal ? 'is-active' : ''}}"
+          catchtap="toggleMonitorOnlyAbnormal"
+          hover-class="control-tap"
+          role="button"
+          aria-label="{{monitorOnlyAbnormal ? '查看全部监控内容' : '只看异常内容'}}"
+        >{{monitorOnlyAbnormal ? '看全部' : '只看异常'}}</view>
+        <view
           class="monitor-all-button"
           data-expanded="1"
           catchtap="setAllMonitorSections"
@@ -712,20 +719,59 @@
         <view class="monitor-overview-main">
           <view class="monitor-overview-kicker">系统运行概览</view>
           <view class="monitor-overview-title">{{dashboardStatus.title}}</view>
-          <view class="monitor-overview-note">
+          <view
+            class="monitor-overview-note monitor-overview-note-action"
+            data-section="autoFaceFailure"
+            catchtap="jumpToMonitorSection"
+            hover-class="control-tap"
+            role="button"
+            aria-label="查看自动贴脸失败统计"
+          >
             部署检查通过；自动贴脸有 {{autoFaceFailureStats.total30d || 0}} 条失败待查看。
           </view>
         </view>
         <view class="monitor-overview-stats">
-          <view>
+          <view
+            class="monitor-overview-stat monitor-overview-stat-action"
+            data-section="usage"
+            catchtap="jumpToMonitorSection"
+            hover-class="control-tap"
+            role="button"
+            aria-label="查看模型用量统计"
+          >
             <text>今日成本</text>
             <text>¥{{usageStats.today.estimatedCostDisplay}}</text>
           </view>
-          <view>
+          <view
+            class="monitor-overview-stat monitor-overview-stat-action"
+            data-section="autoFaceFailure"
+            catchtap="jumpToMonitorSection"
+            hover-class="control-tap"
+            role="button"
+            aria-label="查看自动贴脸失败统计"
+          >
+            <text>自动贴脸失败</text>
+            <text>{{autoFaceFailureStats.total30d || 0}}</text>
+          </view>
+          <view
+            class="monitor-overview-stat monitor-overview-stat-action"
+            data-section="diagnosticLogs"
+            catchtap="jumpToMonitorSection"
+            hover-class="control-tap"
+            role="button"
+            aria-label="查看错误日志"
+          >
             <text>错误日志</text>
             <text>{{diagnosticLogs.summary.errorCount || 0}}</text>
           </view>
-          <view>
+          <view
+            class="monitor-overview-stat monitor-overview-stat-action"
+            data-section="deployment"
+            catchtap="jumpToMonitorSection"
+            hover-class="control-tap"
+            role="button"
+            aria-label="查看部署记录"
+          >
             <text>部署记录</text>
             <text>{{logs.length}}</text>
           </view>
@@ -733,6 +779,7 @@
       </view>
 
       <view
+        id="monitor-section-deployment"
         class="monitor-deployment-group {{monitorSections.deployment ? 'is-open' : 'is-collapsed'}}"
       >
         <view
@@ -917,7 +964,7 @@
         </view>
       </view>
 
-      <view class="card admin-section usage-section monitor-fold-card {{monitorSections.usage ? 'is-open' : 'is-collapsed'}}">
+      <view id="monitor-section-usage" class="card admin-section usage-section monitor-fold-card {{monitorSections.usage ? 'is-open' : 'is-collapsed'}}">
         <view class="admin-section-head">
           <view>
             <view class="admin-section-title">模型用量统计</view>
@@ -958,7 +1005,7 @@
           {{usageStats.message}}
         </view>
 
-        <view wx:if="{{moduleStates.usage.status === 'ready' || moduleStates.usage.hasData}}" class="usage-summary-grid">
+        <view wx:if="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData) && !monitorOnlyAbnormal}}" class="usage-summary-grid">
           <view class="usage-summary-item">
             <text>今天</text>
             <text>{{usageStats.today.total}}</text>
@@ -976,7 +1023,7 @@
           </view>
         </view>
 
-        <view wx:if="{{moduleStates.usage.status === 'ready' || moduleStates.usage.hasData}}" class="usage-cost-summary">
+        <view wx:if="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData) && !monitorOnlyAbnormal}}" class="usage-cost-summary">
           <view class="usage-cost-item">
             <text>今日预计成本</text>
             <text>¥{{usageStats.today.estimatedCostDisplay}}</text>
@@ -994,7 +1041,7 @@
           </view>
         </view>
 
-        <view wx:if="{{moduleStates.usage.status === 'ready' || moduleStates.usage.hasData}}" class="usage-type-grid">
+        <view wx:if="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData) && !monitorOnlyAbnormal}}" class="usage-type-grid">
           <view wx:for="{{usageStats.cards}}" wx:key="key" class="usage-type-card usage-type-{{item.key}}">
             <view class="usage-type-top">
               <view class="usage-type-icon">{{item.icon}}</view>
@@ -1011,7 +1058,21 @@
         </view>
 
         <view wx:if="{{moduleStates.usage.status === 'ready' || moduleStates.usage.hasData}}" class="usage-failure-panel">
-          <view class="usage-subsection-title usage-failure-heading">失败情况</view>
+          <view class="usage-subsection-head">
+            <view class="usage-subsection-title usage-failure-heading">失败情况</view>
+            <view
+              class="usage-subsection-toggle"
+              data-usage-section="failure"
+              catchtap="toggleUsageSection"
+              hover-class="control-tap"
+              role="button"
+              aria-label="{{usageSections.failure ? '收起失败情况' : '展开失败情况'}}"
+            >
+              <text>{{usageSections.failure ? '收起' : '展开'}}</text>
+              <text class="usage-subsection-chevron {{usageSections.failure ? 'is-open' : ''}}">⌄</text>
+            </view>
+          </view>
+          <view wx:if="{{usageSections.failure}}" class="usage-subsection-body">
           <view class="usage-failure-summary">
             <view class="usage-failure-summary-item">
               <text>失败次数</text>
@@ -1061,10 +1122,31 @@
               <view class="failure-detail-message">{{item.errorMessage}}</view>
             </view>
           </view>
+          </view>
         </view>
 
-        <view wx:if="{{moduleStates.usage.status === 'ready' || moduleStates.usage.hasData}}" class="usage-daily-title">最近{{usageStats.days}}天每日明细</view>
-        <scroll-view wx:if="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData) && usageStats.daily.length}}" class="usage-daily-list" scroll-y>
+        <view
+          wx:if="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData) && !monitorOnlyAbnormal}}"
+          class="usage-subsection-head"
+        >
+          <view class="usage-subsection-title usage-daily-title">最近{{usageStats.days}}天每日明细</view>
+          <view
+            class="usage-subsection-toggle"
+            data-usage-section="daily"
+            catchtap="toggleUsageSection"
+            hover-class="control-tap"
+            role="button"
+            aria-label="{{usageSections.daily ? '收起每日明细' : '展开每日明细'}}"
+          >
+            <text>{{usageSections.daily ? '收起' : '展开'}}</text>
+            <text class="usage-subsection-chevron {{usageSections.daily ? 'is-open' : ''}}">⌄</text>
+          </view>
+        </view>
+        <view
+          wx:if="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData) && !monitorOnlyAbnormal && usageSections.daily}}"
+          class="usage-subsection-body"
+        >
+        <scroll-view wx:if="{{usageStats.daily.length}}" class="usage-daily-list" scroll-y>
           <view wx:for="{{usageStats.daily}}" wx:key="dateKey" class="usage-daily-row">
             <view class="usage-daily-date">
               <text>{{item.dateLabel}}</text>
@@ -1079,10 +1161,31 @@
             <view class="usage-daily-result">成功 {{item.success}} · 失败 {{item.failure}}</view>
           </view>
         </scroll-view>
-        <view wx:elif="{{moduleStates.usage.status === 'ready' || moduleStates.usage.hasData}}" class="admin-empty usage-empty">还没有模型调用记录，部署后有调用就会自动统计。</view>
+        <view wx:if="{{!usageStats.daily.length}}" class="admin-empty usage-empty">还没有模型调用记录，部署后有调用就会自动统计。</view>
+        </view>
 
-        <view wx:if="{{moduleStates.usage.status === 'ready' || moduleStates.usage.hasData}}" class="usage-subsection-title">按用户统计</view>
-        <view wx:if="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData) && usageStats.users.length}}" class="usage-user-list">
+        <view
+          wx:if="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData) && !monitorOnlyAbnormal}}"
+          class="usage-subsection-head"
+        >
+          <view class="usage-subsection-title">按用户统计</view>
+          <view
+            class="usage-subsection-toggle"
+            data-usage-section="users"
+            catchtap="toggleUsageSection"
+            hover-class="control-tap"
+            role="button"
+            aria-label="{{usageSections.users ? '收起按用户统计' : '展开按用户统计'}}"
+          >
+            <text>{{usageSections.users ? '收起' : '展开'}}</text>
+            <text class="usage-subsection-chevron {{usageSections.users ? 'is-open' : ''}}">⌄</text>
+          </view>
+        </view>
+        <view
+          wx:if="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData) && !monitorOnlyAbnormal && usageSections.users}}"
+          class="usage-subsection-body"
+        >
+        <view wx:if="{{usageStats.users.length}}" class="usage-user-list">
           <view wx:for="{{usageStats.users}}" wx:key="userHash" class="usage-user-row">
             <view class="usage-user-top">
               <text>用户 {{item.userHash}}</text>
@@ -1098,10 +1201,31 @@
             </view>
           </view>
         </view>
-        <view wx:elif="{{moduleStates.usage.status === 'ready' || moduleStates.usage.hasData}}" class="admin-empty usage-empty">还没有按用户统计的数据。</view>
+        <view wx:if="{{!usageStats.users.length}}" class="admin-empty usage-empty">还没有按用户统计的数据。</view>
+        </view>
 
-        <view wx:if="{{moduleStates.usage.status === 'ready' || moduleStates.usage.hasData}}" class="usage-subsection-title">按模型名称分组</view>
-        <view wx:if="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData) && usageStats.models.length}}" class="usage-model-list">
+        <view
+          wx:if="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData) && !monitorOnlyAbnormal}}"
+          class="usage-subsection-head"
+        >
+          <view class="usage-subsection-title">按模型名称分组</view>
+          <view
+            class="usage-subsection-toggle"
+            data-usage-section="models"
+            catchtap="toggleUsageSection"
+            hover-class="control-tap"
+            role="button"
+            aria-label="{{usageSections.models ? '收起按模型名称分组' : '展开按模型名称分组'}}"
+          >
+            <text>{{usageSections.models ? '收起' : '展开'}}</text>
+            <text class="usage-subsection-chevron {{usageSections.models ? 'is-open' : ''}}">⌄</text>
+          </view>
+        </view>
+        <view
+          wx:if="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData) && !monitorOnlyAbnormal && usageSections.models}}"
+          class="usage-subsection-body"
+        >
+        <view wx:if="{{usageStats.models.length}}" class="usage-model-list">
           <view wx:for="{{usageStats.models}}" wx:key="model" class="usage-model-row">
             <view class="usage-model-top">
               <text>{{item.provider}} / {{item.model}}</text>
@@ -1116,10 +1240,31 @@
             </view>
           </view>
         </view>
-        <view wx:elif="{{moduleStates.usage.status === 'ready' || moduleStates.usage.hasData}}" class="admin-empty usage-empty">还没有按模型分组的数据。</view>
+        <view wx:if="{{!usageStats.models.length}}" class="admin-empty usage-empty">还没有按模型分组的数据。</view>
+        </view>
 
-        <view wx:if="{{moduleStates.usage.status === 'ready' || moduleStates.usage.hasData}}" class="usage-subsection-title">按月份统计</view>
-        <scroll-view wx:if="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData) && usageStats.monthly.length}}" class="usage-monthly-list" scroll-y>
+        <view
+          wx:if="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData) && !monitorOnlyAbnormal}}"
+          class="usage-subsection-head"
+        >
+          <view class="usage-subsection-title">按月份统计</view>
+          <view
+            class="usage-subsection-toggle"
+            data-usage-section="monthly"
+            catchtap="toggleUsageSection"
+            hover-class="control-tap"
+            role="button"
+            aria-label="{{usageSections.monthly ? '收起按月份统计' : '展开按月份统计'}}"
+          >
+            <text>{{usageSections.monthly ? '收起' : '展开'}}</text>
+            <text class="usage-subsection-chevron {{usageSections.monthly ? 'is-open' : ''}}">⌄</text>
+          </view>
+        </view>
+        <view
+          wx:if="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData) && !monitorOnlyAbnormal && usageSections.monthly}}"
+          class="usage-subsection-body"
+        >
+        <scroll-view wx:if="{{usageStats.monthly.length}}" class="usage-monthly-list" scroll-y>
           <view wx:for="{{usageStats.monthly}}" wx:key="monthKey" class="usage-monthly-row">
             <view class="usage-daily-date">
               <text>{{item.monthKey}}</text>
@@ -1134,11 +1279,12 @@
             <view class="usage-daily-result">Token {{item.totalTokens}} · 视频 {{item.videoDurationSeconds}} 秒</view>
           </view>
         </scroll-view>
-        <view wx:elif="{{moduleStates.usage.status === 'ready' || moduleStates.usage.hasData}}" class="admin-empty usage-empty">还没有月度统计数据。</view>
+        <view wx:if="{{!usageStats.monthly.length}}" class="admin-empty usage-empty">还没有月度统计数据。</view>
+        </view>
         </view>
       </view>
 
-      <view class="card admin-section auto-face-failure-section monitor-fold-card {{monitorSections.autoFaceFailure ? 'is-open' : 'is-collapsed'}}">
+      <view id="monitor-section-autoFaceFailure" class="card admin-section auto-face-failure-section monitor-fold-card {{monitorSections.autoFaceFailure ? 'is-open' : 'is-collapsed'}}">
         <view class="admin-section-head">
           <view>
             <view class="admin-section-title">自动贴脸失败统计</view>
@@ -1257,7 +1403,7 @@
         </view>
       </view>
 
-      <view class="card admin-section diagnostic-admin-section monitor-fold-card {{monitorSections.diagnosticLogs ? 'is-open' : 'is-collapsed'}}">
+      <view id="monitor-section-diagnosticLogs" class="card admin-section diagnostic-admin-section monitor-fold-card {{monitorSections.diagnosticLogs ? 'is-open' : 'is-collapsed'}}">
         <view class="admin-section-head">
           <view>
             <view class="admin-section-title">用户端日志</view>

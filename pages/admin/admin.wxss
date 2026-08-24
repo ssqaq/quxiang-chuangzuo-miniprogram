@@ -618,6 +618,29 @@ page {
   white-space: nowrap;
 }
 
+.monitor-filter-button {
+  display: flex;
+  min-width: 100rpx;
+  min-height: 52rpx;
+  padding: 0 12rpx;
+  align-items: center;
+  justify-content: center;
+  border: 1rpx solid #ead9ad;
+  border-radius: 14rpx;
+  color: #8c6a21;
+  background: #fffaf0;
+  font-size: 18rpx;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.monitor-filter-button.is-active {
+  border-color: #c7424e;
+  color: #ffffff;
+  background: #c7424e;
+}
+
 .monitor-toggle-arrow {
   display: flex;
   width: 48rpx;
@@ -680,11 +703,21 @@ page {
   word-break: normal;
 }
 
+.monitor-overview-note-action {
+  padding: 6rpx 8rpx;
+  margin-left: -8rpx;
+  border-radius: 10rpx;
+}
+
+.monitor-overview-note-action:active {
+  background: rgba(255, 255, 255, 0.1);
+}
+
 .monitor-overview-stats {
   display: grid;
   width: 45%;
   min-width: 300rpx;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10rpx;
   align-items: stretch;
 }
@@ -700,6 +733,15 @@ page {
   border-radius: 16rpx;
   background: rgba(255, 255, 255, 0.08);
   text-align: center;
+}
+
+.monitor-overview-stat-action {
+  transition: transform 0.08s ease, background-color 0.08s ease;
+}
+
+.monitor-overview-stat-action:active {
+  transform: scale(0.98);
+  background: rgba(255, 255, 255, 0.14);
 }
 
 .monitor-overview-stats text {
@@ -883,6 +925,7 @@ page {
     width: 100%;
     min-width: 0;
     margin-top: 18rpx;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .monitor-section-head {
@@ -1307,6 +1350,66 @@ page {
 .usage-failure-panel {
   margin-top: 18rpx;
   padding-top: 2rpx;
+}
+
+.usage-subsection-head {
+  display: flex;
+  min-width: 0;
+  min-height: 56rpx;
+  margin-top: 18rpx;
+  padding: 8rpx 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14rpx;
+  border-bottom: 1rpx solid #edf0f5;
+}
+
+.usage-failure-panel > .usage-subsection-head:first-child {
+  margin-top: 0;
+}
+
+.usage-subsection-head .usage-subsection-title {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border-top: 0;
+}
+
+.usage-subsection-toggle {
+  display: flex;
+  min-width: 96rpx;
+  min-height: 46rpx;
+  padding: 0 12rpx;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: 5rpx;
+  border: 1rpx solid #d8e3f3;
+  border-radius: 12rpx;
+  color: #2f70d4;
+  background: #f5f8fd;
+  font-size: 18rpx;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.usage-subsection-chevron {
+  display: inline-flex;
+  min-width: 20rpx;
+  align-items: center;
+  justify-content: center;
+  font-size: 25rpx;
+  line-height: 1;
+  transform: translateY(-2rpx);
+}
+
+.usage-subsection-chevron.is-open {
+  transform: rotate(180deg) translateY(2rpx);
+}
+
+.usage-subsection-body {
+  min-width: 0;
 }
 
 .usage-failure-heading {

@@ -2098,7 +2098,11 @@ async function getAdminDiagnosticLogs(event, context) {
     Math.min(USER_DIAGNOSTIC_LOG_RETENTION_HOURS, Number(event && event.hours) || 72)
   );
   const levelValue = compactUsageText(event && event.level, 16).toLowerCase();
-  const level = USER_DIAGNOSTIC_LEVELS.has(levelValue) ? levelValue : "all";
+  const level = levelValue === "abnormal"
+    ? "abnormal"
+    : USER_DIAGNOSTIC_LEVELS.has(levelValue)
+      ? levelValue
+      : "all";
   const categoryValue = compactUsageText(event && event.category, 40).toLowerCase();
   const category = categoryValue && categoryValue !== "all"
     ? normalizeDiagnosticCategory(categoryValue)
@@ -2125,7 +2129,11 @@ async function getAdminDiagnosticLogs(event, context) {
     label: `用户 ${value}`
   }));
   const filtered = timeRows.filter((item) => (
-    (level === "all" || normalizeDiagnosticLevel(item.level) === level)
+    (
+      level === "all"
+      || (level === "abnormal" && ["error", "warn"].includes(normalizeDiagnosticLevel(item.level)))
+      || normalizeDiagnosticLevel(item.level) === level
+    )
     && (category === "all" || normalizeDiagnosticCategory(item.category) === category)
     && (!userHash || compactUsageText(item.userHash, 40) === userHash)
   ));

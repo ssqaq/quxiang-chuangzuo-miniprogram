@@ -245,7 +245,7 @@
     <view class="lock-panel">
       <view class="lock-panel-head">
         <view class="lock-panel-copy" bindtap="toggleLockPanel">
-          <view class="lock-panel-title">选择不需要修改的内容</view>
+          <view class="lock-panel-title">选择要保持不变的部分</view>
           <view class="lock-panel-help">勾选的内容会保持原图，不参与修改。</view>
         </view>
         <view class="lock-panel-toolbar">

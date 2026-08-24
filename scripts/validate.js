@@ -1202,7 +1202,7 @@ if (
   throw new Error("记录页删除清理、进入返回或375/414屏幕适配不完整。");
 }
 if (
-  !indexWxml.includes("选择不需要修改的内容")
+  !indexWxml.includes("选择要保持不变的部分")
   || !indexWxml.includes("勾选的内容会保持原图，不参与修改。")
   || !indexWxml.includes('bindtap="toggleLockPanel"')
   || !indexWxml.includes('bindchange="onLockedElementsChange"')

@@ -25,10 +25,10 @@ async function main() {
   }, { OPENID: "probe-admin" });
   assert.strictEqual(probeResult.ok, true);
   assert.strictEqual(probeResult.historyWritten, true);
-  assert.strictEqual(probeResult.buildVersion, "0.27.0");
+  assert.strictEqual(probeResult.buildVersion, "0.28.3");
   assert.strictEqual(
     probeResult.buildMarker,
-    "API_BUILD_TAG_20260824_VIDEO_USER_EXPORT_V270"
+    "API_BUILD_TAG_20260824_BACKGROUND_REFERENCE_V283"
   );
   assert.ok(Number.isInteger(probeResult.durationMs));
   assert.ok(probeResult.durationMs >= 0);
@@ -43,8 +43,8 @@ async function main() {
     await test.writeAutoFaceProbeHistory({
       status: index % 5 === 0 ? "failed" : "ok",
       requestId: `history-${index}`,
-      buildVersion: "0.27.0",
-      buildMarker: "API_BUILD_TAG_20260824_VIDEO_USER_EXPORT_V270",
+      buildVersion: "0.28.3",
+      buildMarker: "API_BUILD_TAG_20260824_BACKGROUND_REFERENCE_V283",
       nodeVersion: "Nodejs16.13",
       cloudEnvConfigured: true,
       visionConfigured: index % 2 === 0,
@@ -73,8 +73,8 @@ async function main() {
   const cutoff = test.autoFaceProbeHistoryCutoff(new Date(baseDate));
   await test.writeAutoFaceProbeHistory({
     status: "ok",
-    buildVersion: "0.27.0",
-    buildMarker: "API_BUILD_TAG_20260824_VIDEO_USER_EXPORT_V270",
+    buildVersion: "0.28.3",
+    buildMarker: "API_BUILD_TAG_20260824_BACKGROUND_REFERENCE_V283",
     checkedAt: new Date(cutoff.getTime() - 1),
     createdAt: new Date(cutoff.getTime() - 1)
   });

@@ -30,6 +30,11 @@ function createMemoryStore() {
           return { data: clone(records.get(key)) };
         },
         async set({ data }) {
+          if (data && Object.prototype.hasOwnProperty.call(data, "_id")) {
+            const error = new Error("不能更新_id的值");
+            error.code = "-501007";
+            throw error;
+          }
           records.set(key, clone(data));
           return { stats: { updated: 1 } };
         }

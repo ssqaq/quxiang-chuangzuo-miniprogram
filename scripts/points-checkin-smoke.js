@@ -51,6 +51,10 @@ assert.strictEqual(
   }),
   "anonymous"
 );
+assert.deepStrictEqual(
+  helpers.stripDocumentId({ _id: "document-id", value: 1 }),
+  { value: 1 }
+);
 
 async function main() {
   const summary = await api.main({ action: "getUserPoints", requestId: "points-anonymous" }, {});

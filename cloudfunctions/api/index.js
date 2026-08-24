@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.24.2";
-const API_BUILD_MARKER = "API_BUILD_TAG_20260824_CHECKIN_WX_CONTEXT_V242";
+const API_BUILD_VERSION = "0.24.3";
+const API_BUILD_MARKER = "API_BUILD_TAG_20260824_CHECKIN_STRIP_ID_V243";
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
 const cloud = require("wx-server-sdk");
@@ -1275,7 +1275,7 @@ async function registerPhotoToVideoTempAsset(event = {}, context) {
     lastError: "",
     updatedAt: now
   };
-  await ref.set({ data });
+  await ref.set({ data: stripDocumentId(data) });
   return jsonResponse(true, {
     accepted: true,
     fileID,
@@ -2923,7 +2923,10 @@ async function saveAdminConfig(event, context) {
     updatedAt: new Date(),
     updatedBy: getOpenId(context)
   };
-  await db.collection(ADMIN_RUNTIME_CONFIG_COLLECTION).doc(ADMIN_RUNTIME_CONFIG_ID).set({ data });
+  await db
+    .collection(ADMIN_RUNTIME_CONFIG_COLLECTION)
+    .doc(ADMIN_RUNTIME_CONFIG_ID)
+    .set({ data: stripDocumentId(data) });
   adminRuntimeCache = {
     value: { image: next.image, video: next.video, points: next.points, costs: next.costs },
     expiresAt: Date.now() + ADMIN_RUNTIME_CACHE_TTL_MS
@@ -3974,6 +3977,13 @@ async function readDocument(ref) {
   }
 }
 
+function stripDocumentId(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const result = Object.assign({}, value);
+  delete result._id;
+  return result;
+}
+
 async function prepareAssetUpload(event, context) {
   const openid = getOpenId(context);
   if (openid === "anonymous") return fail("请先完成微信授权后再上传素材。", "wechat-binding-required");
@@ -3995,7 +4005,10 @@ async function prepareAssetUpload(event, context) {
     expiresAt,
     used: false
   };
-  await db.collection(ASSET_UPLOAD_TICKET_COLLECTION).doc(data._id).set({ data });
+  await db
+    .collection(ASSET_UPLOAD_TICKET_COLLECTION)
+    .doc(data._id)
+    .set({ data: stripDocumentId(data) });
   return jsonResponse(true, {
     ticketId,
     kind,
@@ -4049,7 +4062,7 @@ async function registerAsset(event, context) {
       createdAt: existing && existing.createdAt || new Date(),
       updatedAt: new Date()
     });
-    await assetRef.set({ data: next });
+    await assetRef.set({ data: stripDocumentId(next) });
     await ticketRef.update({
       data: {
         used: true,
@@ -4147,7 +4160,7 @@ async function ensurePointsAccount(openid, store = db) {
   const existing = await readDocument(ref);
   if (existing) return existing;
   const data = defaultPointsAccount(openid);
-  await ref.set({ data });
+  await ref.set({ data: stripDocumentId(data) });
   return data;
 }
 
@@ -4189,7 +4202,7 @@ async function savePointLedger(openid, requestId, data, store = db) {
     requestId,
     createdAt: new Date()
   }, data);
-  await ref.set({ data: record });
+  await ref.set({ data: stripDocumentId(record) });
   return record;
 }
 
@@ -4219,7 +4232,7 @@ async function saveGenerationOperation(openid, requestId, data, store = db) {
     requestId,
     updatedAt: now
   });
-  await ref.set({ data: record });
+  await ref.set({ data: stripDocumentId(record) });
   return record;
 }
 
@@ -4490,13 +4503,13 @@ async function reserveUsage(openid, requestId, kind) {
       await transaction
         .collection(POINTS_ACCOUNT_COLLECTION)
         .doc(account._id)
-        .set({ data: account });
+        .set({ data: stripDocumentId(account) });
     }
 
     quota.data.freeLimit = Number(points.dailyFreeLimit) || 0;
     quota.data.dailyLimit = quota.data.freeLimit;
     quota.data.updatedAt = new Date();
-    await quota.ref.set({ data: quota.data });
+    await quota.ref.set({ data: stripDocumentId(quota.data) });
     const billing = {
       source,
       kind,
@@ -4582,16 +4595,16 @@ async function refundUsage(openid, requestId, reason) {
       await transaction
         .collection(POINTS_ACCOUNT_COLLECTION)
         .doc(account._id)
-        .set({ data: account });
+        .set({ data: stripDocumentId(account) });
     } else if (original.type === "daily-free") {
       quota.data.freeUsed = Math.max(0, (Number(quota.data.freeUsed) || 0) - 1);
       quota.data.used = quota.data.freeUsed;
       quota.data.updatedAt = new Date();
-      await quota.ref.set({ data: quota.data });
+      await quota.ref.set({ data: stripDocumentId(quota.data) });
     } else if (original.type === "promo-free") {
       quota.data.promoFree = Math.max(0, (Number(quota.data.promoFree) || 0) - 1);
       quota.data.updatedAt = new Date();
-      await quota.ref.set({ data: quota.data });
+      await quota.ref.set({ data: stripDocumentId(quota.data) });
     }
 
     const refundLedger = await savePointLedger(openid, refundRequestId, {
@@ -4687,7 +4700,7 @@ async function checkIn(context) {
     await transaction
       .collection(POINTS_ACCOUNT_COLLECTION)
       .doc(account._id)
-      .set({ data: account });
+      .set({ data: stripDocumentId(account) });
     await savePointLedger(openid, requestId, {
       type: "checkin",
       kind: "checkin",
@@ -4807,7 +4820,7 @@ async function claimRepairChain(openid, parentRecord, requestId) {
       pendingRevision: revisionNumber,
       updatedAt: new Date()
     });
-    await ref.set({ data: next });
+    await ref.set({ data: stripDocumentId(next) });
     return {
       chainId,
       rootRecordId,
@@ -4828,14 +4841,14 @@ async function completeRepairChain(slot, recordId) {
       throw revisionConflictError("修正链状态已被其他请求占用。");
     }
     await ref.set({
-      data: Object.assign({}, chain, {
+      data: stripDocumentId(Object.assign({}, chain, {
         tailRecordId: recordId,
         tailRevision: slot.revisionNumber,
         pendingRequestId: "",
         pendingParentId: "",
         pendingRevision: 0,
         updatedAt: new Date()
-      })
+      }))
     });
   }, 5);
 }
@@ -4848,12 +4861,12 @@ async function releaseRepairChain(slot) {
       const chain = await readDocument(ref);
       if (!chain || chain.pendingRequestId !== slot.requestId) return;
       await ref.set({
-        data: Object.assign({}, chain, {
+        data: stripDocumentId(Object.assign({}, chain, {
           pendingRequestId: "",
           pendingParentId: "",
           pendingRevision: 0,
           updatedAt: new Date()
-        })
+        }))
       });
     }, 5);
   } catch (error) {
@@ -5268,7 +5281,7 @@ async function repairImage(event, context) {
         throw revisionConflictError();
       }
       await transaction.collection("generation_records").doc(recordId).set({
-        data: recordData
+        data: stripDocumentId(recordData)
       });
       await transaction.collection("generation_records").doc(parentRecordId).update({
         data: {
@@ -5277,14 +5290,14 @@ async function repairImage(event, context) {
         }
       });
       await chainRef.set({
-        data: Object.assign({}, chain, {
+        data: stripDocumentId(Object.assign({}, chain, {
           tailRecordId: recordId,
           tailRevision: chainSlot.revisionNumber,
           pendingRequestId: "",
           pendingParentId: "",
           pendingRevision: 0,
           updatedAt: new Date()
-        })
+        }))
       });
       const referenced = Array.from(new Set(
         [maskFileID]
@@ -6002,6 +6015,7 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     isPromoDate,
     calculateNextStreak,
     getOpenId,
+    stripDocumentId,
     videoProviderStatus,
     buildVideoGenerationPayload,
     normalizeVideoCreateResponse,

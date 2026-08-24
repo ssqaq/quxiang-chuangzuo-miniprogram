@@ -14,6 +14,9 @@ const pageWxml = fs.readFileSync(
   path.join(root, "pages/publish-export/publish-export.wxml"),
   "utf8"
 );
+const pageJson = JSON.parse(
+  fs.readFileSync(path.join(root, "pages/publish-export/publish-export.json"), "utf8")
+);
 const pageWxss = fs.readFileSync(
   path.join(root, "pages/publish-export/publish-export.wxss"),
   "utf8"
@@ -26,7 +29,7 @@ const workerJs = fs.readFileSync(
 const options = core.normalizeOptions({
   format: "PNG",
   quality: 101,
-  cameraNoiseStrength: 9,
+  cameraNoiseStrength: 2.4,
   frequencyStrength: 0,
   watermarkStrength: 4
 });
@@ -34,7 +37,7 @@ const options = core.normalizeOptions({
 assert.strictEqual(options.format, "png");
 assert.strictEqual(options.quality, 100);
 assert.strictEqual(options.maxLongEdge, 2048);
-assert.strictEqual(options.cameraNoiseStrength, 5);
+assert.strictEqual(options.cameraNoiseStrength, 2.4);
 assert.strictEqual(options.frequencyStrength, 1);
 assert.strictEqual(options.watermarkStrength, 4);
 
@@ -89,6 +92,29 @@ assert.ok(!pageWxml.includes("最长边"), "页面仍显示最长边选项。");
 assert.ok(
   !pageWxml.includes("小图优先在手机处理，大图或失败时经你确认后使用云端"),
   "页面仍显示已删除的处理说明。"
+);
+assert.strictEqual(pageJson.navigationBarTitleText, "降低AI识别率再导出");
+assert.ok(pageWxml.includes("降低AI识别率再导出"), "导出页标题文案未更新。");
+assert.ok(
+  pageWxml.includes(
+    'value="{{cameraNoiseStrength}}" min="1" max="5" step="0.1"'
+  ),
+  "颗粒强度滑块没有使用连续步进。"
+);
+assert.ok(
+  pageWxml.includes(
+    'value="{{frequencyStrength}}" min="1" max="5" step="0.1"'
+  ),
+  "频域扰动滑块没有使用连续步进。"
+);
+assert.ok(
+  pageWxml.includes("bindchanging=\"changeAdvancedStrength\"")
+    && pageJs.includes("Math.round(value * 10) / 10"),
+  "高级强度滑块没有复用顺滑拖动更新逻辑。"
+);
+assert.ok(
+  !pageWxml.includes("高级处理后再导出照片"),
+  "页面仍显示旧的导出标题。"
 );
 
 assert.ok(pageWxss.includes(".publish-export-canvas"), "导出画布样式缺失。");

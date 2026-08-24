@@ -779,7 +779,7 @@ Page({
     this.openPage(
       "/pages/publish-export/publish-export",
       "导出页打开失败",
-      "已打开降低AI识别率再导出照片"
+      "已打开降低AI识别率再导出"
     );
   },
 

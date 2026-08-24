@@ -1048,12 +1048,12 @@ if (
   throw new Error("管理员入口探测失败时没有静默处理，仍会刷重试报错。");
 }
 if (
-  !workbenchWxml.includes("降低 AI 痕迹")
+  !workbenchWxml.includes("降低AI识别率再导出")
   || !workbenchWxml.includes('bindtap="openPublishExport"')
   || !workbenchJs.includes('"/pages/publish-export/publish-export"')
   || !workbenchJs.includes("openPublishExport()")
   || !workbenchWxss.includes(".publish-export-entry")
-  || workbenchWxml.indexOf("降低 AI 痕迹") < workbenchWxml.indexOf("制作记录")
+  || workbenchWxml.indexOf("降低AI识别率再导出") < workbenchWxml.indexOf("制作记录")
 ) {
   throw new Error("首页“降低AI识别率再导出照片”入口没有放在制作记录卡片下面。");
 }
@@ -1073,10 +1073,8 @@ if (
   || !publishExportJs.includes("publishExport.resolveImageSource")
   || !publishExportJs.includes("publishExport.renderToTempFile")
   || !publishExportJs.includes("publishExport.saveToAlbum")
-  || (
-    !publishExportWxml.includes("降低AI识别率再导出照片")
-    && !publishExportWxml.includes("高级处理后再导出照片")
-  )
+  || !publishExportWxml.includes("降低AI识别率再导出")
+  || publishExportWxml.includes("高级处理后再导出照片")
   || !publishExportWxml.includes("1. 导入照片")
   || !publishExportWxml.includes("从手机相册选择照片导入")
   || !publishExportWxml.includes("选择照片")

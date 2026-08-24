@@ -175,8 +175,13 @@ Page({
       !["cameraNoiseStrength", "frequencyStrength", "watermarkStrength"].includes(key)
       || !Number.isFinite(value)
     ) return;
+    const smooth = key === "cameraNoiseStrength" || key === "frequencyStrength";
+    const nextValue = smooth
+      ? Math.max(1, Math.min(5, Math.round(value * 10) / 10))
+      : Math.max(1, Math.min(5, Math.round(value)));
+    if (this.data[key] === nextValue) return;
     this.setData({
-      [key]: Math.max(1, Math.min(5, Math.round(value)))
+      [key]: nextValue
     });
   },
 

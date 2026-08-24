@@ -146,7 +146,7 @@
       >
         <view class="publish-export-icon">AI</view>
         <view class="publish-export-copy">
-          <view class="publish-export-title">降低 AI 痕迹</view>
+          <view class="publish-export-title">降低AI识别率再导出</view>
           <view class="publish-export-description">导出前做一次自然度处理</view>
         </view>
         <view class="common-feature-action">去优化</view>

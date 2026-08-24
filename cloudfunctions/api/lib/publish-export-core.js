@@ -31,7 +31,9 @@ function clampByte(value) {
 
 function clampStrength(value, fallback) {
   const number = Number(value);
-  return Number.isFinite(number) ? clamp(Math.round(number), 1, 5) : fallback;
+  return Number.isFinite(number)
+    ? clamp(Math.round(number * 10) / 10, 1, 5)
+    : fallback;
 }
 
 function boolValue(value, fallback) {
@@ -600,4 +602,3 @@ module.exports = {
   fft1d,
   fft2d
 };
-

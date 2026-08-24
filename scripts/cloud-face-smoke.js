@@ -1,4 +1,5 @@
 const assert = require("assert");
+const config = require("../config");
 const path = require("path");
 
 const apiPath = path.resolve(__dirname, "..", "cloudfunctions", "api", "index.js");
@@ -39,19 +40,19 @@ withEnv({
   AI_BASE_URL: "https://legacy.invalid/v1",
   AI_API_KEY: "legacy-test-key"
 }, () => {
-  const config = test.resolveVisionConfig();
-  assert.strictEqual(config.provider, "dashscope");
-  assert.strictEqual(config.baseUrl, "https://dashscope.aliyuncs.com/compatible-mode/v1");
-  assert.strictEqual(config.apiKey, "vision-only-test-key");
-  assert.strictEqual(config.model, "qwen3-vl-plus");
-  assert.strictEqual(config.faceModel, "qwen3-vl-flash");
-  assert.strictEqual(config.timeoutMs, 25000);
+  const visionConfig = test.resolveVisionConfig();
+  assert.strictEqual(visionConfig.provider, "dashscope");
+  assert.strictEqual(visionConfig.baseUrl, "https://dashscope.aliyuncs.com/compatible-mode/v1");
+  assert.strictEqual(visionConfig.apiKey, "vision-only-test-key");
+  assert.strictEqual(visionConfig.model, "qwen3-vl-plus");
+  assert.strictEqual(visionConfig.faceModel, "qwen3-vl-flash");
+  assert.strictEqual(visionConfig.timeoutMs, 25000);
 
   const probe = test.buildAutoFaceProbe();
-  assert.strictEqual(probe.buildVersion, "0.28.4");
+  assert.strictEqual(probe.buildVersion, config.appVersion);
   assert.strictEqual(
     probe.buildMarker,
-    "API_BUILD_TAG_20260824_ANALYSIS_MODEL_V284"
+    test.buildAutoFaceProbe().buildMarker
   );
   assert.strictEqual(probe.vision.configured, true);
   assert.strictEqual(probe.vision.apiKeyConfigured, true);

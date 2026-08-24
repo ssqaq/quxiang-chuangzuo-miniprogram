@@ -55,9 +55,10 @@ function createCollectionStore(options = {}) {
 }
 
 async function main() {
-  assert.strictEqual(helpers.requiredDatabaseCollections.length, 15);
+  assert.strictEqual(helpers.requiredDatabaseCollections.length, 16);
   assert.ok(helpers.requiredDatabaseCollections.includes("user_accounts"));
   assert.ok(helpers.requiredDatabaseCollections.includes("user_profiles"));
+  assert.ok(helpers.requiredDatabaseCollections.includes("user_diagnostic_logs"));
   assert.ok(helpers.requiredDatabaseCollections.includes("point_ledger"));
   assert.ok(helpers.requiredDatabaseCollections.includes("generation_operations"));
   assert.ok(helpers.isCollectionMissingError(missingCollectionError("sample")));
@@ -113,9 +114,9 @@ async function main() {
       requestId: "database-init-admin"
     }, { OPENID: "database-admin" });
     assert.strictEqual(initialized.ok, true);
-    assert.strictEqual(initialized.total, 15);
+    assert.strictEqual(initialized.total, 16);
     assert.strictEqual(initialized.created, 0);
-    assert.strictEqual(initialized.existing, 15);
+    assert.strictEqual(initialized.existing, 16);
     assert.strictEqual(initialized.failed, 0);
   } finally {
     db.collection = originalCollection;

@@ -64,6 +64,7 @@ const jsFiles = [
   "scripts/auto-face-fallback-smoke.js",
   "scripts/cloud-error-propagation-smoke.js",
   "scripts/diagnostic-log-smoke.js",
+  "scripts/diagnostic-admin-logs-smoke.js",
   "scripts/generation-experience-smoke.js",
   "scripts/photo-to-video-smoke.js",
   "scripts/video-provider-smoke.js",
@@ -181,6 +182,7 @@ const required = [
   "pages/admin/admin.wxml",
   "pages/admin/admin.wxss",
   "scripts/admin-loading-smoke.js",
+  "scripts/diagnostic-admin-logs-smoke.js",
   "pages/index/index.wxml",
   "pages/index/index.wxss",
   "utils/canvas-gesture.js",
@@ -279,6 +281,10 @@ const recordsWxml = fs.readFileSync(path.join(root, "pages/records/records.wxml"
 const recordsWxss = fs.readFileSync(path.join(root, "pages/records/records.wxss"), "utf8");
 const cloudJs = fs.readFileSync(path.join(root, "cloudfunctions/api/index.js"), "utf8");
 const clientCloudJs = fs.readFileSync(path.join(root, "services/cloud.js"), "utf8");
+const diagnosticLogJs = fs.readFileSync(
+  path.join(root, "utils/diagnostic-log.js"),
+  "utf8"
+);
 const cloudErrorSmokeJs = fs.readFileSync(
   path.join(root, "scripts/cloud-error-propagation-smoke.js"),
   "utf8"
@@ -303,6 +309,15 @@ const cleanupSmokeJs = fs.readFileSync(
   path.join(root, "scripts/photo-to-video-cleanup-smoke.js"),
   "utf8"
 );
+const getCssRule = (css, selector) => {
+  const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = css.match(new RegExp(`${escapedSelector}\\s*\\{([^}]*)\\}`));
+  return match ? match[1] : "";
+};
+const getCssProperty = (rule, property) => {
+  const match = rule.match(new RegExp(`(?:^|\\n)\\s*${property}:\\s*([^;]+);`));
+  return match ? match[1].trim() : "";
+};
 if (
   !appConfig.appVersion
   || apiPackage.version !== appConfig.appVersion
@@ -934,9 +949,10 @@ if (
   || !workbenchJs.includes("draft-auto-clear")
   || !workbenchWxml.includes("查看问题报告")
   || !workbenchWxml.includes("<text>其他服务</text>")
-  || !workbenchWxml.includes("作品记录、图片优化和问题反馈")
+  || !workbenchWxml.includes("作品记录、图片优化和更多工具")
   || !workbenchWxml.includes("服务记录")
   || !workbenchWxml.includes("查看问题报告")
+  || !workbenchWxml.includes('wx:if="{{adminVisible}}" class="card interaction-log-card"')
   || !workbenchWxml.includes("联系作者")
   || !workbenchWxml.includes("添加微信咨询")
   || workbenchWxml.indexOf('class="card admin-entry-card') < workbenchWxml.indexOf('class="card contact-author-card"')
@@ -971,10 +987,35 @@ if (
   || !recordsJs.includes('require("../../utils/diagnostic-log")')
   || !recordsJs.includes('diagnosticLog.info("records"')
   || !fs.existsSync(path.join(root, "scripts", "diagnostic-log-smoke.js"))
+  || !fs.existsSync(path.join(root, "scripts", "diagnostic-admin-logs-smoke.js"))
   || !fs.existsSync(path.join(root, "scripts", "refresh-preview.ps1"))
   || !fs.existsSync(path.join(root, "一键刷新预览.cmd"))
 ) {
   throw new Error("故障排查报告、真机跳转兜底或一键刷新预览功能不完整。");
+}
+if (
+  !appJs.includes("configureRemoteReporting")
+  || !appJs.includes("reportDiagnosticLogs")
+  || !clientCloudJs.includes('action: "reportDiagnosticLogs"')
+  || !clientCloudJs.includes('action: "getAdminDiagnosticLogs"')
+  || !diagnosticLogJs.includes("72 * 60 * 60 * 1000")
+  || !diagnosticLogJs.includes("pruneExpiredState")
+  || !diagnosticLogJs.includes("flushRemote")
+  || !cloudJs.includes('USER_DIAGNOSTIC_LOG_COLLECTION = "user_diagnostic_logs"')
+  || !cloudJs.includes("USER_DIAGNOSTIC_LOG_RETENTION_HOURS = 72")
+  || !cloudJs.includes("cleanupDiagnosticLogs")
+  || !cloudJs.includes("reportDiagnosticLogs")
+  || !cloudJs.includes("getAdminDiagnosticLogs")
+  || !adminJs.includes('"diagnosticLogs"')
+  || !adminJs.includes("refreshDiagnosticLogs")
+  || !adminJs.includes("copyDiagnosticLog")
+  || !adminWxml.includes("用户端日志")
+  || !adminWxml.includes("超过72小时自动删除")
+  || !adminWxml.includes("diagnostic-admin-filter-chip")
+  || !adminWxss.includes(".diagnostic-admin-summary")
+  || !adminWxss.includes(".diagnostic-admin-log")
+) {
+  throw new Error("管理员用户端日志、分类筛选、脱敏上报或72小时自动清理功能不完整。");
 }
 if (
   !clientCloudJs.includes('action: "getAdminStatus"')
@@ -1031,6 +1072,38 @@ if (
   || !publishExportUtil.includes("getOutputSize")
 ) {
   throw new Error("降低AI识别率再导出照片页面或 Canvas 保存链路不完整。");
+}
+const publishExportButtonRule = getCssRule(publishExportWxss, ".export-button");
+const photoToVideoButtonRule = getCssRule(photoToVideoWxss, ".export-button");
+const publishBackButtonRule = getCssRule(publishExportWxss, ".back-button");
+const photoBackButtonRule = getCssRule(photoToVideoWxss, ".back-button");
+const actionButtonProperties = [
+  "display",
+  "width",
+  "height",
+  "min-height",
+  "margin-top",
+  "padding",
+  "align-items",
+  "justify-content",
+  "border-radius",
+  "font-size",
+  "line-height",
+  "text-align"
+];
+if (
+  !actionButtonProperties.every((property) => (
+    getCssProperty(publishExportButtonRule, property)
+    && getCssProperty(publishExportButtonRule, property)
+      === getCssProperty(photoToVideoButtonRule, property)
+  ))
+  || !actionButtonProperties.every((property) => (
+    getCssProperty(publishBackButtonRule, property)
+    && getCssProperty(publishBackButtonRule, property)
+      === getCssProperty(photoBackButtonRule, property)
+  ))
+) {
+  throw new Error("照片转实况图底部两个按钮没有和降低AI痕迹页面统一尺寸、字号、间距或上下居中规则。");
 }
 const publishScopeButtonStyle = publishExportWxss.match(
   /\.scope-button\s*\{([^}]*)\}/

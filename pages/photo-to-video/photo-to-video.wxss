@@ -76,8 +76,7 @@ page {
   margin-top: 16rpx;
 }
 
-.upload-main-button,
-.export-button {
+.upload-main-button {
   width: 100%;
   height: 84rpx;
   margin-top: 20rpx;
@@ -93,6 +92,21 @@ page {
   box-sizing: border-box;
   padding: 0;
   line-height: normal;
+  text-align: center;
+}
+
+.export-button {
+  display: flex;
+  width: 100%;
+  height: 82rpx;
+  min-height: 82rpx;
+  margin-top: 22rpx;
+  padding: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 16rpx;
+  font-size: 28rpx;
+  line-height: 82rpx;
   text-align: center;
 }
 
@@ -302,12 +316,18 @@ page {
 }
 
 .back-button {
+  display: flex;
   width: 100%;
-  height: 72rpx;
+  height: 82rpx;
+  min-height: 82rpx;
   margin-top: 14rpx;
-  border-radius: 14rpx;
-  font-size: 26rpx;
-  line-height: 72rpx;
+  padding: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 16rpx;
+  font-size: 28rpx;
+  line-height: 82rpx;
+  text-align: center;
 }
 
 .progress-head {

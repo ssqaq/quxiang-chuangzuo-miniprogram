@@ -55,6 +55,20 @@ const cloudMock = {
     users: [],
     nextOffset: null
   }),
+  getAdminDiagnosticLogs: async () => ({
+    retentionHours: 72,
+    summary: {
+      total: 0,
+      errorCount: 0,
+      warnCount: 0,
+      infoCount: 0,
+      userCount: 0,
+      categories: []
+    },
+    userOptions: [],
+    logs: [],
+    nextOffset: null
+  }),
   getAutoFaceFailureStats: async () => ({
     today: 0,
     last7d: 0,
@@ -132,14 +146,42 @@ async function main() {
   assert.strictEqual(page.data.usageStats.today.total, 0);
 
   usageResolve({
-    today: { total: 3, success: 3, failure: 0, estimatedCost: 0 },
-    last7d: { total: 3, success: 3, failure: 0, estimatedCost: 0 },
-    last30d: { total: 3, success: 3, failure: 0, estimatedCost: 0 },
+    todayKey: "2026-08-24",
+    today: {
+      total: 3,
+      success: 3,
+      failure: 0,
+      estimatedCost: 0.000785,
+      pricedCost: 0.000785
+    },
+    last7d: { total: 3, success: 3, failure: 0, estimatedCost: 0.000785 },
+    last30d: { total: 3, success: 3, failure: 0, estimatedCost: 0.000785 },
     summary: {},
-    daily: [],
-    monthly: [],
-    users: [],
-    models: [],
+    daily: [{
+      dateKey: "2026-08-24",
+      total: 3,
+      success: 3,
+      failure: 0,
+      estimatedCost: 0.000785
+    }],
+    monthly: [{
+      monthKey: "2026-08",
+      total: 3,
+      estimatedCost: 0.000785,
+      analysis: { estimatedCost: 0.000785 }
+    }],
+    users: [{
+      userHash: "user-cost",
+      total: 3,
+      estimatedCost: 0.000785
+    }],
+    models: [{
+      usageType: "analysis",
+      provider: "test",
+      model: "cost-model",
+      total: 3,
+      estimatedCost: 0.000785
+    }],
     failureStats: {}
   });
   await new Promise((resolve) => setTimeout(resolve, 0));
@@ -147,11 +189,22 @@ async function main() {
   assert.strictEqual(page.data.moduleStates.usage.status, "ready");
   assert.strictEqual(page.data.usageStats.today.total, 3);
   assert.strictEqual(page.data.todayFailureText, "0 个失败");
+  assert.strictEqual(page.data.usageStats.today.estimatedCostDisplay, "0.0007");
+  assert.strictEqual(page.data.usageStats.today.pricedCostDisplay, "0.0007");
+  assert.strictEqual(page.data.usageStats.last7d.estimatedCostDisplay, "0.0007");
+  assert.strictEqual(page.data.usageStats.last30d.estimatedCostDisplay, "0.0007");
+  assert.strictEqual(page.data.usageStats.monthly[0].estimatedCostDisplay, "0.0007");
+  assert.strictEqual(page.data.usageStats.monthly[0].analysis.estimatedCostDisplay, "0.0007");
+  assert.strictEqual(page.data.usageStats.users[0].estimatedCostDisplay, "0.0007");
+  assert.strictEqual(page.data.usageStats.models[0].estimatedCostDisplay, "0.0007");
+  assert.strictEqual(page.data.costTrend.days[6].costDisplay, "0.0007");
+  assert.strictEqual(page.data.costTrend.totalCostDisplay, "0.0007");
 
   await page.refreshAll();
   assert.strictEqual(page.data.refreshingAll, false);
   assert.strictEqual(page.data.moduleStates.usage.status, "ready");
   assert.strictEqual(page.data.moduleStates.users.status, "ready");
+  assert.strictEqual(page.data.moduleStates.diagnosticLogs.status, "ready");
   assert.strictEqual(page.data.moduleStates.autoFaceFailure.status, "ready");
   assert.strictEqual(page.data.moduleStates.probeHistory.status, "ready");
   assert.strictEqual(page.data.moduleStates.logs.status, "ready");

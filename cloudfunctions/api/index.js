@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.30.0";
-const API_BUILD_MARKER = "API_BUILD_TAG_20260824_SINGLE_PROBE_USER_FILTER_V300";
+const API_BUILD_VERSION = "0.31.0";
+const API_BUILD_MARKER = "API_BUILD_TAG_20260824_DIAGNOSTIC_LOGS_72H_V310";
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
 const cloud = require("wx-server-sdk");
@@ -68,12 +68,46 @@ const MODEL_COST_CONFIG_VERSION = "2026-08-23-v1";
 const ADMIN_RUNTIME_CACHE_TTL_MS = 15000;
 const POINTS_ACCOUNT_COLLECTION = "user_accounts";
 const USER_PROFILE_COLLECTION = "user_profiles";
-const ADMIN_USER_DATE_RANGES = new Set(["all", "today", "7d", "30d"]);
+const USER_DIAGNOSTIC_LOG_COLLECTION = "user_diagnostic_logs";
+const USER_DIAGNOSTIC_LOG_RETENTION_HOURS = 72;
+const USER_DIAGNOSTIC_LOG_RETENTION_MS = (
+  USER_DIAGNOSTIC_LOG_RETENTION_HOURS * 60 * 60 * 1000
+);
+const USER_DIAGNOSTIC_LOG_BATCH_SIZE = 20;
+const USER_DIAGNOSTIC_LOG_CLEANUP_BATCH_SIZE = 100;
+const USER_DIAGNOSTIC_LOG_MAX_READ = 5000;
+const USER_DIAGNOSTIC_LEVELS = new Set(["info", "warn", "error"]);
+const USER_DIAGNOSTIC_CATEGORY_LABELS = Object.freeze({
+  app: "应用启动",
+  navigation: "页面操作",
+  cloud: "云端服务",
+  upload: "文件上传",
+  "cloud-file": "云文件",
+  generation: "生图",
+  analysis: "图片分析",
+  "auto-face": "自动贴脸",
+  video: "视频生成",
+  repair: "局部修正",
+  records: "作品记录",
+  points: "积分签到",
+  admin: "管理员",
+  diagnostic: "诊断工具",
+  export: "导出",
+  other: "其他"
+});
+const ADMIN_USER_DATE_RANGES = new Set(["all", "today", "7d", "30d", "custom"]);
 const ADMIN_USER_DATE_RANGE_LABELS = {
   all: "全部",
   today: "今天",
   "7d": "近7天",
-  "30d": "近30天"
+  "30d": "近30天",
+  custom: "自定义"
+};
+const ADMIN_USER_GENDERS = new Set(["all", "male", "female"]);
+const ADMIN_USER_GENDER_LABELS = {
+  all: "全部",
+  male: "男性",
+  female: "女性"
 };
 const ADMIN_USER_TREND_DAYS = 7;
 const POINTS_LEDGER_COLLECTION = "point_ledger";
@@ -102,6 +136,7 @@ const REQUIRED_DATABASE_COLLECTIONS = Object.freeze([
   REPAIR_CHAIN_COLLECTION,
   POINTS_ACCOUNT_COLLECTION,
   USER_PROFILE_COLLECTION,
+  USER_DIAGNOSTIC_LOG_COLLECTION,
   USER_ASSET_COLLECTION,
   USER_QUOTA_COLLECTION
 ].sort());
@@ -876,6 +911,7 @@ const modelUsageTestEvents = [];
 const autoFaceFailureTestEvents = [];
 const autoFaceProbeTestEvents = [];
 const userProfileTestRows = [];
+const userDiagnosticLogTestRows = [];
 let autoFaceFailureCleanupLastRunAt = 0;
 let autoFaceFailureCleanupPromise = null;
 
@@ -1720,6 +1756,378 @@ function usageUserHash(openid) {
   const value = String(openid || "").trim();
   if (!value || value === "anonymous") return "anonymous";
   return crypto.createHash("sha256").update(`usage-user:${value}`).digest("hex").slice(0, 12);
+}
+
+function diagnosticLogCutoff(baseDate = new Date(), hours = USER_DIAGNOSTIC_LOG_RETENTION_HOURS) {
+  const normalizedHours = Math.max(
+    1,
+    Math.min(USER_DIAGNOSTIC_LOG_RETENTION_HOURS, Number(hours) || USER_DIAGNOSTIC_LOG_RETENTION_HOURS)
+  );
+  return new Date(baseDate.getTime() - normalizedHours * 60 * 60 * 1000);
+}
+
+function normalizeDiagnosticLevel(value) {
+  const level = compactUsageText(value, 16).toLowerCase();
+  return USER_DIAGNOSTIC_LEVELS.has(level) ? level : "info";
+}
+
+function normalizeDiagnosticCategory(value) {
+  const category = compactUsageText(value, 40)
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return Object.prototype.hasOwnProperty.call(USER_DIAGNOSTIC_CATEGORY_LABELS, category)
+    ? category
+    : "other";
+}
+
+function diagnosticCategoryLabel(category) {
+  return USER_DIAGNOSTIC_CATEGORY_LABELS[normalizeDiagnosticCategory(category)] || "其他";
+}
+
+function sanitizeDiagnosticText(value, maxLength = 500) {
+  return String(value || "")
+    .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [已隐藏]")
+    .replace(/\bsk-[A-Za-z0-9._~-]{12,}\b/gi, "[Key已隐藏]")
+    .replace(/cloud:\/\/[^\s,;]+/gi, "[素材地址已隐藏]")
+    .replace(/https?:\/\/[^\s,;]+/gi, "[地址已隐藏]")
+    .replace(
+      /(?:[A-Za-z]:[\\/]|\/(?:tmp|var|home|Users|private|data)\/)[^\s,;]+/g,
+      "[路径已隐藏]"
+    )
+    .replace(/openid\s*[:=]\s*[^\s,;]+/gi, "OpenID=[已隐藏]")
+    .replace(
+      /((?:api[_-]?key|appsecret|secret|authorization|password|token)\s*[:=]\s*)[^\s,;]+/gi,
+      "$1[已隐藏]"
+    )
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLength);
+}
+
+function sanitizeDiagnosticValue(value, key = "", depth = 0) {
+  if (depth > 4) return "[内容已截断]";
+  if (value === null || value === undefined) return value;
+  const normalizedKey = String(key || "");
+  if (/api.?key|appsecret|secret|authorization|password|token|openid/i.test(normalizedKey)) {
+    return "[已隐藏]";
+  }
+  if (/base64|binary|buffer|fileContent|imageData|videoData/i.test(normalizedKey)) {
+    return "[内容已省略]";
+  }
+  if (/prompt|negativePrompt|userContent/i.test(normalizedKey)) {
+    return "[用户内容已省略]";
+  }
+  if (
+    /^(fileID|fileId|filePath|tempFilePath|localPath|imagePath|imageUrl|videoPath|videoUrl|avatarUrl|url)$/i
+      .test(normalizedKey)
+  ) {
+    return "[地址已隐藏]";
+  }
+  if (typeof value === "string") return sanitizeDiagnosticText(value, 500);
+  if (typeof value === "number" || typeof value === "boolean") return value;
+  if (Array.isArray(value)) {
+    return value.slice(0, 30).map((item) => sanitizeDiagnosticValue(item, normalizedKey, depth + 1));
+  }
+  if (typeof value === "object") {
+    const result = {};
+    Object.keys(value).slice(0, 50).forEach((childKey) => {
+      result[childKey] = sanitizeDiagnosticValue(value[childKey], childKey, depth + 1);
+    });
+    return result;
+  }
+  return sanitizeDiagnosticText(value, 500);
+}
+
+function diagnosticLogDocumentId(openid, eventId) {
+  return crypto.createHash("sha256")
+    .update(`diagnostic-log:${openid}:${eventId}`)
+    .digest("hex")
+    .slice(0, 32);
+}
+
+function normalizeDiagnosticEvent(value = {}, options = {}) {
+  const source = value && typeof value === "object" ? value : {};
+  const nowDate = options.now instanceof Date ? options.now : new Date(options.now || Date.now());
+  const rawTime = new Date(source.time || nowDate);
+  let occurredAt = Number.isNaN(rawTime.getTime()) ? nowDate : rawTime;
+  if (occurredAt.getTime() > nowDate.getTime() + 5 * 60 * 1000) occurredAt = nowDate;
+  if (occurredAt.getTime() <= diagnosticLogCutoff(nowDate).getTime()) return null;
+  const eventId = compactUsageText(source.eventId, 120)
+    .replace(/[^A-Za-z0-9._:-]+/g, "-");
+  if (!eventId) return null;
+  const openid = String(options.openid || "anonymous");
+  const createdAt = new Date(occurredAt);
+  return {
+    _id: diagnosticLogDocumentId(openid, eventId),
+    eventId,
+    userHash: usageUserHash(openid),
+    sessionId: compactUsageText(source.sessionId || options.sessionId, 120)
+      .replace(/[^A-Za-z0-9._:-]+/g, "-"),
+    appVersion: compactUsageText(options.appVersion, 40),
+    sequence: Math.max(0, Math.round(Number(source.sequence) || 0)),
+    level: normalizeDiagnosticLevel(source.level),
+    category: normalizeDiagnosticCategory(source.category),
+    event: compactUsageText(source.event, 80)
+      .replace(/[^A-Za-z0-9._:-]+/g, "-"),
+    message: sanitizeDiagnosticText(source.message, 240),
+    route: compactUsageText(source.route, 160)
+      .replace(/[^A-Za-z0-9_./-]+/g, ""),
+    step: compactUsageText(source.step, 80)
+      .replace(/[^A-Za-z0-9._:-]+/g, "-"),
+    requestId: compactUsageText(source.requestId, 120)
+      .replace(/[^A-Za-z0-9._:-]+/g, "-"),
+    code: compactUsageText(source.code, 80)
+      .replace(/[^A-Za-z0-9._:-]+/g, "-"),
+    durationMs: Number.isFinite(Number(source.durationMs))
+      ? Math.max(0, Math.min(10 * 60 * 1000, Math.round(Number(source.durationMs))))
+      : null,
+    error: sanitizeDiagnosticValue(source.error, "error"),
+    details: sanitizeDiagnosticValue(source.details, "details"),
+    createdAt,
+    receivedAt: new Date(nowDate),
+    expiresAt: new Date(createdAt.getTime() + USER_DIAGNOSTIC_LOG_RETENTION_MS)
+  };
+}
+
+function diagnosticDisplayEvent(value = {}) {
+  const createdAt = value.createdAt instanceof Date
+    ? value.createdAt
+    : new Date(value.createdAt || 0);
+  return {
+    eventId: compactUsageText(value.eventId, 120),
+    userHash: compactUsageText(value.userHash, 40) || "anonymous",
+    sessionId: compactUsageText(value.sessionId, 120),
+    appVersion: compactUsageText(value.appVersion, 40),
+    sequence: Math.max(0, Number(value.sequence) || 0),
+    level: normalizeDiagnosticLevel(value.level),
+    category: normalizeDiagnosticCategory(value.category),
+    categoryLabel: diagnosticCategoryLabel(value.category),
+    event: compactUsageText(value.event, 80),
+    message: sanitizeDiagnosticText(value.message, 240),
+    route: compactUsageText(value.route, 160),
+    step: compactUsageText(value.step, 80),
+    requestId: compactUsageText(value.requestId, 120),
+    code: compactUsageText(value.code, 80),
+    durationMs: Number.isFinite(Number(value.durationMs)) ? Number(value.durationMs) : null,
+    error: sanitizeDiagnosticValue(value.error, "error"),
+    details: sanitizeDiagnosticValue(value.details, "details"),
+    createdAt: Number.isNaN(createdAt.getTime()) ? "" : createdAt.toISOString()
+  };
+}
+
+function buildAdminDiagnosticStats(rows = []) {
+  const stats = {
+    total: rows.length,
+    errorCount: 0,
+    warnCount: 0,
+    infoCount: 0,
+    userCount: 0,
+    categories: []
+  };
+  const users = new Set();
+  const categories = {};
+  rows.forEach((item) => {
+    const level = normalizeDiagnosticLevel(item.level);
+    if (level === "error") stats.errorCount += 1;
+    else if (level === "warn") stats.warnCount += 1;
+    else stats.infoCount += 1;
+    const userHash = compactUsageText(item.userHash, 40);
+    if (userHash) users.add(userHash);
+    const category = normalizeDiagnosticCategory(item.category);
+    categories[category] = (categories[category] || 0) + 1;
+  });
+  stats.userCount = users.size;
+  stats.categories = Object.keys(categories)
+    .map((category) => ({
+      category,
+      label: diagnosticCategoryLabel(category),
+      count: categories[category]
+    }))
+    .sort((left, right) => right.count - left.count || left.category.localeCompare(right.category));
+  return stats;
+}
+
+async function cleanupDiagnosticLogs(baseDate = new Date()) {
+  const cutoff = new Date(baseDate);
+  if (process.env.WECHAT_MINIAPP_TEST === "1") {
+    let removed = 0;
+    for (let index = userDiagnosticLogTestRows.length - 1; index >= 0; index -= 1) {
+      const row = userDiagnosticLogTestRows[index];
+      const expiresAt = row.expiresAt
+        ? new Date(row.expiresAt)
+        : new Date(new Date(row.createdAt || 0).getTime() + USER_DIAGNOSTIC_LOG_RETENTION_MS);
+      if (!Number.isNaN(expiresAt.getTime()) && expiresAt.getTime() <= cutoff.getTime()) {
+        userDiagnosticLogTestRows.splice(index, 1);
+        removed += 1;
+      }
+    }
+    return {
+      removed,
+      truncated: false,
+      retentionHours: USER_DIAGNOSTIC_LOG_RETENTION_HOURS,
+      cutoff: cutoff.toISOString()
+    };
+  }
+
+  let removed = 0;
+  let truncated = false;
+  for (let batch = 0; batch < 20; batch += 1) {
+    const result = await db
+      .collection(USER_DIAGNOSTIC_LOG_COLLECTION)
+      .where({ expiresAt: db.command.lte(cutoff) })
+      .limit(USER_DIAGNOSTIC_LOG_CLEANUP_BATCH_SIZE)
+      .get();
+    const rows = result && Array.isArray(result.data)
+      ? result.data.filter((item) => item && item._id)
+      : [];
+    if (!rows.length) {
+      truncated = false;
+      break;
+    }
+    await Promise.all(rows.map((item) => (
+      db.collection(USER_DIAGNOSTIC_LOG_COLLECTION).doc(item._id).remove()
+    )));
+    removed += rows.length;
+    truncated = rows.length >= USER_DIAGNOSTIC_LOG_CLEANUP_BATCH_SIZE;
+    if (!truncated) break;
+  }
+  if (removed) {
+    log("info", "diagnostic-log.cleanup", {
+      removed,
+      retentionHours: USER_DIAGNOSTIC_LOG_RETENTION_HOURS,
+      truncated
+    });
+  }
+  return {
+    removed,
+    truncated,
+    retentionHours: USER_DIAGNOSTIC_LOG_RETENTION_HOURS,
+    cutoff: cutoff.toISOString()
+  };
+}
+
+async function reportDiagnosticLogs(event, context) {
+  const openid = getOpenId(context);
+  if (openid === "anonymous") {
+    return fail("无法确认当前用户身份，日志没有上传。", "DIAGNOSTIC_IDENTITY_MISSING");
+  }
+  const payload = event && event.payload && typeof event.payload === "object"
+    ? event.payload
+    : {};
+  const rawEvents = Array.isArray(payload.events)
+    ? payload.events.slice(0, USER_DIAGNOSTIC_LOG_BATCH_SIZE)
+    : [];
+  const nowDate = new Date();
+  const normalized = rawEvents
+    .map((item) => normalizeDiagnosticEvent(item, {
+      openid,
+      now: nowDate,
+      sessionId: payload.session && payload.session.id,
+      appVersion: payload.appVersion
+    }))
+    .filter(Boolean);
+  await cleanupDiagnosticLogs(nowDate);
+  if (process.env.WECHAT_MINIAPP_TEST === "1") {
+    normalized.forEach((item) => {
+      const index = userDiagnosticLogTestRows.findIndex((row) => row._id === item._id);
+      if (index >= 0) userDiagnosticLogTestRows.splice(index, 1, item);
+      else userDiagnosticLogTestRows.push(item);
+    });
+  } else {
+    await Promise.all(normalized.map((item) => (
+      db.collection(USER_DIAGNOSTIC_LOG_COLLECTION).doc(item._id).set({
+        data: stripDocumentId(item)
+      })
+    )));
+  }
+  return jsonResponse(true, {
+    accepted: normalized.length,
+    ignored: rawEvents.length - normalized.length,
+    retentionHours: USER_DIAGNOSTIC_LOG_RETENTION_HOURS
+  });
+}
+
+async function loadDiagnosticLogRows(cutoff) {
+  if (process.env.WECHAT_MINIAPP_TEST === "1") {
+    return userDiagnosticLogTestRows
+      .filter((item) => new Date(item.createdAt || 0).getTime() >= cutoff.getTime())
+      .slice();
+  }
+  const rows = [];
+  let offset = 0;
+  while (offset < USER_DIAGNOSTIC_LOG_MAX_READ) {
+    const result = await db
+      .collection(USER_DIAGNOSTIC_LOG_COLLECTION)
+      .where({ createdAt: db.command.gte(cutoff) })
+      .skip(offset)
+      .limit(Math.min(100, USER_DIAGNOSTIC_LOG_MAX_READ - offset))
+      .get();
+    const page = result && Array.isArray(result.data) ? result.data : [];
+    rows.push(...page);
+    if (page.length < 100) break;
+    offset += page.length;
+  }
+  return rows;
+}
+
+async function getAdminDiagnosticLogs(event, context) {
+  if (!isAdminContext(context)) return adminForbidden();
+  const hours = Math.max(
+    1,
+    Math.min(USER_DIAGNOSTIC_LOG_RETENTION_HOURS, Number(event && event.hours) || 72)
+  );
+  const levelValue = compactUsageText(event && event.level, 16).toLowerCase();
+  const level = USER_DIAGNOSTIC_LEVELS.has(levelValue) ? levelValue : "all";
+  const categoryValue = compactUsageText(event && event.category, 40).toLowerCase();
+  const category = categoryValue && categoryValue !== "all"
+    ? normalizeDiagnosticCategory(categoryValue)
+    : "all";
+  const userHash = compactUsageText(event && event.userHash, 40);
+  const offset = Math.max(0, Number(event && event.offset) || 0);
+  const limit = Math.max(1, Math.min(50, Number(event && event.limit) || 20));
+  const nowDate = new Date();
+  const cleanup = await cleanupDiagnosticLogs(nowDate);
+  const cutoff = diagnosticLogCutoff(nowDate, hours);
+  const loaded = await loadDiagnosticLogRows(cutoff);
+  const timeRows = loaded
+    .filter((item) => {
+      const createdAt = new Date(item && item.createdAt || 0);
+      return !Number.isNaN(createdAt.getTime()) && createdAt.getTime() >= cutoff.getTime();
+    })
+    .sort((left, right) => (
+      new Date(right.createdAt || 0).getTime() - new Date(left.createdAt || 0).getTime()
+    ));
+  const userOptions = Array.from(new Set(
+    timeRows.map((item) => compactUsageText(item.userHash, 40)).filter(Boolean)
+  )).sort().map((value) => ({
+    value,
+    label: `用户 ${value}`
+  }));
+  const filtered = timeRows.filter((item) => (
+    (level === "all" || normalizeDiagnosticLevel(item.level) === level)
+    && (category === "all" || normalizeDiagnosticCategory(item.category) === category)
+    && (!userHash || compactUsageText(item.userHash, 40) === userHash)
+  ));
+  const logs = filtered.slice(offset, offset + limit).map(diagnosticDisplayEvent);
+  return jsonResponse(true, {
+    retentionHours: USER_DIAGNOSTIC_LOG_RETENTION_HOURS,
+    hours,
+    level,
+    category,
+    userHash,
+    summary: buildAdminDiagnosticStats(filtered),
+    userOptions,
+    logs,
+    nextOffset: offset + logs.length < filtered.length ? offset + logs.length : null,
+    eventCount: loaded.length,
+    truncated: loaded.length >= USER_DIAGNOSTIC_LOG_MAX_READ,
+    cleanup,
+    message: loaded.length >= USER_DIAGNOSTIC_LOG_MAX_READ
+      ? "日志较多，本次最多读取5000条。"
+      : ""
+  });
 }
 
 function normalizeModelUsageEvent(value = {}) {
@@ -4618,6 +5026,26 @@ function normalizeAdminUserDateRange(value) {
   return ADMIN_USER_DATE_RANGES.has(dateRange) ? dateRange : "all";
 }
 
+function normalizeAdminUserGenderFilter(value) {
+  const gender = String(value || "").trim().toLowerCase();
+  return ADMIN_USER_GENDERS.has(gender) ? gender : "all";
+}
+
+function normalizeAdminUserDateKey(value) {
+  const dateKey = String(value || "").trim();
+  const match = dateKey.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return "";
+  const normalized = new Date(Date.UTC(
+    Number(match[1]),
+    Number(match[2]) - 1,
+    Number(match[3])
+  ));
+  return Number.isNaN(normalized.getTime())
+    || normalized.toISOString().slice(0, 10) !== dateKey
+    ? ""
+    : dateKey;
+}
+
 function adminUserHash(source = {}) {
   return compactUsageText(source.userHash, 40) || usageUserHash(source.openid);
 }
@@ -4641,19 +5069,30 @@ function adminUserDateRangeStart(dateRange, todayKey) {
 function filterAdminUserProfiles(rows = [], options = {}, baseDate = new Date()) {
   const search = normalizeAdminUserSearch(options.search);
   const dateRange = normalizeAdminUserDateRange(options.dateRange);
+  const gender = normalizeAdminUserGenderFilter(options.gender);
   const normalizedBaseDate = baseDate instanceof Date ? baseDate : new Date(baseDate || Date.now());
   const todayKey = dateKeyForTimeZone(
     Number.isNaN(normalizedBaseDate.getTime()) ? new Date() : normalizedBaseDate,
     POINTS_TIME_ZONE
   );
-  const startKey = adminUserDateRangeStart(dateRange, todayKey);
+  let startKey = adminUserDateRangeStart(dateRange, todayKey);
+  let endKey = startKey ? todayKey : "";
+  if (dateRange === "custom") {
+    const rawStart = normalizeAdminUserDateKey(options.startDate) || shiftDateKey(todayKey, -6);
+    const rawEnd = normalizeAdminUserDateKey(options.endDate) || todayKey;
+    const limitedStart = rawStart > todayKey ? todayKey : rawStart;
+    const limitedEnd = rawEnd > todayKey ? todayKey : rawEnd;
+    startKey = limitedStart <= limitedEnd ? limitedStart : limitedEnd;
+    endKey = limitedStart <= limitedEnd ? limitedEnd : limitedStart;
+  }
   const filteredRows = normalizeAdminUserProfileRows(rows).filter((item) => {
     if (startKey) {
       const createdDateKey = adminUserCreatedDateKey(item);
-      if (!createdDateKey || createdDateKey < startKey || createdDateKey > todayKey) {
+      if (!createdDateKey || createdDateKey < startKey || createdDateKey > endKey) {
         return false;
       }
     }
+    if (gender !== "all" && item.gender !== gender) return false;
     if (!search) return true;
     const nickname = normalizeUserNickname(item.nickname).toLowerCase();
     return nickname.includes(search) || adminUserHash(item).toLowerCase().includes(search);
@@ -4662,6 +5101,9 @@ function filterAdminUserProfiles(rows = [], options = {}, baseDate = new Date())
     rows: filteredRows,
     search,
     dateRange,
+    gender,
+    startDate: dateRange === "custom" ? startKey : "",
+    endDate: dateRange === "custom" ? endKey : "",
     todayKey
   };
 }
@@ -4733,6 +5175,9 @@ function buildAdminUserStats(rows = [], offset = 0, limit = 20, options = {}) {
     limit: safeLimit,
     search: filtered.search,
     dateRange: filtered.dateRange,
+    gender: filtered.gender,
+    startDate: filtered.startDate,
+    endDate: filtered.endDate,
     signupTrend: buildAdminUserSignupTrend(rows, baseDate),
     nextOffset: safeOffset + users.length < total
       ? safeOffset + users.length
@@ -5038,7 +5483,10 @@ async function getAdminUserStats(event, context) {
   const limit = Math.max(1, Math.min(50, Number(event && event.limit) || 20));
   const options = {
     search: event && event.search,
-    dateRange: event && event.dateRange
+    dateRange: event && event.dateRange,
+    gender: event && event.gender,
+    startDate: event && event.startDate,
+    endDate: event && event.endDate
   };
   if (process.env.WECHAT_MINIAPP_TEST === "1") {
     return jsonResponse(true, buildAdminUserStats(userProfileTestRows, offset, limit, options));
@@ -5082,7 +5530,13 @@ function buildAdminUserExportWorkbook(rows = [], exportedAt = new Date(), option
     ["男性比例", `${maleRatio}%`],
     ["女性数量", femaleCount],
     ["女性比例", `${femaleRatio}%`],
-    ["日期范围", ADMIN_USER_DATE_RANGE_LABELS[filtered.dateRange]],
+    [
+      "日期范围",
+      filtered.dateRange === "custom"
+        ? `${filtered.startDate} 至 ${filtered.endDate}`
+        : ADMIN_USER_DATE_RANGE_LABELS[filtered.dateRange]
+    ],
+    ["性别范围", ADMIN_USER_GENDER_LABELS[filtered.gender]],
     ["搜索条件", filtered.search || "无"],
     ["导出时间", formatExportDateTime(exportedAt)]
   ]);
@@ -5157,7 +5611,10 @@ async function exportAdminUserStats(event, context) {
   const loaded = await loadAllAdminUserProfiles();
   const options = {
     search: event && event.search,
-    dateRange: event && event.dateRange
+    dateRange: event && event.dateRange,
+    gender: event && event.gender,
+    startDate: event && event.startDate,
+    endDate: event && event.endDate
   };
   const filtered = filterAdminUserProfiles(loaded.rows, options);
   const buffer = buildAdminUserExportWorkbook(loaded.rows, new Date(), options);
@@ -5176,6 +5633,9 @@ async function exportAdminUserStats(event, context) {
     sourceTotal: loaded.total,
     search: filtered.search,
     dateRange: filtered.dateRange,
+    gender: filtered.gender,
+    startDate: filtered.startDate,
+    endDate: filtered.endDate,
     truncated: loaded.truncated,
     message: loaded.truncated
       ? "Excel 已生成；用户超过 10000 人，本次导出前 10000 人。"
@@ -6996,7 +7456,12 @@ exports.main = async (event = {}, context) => {
   try {
     let result;
     if (isPhotoToVideoCleanupTrigger(requestEvent)) {
-      result = await cleanupPhotoToVideoTempAssets(new Date());
+      const cleanupDate = new Date();
+      const [photoToVideo, diagnosticLogs] = await Promise.all([
+        cleanupPhotoToVideoTempAssets(cleanupDate),
+        cleanupDiagnosticLogs(cleanupDate)
+      ]);
+      result = jsonResponse(true, { photoToVideo, diagnosticLogs });
     } else if (action === "analyze") result = await analyze(requestEvent, context);
     else if (action === "detectFaceCircle") result = await detectFaceCircle(requestEvent, context);
     else if (action === "probeAutoFace") result = await probeAutoFace(requestEvent, context);
@@ -7019,6 +7484,10 @@ exports.main = async (event = {}, context) => {
     else if (action === "createVideoTask") result = await createVideoTask(requestEvent, context);
     else if (action === "queryVideoTask") result = await queryVideoTask(requestEvent, context);
     else if (action === "getAdminStatus") result = await getAdminStatus(context);
+    else if (action === "reportDiagnosticLogs") result = await reportDiagnosticLogs(requestEvent, context);
+    else if (action === "getAdminDiagnosticLogs") {
+      result = await getAdminDiagnosticLogs(requestEvent, context);
+    }
     else if (action === "getAdminConfig") result = await getAdminConfig(context);
     else if (action === "getAdminUserStats") result = await getAdminUserStats(requestEvent, context);
     else if (action === "exportAdminUserStats") result = await exportAdminUserStats(requestEvent, context);
@@ -7118,6 +7587,18 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     extractModelUsage,
     extractVideoDuration,
     buildUsageBilling,
+    diagnosticLogCutoff,
+    normalizeDiagnosticLevel,
+    normalizeDiagnosticCategory,
+    diagnosticCategoryLabel,
+    sanitizeDiagnosticText,
+    sanitizeDiagnosticValue,
+    normalizeDiagnosticEvent,
+    diagnosticDisplayEvent,
+    buildAdminDiagnosticStats,
+    cleanupDiagnosticLogs,
+    reportDiagnosticLogs,
+    getAdminDiagnosticLogs,
     normalizeAutoFaceFailureType,
     sanitizeAutoFaceFailureMessage,
     normalizeAutoFaceFailureReport,
@@ -7191,6 +7672,8 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     normalizeUserNickname,
     normalizeAdminUserSearch,
     normalizeAdminUserDateRange,
+    normalizeAdminUserGenderFilter,
+    normalizeAdminUserDateKey,
     filterAdminUserProfiles,
     buildAdminUserSignupTrend,
     userProfileView,
@@ -7205,6 +7688,13 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     getUserProfileTestRows: () => userProfileTestRows.slice(),
     resetUserProfileTestRows: () => {
       userProfileTestRows.splice(0, userProfileTestRows.length);
+    },
+    getUserDiagnosticLogTestRows: () => userDiagnosticLogTestRows.slice(),
+    pushUserDiagnosticLogTestRow: (row) => {
+      userDiagnosticLogTestRows.push(row);
+    },
+    resetUserDiagnosticLogTestRows: () => {
+      userDiagnosticLogTestRows.splice(0, userDiagnosticLogTestRows.length);
     },
     isCollectionMissingError,
     ensureDatabaseCollection,

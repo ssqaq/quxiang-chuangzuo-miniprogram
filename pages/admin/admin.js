@@ -80,7 +80,7 @@ function usageTypeLabel(type) {
   return item ? item.title : "模型";
 }
 
-// 控制台首页只展示到小数点后 4 位，底层统计金额仍保留原值。
+// 成本金额只展示到小数点后 4 位并直接截断，底层统计和 Excel 仍保留原值。
 function formatCostDisplay(value) {
   const amount = Math.max(0, Number(value) || 0);
   const truncated = Math.floor(amount * 10000) / 10000;
@@ -137,6 +137,15 @@ function emptyUsageCounter() {
       "1080p": { seconds: 0, cost: 0 }
     }
   };
+}
+
+function formatUsageCounter(counter) {
+  const normalized = Object.assign(emptyUsageCounter(), counter || {});
+  normalized.estimatedCost = Math.max(0, Number(normalized.estimatedCost) || 0);
+  normalized.pricedCost = Math.max(0, Number(normalized.pricedCost) || 0);
+  normalized.estimatedCostDisplay = formatCostDisplay(normalized.estimatedCost);
+  normalized.pricedCostDisplay = formatCostDisplay(normalized.pricedCost);
+  return normalized;
 }
 
 function emptyFailureStats() {
@@ -266,9 +275,37 @@ function emptyUserStats() {
     users: [],
     search: "",
     dateRange: "all",
+    gender: "all",
+    startDate: "",
+    endDate: "",
     signupTrend: [],
     signupTrendTotal: 0,
     nextOffset: null,
+    unavailable: false,
+    message: ""
+  };
+}
+
+function emptyAdminDiagnosticLogs() {
+  return {
+    retentionHours: 72,
+    hours: 72,
+    level: "all",
+    category: "all",
+    userHash: "",
+    summary: {
+      total: 0,
+      errorCount: 0,
+      warnCount: 0,
+      infoCount: 0,
+      userCount: 0,
+      categories: []
+    },
+    userOptions: [{ value: "", label: "全部用户" }],
+    logs: [],
+    nextOffset: null,
+    eventCount: 0,
+    truncated: false,
     unavailable: false,
     message: ""
   };
@@ -294,6 +331,7 @@ function buildTodayFailureText(usageStats, moduleStates) {
 const ADMIN_MODULE_KEYS = [
   "usage",
   "users",
+  "diagnosticLogs",
   "autoFaceFailure",
   "probeHistory",
   "logs"
@@ -715,7 +753,7 @@ function formatUsageStats(result) {
   const summary = source.summary || {};
   const models = Array.isArray(source.models) ? source.models : [];
   const cards = USAGE_TYPE_META.map((meta) => {
-    const counter = summary[meta.key] || emptyUsageCounter();
+    const counter = formatUsageCounter(summary[meta.key]);
     const modelText = models
       .filter((item) => item.usageType === meta.key)
       .map((item) => {
@@ -740,10 +778,12 @@ function formatUsageStats(result) {
     outputTokens: Number(item.outputTokens) || 0,
     totalTokens: Number(item.totalTokens) || 0,
     videoDurationSeconds: Number(item.videoDurationSeconds) || 0,
-    image: Object.assign(emptyUsageCounter(), item.image || {}),
-    analysis: Object.assign(emptyUsageCounter(), item.analysis || {}),
-    face: Object.assign(emptyUsageCounter(), item.face || {}),
-    video: Object.assign(emptyUsageCounter(), item.video || {})
+    estimatedCostDisplay: formatCostDisplay(item.estimatedCost),
+    pricedCostDisplay: formatCostDisplay(item.pricedCost),
+    image: formatUsageCounter(item.image),
+    analysis: formatUsageCounter(item.analysis),
+    face: formatUsageCounter(item.face),
+    video: formatUsageCounter(item.video)
   }));
   const monthly = (Array.isArray(source.monthly) ? source.monthly : []).map((item) => ({
     monthKey: item.monthKey || "",
@@ -757,10 +797,12 @@ function formatUsageStats(result) {
     outputTokens: Number(item.outputTokens) || 0,
     totalTokens: Number(item.totalTokens) || 0,
     videoDurationSeconds: Number(item.videoDurationSeconds) || 0,
-    image: Object.assign(emptyUsageCounter(), item.image || {}),
-    analysis: Object.assign(emptyUsageCounter(), item.analysis || {}),
-    face: Object.assign(emptyUsageCounter(), item.face || {}),
-    video: Object.assign(emptyUsageCounter(), item.video || {})
+    estimatedCostDisplay: formatCostDisplay(item.estimatedCost),
+    pricedCostDisplay: formatCostDisplay(item.pricedCost),
+    image: formatUsageCounter(item.image),
+    analysis: formatUsageCounter(item.analysis),
+    face: formatUsageCounter(item.face),
+    video: formatUsageCounter(item.video)
   }));
   const users = (Array.isArray(source.users) ? source.users : []).map((item) => ({
     userHash: item.userHash || "anonymous",
@@ -774,7 +816,13 @@ function formatUsageStats(result) {
     outputTokens: Number(item.outputTokens) || 0,
     totalTokens: Number(item.totalTokens) || 0,
     videoDurationSeconds: Number(item.videoDurationSeconds) || 0,
+    estimatedCostDisplay: formatCostDisplay(item.estimatedCost),
+    pricedCostDisplay: formatCostDisplay(item.pricedCost),
     byType: item.byType || {}
+  }));
+  const formattedModels = models.map((item) => Object.assign({}, item, {
+    estimatedCostDisplay: formatCostDisplay(item.estimatedCost),
+    pricedCostDisplay: formatCostDisplay(item.pricedCost)
   }));
   const failureSource = source.failureStats || {};
   const failureStats = Object.assign(emptyFailureStats(), {
@@ -828,16 +876,93 @@ function formatUsageStats(result) {
     }))
   });
   return Object.assign(emptyUsageStats(), source, {
-    today: Object.assign(emptyUsageCounter(), source.today || {}, {
-      estimatedCostDisplay: formatCostDisplay(source.today && source.today.estimatedCost)
-    }),
-    last7d: Object.assign(emptyUsageCounter(), source.last7d || {}),
-    last30d: Object.assign(emptyUsageCounter(), source.last30d || {}),
+    today: formatUsageCounter(source.today),
+    last7d: formatUsageCounter(source.last7d),
+    last30d: formatUsageCounter(source.last30d),
     cards,
     daily,
     monthly,
     users,
+    models: formattedModels,
     failureStats
+  });
+}
+
+function diagnosticLevelText(level) {
+  if (level === "error") return "错误";
+  if (level === "warn") return "提醒";
+  return "正常";
+}
+
+function diagnosticDetailsText(value) {
+  if (!value || typeof value !== "object" || !Object.keys(value).length) return "";
+  try {
+    return JSON.stringify(value, null, 2).slice(0, 2000);
+  } catch (_) {
+    return String(value).slice(0, 2000);
+  }
+}
+
+function formatAdminDiagnosticLogs(result, previousLogs = []) {
+  const source = result || {};
+  const previousExpanded = {};
+  (Array.isArray(previousLogs) ? previousLogs : []).forEach((item) => {
+    if (item && item.eventId) previousExpanded[item.eventId] = Boolean(item.expanded);
+  });
+  const summarySource = source.summary || {};
+  return Object.assign(emptyAdminDiagnosticLogs(), source, {
+    retentionHours: Number(source.retentionHours) || 72,
+    hours: Number(source.hours) || 72,
+    summary: {
+      total: Number(summarySource.total) || 0,
+      errorCount: Number(summarySource.errorCount) || 0,
+      warnCount: Number(summarySource.warnCount) || 0,
+      infoCount: Number(summarySource.infoCount) || 0,
+      userCount: Number(summarySource.userCount) || 0,
+      categories: Array.isArray(summarySource.categories) ? summarySource.categories : []
+    },
+    userOptions: [{ value: "", label: "全部用户" }].concat(
+      (Array.isArray(source.userOptions) ? source.userOptions : []).map((item) => ({
+        value: item.value || "",
+        label: item.label || `用户 ${item.value || ""}`
+      }))
+    ),
+    logs: (Array.isArray(source.logs) ? source.logs : []).map((item) => {
+      const detailsText = diagnosticDetailsText(item.details);
+      const errorText = diagnosticDetailsText(item.error);
+      return {
+        eventId: item.eventId || `${item.sessionId || "session"}-${item.sequence || 0}`,
+        userHash: item.userHash || "anonymous",
+        appVersion: item.appVersion || "未知",
+        level: item.level || "info",
+        levelText: diagnosticLevelText(item.level),
+        category: item.category || "other",
+        categoryLabel: item.categoryLabel || "其他",
+        event: item.event || "",
+        message: item.message || "未提供日志说明",
+        route: item.route || "",
+        step: item.step || "",
+        requestId: item.requestId || "",
+        code: item.code || "",
+        durationMs: Number.isFinite(Number(item.durationMs)) ? Number(item.durationMs) : null,
+        durationText: Number.isFinite(Number(item.durationMs))
+          ? `${Number(item.durationMs)} 毫秒`
+          : "未记录",
+        detailsText,
+        errorText,
+        hasDetails: Boolean(detailsText || errorText),
+        expanded: Boolean(previousExpanded[item.eventId]),
+        createdAt: item.createdAt || "",
+        createdAtText: item.createdAt ? formatAdminDate(item.createdAt) : "未知时间"
+      };
+    }),
+    nextOffset: source.nextOffset === null || source.nextOffset === undefined
+      ? null
+      : Math.max(0, Number(source.nextOffset) || 0),
+    eventCount: Number(source.eventCount) || 0,
+    truncated: Boolean(source.truncated),
+    unavailable: Boolean(source.unavailable),
+    message: source.message || ""
   });
 }
 
@@ -869,7 +994,10 @@ function formatUserStats(result, previousUsers = []) {
     avatarUrl: item.avatarUrl || item.avatarFileID || "",
     gender: item.gender === "female" ? "female" : "male",
     genderText: item.gender === "female" ? "女" : "男",
-    createdAtText: formatAdminDate(item.createdAt)
+    createdAt: item.createdAt || "",
+    updatedAt: item.updatedAt || "",
+    createdAtText: item.createdAt ? formatAdminDate(item.createdAt) : "未知时间",
+    updatedAtText: item.updatedAt ? formatAdminDate(item.updatedAt) : "暂无修改记录"
   }));
   const users = Number(source.offset) > 0
     ? previousUsers.concat(incoming).filter((item, index, list) => (
@@ -886,6 +1014,9 @@ function formatUserStats(result, previousUsers = []) {
     users,
     search: String(source.search || ""),
     dateRange: String(source.dateRange || "all"),
+    gender: String(source.gender || "all"),
+    startDate: String(source.startDate || ""),
+    endDate: String(source.endDate || ""),
     signupTrend,
     signupTrendTotal: signupTrend.reduce((total, item) => total + item.count, 0),
     nextOffset: source.nextOffset === null || source.nextOffset === undefined
@@ -903,6 +1034,21 @@ function dateKeyShift(dateKey, offset) {
   return source.toISOString().slice(0, 10);
 }
 
+function shanghaiTodayDateKey() {
+  return new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+function buildUserStatsFilters(data = {}) {
+  const custom = data.userDateRange === "custom";
+  return {
+    search: String(data.userSearch || ""),
+    dateRange: String(data.userDateRange || "all"),
+    gender: String(data.userGender || "all"),
+    startDate: custom ? String(data.userCustomStartDate || "") : "",
+    endDate: custom ? String(data.userCustomEndDate || "") : ""
+  };
+}
+
 function buildCostTrend(usageStats) {
   const source = usageStats || emptyUsageStats();
   const todayKey = source.todayKey || new Date(Date.now() + 8 * 60 * 60 * 1000)
@@ -918,19 +1064,19 @@ function buildCostTrend(usageStats) {
     days.push({
       dateKey,
       label: dateKey.slice(5),
-      cost: Math.round((costByDate[dateKey] || 0) * 10000) / 10000
+      cost: costByDate[dateKey] || 0,
+      costDisplay: formatCostDisplay(costByDate[dateKey])
     });
   }
   const maxCost = Math.max(0, ...days.map((item) => item.cost));
   const normalizedDays = days.map((item) => Object.assign({}, item, {
     barPercent: maxCost ? Math.round(item.cost / maxCost * 100) : 0
   }));
-  const totalCost = Math.round(
-    normalizedDays.reduce((total, item) => total + item.cost, 0) * 10000
-  ) / 10000;
+  const totalCost = normalizedDays.reduce((total, item) => total + item.cost, 0);
   return {
     days: normalizedDays,
     totalCost,
+    totalCostDisplay: formatCostDisplay(totalCost),
     hasCost: totalCost > 0
   };
 }
@@ -1220,6 +1366,23 @@ function autoFaceFailureCopyText(item = {}) {
   ].join("\n");
 }
 
+function diagnosticLogCopyText(item = {}) {
+  return [
+    `发生时间：${safeCopyValue(item.createdAtText, "未知时间")}`,
+    `匿名用户：${safeCopyValue(item.userHash)}`,
+    `分类：${safeCopyValue(item.categoryLabel)}`,
+    `级别：${safeCopyValue(item.levelText)}`,
+    `日志：${safeCopyValue(item.message, "未提供日志说明")}`,
+    `页面：${safeCopyValue(item.route)}`,
+    `步骤：${safeCopyValue(item.step)}`,
+    `错误码：${safeCopyValue(item.code)}`,
+    `接口耗时：${safeCopyValue(item.durationText)}`,
+    `请求编号：${safeCopyValue(item.requestId)}`,
+    `错误详情：${safeCopyValue(item.errorText)}`,
+    `补充信息：${safeCopyValue(item.detailsText)}`
+  ].join("\n");
+}
+
 Page({
   data: {
     appVersion: config.appVersion,
@@ -1251,7 +1414,53 @@ Page({
       { value: "all", label: "全部" },
       { value: "today", label: "今天" },
       { value: "7d", label: "近7天" },
-      { value: "30d", label: "近30天" }
+      { value: "30d", label: "近30天" },
+      { value: "custom", label: "自定义" }
+    ],
+    userGender: "all",
+    userGenders: [
+      { value: "all", label: "全部" },
+      { value: "male", label: "男性" },
+      { value: "female", label: "女性" }
+    ],
+    userTodayKey: shanghaiTodayDateKey(),
+    userCustomStartDate: dateKeyShift(shanghaiTodayDateKey(), -6),
+    userCustomEndDate: shanghaiTodayDateKey(),
+    userDetailVisible: false,
+    selectedUserDetail: null,
+    diagnosticLogsLoading: false,
+    diagnosticLogs: emptyAdminDiagnosticLogs(),
+    diagnosticHours: 72,
+    diagnosticLevel: "all",
+    diagnosticCategory: "all",
+    diagnosticUserHash: "",
+    diagnosticUserIndex: 0,
+    diagnosticUserLabel: "全部用户",
+    diagnosticTimeRanges: [
+      { value: 1, label: "1小时" },
+      { value: 6, label: "6小时" },
+      { value: 24, label: "24小时" },
+      { value: 72, label: "72小时" }
+    ],
+    diagnosticLevels: [
+      { value: "all", label: "全部" },
+      { value: "error", label: "错误" },
+      { value: "warn", label: "提醒" },
+      { value: "info", label: "正常" }
+    ],
+    diagnosticCategories: [
+      { value: "all", label: "全部类型" },
+      { value: "generation", label: "生图" },
+      { value: "video", label: "视频" },
+      { value: "analysis", label: "图片分析" },
+      { value: "auto-face", label: "自动贴脸" },
+      { value: "upload", label: "上传" },
+      { value: "cloud", label: "云端" },
+      { value: "navigation", label: "页面" },
+      { value: "points", label: "积分" },
+      { value: "records", label: "作品" },
+      { value: "repair", label: "修正" },
+      { value: "other", label: "其他" }
     ],
     autoFaceFailureLoading: false,
     autoFaceFailureStats: emptyAutoFaceFailureStats(),
@@ -1434,15 +1643,30 @@ Page({
       this.loadAdminModule(
         token,
         "users",
-        () => cloud.getAdminUserStats(0, 20, {
-          search: this.data.userSearch,
-          dateRange: this.data.userDateRange
-        }),
+        () => cloud.getAdminUserStats(0, 20, buildUserStatsFilters(this.data)),
         formatUserStats,
         (userStats) => ({ userStats }),
         {
           label: "用户统计",
           loadingKey: "userStatsLoading"
+        }
+      ),
+      this.loadAdminModule(
+        token,
+        "diagnosticLogs",
+        () => cloud.getAdminDiagnosticLogs({
+          offset: 0,
+          limit: 20,
+          hours: this.data.diagnosticHours,
+          level: this.data.diagnosticLevel,
+          category: this.data.diagnosticCategory,
+          userHash: this.data.diagnosticUserHash
+        }),
+        (result) => formatAdminDiagnosticLogs(result),
+        (diagnosticLogs) => ({ diagnosticLogs }),
+        {
+          label: "用户端日志",
+          loadingKey: "diagnosticLogsLoading"
         }
       ),
       this.loadAdminModule(
@@ -1503,6 +1727,7 @@ Page({
       moduleStates: emptyAdminModuleStates(),
       usageLoading: false,
       userStatsLoading: false,
+      diagnosticLogsLoading: false,
       autoFaceFailureLoading: false,
       probeHistoryLoading: false,
       todayFailureText: "读取中",
@@ -1663,17 +1888,83 @@ Page({
   },
 
   selectUserDateRange(event) {
+    if (this.data.userStatsLoading) return;
     const dateRange = String(
       event && event.currentTarget && event.currentTarget.dataset
         ? event.currentTarget.dataset.range
         : ""
     );
-    if (!["all", "today", "7d", "30d"].includes(dateRange)
+    if (!["all", "today", "7d", "30d", "custom"].includes(dateRange)
       || dateRange === this.data.userDateRange) {
       return;
     }
     this.setData({ userDateRange: dateRange }, () => this.refreshUserStats(true));
   },
+
+  selectUserGender(event) {
+    if (this.data.userStatsLoading) return;
+    const gender = String(
+      event && event.currentTarget && event.currentTarget.dataset
+        ? event.currentTarget.dataset.gender
+        : ""
+    );
+    if (!["all", "male", "female"].includes(gender)
+      || gender === this.data.userGender) {
+      return;
+    }
+    this.setData({ userGender: gender }, () => this.refreshUserStats(true));
+  },
+
+  onUserCustomStartChange(event) {
+    if (this.data.userStatsLoading) return;
+    const startDate = String(event && event.detail && event.detail.value || "");
+    if (!startDate) return;
+    const endDate = startDate > this.data.userCustomEndDate
+      ? startDate
+      : this.data.userCustomEndDate;
+    this.setData({
+      userDateRange: "custom",
+      userCustomStartDate: startDate,
+      userCustomEndDate: endDate
+    }, () => this.refreshUserStats(true));
+  },
+
+  onUserCustomEndChange(event) {
+    if (this.data.userStatsLoading) return;
+    const endDate = String(event && event.detail && event.detail.value || "");
+    if (!endDate) return;
+    const startDate = endDate < this.data.userCustomStartDate
+      ? endDate
+      : this.data.userCustomStartDate;
+    this.setData({
+      userDateRange: "custom",
+      userCustomStartDate: startDate,
+      userCustomEndDate: endDate
+    }, () => this.refreshUserStats(true));
+  },
+
+  openUserDetail(event) {
+    const index = Number(
+      event && event.currentTarget && event.currentTarget.dataset
+        ? event.currentTarget.dataset.index
+        : -1
+    );
+    const user = this.data.userStats.users[index];
+    if (!user) return;
+    this.setData({
+      selectedUserDetail: user,
+      userDetailVisible: true
+    });
+  },
+
+  closeUserDetail() {
+    this.setData({
+      userDetailVisible: false,
+      selectedUserDetail: null
+    });
+  },
+
+  stopUserDetailTap() {},
 
   async refreshUserStats(reset = true) {
     if (this.data.userStatsLoading) return;
@@ -1684,10 +1975,11 @@ Page({
     const result = await this.loadAdminModule(
       this._adminLoadToken || 0,
       "users",
-      () => cloud.getAdminUserStats(offset || 0, 20, {
-        search: this.data.userSearch,
-        dateRange: this.data.userDateRange
-      }),
+      () => cloud.getAdminUserStats(
+        offset || 0,
+        20,
+        buildUserStatsFilters(this.data)
+      ),
       (rawResult) => formatUserStats(rawResult, previousUsers),
       (userStats) => ({ userStats }),
       {
@@ -1710,14 +2002,127 @@ Page({
     this.refreshUserStats(false);
   },
 
+  selectDiagnosticHours(event) {
+    const hours = Number(
+      event && event.currentTarget && event.currentTarget.dataset
+        ? event.currentTarget.dataset.hours
+        : 0
+    );
+    if (![1, 6, 24, 72].includes(hours) || hours === this.data.diagnosticHours) return;
+    this.setData({ diagnosticHours: hours }, () => this.refreshDiagnosticLogs(true));
+  },
+
+  selectDiagnosticLevel(event) {
+    const level = String(
+      event && event.currentTarget && event.currentTarget.dataset
+        ? event.currentTarget.dataset.level
+        : ""
+    );
+    if (!["all", "error", "warn", "info"].includes(level)
+      || level === this.data.diagnosticLevel) {
+      return;
+    }
+    this.setData({ diagnosticLevel: level }, () => this.refreshDiagnosticLogs(true));
+  },
+
+  selectDiagnosticCategory(event) {
+    const category = String(
+      event && event.currentTarget && event.currentTarget.dataset
+        ? event.currentTarget.dataset.category
+        : ""
+    );
+    if (!category || category === this.data.diagnosticCategory) return;
+    this.setData({ diagnosticCategory: category }, () => this.refreshDiagnosticLogs(true));
+  },
+
+  selectDiagnosticUser(event) {
+    const index = Math.max(0, Number(event && event.detail && event.detail.value) || 0);
+    const option = this.data.diagnosticLogs.userOptions[index] || { value: "" };
+    this.setData({
+      diagnosticUserIndex: index,
+      diagnosticUserHash: option.value || "",
+      diagnosticUserLabel: option.label || "全部用户"
+    }, () => this.refreshDiagnosticLogs(true));
+  },
+
+  async refreshDiagnosticLogs(reset = true) {
+    if (this.data.diagnosticLogsLoading) return;
+    const shouldReset = reset !== false;
+    const offset = shouldReset ? 0 : this.data.diagnosticLogs.nextOffset;
+    if (!shouldReset && (offset === null || offset === undefined)) return;
+    const previousLogs = shouldReset ? [] : this.data.diagnosticLogs.logs;
+    const result = await this.loadAdminModule(
+      this._adminLoadToken || 0,
+      "diagnosticLogs",
+      () => cloud.getAdminDiagnosticLogs({
+        offset: offset || 0,
+        limit: 20,
+        hours: this.data.diagnosticHours,
+        level: this.data.diagnosticLevel,
+        category: this.data.diagnosticCategory,
+        userHash: this.data.diagnosticUserHash
+      }),
+      (rawResult) => {
+        const formatted = formatAdminDiagnosticLogs(rawResult, previousLogs);
+        if (!shouldReset) formatted.logs = previousLogs.concat(formatted.logs);
+        return formatted;
+      },
+      (diagnosticLogs) => ({
+        diagnosticLogs,
+        diagnosticUserIndex: Math.max(
+          0,
+          diagnosticLogs.userOptions.findIndex(
+            (item) => item.value === this.data.diagnosticUserHash
+          )
+        ),
+        diagnosticUserLabel: (
+          diagnosticLogs.userOptions.find(
+            (item) => item.value === this.data.diagnosticUserHash
+          ) || { label: "全部用户" }
+        ).label
+      }),
+      {
+        label: "用户端日志",
+        loadingKey: "diagnosticLogsLoading"
+      }
+    );
+    if (result.stale) return;
+    if (!result.ok) {
+      this.showError(
+        "用户端日志刷新失败",
+        result.error || new Error("日志读取失败，请稍后重试。")
+      );
+    }
+  },
+
+  loadMoreDiagnosticLogs() {
+    this.refreshDiagnosticLogs(false);
+  },
+
+  toggleDiagnosticLogDetail(event) {
+    const index = Number(event.currentTarget.dataset.index);
+    const item = this.data.diagnosticLogs.logs[index];
+    if (!item || !item.hasDetails) return;
+    this.setData({
+      [`diagnosticLogs.logs[${index}].expanded`]: !item.expanded
+    });
+  },
+
+  copyDiagnosticLog(event) {
+    const index = Number(event.currentTarget.dataset.index);
+    const item = this.data.diagnosticLogs.logs[index];
+    if (!item) return;
+    wx.setClipboardData({
+      data: diagnosticLogCopyText(item),
+      success: () => wx.showToast({ title: "日志已复制", icon: "success" })
+    });
+  },
+
   async exportUserStats() {
     if (this.data.userStatsExporting) return;
     this.setData({ userStatsExporting: true });
     try {
-      const result = await cloud.exportAdminUserStats({
-        search: this.data.userSearch,
-        dateRange: this.data.userDateRange
-      });
+      const result = await cloud.exportAdminUserStats(buildUserStatsFilters(this.data));
       if (!result || !result.fileID) throw new Error("用户统计 Excel 生成失败。");
       const filePath = await cloud.downloadFile(result.fileID);
       if (!filePath || typeof wx.openDocument !== "function") {
@@ -1754,6 +2159,7 @@ Page({
       moduleStates: loadingStates,
       usageLoading: true,
       userStatsLoading: true,
+      diagnosticLogsLoading: true,
       autoFaceFailureLoading: true,
       probeHistoryLoading: true,
       todayFailureText: "读取中"
@@ -1795,13 +2201,25 @@ Page({
       this.loadAdminModule(
         token,
         "users",
-        () => cloud.getAdminUserStats(0, 20, {
-          search: this.data.userSearch,
-          dateRange: this.data.userDateRange
-        }),
+        () => cloud.getAdminUserStats(0, 20, buildUserStatsFilters(this.data)),
         formatUserStats,
         (userStats) => ({ userStats }),
         { label: "用户统计", loadingKey: "userStatsLoading" }
+      ),
+      this.loadAdminModule(
+        token,
+        "diagnosticLogs",
+        () => cloud.getAdminDiagnosticLogs({
+          offset: 0,
+          limit: 20,
+          hours: this.data.diagnosticHours,
+          level: this.data.diagnosticLevel,
+          category: this.data.diagnosticCategory,
+          userHash: this.data.diagnosticUserHash
+        }),
+        (result) => formatAdminDiagnosticLogs(result),
+        (diagnosticLogs) => ({ diagnosticLogs }),
+        { label: "用户端日志", loadingKey: "diagnosticLogsLoading" }
       ),
       this.loadAdminModule(
         token,
@@ -1843,6 +2261,7 @@ Page({
       const labels = [
         "模型用量和成本",
         "用户统计",
+        "用户端日志",
         "自动贴脸失败统计",
         "探针历史",
         "部署日志"

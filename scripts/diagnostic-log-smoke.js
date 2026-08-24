@@ -101,9 +101,51 @@ async function main() {
   assert.ok(Array.isArray(report.events));
   assert.strictEqual(report.projectSnapshot.mainImage.path, "[local]/main.jpg");
 
+  const baseNow = Date.parse("2026-08-24T12:00:00.000Z");
+  const pruned = diagnosticLog.pruneExpiredState({
+    events: [
+      {
+        eventId: "expired",
+        time: new Date(baseNow - diagnosticLog.RETENTION_MS - 1).toISOString()
+      },
+      {
+        eventId: "kept",
+        time: new Date(baseNow - diagnosticLog.RETENTION_MS + 1).toISOString()
+      },
+      {
+        eventId: "unknown-time",
+        time: "not-a-date"
+      }
+    ],
+    pendingUploadIds: ["expired", "kept", "unknown-time"]
+  }, baseNow);
+  assert.deepStrictEqual(
+    pruned.events.map((item) => item.eventId),
+    ["kept", "unknown-time"]
+  );
+  assert.deepStrictEqual(pruned.pendingUploadIds, ["kept", "unknown-time"]);
+
   diagnosticLog.clear();
   assert.strictEqual(diagnosticLog.read().length, 0);
   assert.strictEqual(diagnosticLog.getStats().eventCount, 0);
+  const uploaded = [];
+  diagnosticLog.configureRemoteReporting({
+    reporter: async (payload) => {
+      uploaded.push(payload);
+      return { ok: true, accepted: payload.events.length };
+    },
+    contextProvider: () => ({ appVersion: "0.31.0" })
+  });
+  diagnosticLog.info("generation", "remote-smoke", "远程日志上报测试", {
+    apiKey: "secret-key",
+    filePath: "C:\\private\\remote.jpg"
+  });
+  const flushResult = await diagnosticLog.flushRemote();
+  assert.strictEqual(flushResult.ok, true);
+  assert.strictEqual(uploaded.length, 1);
+  assert.strictEqual(uploaded[0].events.length, 1);
+  assert.strictEqual(uploaded[0].events[0].details.apiKey, "[redacted]");
+  assert.strictEqual(uploaded[0].events[0].details.filePath, "[local]/remote.jpg");
   console.log("diagnostic log smoke: OK");
 }
 

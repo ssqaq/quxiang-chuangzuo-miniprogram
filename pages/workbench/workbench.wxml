@@ -176,10 +176,10 @@
       <view class="feature-group-dot"></view>
       <text>其他服务</text>
     </view>
-    <view class="feature-group-subtitle">作品记录、图片优化和问题反馈</view>
+    <view class="feature-group-subtitle">作品记录、图片优化和更多工具</view>
   </view>
 
-  <view class="card interaction-log-card">
+  <view wx:if="{{adminVisible}}" class="card interaction-log-card">
     <view
       class="section-head diagnostic-toggle-head"
       catchtap="toggleDiagnosticPanel"

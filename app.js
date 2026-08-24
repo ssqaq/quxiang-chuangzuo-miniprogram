@@ -1,5 +1,6 @@
 const config = require("./config");
 const diagnosticLog = require("./utils/diagnostic-log");
+const cloud = require("./services/cloud");
 
 App({
   globalData: {
@@ -32,9 +33,16 @@ App({
         traceUser: true
       });
       this.globalData.cloudReady = true;
+      diagnosticLog.configureRemoteReporting({
+        reporter: (payload) => cloud.reportDiagnosticLogs(payload),
+        contextProvider: () => ({
+          appVersion: config.appVersion
+        })
+      });
       diagnosticLog.info("app", "cloud-ready", "云开发初始化完成", {
         cloudEnvId: config.cloudEnvId
       });
+      diagnosticLog.flushRemote();
     } catch (error) {
       console.error("云开发初始化失败", error);
       this.globalData.cloudReady = false;
@@ -54,6 +62,14 @@ App({
     diagnosticLog.error("app", "unhandled-rejection", "捕获到未处理的异步错误", {
       error: event.reason || event
     });
+  },
+
+  onShow() {
+    if (this.globalData.cloudReady) diagnosticLog.flushRemote();
+  },
+
+  onHide() {
+    if (this.globalData.cloudReady) diagnosticLog.flushRemote();
   },
 
   onPageNotFound(event = {}) {

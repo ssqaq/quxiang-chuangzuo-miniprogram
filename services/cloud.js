@@ -623,6 +623,27 @@ module.exports = {
       silent: true
     });
   },
+  reportDiagnosticLogs(payload) {
+    return callApi({
+      action: "reportDiagnosticLogs",
+      payload: payload && typeof payload === "object" ? payload : {},
+      retryLimit: 0,
+      silent: true
+    });
+  },
+  getAdminDiagnosticLogs(filters = {}) {
+    return callApi({
+      action: "getAdminDiagnosticLogs",
+      offset: Math.max(0, Number(filters.offset) || 0),
+      limit: Math.max(1, Math.min(50, Number(filters.limit) || 20)),
+      hours: Math.max(1, Math.min(72, Number(filters.hours) || 72)),
+      level: String(filters.level || "all").trim().slice(0, 16),
+      category: String(filters.category || "all").trim().slice(0, 40),
+      userHash: String(filters.userHash || "").trim().slice(0, 40),
+      retryLimit: 0,
+      silent: true
+    });
+  },
   getAdminConfig(options = {}) {
     return callApi({
       action: "getAdminConfig",
@@ -636,14 +657,20 @@ module.exports = {
       offset: Math.max(0, Number(offset) || 0),
       limit: Math.max(1, Math.min(50, Number(limit) || 20)),
       search: String(filters.search || "").trim().slice(0, 32),
-      dateRange: String(filters.dateRange || "all")
+      dateRange: String(filters.dateRange || "all"),
+      gender: String(filters.gender || "all"),
+      startDate: String(filters.startDate || ""),
+      endDate: String(filters.endDate || "")
     });
   },
   exportAdminUserStats(filters = {}) {
     return callApi({
       action: "exportAdminUserStats",
       search: String(filters.search || "").trim().slice(0, 32),
-      dateRange: String(filters.dateRange || "all")
+      dateRange: String(filters.dateRange || "all"),
+      gender: String(filters.gender || "all"),
+      startDate: String(filters.startDate || ""),
+      endDate: String(filters.endDate || "")
     });
   },
   saveAdminConfig(config) {

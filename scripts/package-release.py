@@ -39,6 +39,8 @@ def should_include(path: Path) -> bool:
         "node_modules" in relative.parts
         or ".git" in relative.parts
         or ".superpowers" in relative.parts
+        or ".worktrees" in relative.parts
+        or ".githooks" in relative.parts
         or "__pycache__" in relative.parts
     ):
         return False
@@ -89,7 +91,7 @@ def main() -> None:
             "上传前置检查：代码包禁止包含 .wasm",
             "云函数依赖：部署时可选择云端安装依赖",
             "CloudBase 环境 ID：需在 config.js 中填写后再部署",
-            "数据库初始化：部署 api 后执行 scripts/init-cloud-database.ps1，自动补齐 15 个集合（含 user_profiles）",
+            "数据库初始化：部署 api 后执行 scripts/init-cloud-database.ps1，自动补齐 16 个集合（含 user_profiles、user_diagnostic_logs）",
             "用户资料：仅在首次签到时要求选择头像、填写昵称并选择男/女，保存后自动签到",
             "自动贴脸策略：直接调用云端 detectFaceCircle；云端失败保留手动圈选",
             "模型用量统计：部署前请创建 CloudBase 集合 model_usage_events，并设置为仅云函数读写",
@@ -135,6 +137,7 @@ def main() -> None:
         "cloudfunctions/api/lib/web-pose.js",
         "cloudfunctions/api/package-lock.json",
         "scripts/database-init-smoke.js",
+        "scripts/diagnostic-admin-logs-smoke.js",
         "scripts/user-profile-smoke.js",
         "scripts/init-cloud-database.ps1",
         "scripts/auto-face-probe-history-smoke.js",

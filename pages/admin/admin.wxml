@@ -366,7 +366,7 @@
           <view class="cost-trend-heading">
             <view>
               <view class="cost-trend-title">最近7天成本</view>
-              <view class="cost-trend-total">合计 ¥{{costTrend.totalCost}}</view>
+              <view class="cost-trend-total">合计 ¥{{costTrend.totalCostDisplay}}</view>
             </view>
             <view class="config-state {{moduleStates.usage.status === 'failed' ? 'is-off' : 'is-ready'}}">
               {{moduleStates.usage.label}}
@@ -377,7 +377,7 @@
           </view>
           <view wx:elif="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData) && costTrend.hasCost}}" class="cost-chart">
             <view wx:for="{{costTrend.days}}" wx:key="dateKey" class="cost-chart-item">
-              <view class="cost-chart-value">¥{{item.cost}}</view>
+              <view class="cost-chart-value">¥{{item.costDisplay}}</view>
               <view class="cost-chart-track">
                 <view class="cost-chart-bar" style="height: {{item.barPercent}}%;"></view>
               </view>
@@ -442,6 +442,7 @@
               aria-label="清空用户搜索"
             >清空</view>
           </view>
+          <view class="user-stats-filter-label">注册时间</view>
           <view class="user-stats-date-filter">
             <view
               wx:for="{{userDateRanges}}"
@@ -526,7 +527,16 @@
           用户明细 · {{userStats.total}}人
         </view>
         <view wx:if="{{(moduleStates.users.status === 'ready' || moduleStates.users.hasData) && userStats.users.length}}" class="admin-user-list user-stats-d-user-list">
-          <view wx:for="{{userStats.users}}" wx:key="userHash" class="admin-user-row user-stats-d-user-row">
+          <view
+            wx:for="{{userStats.users}}"
+            wx:key="userHash"
+            class="admin-user-row user-stats-d-user-row"
+            data-index="{{index}}"
+            bindtap="openUserDetail"
+            hover-class="control-tap"
+            role="button"
+            aria-label="查看{{item.nickname}}的用户详情"
+          >
             <image wx:if="{{item.avatarUrl}}" class="admin-user-avatar" src="{{item.avatarUrl}}" mode="aspectFill"></image>
             <view wx:else class="admin-user-avatar admin-user-avatar-empty">人</view>
             <view class="admin-user-copy">
@@ -534,7 +544,10 @@
               <view class="admin-user-meta">{{item.genderText}} · {{item.createdAtText}}</view>
               <view class="admin-user-id">编号 {{item.userHash}}</view>
             </view>
-            <view class="admin-user-gender gender-{{item.gender}}">{{item.genderText}}</view>
+            <view class="admin-user-side">
+              <view class="admin-user-gender gender-{{item.gender}}">{{item.genderText}}</view>
+              <text class="admin-user-detail-arrow">›</text>
+            </view>
           </view>
         </view>
         <view wx:elif="{{moduleStates.users.status === 'ready' || moduleStates.users.hasData}}" class="admin-empty">没有符合条件的用户。</view>
@@ -545,6 +558,57 @@
           loading="{{userStatsLoading}}"
           disabled="{{userStatsLoading}}"
         >{{userStatsLoading ? '加载中...' : '继续加载20条'}}</button>
+        <view
+          wx:if="{{userDetailVisible && selectedUserDetail}}"
+          class="user-detail-mask"
+          bindtap="closeUserDetail"
+          catchtouchmove="stopUserDetailTap"
+        >
+          <view class="user-detail-sheet" catchtap="stopUserDetailTap">
+            <view class="user-detail-handle"></view>
+            <view class="user-detail-head">
+              <view>
+                <view class="user-detail-kicker">用户详情</view>
+                <view class="user-detail-title">已完善资料</view>
+              </view>
+              <view
+                class="user-detail-close"
+                bindtap="closeUserDetail"
+                hover-class="control-tap"
+                role="button"
+                aria-label="关闭用户详情"
+              >×</view>
+            </view>
+            <view class="user-detail-profile">
+              <image
+                wx:if="{{selectedUserDetail.avatarUrl}}"
+                class="user-detail-avatar"
+                src="{{selectedUserDetail.avatarUrl}}"
+                mode="aspectFill"
+              ></image>
+              <view wx:else class="user-detail-avatar user-detail-avatar-empty">人</view>
+              <view class="user-detail-profile-copy">
+                <view class="user-detail-name">{{selectedUserDetail.nickname}}</view>
+                <view class="admin-user-gender gender-{{selectedUserDetail.gender}}">{{selectedUserDetail.genderText}}</view>
+              </view>
+            </view>
+            <view class="user-detail-fields">
+              <view class="user-detail-field">
+                <text>匿名编号</text>
+                <text>{{selectedUserDetail.userHash}}</text>
+              </view>
+              <view class="user-detail-field">
+                <text>首次完善资料</text>
+                <text>{{selectedUserDetail.createdAtText}}</text>
+              </view>
+              <view class="user-detail-field">
+                <text>最近修改时间</text>
+                <text>{{selectedUserDetail.updatedAtText}}</text>
+              </view>
+            </view>
+            <view class="user-detail-privacy">用户身份已隐藏，这里不会显示原始 OpenID。</view>
+          </view>
+        </view>
       </view>
 
       <view wx:if="{{activeConfigSection !== 'users'}}" class="admin-actions">
@@ -576,7 +640,7 @@
     >
       <view>
         <view class="monitor-toggle-title">更多监控与历史</view>
-        <view class="monitor-toggle-subtitle">探针、接口耗时、失败统计、用量和部署日志</view>
+        <view class="monitor-toggle-subtitle">用户端日志、探针、接口耗时、失败统计、用量和部署日志</view>
       </view>
       <text class="monitor-toggle-arrow">{{monitorExpanded ? '⌃' : '›'}}</text>
     </view>
@@ -756,17 +820,17 @@
         <view wx:if="{{moduleStates.usage.status === 'ready' || moduleStates.usage.hasData}}" class="usage-cost-summary">
           <view class="usage-cost-item">
             <text>今日预计成本</text>
-            <text>¥{{usageStats.today.estimatedCost}}</text>
-            <text>已计算 {{usageStats.today.pricedCost}} 元 · 未计算 {{usageStats.today.unavailableCostCount}} 条</text>
+            <text>¥{{usageStats.today.estimatedCostDisplay}}</text>
+            <text>已计算 {{usageStats.today.pricedCostDisplay}} 元 · 未计算 {{usageStats.today.unavailableCostCount}} 条</text>
           </view>
           <view class="usage-cost-item">
             <text>最近7天预计成本</text>
-            <text>¥{{usageStats.last7d.estimatedCost}}</text>
+            <text>¥{{usageStats.last7d.estimatedCostDisplay}}</text>
             <text>Token {{usageStats.last7d.totalTokens}} · 视频 {{usageStats.last7d.videoDurationSeconds}} 秒</text>
           </view>
           <view class="usage-cost-item">
             <text>最近30天预计成本</text>
-            <text>¥{{usageStats.last30d.estimatedCost}}</text>
+            <text>¥{{usageStats.last30d.estimatedCostDisplay}}</text>
             <text>Token {{usageStats.last30d.totalTokens}} · 视频 {{usageStats.last30d.videoDurationSeconds}} 秒</text>
           </view>
         </view>
@@ -863,7 +927,7 @@
           <view wx:for="{{usageStats.users}}" wx:key="userHash" class="usage-user-row">
             <view class="usage-user-top">
               <text>用户 {{item.userHash}}</text>
-              <text>¥{{item.estimatedCost}} · {{item.total}} 次</text>
+              <text>¥{{item.estimatedCostDisplay}} · {{item.total}} 次</text>
             </view>
             <view class="usage-user-detail">
               <text>图片 {{item.byType.analysis.total}}</text>
@@ -882,7 +946,7 @@
           <view wx:for="{{usageStats.models}}" wx:key="model" class="usage-model-row">
             <view class="usage-model-top">
               <text>{{item.provider}} / {{item.model}}</text>
-              <text>¥{{item.estimatedCost}} · {{item.total}} 次</text>
+              <text>¥{{item.estimatedCostDisplay}} · {{item.total}} 次</text>
             </view>
             <view class="usage-user-detail">
               <text>{{item.usageType}}</text>
@@ -900,13 +964,13 @@
           <view wx:for="{{usageStats.monthly}}" wx:key="monthKey" class="usage-monthly-row">
             <view class="usage-daily-date">
               <text>{{item.monthKey}}</text>
-              <text>预计 ¥{{item.estimatedCost}} · {{item.total}} 次</text>
+              <text>预计 ¥{{item.estimatedCostDisplay}} · {{item.total}} 次</text>
             </view>
             <view class="usage-daily-values">
-              <text>图片 ¥{{item.analysis.estimatedCost}}</text>
-              <text>人脸 ¥{{item.face.estimatedCost}}</text>
-              <text>生图 ¥{{item.image.estimatedCost}}</text>
-              <text>视频 ¥{{item.video.estimatedCost}}</text>
+              <text>图片 ¥{{item.analysis.estimatedCostDisplay}}</text>
+              <text>人脸 ¥{{item.face.estimatedCostDisplay}}</text>
+              <text>生图 ¥{{item.image.estimatedCostDisplay}}</text>
+              <text>视频 ¥{{item.video.estimatedCostDisplay}}</text>
             </view>
             <view class="usage-daily-result">Token {{item.totalTokens}} · 视频 {{item.videoDurationSeconds}} 秒</view>
           </view>
@@ -1018,6 +1082,224 @@
           </view>
         </view>
         <view wx:elif="{{moduleStates.autoFaceFailure.status === 'ready' || moduleStates.autoFaceFailure.hasData}}" class="admin-empty usage-empty">还没有最近失败记录。</view>
+      </view>
+
+      <view class="card admin-section diagnostic-admin-section">
+        <view class="admin-section-head">
+          <view>
+            <view class="admin-section-title">用户端日志</view>
+            <view class="admin-section-help">仅管理员可见，保留最近72小时；超过72小时自动删除。</view>
+          </view>
+          <view class="admin-section-tools">
+            <view class="config-state {{moduleStates.diagnosticLogs.status === 'failed' ? 'is-off' : 'is-ready'}}">
+              {{moduleStates.diagnosticLogs.label}}
+            </view>
+            <button
+              class="usage-refresh-button"
+              bindtap="refreshDiagnosticLogs"
+              loading="{{diagnosticLogsLoading}}"
+              disabled="{{diagnosticLogsLoading}}"
+            >{{diagnosticLogsLoading ? '读取中' : '刷新'}}</button>
+          </view>
+        </view>
+
+        <view wx:if="{{moduleStates.diagnosticLogs.status === 'loading'}}" class="usage-message">
+          正在整理用户端日志...
+        </view>
+        <view wx:if="{{moduleStates.diagnosticLogs.status === 'failed'}}" class="usage-message is-warn">
+          {{moduleStates.diagnosticLogs.message || '用户端日志读取失败，请点击刷新。'}}
+        </view>
+        <view wx:if="{{diagnosticLogs.message}}" class="usage-message {{diagnosticLogs.unavailable ? 'is-warn' : ''}}">
+          {{diagnosticLogs.message}}
+        </view>
+
+        <view wx:if="{{moduleStates.diagnosticLogs.status === 'ready' || moduleStates.diagnosticLogs.hasData}}" class="diagnostic-admin-summary">
+          <view class="diagnostic-admin-summary-item">
+            <text>全部</text>
+            <text>{{diagnosticLogs.summary.total}}</text>
+          </view>
+          <view class="diagnostic-admin-summary-item is-error">
+            <text>错误</text>
+            <text>{{diagnosticLogs.summary.errorCount}}</text>
+          </view>
+          <view class="diagnostic-admin-summary-item is-warn">
+            <text>提醒</text>
+            <text>{{diagnosticLogs.summary.warnCount}}</text>
+          </view>
+          <view class="diagnostic-admin-summary-item is-info">
+            <text>正常</text>
+            <text>{{diagnosticLogs.summary.infoCount}}</text>
+          </view>
+          <view class="diagnostic-admin-summary-item">
+            <text>用户</text>
+            <text>{{diagnosticLogs.summary.userCount}}</text>
+          </view>
+        </view>
+
+        <view class="diagnostic-admin-filter-block">
+          <view class="diagnostic-admin-filter-title">时间范围</view>
+          <scroll-view class="diagnostic-admin-filter-scroll" scroll-x enhanced show-scrollbar="{{false}}">
+            <view class="diagnostic-admin-filter-row">
+              <view
+                wx:for="{{diagnosticTimeRanges}}"
+                wx:key="value"
+                class="diagnostic-admin-filter-chip {{diagnosticHours === item.value ? 'is-active' : ''}}"
+                data-hours="{{item.value}}"
+                bindtap="selectDiagnosticHours"
+              >{{item.label}}</view>
+            </view>
+          </scroll-view>
+        </view>
+
+        <view class="diagnostic-admin-filter-block">
+          <view class="diagnostic-admin-filter-title">严重程度</view>
+          <view class="diagnostic-admin-filter-row">
+            <view
+              wx:for="{{diagnosticLevels}}"
+              wx:key="value"
+              class="diagnostic-admin-filter-chip {{diagnosticLevel === item.value ? 'is-active' : ''}}"
+              data-level="{{item.value}}"
+              bindtap="selectDiagnosticLevel"
+            >{{item.label}}</view>
+          </view>
+          <view wx:if="{{userDateRange === 'custom'}}" class="user-custom-date-row">
+            <picker
+              class="user-custom-date-picker"
+              mode="date"
+              value="{{userCustomStartDate}}"
+              end="{{userTodayKey}}"
+              bindchange="onUserCustomStartChange"
+            >
+              <view class="user-custom-date-value">
+                <text>开始日期</text>
+                <text>{{userCustomStartDate}}</text>
+              </view>
+            </picker>
+            <text class="user-custom-date-separator">至</text>
+            <picker
+              class="user-custom-date-picker"
+              mode="date"
+              value="{{userCustomEndDate}}"
+              end="{{userTodayKey}}"
+              bindchange="onUserCustomEndChange"
+            >
+              <view class="user-custom-date-value">
+                <text>结束日期</text>
+                <text>{{userCustomEndDate}}</text>
+              </view>
+            </picker>
+          </view>
+          <view class="user-stats-filter-label">用户性别</view>
+          <view class="user-stats-gender-filter">
+            <view
+              wx:for="{{userGenders}}"
+              wx:key="value"
+              class="user-stats-gender-option {{userGender === item.value ? 'is-active' : ''}}"
+              data-gender="{{item.value}}"
+              bindtap="selectUserGender"
+              hover-class="control-tap"
+              role="button"
+              aria-label="只看{{item.label}}用户"
+            >{{item.label}}</view>
+          </view>
+        </view>
+
+        <view class="diagnostic-admin-filter-block">
+          <view class="diagnostic-admin-filter-title">业务类型</view>
+          <scroll-view class="diagnostic-admin-filter-scroll" scroll-x enhanced show-scrollbar="{{false}}">
+            <view class="diagnostic-admin-filter-row">
+              <view
+                wx:for="{{diagnosticCategories}}"
+                wx:key="value"
+                class="diagnostic-admin-filter-chip {{diagnosticCategory === item.value ? 'is-active' : ''}}"
+                data-category="{{item.value}}"
+                bindtap="selectDiagnosticCategory"
+              >{{item.label}}</view>
+            </view>
+          </scroll-view>
+        </view>
+
+        <picker
+          mode="selector"
+          range="{{diagnosticLogs.userOptions}}"
+          range-key="label"
+          value="{{diagnosticUserIndex}}"
+          bindchange="selectDiagnosticUser"
+        >
+          <view class="diagnostic-admin-user-picker">
+            <text>用户筛选</text>
+            <text>{{diagnosticUserLabel}} ›</text>
+          </view>
+        </picker>
+
+        <view wx:if="{{diagnosticLogs.summary.categories.length}}" class="diagnostic-admin-category-summary">
+          <view
+            wx:for="{{diagnosticLogs.summary.categories}}"
+            wx:key="category"
+            class="diagnostic-admin-category-item"
+          >
+            <text>{{item.label}}</text>
+            <text>{{item.count}} 条</text>
+          </view>
+        </view>
+
+        <view wx:if="{{diagnosticLogs.logs.length}}" class="diagnostic-admin-list">
+          <view
+            wx:for="{{diagnosticLogs.logs}}"
+            wx:key="eventId"
+            class="diagnostic-admin-log level-{{item.level}}"
+          >
+            <view class="diagnostic-admin-log-top">
+              <view class="diagnostic-admin-log-tags">
+                <text class="diagnostic-admin-level">{{item.levelText}}</text>
+                <text class="diagnostic-admin-category">{{item.categoryLabel}}</text>
+              </view>
+              <text class="diagnostic-admin-time">{{item.createdAtText}}</text>
+            </view>
+            <view class="diagnostic-admin-message">{{item.message}}</view>
+            <view class="diagnostic-admin-meta">
+              <text>用户 {{item.userHash}}</text>
+              <text wx:if="{{item.route}}">页面 {{item.route}}</text>
+              <text wx:if="{{item.durationMs !== null}}">耗时 {{item.durationText}}</text>
+              <text wx:if="{{item.code}}">代码 {{item.code}}</text>
+              <text wx:if="{{item.requestId}}">请求 {{item.requestId}}</text>
+            </view>
+            <view class="diagnostic-admin-log-actions">
+              <button
+                class="copy-error-button"
+                data-index="{{index}}"
+                catchtap="copyDiagnosticLog"
+              >复制日志</button>
+              <button
+                wx:if="{{item.hasDetails}}"
+                class="copy-error-button diagnostic-detail-button"
+                data-index="{{index}}"
+                catchtap="toggleDiagnosticLogDetail"
+              >{{item.expanded ? '收起详情' : '查看详情'}}</button>
+            </view>
+            <view wx:if="{{item.expanded}}" class="diagnostic-admin-detail">
+              <view wx:if="{{item.errorText}}">
+                <text>错误详情</text>
+                <text selectable>{{item.errorText}}</text>
+              </view>
+              <view wx:if="{{item.detailsText}}">
+                <text>补充信息</text>
+                <text selectable>{{item.detailsText}}</text>
+              </view>
+            </view>
+          </view>
+        </view>
+        <view
+          wx:elif="{{moduleStates.diagnosticLogs.status === 'ready' || moduleStates.diagnosticLogs.hasData}}"
+          class="admin-empty usage-empty"
+        >这个筛选条件下没有日志。</view>
+        <button
+          wx:if="{{diagnosticLogs.nextOffset !== null}}"
+          class="user-load-more"
+          bindtap="loadMoreDiagnosticLogs"
+          loading="{{diagnosticLogsLoading}}"
+          disabled="{{diagnosticLogsLoading}}"
+        >{{diagnosticLogsLoading ? '加载中...' : '继续加载20条'}}</button>
       </view>
 
       <view class="card admin-section deployment-log-card">

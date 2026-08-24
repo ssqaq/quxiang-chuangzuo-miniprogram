@@ -76,10 +76,12 @@ function createProject() {
     maskFileID: "",
     faceRefs: [],
     wardrobeRefs: [],
+    backgroundRefs: [],
     sceneDescription: "",
     poseDescription: "",
     faceDirectionDescription: "",
     lightingMakeupDescription: "",
+    backgroundDescription: "",
     lockedElements: LOCKED_ELEMENTS.slice(),
     customLockedElements: [],
     promptDraft: "",
@@ -119,6 +121,7 @@ function assetKindForFolder(folder) {
   if (value === "masks") return "mask";
   if (value.includes("faces")) return "face";
   if (value.includes("wardrobe")) return "wardrobe";
+  if (value.includes("background")) return "background";
   return "";
 }
 
@@ -1783,6 +1786,15 @@ Page({
     await this.appendAssets("wardrobeRefs", Math.min(remaining, 12));
   },
 
+  async chooseBackgroundImages() {
+    const remaining = Math.max(0, 3 - this.data.project.backgroundRefs.length);
+    if (!remaining) {
+      wx.showToast({ title: "最多添加 3 张背景参考", icon: "none" });
+      return;
+    }
+    await this.appendAssets("backgroundRefs", Math.min(remaining, 3));
+  },
+
   async appendAssets(field, count) {
     try {
       const result = await chooseImages(count);
@@ -1808,7 +1820,7 @@ Page({
           compressionQuality: prepared.compressionQuality,
           fileID: "",
           isPrimary: field === "faceRefs" && this.data.project.faceRefs.length === 0 && index === 0,
-          kind: "clothing",
+          kind: field === "backgroundRefs" ? "background" : "clothing",
           target: "整套穿搭",
           targetOptions: CLOTHING_TARGETS,
           tags: [],
@@ -1882,6 +1894,22 @@ Page({
     const wardrobe = this.data.project.wardrobeRefs.slice();
     wardrobe[index] = Object.assign({}, wardrobe[index], { note: event.detail.value });
     this.updateProject({ wardrobeRefs: wardrobe });
+  },
+
+  onBackgroundNoteInput(event) {
+    const index = Number(event.currentTarget.dataset.index);
+    const background = this.data.project.backgroundRefs.slice();
+    background[index] = Object.assign({}, background[index], {
+      note: event.detail.value
+    });
+    this.updateProject({ backgroundRefs: background });
+  },
+
+  removeBackground(event) {
+    const index = Number(event.currentTarget.dataset.index);
+    const background = this.data.project.backgroundRefs.slice();
+    background.splice(index, 1);
+    this.updateProject({ backgroundRefs: background });
   },
 
   onDescriptionInput(event) {
@@ -2115,7 +2143,8 @@ Page({
       step: "prepare-assets",
       includeMask: Boolean(options.includeMask),
       faceReferenceCount: project.faceRefs.length,
-      wardrobeReferenceCount: project.wardrobeRefs.length
+      wardrobeReferenceCount: project.wardrobeRefs.length,
+      backgroundReferenceCount: project.backgroundRefs.length
     });
     project.mainImage = await this.ensureUploaded(project.mainImage, "main");
     project.faceRefs = await Promise.all(
@@ -2123,6 +2152,9 @@ Page({
     );
     project.wardrobeRefs = await Promise.all(
       project.wardrobeRefs.map((item) => this.ensureUploaded(item, "references/wardrobe"))
+    );
+    project.backgroundRefs = await Promise.all(
+      project.backgroundRefs.map((item) => this.ensureUploaded(item, "references/background"))
     );
     if (options.includeMask) {
       await this.prepareMaskAsset(project);
@@ -2135,7 +2167,8 @@ Page({
       mainUploaded: Boolean(project.mainImage && project.mainImage.fileID),
       maskUploaded: Boolean(project.maskFileID),
       faceReferenceCount: project.faceRefs.filter((item) => item.fileID).length,
-      wardrobeReferenceCount: project.wardrobeRefs.filter((item) => item.fileID).length
+      wardrobeReferenceCount: project.wardrobeRefs.filter((item) => item.fileID).length,
+      backgroundReferenceCount: project.backgroundRefs.filter((item) => item.fileID).length
     });
     return project;
   },
@@ -2165,12 +2198,13 @@ Page({
       const project = await this.prepareCloudAssets();
       const result = await cloud.analyzeImage({
         mainFileID: project.mainImage.fileID,
-        instruction: "请用中文分析这张图片的场景、人物姿态、面部朝向、光影和妆容，严格返回 JSON。",
+        instruction: "请用中文分析这张图片的场景、背景环境、空间层次、材质颜色、人物姿态、面部朝向、光影和妆容，严格返回 JSON。",
         projectName: project.projectName
       });
       const analysis = result.analysis || {};
       this.updateProject({
         sceneDescription: analysis.sceneDescription || "",
+        backgroundDescription: analysis.backgroundDescription || "",
         poseDescription: analysis.poseDescription || "",
         faceDirectionDescription: analysis.faceDirectionDescription || "",
         lightingMakeupDescription: analysis.lightingMakeupDescription || ""
@@ -2322,7 +2356,8 @@ Page({
         mainImageUploaded: Boolean(project.mainImage && project.mainImage.fileID),
         maskUploaded: Boolean(project.maskFileID),
         faceReferenceCount: project.faceRefs.length,
-        wardrobeReferenceCount: project.wardrobeRefs.length
+        wardrobeReferenceCount: project.wardrobeRefs.length,
+        backgroundReferenceCount: project.backgroundRefs.length
       });
       const result = await cloud.generateImage(
         {
@@ -2337,6 +2372,7 @@ Page({
           assetRegistrationVersion: 1,
           faceFileIDs: project.faceRefs.map((item) => item.fileID).filter(Boolean),
           wardrobeFileIDs: project.wardrobeRefs.map((item) => item.fileID).filter(Boolean),
+          backgroundFileIDs: project.backgroundRefs.map((item) => item.fileID).filter(Boolean),
           size: "1024x1024"
         },
         {
@@ -2383,7 +2419,8 @@ Page({
           maskFileID: project.maskFileID || "",
           maskGeometry: project.maskCircle || {},
           faceFileIDs: project.faceRefs.map((item) => item.fileID).filter(Boolean),
-          wardrobeFileIDs: project.wardrobeRefs.map((item) => item.fileID).filter(Boolean)
+          wardrobeFileIDs: project.wardrobeRefs.map((item) => item.fileID).filter(Boolean),
+          backgroundFileIDs: project.backgroundRefs.map((item) => item.fileID).filter(Boolean)
         }, result.record && result.record.repairContext || {})
       }), this.data.cloudReady);
       const records = [record].concat(this.data.records || []).slice(0, 50);

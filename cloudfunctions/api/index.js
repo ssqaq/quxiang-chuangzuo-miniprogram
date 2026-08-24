@@ -72,7 +72,7 @@ const USER_ASSET_COLLECTION = "user_assets";
 const REPAIR_CHAIN_COLLECTION = "repair_chains";
 const REPAIR_MAX_REVISIONS = 10;
 const ASSET_TICKET_TTL_MS = 10 * 60 * 1000;
-const REPAIR_ASSET_KINDS = new Set(["main", "mask", "face", "wardrobe", "avatar"]);
+const REPAIR_ASSET_KINDS = new Set(["main", "mask", "face", "wardrobe", "background", "avatar"]);
 const REQUIRED_DATABASE_COLLECTIONS = Object.freeze([
   ADMIN_DEPLOYMENT_LOG_COLLECTION,
   ADMIN_RUNTIME_CONFIG_COLLECTION,
@@ -2364,6 +2364,10 @@ function normalizeAnalysis(payload, rawText) {
       parsed.sceneDescription || parsed.scene || parsed.scenery || parsed["场景"],
       rawText
     ),
+    backgroundDescription: firstText(
+      parsed.backgroundDescription || parsed.background || parsed["背景"],
+      "沿用主图现有背景环境、空间层次、材质、色调和光线氛围。"
+    ),
     poseDescription: firstText(
       parsed.poseDescription || parsed.pose || parsed["姿态"],
       "沿用主图人物的身体方向、肩颈关系、手部位置和镜头距离。"
@@ -3558,14 +3562,14 @@ async function analyze(event) {
   assertVisionImageSize(image, vision);
   const url = vision.endpoint || endpoint(vision.baseUrl, "chat/completions");
   const model = vision.model;
-  const instruction = payload.instruction || "请分析图片并返回场景、姿态、面部朝向、光影妆容四项。";
+  const instruction = payload.instruction || "请分析图片并返回场景、背景、姿态、面部朝向、光影妆容五项。";
   const requestPayload = {
     model,
     temperature: 0.2,
     messages: [{
       role: "user",
       content: [
-        { type: "text", text: `${instruction}\n只返回 JSON，字段名使用 sceneDescription、poseDescription、faceDirectionDescription、lightingMakeupDescription、precisionNotes。` },
+        { type: "text", text: `${instruction}\n只返回 JSON，字段名使用 sceneDescription、backgroundDescription、poseDescription、faceDirectionDescription、lightingMakeupDescription、precisionNotes。` },
         { type: "image_url", image_url: { url: toDataUrl(image, "image/jpeg") } }
       ]
     }]
@@ -4002,6 +4006,11 @@ async function requestImageEdits(
     .concat((payload.wardrobeFileIDs || []).filter(Boolean).slice(0, 12).map((fileID, index) => ({
       fileID,
       role: "wardrobe",
+      index
+    })))
+    .concat((payload.backgroundFileIDs || []).filter(Boolean).slice(0, 3).map((fileID, index) => ({
+      fileID,
+      role: "background",
       index
     })));
   const referenceBuffers = await Promise.all(references.map(async (reference) => ({
@@ -4711,6 +4720,12 @@ async function validateGenerationAssets(openid, payload) {
       .filter(Boolean)
       .slice(0, 12)
       .map((fileID) => findUserAsset(openid, fileID, "wardrobe"))
+  );
+  await Promise.all(
+    (Array.isArray(payload.backgroundFileIDs) ? payload.backgroundFileIDs : [])
+      .filter(Boolean)
+      .slice(0, 3)
+      .map((fileID) => findUserAsset(openid, fileID, "background"))
   );
 }
 
@@ -5538,7 +5553,8 @@ async function generate(event, context) {
     model,
     size,
     faceRefs: Array.isArray(payload.faceFileIDs) ? payload.faceFileIDs.length : 0,
-    wardrobeRefs: Array.isArray(payload.wardrobeFileIDs) ? payload.wardrobeFileIDs.length : 0
+    wardrobeRefs: Array.isArray(payload.wardrobeFileIDs) ? payload.wardrobeFileIDs.length : 0,
+    backgroundRefs: Array.isArray(payload.backgroundFileIDs) ? payload.backgroundFileIDs.length : 0
   });
 
   let billing = null;
@@ -5632,6 +5648,9 @@ async function generate(event, context) {
           : [],
         wardrobeFileIDs: Array.isArray(payload.wardrobeFileIDs)
           ? payload.wardrobeFileIDs.filter(Boolean).slice(0, 12)
+          : [],
+        backgroundFileIDs: Array.isArray(payload.backgroundFileIDs)
+          ? payload.backgroundFileIDs.filter(Boolean).slice(0, 3)
           : []
       }
     };
@@ -5644,6 +5663,7 @@ async function generate(event, context) {
           await retainUserAssets(openid, [payload.maskFileID], "mask", transaction);
           await retainUserAssets(openid, payload.faceFileIDs, "face", transaction);
           await retainUserAssets(openid, payload.wardrobeFileIDs, "wardrobe", transaction);
+          await retainUserAssets(openid, payload.backgroundFileIDs, "background", transaction);
         }, 5);
       } catch (error) {
         log("warn", "generation.asset_retain_failed", {
@@ -5766,9 +5786,15 @@ async function repairImage(event, context) {
       .filter(Boolean)
       .slice(0, 12)
   ));
+  const backgroundFileIDs = Array.from(new Set(
+    (Array.isArray(payload.backgroundFileIDs) ? payload.backgroundFileIDs : [])
+      .filter(Boolean)
+      .slice(0, 3)
+  ));
   await findUserAsset(openid, maskFileID, "mask");
   for (const fileID of faceFileIDs) await findUserAsset(openid, fileID, "face");
   for (const fileID of wardrobeFileIDs) await findUserAsset(openid, fileID, "wardrobe");
+  for (const fileID of backgroundFileIDs) await findUserAsset(openid, fileID, "background");
 
   let billing = null;
   let claimed = false;
@@ -5800,7 +5826,8 @@ async function repairImage(event, context) {
       parentRecordId,
       revisionNumber: chainSlot.revisionNumber,
       faceRefs: faceFileIDs.length,
-      wardrobeRefs: wardrobeFileIDs.length
+      wardrobeRefs: wardrobeFileIDs.length,
+      backgroundRefs: backgroundFileIDs.length
     });
     const response = await requestImageEdits(
       {
@@ -5809,6 +5836,7 @@ async function repairImage(event, context) {
         maskFileID,
         faceFileIDs,
         wardrobeFileIDs,
+        backgroundFileIDs,
         prompt: actualPrompt,
         size: imageConfig.size || payload.size,
         __action: "repairImage"
@@ -5870,7 +5898,8 @@ async function repairImage(event, context) {
           : {},
         assetRegistrationVersion: 1,
         faceFileIDs,
-        wardrobeFileIDs
+        wardrobeFileIDs,
+        backgroundFileIDs
       },
       requestId,
       quotaUsed: billing.quota.freeUsed,
@@ -5912,7 +5941,7 @@ async function repairImage(event, context) {
         [maskFileID]
           .concat(mainFileID !== sourceFileID ? [mainFileID] : [])
           .concat(originalMainFileID ? [originalMainFileID] : [])
-          .concat(faceFileIDs, wardrobeFileIDs)
+          .concat(faceFileIDs, wardrobeFileIDs, backgroundFileIDs)
           .filter(Boolean)
       ));
       for (const fileID of referenced) {
@@ -5927,7 +5956,9 @@ async function repairImage(event, context) {
                 ? "main"
               : faceFileIDs.includes(fileID)
                 ? "face"
-                : "wardrobe",
+                : wardrobeFileIDs.includes(fileID)
+                  ? "wardrobe"
+                  : "background",
           transaction
         );
         await transaction.collection(USER_ASSET_COLLECTION).doc(asset._id).update({
@@ -6024,6 +6055,9 @@ async function removeGenerationRecord(recordId, openid, options = {}) {
       : []),
     ...(Array.isArray(repairContext.wardrobeFileIDs)
       ? repairContext.wardrobeFileIDs.map((fileID) => ({ fileID, kind: "wardrobe" }))
+      : []),
+    ...(Array.isArray(repairContext.backgroundFileIDs)
+      ? repairContext.backgroundFileIDs.map((fileID) => ({ fileID, kind: "background" }))
       : [])
   ];
   const children = await db.collection("generation_records")

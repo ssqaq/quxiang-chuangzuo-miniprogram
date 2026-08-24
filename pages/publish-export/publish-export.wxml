@@ -4,9 +4,6 @@
     <view class="section-subtitle">
       让图片更不容易被判成AI生成，再另存到手机相册
     </view>
-    <view class="publish-export-notice">
-      会生成一张新的处理图，原图不变；图片里的文字和水印不会被删除。
-    </view>
   </view>
 
   <view class="card source-upload-card">

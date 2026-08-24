@@ -114,11 +114,16 @@
           <text class="asset-status-label">穿搭参考</text>
           <text>{{wardrobeRefs.length ? wardrobeRefs.length + ' 张' : '未使用'}}</text>
         </view>
+        <view class="asset-status-item">
+          <text class="asset-status-label">背景参考</text>
+          <text>{{backgroundRefs.length ? backgroundRefs.length + ' 张' : '未使用'}}</text>
+        </view>
       </view>
       <view wx:if="{{!referencesReady}}" class="hint danger-text">
         旧记录的参考素材没有登记凭证：
         <text wx:if="{{legacyFacePending}}">人脸参考需重新补选；</text>
         <text wx:if="{{legacyWardrobePending}}">穿搭参考需重新补选；</text>
+        <text wx:if="{{legacyBackgroundPending}}">背景参考需重新补选；</text>
         也可以明确选择不再沿用旧参考。
       </view>
       <button
@@ -130,12 +135,16 @@
       <view class="reference-actions">
         <button class="secondary-btn" bindtap="chooseFaceImages" loading="{{uploading === 'face'}}" disabled="{{generating || uploading}}">补选人脸参考</button>
         <button class="secondary-btn" bindtap="chooseWardrobeImages" loading="{{uploading === 'wardrobe'}}" disabled="{{generating || uploading}}">补选穿搭参考</button>
+        <button class="secondary-btn" bindtap="chooseBackgroundImages" loading="{{uploading === 'background'}}" disabled="{{generating || uploading}}">补选背景参考</button>
       </view>
       <view wx:for="{{faceRefs}}" wx:key="fileID" class="reference-line">
         <text>人脸：{{item.name}}</text><button class="plain-btn small-btn" data-kind="face" data-index="{{index}}" bindtap="removeReference">移除</button>
       </view>
       <view wx:for="{{wardrobeRefs}}" wx:key="fileID" class="reference-line">
         <text>穿搭：{{item.name}}</text><button class="plain-btn small-btn" data-kind="wardrobe" data-index="{{index}}" bindtap="removeReference">移除</button>
+      </view>
+      <view wx:for="{{backgroundRefs}}" wx:key="fileID" class="reference-line">
+        <text>背景：{{item.name}}</text><button class="plain-btn small-btn" data-kind="background" data-index="{{index}}" bindtap="removeReference">移除</button>
       </view>
     </view>
 

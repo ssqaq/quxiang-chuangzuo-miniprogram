@@ -122,7 +122,7 @@
   <view wx:if="{{step === 2}}" class="card">
     <view class="section-title">
       <text>3. 添加参考素材</text>
-      <text class="badge">{{project.faceRefs.length}} / 6 人脸 · {{project.wardrobeRefs.length}} / 12 穿搭</text>
+      <text class="badge">{{project.faceRefs.length}} / 6 人脸 · {{project.wardrobeRefs.length}} / 12 穿搭 · {{project.backgroundRefs.length}} / 3 背景</text>
     </view>
     <view class="section-subtitle">第一张人脸参考默认作为主身份基准，穿搭参考可逐张指定目标。</view>
 
@@ -174,6 +174,23 @@
         <textarea class="asset-note" data-index="{{index}}" value="{{item.note}}" maxlength="-1" placeholder="备注：颜色、材质、保留细节" bindinput="onWardrobeNoteInput"></textarea>
       </view>
     </view>
+
+    <view class="subsection">
+      <view class="subsection-title">背景参考</view>
+      <button class="secondary-btn" bindtap="chooseBackgroundImages">上传背景参考</button>
+      <view wx:if="{{!project.backgroundRefs.length}}" class="empty">没有背景参考也可以继续</view>
+      <view wx:for="{{project.backgroundRefs}}" wx:key="id" class="asset-card">
+        <view class="asset-card-main">
+          <image class="asset-thumb" src="{{item.path}}" mode="aspectFill"></image>
+          <view class="asset-body">
+            <view class="asset-actions face-actions">
+              <button class="small-btn reference-action-btn danger-btn" data-index="{{index}}" bindtap="removeBackground">删除</button>
+            </view>
+          </view>
+        </view>
+        <textarea class="asset-note" data-index="{{index}}" value="{{item.note}}" maxlength="-1" placeholder="备注：空间、材质、色调、氛围" bindinput="onBackgroundNoteInput"></textarea>
+      </view>
+    </view>
   </view>
 
   <view wx:if="{{step === 3}}" class="card">
@@ -196,7 +213,7 @@
     </view>
     <view class="section-subtitle">
       <view>可以先手动填写;</view>
-      <view>AI分析主图会填充四段描述，</view>
+      <view>AI分析主图会填充五段描述，</view>
       <view>参考网感分析 会给出更上镜的姿势建议。</view>
     </view>
     <view wx:if="{{project.webPoseSuggestions.length}}" class="web-pose-panel">
@@ -242,6 +259,8 @@
     <textarea class="textarea compact-area" data-field="faceDirectionDescription" value="{{project.faceDirectionDescription}}" placeholder="请描述原图中红圈内原先的面部朝向、头部角度、眼神方向、视线落点、表情情绪、嘴唇状态和眉眼状态；替换后仍要匹配这些原图条件。" bindinput="onDescriptionInput"></textarea>
     <view class="field-label">光影、妆容与画质</view>
     <textarea class="textarea compact-area" data-field="lightingMakeupDescription" value="{{project.lightingMakeupDescription}}" placeholder="请具体描述原图红圈内面部光影：光线颜色/色温，来自画面哪一侧，落在额头、鼻梁、脸颊、下巴等位置；阴影在眼窝、鼻翼、下颌或颈部哪里，高光和肤色反射如何；同时写妆容浓淡、皮肤纹理、清晰度、噪点、压缩痕迹和普通手机拍摄画质。" bindinput="onDescriptionInput"></textarea>
+    <view class="field-label">背景</view>
+    <textarea class="textarea compact-area" data-field="backgroundDescription" value="{{project.backgroundDescription}}" placeholder="请描述需要保留或参考的背景环境：场景地点、空间层次、墙面或地面材质、主色调、光线氛围，以及背景中必须保持不变的内容。" bindinput="onDescriptionInput"></textarea>
     <view class="lock-panel">
       <view class="lock-panel-head">
         <view class="lock-panel-copy" bindtap="toggleLockPanel">

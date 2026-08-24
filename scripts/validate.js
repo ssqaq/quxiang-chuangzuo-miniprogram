@@ -261,6 +261,7 @@ const photoToVideoWxss = fs.readFileSync(
 );
 const indexJs = fs.readFileSync(path.join(root, "pages/index/index.js"), "utf8");
 const indexWxss = fs.readFileSync(path.join(root, "pages/index/index.wxss"), "utf8");
+const promptJs = fs.readFileSync(path.join(root, "utils/prompt.js"), "utf8");
 const canvasGestureJs = fs.readFileSync(
   path.join(root, "utils/canvas-gesture.js"),
   "utf8"
@@ -437,7 +438,7 @@ if (
   || !clientCloudJs.includes('action: "getAdminUserStats"')
   || !clientCloudJs.includes('action: "exportAdminUserStats"')
   || !cloudJs.includes('USER_PROFILE_COLLECTION = "user_profiles"')
-  || !cloudJs.includes('REPAIR_ASSET_KINDS = new Set(["main", "mask", "face", "wardrobe", "avatar"])')
+  || !cloudJs.includes('REPAIR_ASSET_KINDS = new Set(["main", "mask", "face", "wardrobe", "background", "avatar"])')
   || !cloudJs.includes("getMyUserProfile")
   || !cloudJs.includes("saveMyUserProfile")
   || !cloudJs.includes("getAdminUserStats")
@@ -971,7 +972,6 @@ if (
   || !publishExportJs.includes("publishExport.renderToTempFile")
   || !publishExportJs.includes("publishExport.saveToAlbum")
   || !publishExportWxml.includes("降低AI识别率再导出照片")
-  || !publishExportWxml.includes("会生成一张新的处理图，原图不变；图片里的文字和水印不会被删除。")
   || !publishExportWxml.includes("1. 导入照片")
   || !publishExportWxml.includes("从手机相册选择照片导入")
   || !publishExportWxml.includes("选择照片")
@@ -1248,12 +1248,12 @@ if (
 }
 if (
   indexWxml.includes('class="asset-name"')
-  || (indexWxml.match(/<textarea class="asset-note"/g) || []).length !== 2
-  || (indexWxml.match(/class="asset-card-main"/g) || []).length !== 2
+  || (indexWxml.match(/<textarea class="asset-note"/g) || []).length !== 3
+  || (indexWxml.match(/class="asset-card-main"/g) || []).length !== 3
   || !indexWxml.includes('class="asset-actions face-actions"')
   || !indexWxml.includes('class="kind-switch"')
 ) {
-  throw new Error("第 3 步参考素材卡片仍显示文件名，或全宽两行备注框结构不完整。");
+  throw new Error("第 3 步参考素材卡片仍显示文件名，或三组备注框结构不完整。");
 }
 const referenceActionStyle = indexWxss.match(/\.reference-action-btn\s*\{([^}]*)\}/);
 const assetNoteStyle = indexWxss.match(/\.asset-note\s*\{([^}]*)\}/);
@@ -1278,7 +1278,7 @@ if (
   || !indexWxml.includes("AI 分析主图")
   || !indexWxml.includes("参考网感分析")
   || !indexWxml.includes("可以先手动填写;")
-  || !indexWxml.includes("AI分析主图会填充四段描述，")
+  || !indexWxml.includes("AI分析主图会填充五段描述，")
   || !indexWxml.includes("参考网感分析 会给出更上镜的姿势建议。")
   || indexWxml.includes("8 条更上镜")
   || indexWxml.includes("8条更上镜")
@@ -1296,7 +1296,32 @@ if (
   desktopGuidance.some((text) => !indexWxml.includes(text))
   || !indexWxml.includes("光影、妆容与画质")
 ) {
-  throw new Error("桌面端四段完整填写说明没有全部迁移到第 4 步。");
+  throw new Error("桌面端五段完整填写说明没有全部迁移到第 4 步。");
+}
+if (
+  !indexWxml.includes("背景参考")
+  || !indexWxml.includes('bindtap="chooseBackgroundImages"')
+  || !indexWxml.includes('bindtap="removeBackground"')
+  || !indexWxml.includes('bindinput="onBackgroundNoteInput"')
+  || !indexWxml.includes("没有背景参考也可以继续")
+  || !indexWxml.includes("backgroundRefs.length")
+  || !indexWxml.includes('<view class="field-label">背景</view>')
+  || !indexWxml.includes('data-field="backgroundDescription"')
+  || !indexJs.includes("backgroundRefs: []")
+  || !indexJs.includes('this.appendAssets("backgroundRefs"')
+  || !indexJs.includes("backgroundDescription: analysis.backgroundDescription")
+  || !indexJs.includes('this.ensureUploaded(item, "references/background")')
+  || !indexJs.includes("backgroundFileIDs:")
+  || !promptJs.includes("project.backgroundRefs")
+  || !promptJs.includes("project.backgroundDescription")
+  || !promptJs.includes("【背景参考】")
+  || !promptJs.includes("忽略背景参考图中的人物")
+  || !cloudJs.includes('role: "background"')
+  || !cloudJs.includes("backgroundFileIDs")
+  || !cloudJs.includes('findUserAsset(openid, fileID, "background")')
+  || !cloudJs.includes('kind: "background"')
+) {
+  throw new Error("背景参考上传、背景描述、提示词或云端素材链路不完整。");
 }
 const compactAreaStyle = indexWxss.match(/\.compact-area\s*\{([^}]*)\}/);
 if (

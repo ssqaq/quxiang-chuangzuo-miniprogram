@@ -10,17 +10,6 @@ page {
   background: linear-gradient(135deg, #eef5ff 0%, #ffffff 72%);
 }
 
-.publish-export-notice {
-  margin-top: 16rpx;
-  padding: 16rpx 18rpx;
-  border: 1rpx solid #dbe8fb;
-  border-radius: 14rpx;
-  background: #f7faff;
-  color: #65758c;
-  font-size: 22rpx;
-  line-height: 1.55;
-}
-
 .source-upload-card {
   padding-bottom: 24rpx;
 }

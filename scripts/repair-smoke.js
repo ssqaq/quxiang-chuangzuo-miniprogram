@@ -9,6 +9,7 @@ const {
   canRepairRecord,
   buildRepairPrompt
 } = require("../utils/repair");
+const { buildPrompt } = require("../utils/prompt");
 const api = require("../cloudfunctions/api/index.js");
 
 async function main() {
@@ -61,6 +62,19 @@ async function main() {
   assert.ok(prompt.includes("脸部身份不像原始主图人物"));
   assert.ok(prompt.includes("x=100"));
 
+  const backgroundPrompt = buildPrompt({
+    faceRefs: [{ name: "face.jpg", isPrimary: true }],
+    wardrobeRefs: [],
+    backgroundRefs: [{
+      name: "background.jpg",
+      note: "保留暖色墙面"
+    }],
+    backgroundDescription: "保留室内暖色墙面和窗边自然光。"
+  });
+  assert.ok(backgroundPrompt.includes("背景：保留室内暖色墙面和窗边自然光。"));
+  assert.ok(backgroundPrompt.includes("【背景参考】"));
+  assert.ok(backgroundPrompt.includes("忽略背景参考图中的人物"));
+
   await assert.rejects(
     () => api.__test.requestImageEdits(
       { mainFileID: "main-only" },
@@ -79,6 +93,10 @@ async function main() {
   assert.strictEqual(
     api.__test.normalizeAssetKind("wardrobe"),
     "wardrobe"
+  );
+  assert.strictEqual(
+    api.__test.normalizeAssetKind("background"),
+    "background"
   );
   console.log("repair smoke: OK");
 }

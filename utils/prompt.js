@@ -27,6 +27,7 @@ function getPrimaryFace(faces) {
 function buildPrompt(project) {
   const faces = project.faceRefs || [];
   const wardrobe = project.wardrobeRefs || [];
+  const backgrounds = project.backgroundRefs || [];
   const primary = getPrimaryFace(faces);
   const scene = compact(
     project.sceneDescription,
@@ -48,6 +49,11 @@ function buildPrompt(project) {
     "匹配原脸部的光源方向、阴影、高光、肤色反射、毛孔、噪点和清晰度。",
     220
   );
+  const background = compact(
+    project.backgroundDescription,
+    "沿用主图现有背景环境、空间层次、材质、色调和光线氛围。",
+    220
+  );
   const primaryName = primary ? compact(primary.name, "主参考图", 80) : "";
 
   const sections = [
@@ -59,8 +65,21 @@ function buildPrompt(project) {
           }；忽略参考素材里的背景、服装、光线与拍摄角度。`
         : "尚未提供人脸参考素材；执行前应补充至少一张清晰人脸图片。"
     }`,
-    `【原图匹配】\n场景：${scene}\n姿态：${pose}\n面部状态：${faceState}\n光影与质感：${light}`
+    `【原图匹配】\n场景：${scene}\n姿态：${pose}\n面部状态：${faceState}\n光影与质感：${light}\n背景：${background}`
   ];
+
+  if (backgrounds.length) {
+    const mappings = backgrounds.map((item, index) => {
+      const name = compact(item.name, `第${index + 1}张背景参考`, 80);
+      const note = item.note ? `；备注：${compact(item.note, "", 120)}` : "";
+      return `${index + 1}. “${name}”只用于参考背景环境、空间结构、材质、色调和氛围${note}。`;
+    });
+    sections.push(
+      `【背景参考】\n${mappings.join(
+        "\n"
+      )}\n忽略背景参考图中的人物、服装、配饰和无关物体，不把它们直接带入主图。`
+    );
+  }
 
   if (wardrobe.length) {
     const mappings = wardrobe.map((item, index) => {
@@ -86,7 +105,9 @@ function buildPrompt(project) {
   sections.push(
     `【合成与边界】\n可改动范围仅为红圈内人脸${
       wardrobe.length ? "以及上面逐项指定的穿搭目标" : ""
-    }。新脸要服从原头部角度、透视、表情和环境光，边缘自然衔接，保留真实皮肤与原始画质。区域外的背景、头发、身体、手部、人物位置、构图、颜色、噪点和可见范围不得重绘、移动、增删或裁切。${
+    }${
+      backgrounds.length ? "以及背景参考明确要求的背景环境" : ""
+    }。新脸要服从原头部角度、透视、表情和环境光，边缘自然衔接，保留真实皮肤与原始画质。区域外的背景、头发、身体、手部、人物位置、构图、颜色、噪点和可见范围不得重绘、移动、增删或裁切，除非背景描述或背景参考明确要求调整背景。${
       custom ? `额外锁定：${custom}。` : ""
     }`
   );

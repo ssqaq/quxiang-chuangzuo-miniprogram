@@ -71,10 +71,12 @@ Page({
     negativePrompt: "",
     faceRefs: [],
     wardrobeRefs: [],
+    backgroundRefs: [],
     referencesReady: true,
     legacyReferencesPending: false,
     legacyFacePending: false,
     legacyWardrobePending: false,
+    legacyBackgroundPending: false,
     uploading: "",
     generating: false,
     loading: false,
@@ -160,17 +162,28 @@ Page({
         reusable: true
       }))
       : [];
+    const backgroundRefs = hasRegisteredReferences
+      ? (repairContext.backgroundFileIDs || []).filter(Boolean).map((fileID) => ({
+        fileID,
+        name: "已保存背景参考",
+        path: "",
+        reusable: true
+      }))
+      : [];
     const initialCircle = repairContext.maskGeometry && repairContext.maskGeometry.width
       ? clone(repairContext.maskGeometry)
       : null;
     const hasOldAssets = Boolean(
       (repairContext.faceFileIDs || []).length
       || (repairContext.wardrobeFileIDs || []).length
+      || (repairContext.backgroundFileIDs || []).length
     ) && !hasRegisteredReferences;
     const legacyFacePending = !hasRegisteredReferences
       && (repairContext.faceFileIDs || []).length > 0;
     const legacyWardrobePending = !hasRegisteredReferences
       && (repairContext.wardrobeFileIDs || []).length > 0;
+    const legacyBackgroundPending = !hasRegisteredReferences
+      && (repairContext.backgroundFileIDs || []).length > 0;
     const next = {
       record,
       projectName: record.projectName || "未命名项目",
@@ -184,10 +197,12 @@ Page({
       imageHeight: info.height,
       faceRefs,
       wardrobeRefs,
+      backgroundRefs,
       referencesReady: !hasOldAssets,
       legacyReferencesPending: hasOldAssets,
       legacyFacePending,
       legacyWardrobePending,
+      legacyBackgroundPending,
       maskCircle: initialCircle,
       maskConfirmed: false,
       issueGroups: createSelectableIssueOptions(wardrobeRefs.length > 0, ["outsideChanged"]),
@@ -385,8 +400,9 @@ Page({
 
   async chooseReferences(kind) {
     try {
-      const result = await chooseImages(kind === "face" ? 6 : 12);
-      const files = (result.tempFiles || []).slice(0, kind === "face" ? 6 : 12);
+      const limit = kind === "face" ? 6 : kind === "wardrobe" ? 12 : 3;
+      const result = await chooseImages(limit);
+      const files = (result.tempFiles || []).slice(0, limit);
       const refs = [];
       this.setData({ uploading: kind });
       for (const file of files) {
@@ -408,8 +424,13 @@ Page({
         });
         refs.push(Object.assign({}, prepared, { fileID: uploaded.fileID, reusable: true }));
       }
-      const current = kind === "face" ? this.data.faceRefs : this.data.wardrobeRefs;
-      const next = current.concat(refs).slice(0, kind === "face" ? 6 : 12);
+      const key = kind === "face"
+        ? "faceRefs"
+        : kind === "wardrobe"
+          ? "wardrobeRefs"
+          : "backgroundRefs";
+      const current = this.data[key];
+      const next = current.concat(refs).slice(0, limit);
       const hasWardrobe = kind === "wardrobe"
         ? next.length > 0
         : this.data.wardrobeRefs.length > 0;
@@ -418,14 +439,22 @@ Page({
         hasWardrobe
       );
       this.setData({
-        [kind === "face" ? "faceRefs" : "wardrobeRefs"]: next,
+        [key]: next,
         referencesReady: kind === "face"
-          ? !this.data.legacyWardrobePending
-          : !this.data.legacyFacePending,
+          ? !this.data.legacyWardrobePending && !this.data.legacyBackgroundPending
+          : kind === "wardrobe"
+            ? !this.data.legacyFacePending && !this.data.legacyBackgroundPending
+            : !this.data.legacyFacePending && !this.data.legacyWardrobePending,
         legacyReferencesPending: kind === "face"
-          ? this.data.legacyWardrobePending
-          : this.data.legacyFacePending,
-        [kind === "face" ? "legacyFacePending" : "legacyWardrobePending"]: false,
+          ? this.data.legacyWardrobePending || this.data.legacyBackgroundPending
+          : kind === "wardrobe"
+            ? this.data.legacyFacePending || this.data.legacyBackgroundPending
+            : this.data.legacyFacePending || this.data.legacyWardrobePending,
+        [kind === "face"
+          ? "legacyFacePending"
+          : kind === "wardrobe"
+            ? "legacyWardrobePending"
+            : "legacyBackgroundPending"]: false,
         selectedIssueKeys,
         issueGroups: createSelectableIssueOptions(hasWardrobe, selectedIssueKeys)
       });
@@ -445,10 +474,18 @@ Page({
     return this.chooseReferences("wardrobe");
   },
 
+  chooseBackgroundImages() {
+    return this.chooseReferences("background");
+  },
+
   removeReference(event) {
     const kind = event.currentTarget.dataset.kind;
     const index = Number(event.currentTarget.dataset.index);
-    const key = kind === "face" ? "faceRefs" : "wardrobeRefs";
+    const key = kind === "face"
+      ? "faceRefs"
+      : kind === "wardrobe"
+        ? "wardrobeRefs"
+        : "backgroundRefs";
     const refs = this.data[key].slice();
     refs.splice(index, 1);
     const hasWardrobe = kind === "wardrobe"
@@ -474,6 +511,9 @@ Page({
       referencesReady: true,
       faceRefs: [],
       wardrobeRefs: [],
+      backgroundRefs: [],
+      legacyBackgroundPending: false,
+      backgroundRefs: [],
       selectedIssueKeys: normalizeIssueKeys(this.data.selectedIssueKeys, false),
       issueGroups: createSelectableIssueOptions(false, this.data.selectedIssueKeys),
       statusText: "已确认不沿用旧参考，请重新拖动确认红圈"
@@ -534,6 +574,7 @@ Page({
         maskFileID: maskUpload.fileID,
         faceFileIDs: this.data.faceRefs.map((item) => item.fileID).filter(Boolean),
         wardrobeFileIDs: this.data.wardrobeRefs.map((item) => item.fileID).filter(Boolean),
+        backgroundFileIDs: this.data.backgroundRefs.map((item) => item.fileID).filter(Boolean),
         prompt: this.data.prompt,
         negativePrompt: this.data.negativePrompt,
         parentRecordId: this.data.record.id,

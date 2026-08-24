@@ -74,6 +74,14 @@ def main() -> None:
         raise RuntimeError(
             f"版本不一致：config.js={version}，cloud function={package_json.get('version')}"
         )
+    media_worker_package = json.loads(
+        (ROOT / "media-worker" / "package.json").read_text(encoding="utf-8")
+    )
+    if media_worker_package.get("version") != version:
+        raise RuntimeError(
+            "版本不一致："
+            f"config.js={version}，media worker={media_worker_package.get('version')}"
+        )
 
     output = args.output.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -99,6 +107,9 @@ def main() -> None:
             "自动贴脸失败日志保留 90 天，api 云函数按天懒清理，每次最多清理 100 条",
             "自动贴脸探针历史：部署前请创建 auto_face_probe_logs，并设置为仅云函数读写，保留 30 天",
             "照片转视频临时文件：只清理登记的 source/result，保留 3×24 小时后每天自动重试",
+            "安卓实况：云函数生成标准 Motion Photo JPG，封装失败自动退回普通 MP4",
+            "苹果实况：需独立部署 media-worker，并配置 APPLE_LIVE_PHOTO_WORKER_URL 和 APPLE_LIVE_PHOTO_WORKER_TOKEN",
+            "苹果导入：小程序分享 LIVP 到文件传输助手，再通过百度网盘保存到 iPhone 相册",
             "微信开发者工具 CLI：若服务端口关闭，请在 设置 → 安全设置 中开启",
             "注意：发布包不含 node_modules、AppSecret、AI API Key",
         ]
@@ -136,7 +147,13 @@ def main() -> None:
         "cloudfunctions/api/lib/retry.js",
         "cloudfunctions/api/lib/web-pose.js",
         "cloudfunctions/api/lib/publish-export-core.js",
+        "cloudfunctions/api/lib/android-motion-photo.js",
         "cloudfunctions/api/package-lock.json",
+        "services/cloud.js",
+        "pages/photo-to-video/photo-to-video.js",
+        "pages/photo-to-video/photo-to-video.json",
+        "pages/photo-to-video/photo-to-video.wxml",
+        "pages/photo-to-video/photo-to-video.wxss",
         "pages/publish-export/publish-export.js",
         "pages/publish-export/publish-export.wxml",
         "pages/publish-export/publish-export.wxss",
@@ -145,6 +162,18 @@ def main() -> None:
         "workers/publish-export-worker.js",
         "scripts/publish-export-advanced-smoke.js",
         "scripts/publish-export-cloud-smoke.js",
+        "scripts/livp-smoke.js",
+        "scripts/livp-api-smoke.js",
+        "scripts/motion-photo-smoke.js",
+        "scripts/motion-photo-api-smoke.js",
+        "scripts/motion-photo-page-smoke.js",
+        "media-worker/.dockerignore",
+        "media-worker/Dockerfile",
+        "media-worker/README.md",
+        "media-worker/lib/apple-live-photo.js",
+        "media-worker/package.json",
+        "media-worker/package-lock.json",
+        "media-worker/server.js",
         "scripts/database-init-smoke.js",
         "scripts/diagnostic-admin-logs-smoke.js",
         "scripts/user-profile-smoke.js",

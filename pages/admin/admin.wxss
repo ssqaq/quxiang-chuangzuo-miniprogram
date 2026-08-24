@@ -4573,8 +4573,12 @@ page {
 }
 
 .usage-failure-actions > .model-failure-export-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   padding: 0 8rpx;
   line-height: 1;
+  text-align: center;
 }
 
 .model-failure-month-picker {

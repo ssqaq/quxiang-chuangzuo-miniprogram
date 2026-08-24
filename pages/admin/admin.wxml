@@ -593,7 +593,9 @@
         </view>
       </scroll-view>
       <view wx:if="{{!usageStats.monthly.length}}" class="admin-empty usage-empty">还没有月度统计数据。</view>
-      </view>        <view class="usage-subsection-head">
+      </view>
+
+        <view class="usage-subsection-head">
           <view class="usage-subsection-title usage-daily-title">最近{{usageStats.days}}天每日明细</view>
           <view
             class="usage-subsection-toggle"

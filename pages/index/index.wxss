@@ -233,7 +233,7 @@
   overflow: hidden;
   border: 2rpx solid #dfe6f1;
   border-radius: 20rpx;
-  background: #111827;
+  background: transparent;
   text-align: center;
 }
 
@@ -241,7 +241,7 @@
   position: relative;
   margin: 0 auto;
   overflow: hidden;
-  background: #111827;
+  background: transparent;
   touch-action: none;
   overscroll-behavior: none;
 }
@@ -251,7 +251,7 @@
   top: 0;
   left: 0;
   overflow: hidden;
-  background: #111827;
+  background: transparent;
   transform-origin: center center;
   will-change: transform;
   touch-action: none;
@@ -272,8 +272,9 @@
 
 .canvas-tip {
   padding: 14rpx;
-  background: rgba(17, 24, 39, 0.86);
-  color: #e7edf8;
+  border-top: 1rpx solid #e6edf6;
+  background: #f6f9fd;
+  color: #53627a;
   font-size: 22rpx;
 }
 

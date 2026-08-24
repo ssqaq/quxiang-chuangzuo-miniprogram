@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.24.0";
-const API_BUILD_MARKER = "API_BUILD_TAG_20260824_PHOTO_VIDEO_IDLE_CLEANUP_V240";
+const API_BUILD_VERSION = "0.24.1";
+const API_BUILD_MARKER = "API_BUILD_TAG_20260824_CHECKIN_WX_CONTEXT_V241";
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
 const cloud = require("wx-server-sdk");
@@ -2401,8 +2401,28 @@ function normalizeFaceDetections(payload, rawText) {
   }).filter((item) => item && item.width > 1 && item.height > 1);
 }
 
-function getOpenId(context) {
-  return (context && (context.OPENID || context.openid)) || "anonymous";
+function getOpenId(context, wxContextProvider) {
+  const directOpenId = context && (context.OPENID || context.openid);
+  if (directOpenId) return String(directOpenId);
+
+  const resolveWxContext = typeof wxContextProvider === "function"
+    ? wxContextProvider
+    : cloud && typeof cloud.getWXContext === "function"
+      ? () => cloud.getWXContext()
+      : null;
+  if (resolveWxContext) {
+    try {
+      const wxContext = resolveWxContext() || {};
+      const sdkOpenId = wxContext.OPENID || wxContext.openid;
+      if (sdkOpenId) return String(sdkOpenId);
+    } catch (error) {
+      log("warn", "auth.context-failed", {
+        message: error && error.message ? error.message : String(error)
+      });
+    }
+  }
+
+  return "anonymous";
 }
 
 function adminOpenIds() {
@@ -5981,6 +6001,7 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     },
     isPromoDate,
     calculateNextStreak,
+    getOpenId,
     videoProviderStatus,
     buildVideoGenerationPayload,
     normalizeVideoCreateResponse,

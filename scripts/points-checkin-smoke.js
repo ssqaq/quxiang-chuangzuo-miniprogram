@@ -30,6 +30,27 @@ assert.strictEqual(helpers.shiftDateKey("2026-08-23", -1), "2026-08-22");
 assert.strictEqual(helpers.calculateNextStreak("", 0, "2026-08-23"), 1);
 assert.strictEqual(helpers.calculateNextStreak("2026-08-22", 1, "2026-08-23"), 2);
 assert.strictEqual(helpers.calculateNextStreak("2026-08-20", 4, "2026-08-23"), 1);
+assert.strictEqual(
+  helpers.getOpenId(
+    { OPENID: "direct-openid" },
+    () => ({ OPENID: "sdk-openid" })
+  ),
+  "direct-openid"
+);
+assert.strictEqual(
+  helpers.getOpenId({}, () => ({ OPENID: "sdk-openid" })),
+  "sdk-openid"
+);
+assert.strictEqual(
+  helpers.getOpenId({}, () => ({})),
+  "anonymous"
+);
+assert.strictEqual(
+  helpers.getOpenId({}, () => {
+    throw new Error("模拟身份读取失败");
+  }),
+  "anonymous"
+);
 
 async function main() {
   const summary = await api.main({ action: "getUserPoints", requestId: "points-anonymous" }, {});

@@ -87,6 +87,14 @@ async function inspectOne(spec, responseOrError) {
   });
 }
 
+function assertErrorCode(callback, expectedCode) {
+  assert.throws(callback, (error) => (
+    error
+    && error.code === expectedCode
+    && error.message === expectedCode
+  ));
+}
+
 async function runCoreTests() {
   const baseSpec = {
     collection: "smoke_records",
@@ -103,13 +111,23 @@ async function runCoreTests() {
     core.normalizeKeys([
       { Name: "createdAt", Direction: "-1" },
       { name: "userId", direction: -1 },
-      { name: "fallback", direction: "descending" }
+      { name: "score", direction: "1" },
+      { name: "rank", direction: 1 }
     ]),
     [
       { name: "createdAt", direction: -1 },
       { name: "userId", direction: -1 },
-      { name: "fallback", direction: 1 }
+      { name: "score", direction: 1 },
+      { name: "rank", direction: 1 }
     ]
+  );
+  assertErrorCode(
+    () => core.normalizeKeys([{ name: "missingDirection" }]),
+    "INDEX_DIRECTION_INVALID"
+  );
+  assertErrorCode(
+    () => core.normalizeKeys([{ name: "invalid", direction: "descending" }]),
+    "INDEX_DIRECTION_INVALID"
   );
   assert.deepStrictEqual(
     core.normalizeKeys({ userId: 1, createdAt: "-1" }),
@@ -144,6 +162,41 @@ async function runCoreTests() {
   responseVariants.forEach((response) => {
     assert.strictEqual(core.responseIndexes(response)[0].name, "idx_response");
   });
+  assert.deepStrictEqual(
+    core.responseIndexes({
+      Indexes: [{
+        IndexName: "idx_official_response",
+        MgoKeySchema: {
+          MgoIndexKeys: [
+            { Name: "userId", Direction: "1" },
+            { Name: "createdAt", Direction: "-1" }
+          ],
+          MgoIsUnique: false
+        }
+      }]
+    })[0],
+    {
+      name: "idx_official_response",
+      keys: baseSpec.keys,
+      unique: false
+    }
+  );
+  responseVariants.forEach((response) => {
+    const emptyKey = Object.keys(response)[0];
+    if (emptyKey === "Data" || emptyKey === "data") {
+      const nestedKey = Object.keys(response[emptyKey])[0];
+      response[emptyKey][nestedKey] = [];
+    } else {
+      response[emptyKey] = [];
+    }
+    assert.deepStrictEqual(core.responseIndexes(response), []);
+  });
+  [undefined, null, {}, { Result: { Indexes: [] } }].forEach((response) => {
+    assertErrorCode(
+      () => core.responseIndexes(response),
+      "INDEX_RESPONSE_INVALID"
+    );
+  });
 
   const existing = await inspectOne(baseSpec, {
     Indexes: [managerIndex(baseSpec.name, baseSpec.keys)]
@@ -151,15 +204,122 @@ async function runCoreTests() {
   assert.strictEqual(existing.results[0].status, "existing");
   assert.strictEqual(existing.summary.existing, 1);
 
+  const existingBeforeEquivalent = await inspectOne(baseSpec, {
+    Indexes: [
+      managerIndex(baseSpec.name, baseSpec.keys),
+      managerIndex("idx_legacy_equivalent", baseSpec.keys)
+    ]
+  });
+  assert.strictEqual(
+    existingBeforeEquivalent.results[0].status,
+    "existing"
+  );
+  assert.strictEqual(
+    existingBeforeEquivalent.results[0].actual.name,
+    baseSpec.name
+  );
+
   const equivalent = await inspectOne(baseSpec, {
     Indexes: [managerIndex("idx_legacy_equivalent", baseSpec.keys)]
   });
   assert.strictEqual(equivalent.results[0].status, "equivalent");
   assert.strictEqual(equivalent.extras.length, 0);
 
+  const equivalentBeforeMismatch = await inspectOne(baseSpec, {
+    Indexes: [
+      managerIndex(baseSpec.name, [
+        { name: "userId", direction: 1 },
+        { name: "createdAt", direction: 1 }
+      ]),
+      managerIndex("idx_legacy_equivalent", baseSpec.keys)
+    ]
+  });
+  assert.strictEqual(
+    equivalentBeforeMismatch.results[0].status,
+    "equivalent"
+  );
+  assert.strictEqual(
+    equivalentBeforeMismatch.results[0].actual.name,
+    "idx_legacy_equivalent"
+  );
+  assert.strictEqual(equivalentBeforeMismatch.extras.length, 0);
+
   const missing = await inspectOne(baseSpec, { Indexes: [] });
   assert.strictEqual(missing.results[0].status, "missing");
   assert.strictEqual(missing.summary.missing, 1);
+
+  const invalidDirection = await inspectOne(baseSpec, {
+    Indexes: [{
+      Name: baseSpec.name,
+      Keys: [
+        { Name: "userId", Direction: "ascending" },
+        { Name: "createdAt", Direction: "-1" }
+      ],
+      Unique: false
+    }]
+  });
+  assert.strictEqual(invalidDirection.results[0].status, "check-failed");
+  assert.strictEqual(
+    invalidDirection.results[0].error.code,
+    "INDEX_RESPONSE_INVALID"
+  );
+  const secondSpec = {
+    ...baseSpec,
+    name: "idx_status",
+    keys: [{ name: "status", direction: 1 }]
+  };
+  const invalidCollection = await core.inspectDatabaseIndexes(
+    [baseSpec, secondSpec],
+    async () => ({
+      Indexes: [{
+        Name: baseSpec.name,
+        Keys: [{ Name: "userId", Direction: "ascending" }],
+        Unique: false
+      }]
+    })
+  );
+  assert.deepStrictEqual(
+    invalidCollection.results.map((item) => item.status),
+    ["check-failed", "check-failed"]
+  );
+  assert.strictEqual(invalidCollection.summary.failed, 2);
+
+  const missingDirection = await inspectOne(baseSpec, {
+    Indexes: [{
+      Name: baseSpec.name,
+      Keys: [
+        { Name: "userId" },
+        { Name: "createdAt", Direction: "-1" }
+      ],
+      Unique: false
+    }]
+  });
+  assert.strictEqual(missingDirection.results[0].status, "check-failed");
+  assert.strictEqual(
+    missingDirection.results[0].error.code,
+    "INDEX_RESPONSE_INVALID"
+  );
+
+  for (const invalidResponse of [
+    undefined,
+    null,
+    {},
+    { Result: { Indexes: [] } }
+  ]) {
+    const invalidResponseResult = await inspectOne(
+      baseSpec,
+      invalidResponse
+    );
+    assert.strictEqual(
+      invalidResponseResult.results[0].status,
+      "check-failed"
+    );
+    assert.strictEqual(
+      invalidResponseResult.results[0].error.code,
+      "INDEX_RESPONSE_INVALID"
+    );
+    assert.strictEqual(invalidResponseResult.ok, false);
+  }
 
   const directionMismatch = await inspectOne(baseSpec, {
     Indexes: [
@@ -199,6 +359,50 @@ async function runCoreTests() {
   assert.strictEqual(collectionMissing.summary.collectionMissing, 1);
   assert.strictEqual(collectionMissing.ok, false);
 
+  assert.strictEqual(
+    core.isCollectionMissing({ code: "ResourceNotFound.Collection" }),
+    true
+  );
+  assert.strictEqual(
+    core.isCollectionMissing({ code: "DATABASE_COLLECTION_NOT_EXIST" }),
+    true
+  );
+  assert.strictEqual(
+    core.isCollectionMissing({
+      code: "ResourceNotFound",
+      message: "database collection smoke_records was not found"
+    }),
+    true
+  );
+  assert.strictEqual(
+    core.isCollectionMissing({
+      code: "ResourceNotFound",
+      message: "table smoke_records was not found"
+    }),
+    true
+  );
+  assert.strictEqual(
+    core.isCollectionMissing({
+      code: "ResourceNotFound.Environment",
+      message: "environment was not found"
+    }),
+    false
+  );
+  assert.strictEqual(
+    core.isCollectionMissing({
+      code: "ResourceNotFound",
+      message: "environment was not found"
+    }),
+    false
+  );
+  const environmentMissingError = new Error("environment was not found");
+  environmentMissingError.code = "ResourceNotFound.Environment";
+  const environmentMissing = await inspectOne(
+    baseSpec,
+    environmentMissingError
+  );
+  assert.strictEqual(environmentMissing.results[0].status, "check-failed");
+
   const secretNames = [
     "TENCENTCLOUD_SECRET_ID",
     "TENCENTCLOUD_SECRET_KEY",
@@ -209,21 +413,19 @@ async function runCoreTests() {
     originalSecrets[name] = process.env[name];
   });
   try {
-    process.env.TENCENTCLOUD_SECRET_ID = "smoke-secret-id";
-    process.env.TENCENTCLOUD_SECRET_KEY = "smoke-secret-key";
-    process.env.TENCENTCLOUD_SESSION_TOKEN = "smoke-session-token";
+    process.env.TENCENTCLOUD_SECRET_ID = "smoke-secret";
+    process.env.TENCENTCLOUD_SECRET_KEY = "smoke-secret-long";
+    process.env.TENCENTCLOUD_SESSION_TOKEN = "smoke-secret";
 
-    const sdkError = new Error(
-      "failed smoke-secret-id smoke-secret-key smoke-session-token"
-    );
-    sdkError.code = "InternalError";
+    const sdkError = new Error("failed smoke-secret-long smoke-secret");
+    sdkError.code = "Auth-smoke-secret-long-smoke-secret";
     sdkError.requestId = "must-not-leak";
     const failed = await inspectOne(baseSpec, sdkError);
     assert.strictEqual(failed.results[0].status, "check-failed");
     assert.strictEqual(failed.summary.failed, 1);
     assert.deepStrictEqual(failed.results[0].error, {
-      code: "InternalError",
-      message: "failed [REDACTED] [REDACTED] [REDACTED]"
+      code: "Auth-[REDACTED]-[REDACTED]",
+      message: "failed [REDACTED] [REDACTED]"
     });
   } finally {
     secretNames.forEach((name) => {
@@ -248,7 +450,8 @@ async function runCoreTests() {
   assert.strictEqual(withExtras.extras[0].status, "extra");
   assert.strictEqual(withExtras.summary.extra, 1);
 
-  assert.deepStrictEqual(core.buildCreateOptions(baseSpec), {
+  const createOptions = core.buildCreateOptions(baseSpec);
+  assert.deepStrictEqual(createOptions, {
     CreateIndexes: [{
       IndexName: "idx_user_created_at",
       MgoKeySchema: {
@@ -256,9 +459,51 @@ async function runCoreTests() {
           { Name: "userId", Direction: "1" },
           { Name: "createdAt", Direction: "-1" }
         ],
-        MgoIsUnique: "false"
+        MgoIsUnique: false
       }
     }]
+  });
+  assert.strictEqual(
+    typeof createOptions.CreateIndexes[0].MgoKeySchema.MgoIsUnique,
+    "boolean"
+  );
+
+  const invalidCreateSpecs = [
+    null,
+    { ...baseSpec, name: "" },
+    { ...baseSpec, name: "   " },
+    { ...baseSpec, keys: [] },
+    {
+      ...baseSpec,
+      keys: [{ name: "", direction: 1 }]
+    },
+    {
+      ...baseSpec,
+      keys: [
+        { name: "userId", direction: 1 },
+        { name: "userId", direction: -1 }
+      ]
+    },
+    {
+      ...baseSpec,
+      keys: [{ name: "userId", direction: "descending" }]
+    },
+    {
+      ...baseSpec,
+      keys: [{ name: "userId" }]
+    },
+    { ...baseSpec, unique: "false" },
+    {
+      collection: baseSpec.collection,
+      name: baseSpec.name,
+      keys: baseSpec.keys
+    }
+  ];
+  invalidCreateSpecs.forEach((spec) => {
+    assertErrorCode(
+      () => core.buildCreateOptions(spec),
+      "INDEX_SPEC_INVALID"
+    );
   });
 }
 

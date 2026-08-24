@@ -1,7 +1,19 @@
 "use strict";
 
+function createError(code) {
+  const error = new Error(code);
+  error.code = code;
+  return error;
+}
+
 function normalizeDirection(value) {
-  return String(value) === "-1" ? -1 : 1;
+  if (value === -1 || value === "-1") {
+    return -1;
+  }
+  if (value === 1 || value === "1") {
+    return 1;
+  }
+  throw createError("INDEX_DIRECTION_INVALID");
 }
 
 function normalizeKeys(value) {
@@ -27,31 +39,60 @@ function normalizeKeys(value) {
   return [];
 }
 
-function normalizeIndex(value) {
-  const item = value && typeof value === "object" ? value : {};
+function normalizeUnique(value) {
+  if (value === true || value === false) {
+    return value;
+  }
+  if (value === 1 || value === "1") {
+    return true;
+  }
+  if (
+    typeof value === "string"
+    && value.trim().toLowerCase() === "true"
+  ) {
+    return true;
+  }
+  if (
+    typeof value === "string"
+    && value.trim().toLowerCase() === "false"
+  ) {
+    return false;
+  }
+  throw createError("INDEX_UNIQUE_INVALID");
+}
+
+function indexParts(value) {
+  const item = value && typeof value === "object" && !Array.isArray(value)
+    ? value
+    : {};
   const keySchema = item.MgoKeySchema
     && typeof item.MgoKeySchema === "object"
+    && !Array.isArray(item.MgoKeySchema)
     ? item.MgoKeySchema
     : {};
-  const uniqueValue = item.Unique
-    ?? item.unique
-    ?? item.MgoIsUnique
-    ?? keySchema.MgoIsUnique;
-  const uniqueText = String(uniqueValue).toLowerCase();
 
   return {
-    name: String(item.Name ?? item.name ?? item.IndexName ?? ""),
-    keys: normalizeKeys(
-      item.Keys
+    nameValue: item.Name ?? item.name ?? item.IndexName,
+    keysValue: item.Keys
       ?? item.keys
       ?? item.Key
       ?? item.key
       ?? item.MgoIndexKeys
-      ?? keySchema.MgoIndexKeys
-    ),
-    unique: uniqueValue === true
-      || uniqueText === "true"
-      || uniqueText === "1"
+      ?? keySchema.MgoIndexKeys,
+    uniqueValue: item.Unique
+      ?? item.unique
+      ?? item.MgoIsUnique
+      ?? keySchema.MgoIsUnique
+  };
+}
+
+function normalizeIndex(value) {
+  const parts = indexParts(value);
+
+  return {
+    name: String(parts.nameValue ?? ""),
+    keys: normalizeKeys(parts.keysValue),
+    unique: normalizeUnique(parts.uniqueValue)
   };
 }
 
@@ -64,52 +105,134 @@ function definitionKey(value) {
 }
 
 function responseIndexes(response) {
+  if (!response || typeof response !== "object" || Array.isArray(response)) {
+    throw createError("INDEX_RESPONSE_INVALID");
+  }
+
   const candidates = [
-    response && response.Indexes,
-    response && response.indexes,
-    response && response.Data && response.Data.Indexes,
-    response && response.data && response.data.indexes
+    response.Indexes,
+    response.indexes,
+    response.Data
+      && typeof response.Data === "object"
+      && response.Data.Indexes,
+    response.data
+      && typeof response.data === "object"
+      && response.data.indexes
   ];
   const indexes = candidates.find((candidate) => Array.isArray(candidate));
+  if (!indexes) {
+    throw createError("INDEX_RESPONSE_INVALID");
+  }
 
-  return (indexes || [])
-    .map(normalizeIndex)
-    .filter((item) => item.name);
+  try {
+    return indexes.map((value) => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        throw createError("INDEX_RESPONSE_INVALID");
+      }
+
+      const normalized = normalizeIndex(value);
+      const names = new Set();
+      if (!normalized.name.trim() || normalized.keys.length === 0) {
+        throw createError("INDEX_RESPONSE_INVALID");
+      }
+      normalized.keys.forEach((key) => {
+        if (!key.name.trim() || names.has(key.name)) {
+          throw createError("INDEX_RESPONSE_INVALID");
+        }
+        names.add(key.name);
+      });
+      return normalized;
+    });
+  } catch (error) {
+    if (error && error.code === "INDEX_RESPONSE_INVALID") {
+      throw error;
+    }
+    throw createError("INDEX_RESPONSE_INVALID");
+  }
 }
 
 function safeError(error) {
   const rawCode = error && (error.code ?? error.Code);
   const rawMessage = error && (error.message ?? error.Message);
+  let code = String(rawCode ?? "UNKNOWN");
   let message = String(
     rawMessage ?? error ?? "unknown error"
   );
-  const secrets = [
+  const secrets = [...new Set([
     process.env.TENCENTCLOUD_SECRET_ID,
     process.env.TENCENTCLOUD_SECRET_KEY,
     process.env.TENCENTCLOUD_SESSION_TOKEN
-  ].filter((value) => typeof value === "string" && value.length > 0);
+  ].filter((value) => typeof value === "string" && value.length > 0))]
+    .sort((left, right) => right.length - left.length);
 
   secrets.forEach((secret) => {
+    code = code.split(secret).join("[REDACTED]");
     message = message.split(secret).join("[REDACTED]");
   });
 
   return {
-    code: String(rawCode ?? "UNKNOWN"),
+    code,
     message
   };
 }
 
 function isCollectionMissing(error) {
-  const code = error && (error.code ?? error.Code);
-  const message = error && (error.message ?? error.Message);
-  const text = `${code ?? ""} ${message ?? ""}`;
+  const code = String((error && (error.code ?? error.Code)) ?? "");
+  const message = String(
+    (error && (error.message ?? error.Message)) ?? ""
+  );
 
-  return /collection.*(?:not[ _-]*exist|missing)|(?:not[ _-]*exist|missing).*collection|ResourceNotFound|DATABASE_COLLECTION_NOT_EXIST/i
-    .test(text);
+  if (
+    /^ResourceNotFound\.Collection$/i.test(code)
+    || /^DATABASE_COLLECTION_NOT_EXIST$/i.test(code)
+  ) {
+    return true;
+  }
+  return /^ResourceNotFound$/i.test(code)
+    && /collection|table/i.test(message);
+}
+
+function normalizeCreateSpec(spec) {
+  if (!spec || typeof spec !== "object" || Array.isArray(spec)) {
+    throw createError("INDEX_SPEC_INVALID");
+  }
+
+  const parts = indexParts(spec);
+  if (
+    typeof parts.nameValue !== "string"
+    || !parts.nameValue.trim()
+    || typeof parts.uniqueValue !== "boolean"
+  ) {
+    throw createError("INDEX_SPEC_INVALID");
+  }
+
+  let keys;
+  try {
+    keys = normalizeKeys(parts.keysValue);
+  } catch {
+    throw createError("INDEX_SPEC_INVALID");
+  }
+  if (keys.length === 0) {
+    throw createError("INDEX_SPEC_INVALID");
+  }
+
+  const names = new Set();
+  keys.forEach((key) => {
+    if (!key.name.trim() || names.has(key.name)) {
+      throw createError("INDEX_SPEC_INVALID");
+    }
+    names.add(key.name);
+  });
+
+  return {
+    name: parts.nameValue,
+    keys,
+    unique: parts.uniqueValue
+  };
 }
 
 function buildCreateOptions(spec) {
-  const normalized = normalizeIndex(spec);
+  const normalized = normalizeCreateSpec(spec);
 
   return {
     CreateIndexes: [{
@@ -119,7 +242,7 @@ function buildCreateOptions(spec) {
           Name: item.name,
           Direction: String(item.direction)
         })),
-        MgoIsUnique: String(normalized.unique)
+        MgoIsUnique: normalized.unique
       }
     }]
   };
@@ -196,23 +319,24 @@ async function inspectDatabaseIndexes(specs, describeCollection) {
         return;
       }
 
-      if (sameName) {
-        results.push({
-          ...spec,
-          status: "mismatched",
-          actual: sameName
-        });
-        return;
-      }
-
-      const equivalent = actualIndexes.find(
-        (index) => definitionKey(index) === expectedDefinition
-      );
+      const equivalent = actualIndexes.find((index) => (
+        index.name !== spec.name
+        && definitionKey(index) === expectedDefinition
+      ));
       if (equivalent) {
         results.push({
           ...spec,
           status: "equivalent",
           actual: equivalent
+        });
+        return;
+      }
+
+      if (sameName) {
+        results.push({
+          ...spec,
+          status: "mismatched",
+          actual: sameName
         });
         return;
       }

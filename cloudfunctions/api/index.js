@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.35.7";
-const API_BUILD_MARKER = "API_BUILD_TAG_20260824_PUBLISH_EXPORT_DEFAULTS_V357";
+const API_BUILD_VERSION = "0.35.8";
+const API_BUILD_MARKER = "API_BUILD_TAG_20260824_ADMIN_IDENTITY_BOOTSTRAP_V358";
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
 const cloud = require("wx-server-sdk");
@@ -2471,10 +2471,25 @@ function failureDetailFromEvent(event = {}) {
   };
 }
 
-function buildFailureStats(reasonMap, modelMap, details, monthlyMap, total, failure) {
+function buildFailureStats(
+  reasonMap,
+  modelMap,
+  details,
+  historyDetails,
+  monthlyMap,
+  total,
+  failure
+) {
   const failureCount = Math.max(0, Number(failure) || 0);
   const totalCount = Math.max(0, Number(total) || 0);
-  const normalizedDetails = (Array.isArray(details) ? details : [])
+  const normalizedDetails = (
+    Array.isArray(historyDetails) && historyDetails.length
+      ? historyDetails
+      : (Array.isArray(details) ? details : [])
+  )
+    .slice()
+    .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)));
+  const normalizedRecentDetails = (Array.isArray(details) ? details : [])
     .slice()
     .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)));
   const reasons = Object.values(reasonMap || {})
@@ -2559,7 +2574,7 @@ function buildFailureStats(reasonMap, modelMap, details, monthlyMap, total, fail
         if (right.total !== left.total) return right.total - left.total;
         return String(left.userHash).localeCompare(String(right.userHash));
       }),
-    failureDetails: normalizedDetails,
+    failureDetails: normalizedRecentDetails,
     details: normalizedDetails
   };
 }
@@ -2594,6 +2609,7 @@ function aggregateModelUsageEvents(events = [], days = 30, now = new Date()) {
   const userMap = {};
   const failureReasonMap = {};
   const failureDetails = [];
+  const failureHistoryDetails = [];
 
   for (let offset = 0; offset < rangeDays; offset += 1) {
     const dateKey = shiftDateKey(todayKey, -offset);
@@ -2686,8 +2702,13 @@ function aggregateModelUsageEvents(events = [], days = 30, now = new Date()) {
         if (!reason.label || reason.label === "未提供错误原因") {
           reason.label = failureReasonLabel(event);
         }
-        failureDetails.push(failureDetailFromEvent(event));
+        const detail = failureDetailFromEvent(event);
+        failureDetails.push(detail);
+        failureHistoryDetails.push(detail);
       }
+    }
+    if (!event.success && event.dateKey >= monthlyStartKey && !inDailyRange) {
+      failureHistoryDetails.push(failureDetailFromEvent(event));
     }
   });
 
@@ -2723,6 +2744,7 @@ function aggregateModelUsageEvents(events = [], days = 30, now = new Date()) {
       failureReasonMap,
       modelMap,
       failureDetails,
+      failureHistoryDetails,
       monthlyMap,
       rangeTotal,
       rangeFailure
@@ -4590,6 +4612,131 @@ async function exportModelUsageStats(event, context) {
     sizeBytes: buffer.length,
     days,
     message: "Excel 文件已生成，可以下载。"
+  });
+}
+
+function buildModelFailureExportWorkbook(stats = {}, monthKey = "") {
+  const usageStats = stats || {};
+  const failureStats = usageStats.failureStats || {};
+  const normalizedMonth = /^\d{4}-\d{2}$/.test(String(monthKey || ""))
+    ? String(monthKey)
+    : monthKeyFromDateKey(
+      usageStats.todayKey || dateKeyForTimeZone(new Date(), MODEL_USAGE_TIME_ZONE)
+    );
+  const details = (
+    Array.isArray(failureStats.details) && failureStats.details.length
+      ? failureStats.details
+      : (Array.isArray(failureStats.failureDetails) ? failureStats.failureDetails : [])
+  ).filter((item) => {
+    const itemMonth = item.monthKey || String(item.dateKey || "").slice(0, 7);
+    return itemMonth === normalizedMonth;
+  });
+  const daily = (Array.isArray(usageStats.daily) ? usageStats.daily : [])
+    .filter((item) => String(item.dateKey || "").startsWith(normalizedMonth));
+  const users = {};
+  const types = {};
+  details.forEach((item) => {
+    const userHash = safeExportText(item.userHash || "anonymous", 40);
+    users[userHash] = (users[userHash] || 0) + 1;
+    const type = item.errorCode || (item.errorStatus ? `HTTP ${item.errorStatus}` : "未提供错误原因");
+    types[type] = (types[type] || 0) + 1;
+  });
+  const workbook = XLSX.utils.book_new();
+  const selectedMonthly = (Array.isArray(failureStats.monthly) ? failureStats.monthly : [])
+    .find((item) => item.monthKey === normalizedMonth);
+  const summaryRows = [
+    ["统计项目", "数值"],
+    ["统计月份", normalizedMonth],
+    ["失败总数", details.length],
+    ["调用总数", Number(selectedMonthly && selectedMonthly.total) || details.length],
+    ["失败率", selectedMonthly && selectedMonthly.total
+      ? `${Number((details.length / selectedMonthly.total * 100).toFixed(2))}%`
+      : "0%"],
+    ["用户数", Object.keys(users).length],
+    ["最近更新时间", formatExportDateTime(new Date())]
+  ];
+  Object.entries(types)
+    .sort((left, right) => right[1] - left[1])
+    .forEach(([label, count]) => summaryRows.push([`失败类型：${label}`, count]));
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(summaryRows), "统计摘要");
+
+  const dailyRows = [["日期", "失败次数", "用户数", "成功次数", "调用总数"]];
+  daily.forEach((item) => {
+    const dayDetails = details.filter((detail) => detail.dateKey === item.dateKey);
+    const dayUsers = new Set(dayDetails.map((detail) => detail.userHash || "anonymous"));
+    dailyRows.push([
+      item.dateKey || "",
+      dayDetails.length,
+      dayUsers.size,
+      Number(item.success) || 0,
+      Number(item.total) || 0
+    ]);
+  });
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(dailyRows), "每日明细");
+
+  const userRows = [["脱敏用户编号", "失败次数"]];
+  Object.entries(users)
+    .sort((left, right) => right[1] - left[1])
+    .forEach(([userHash, count]) => userRows.push([userHash, count]));
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(userRows), "按用户");
+
+  const detailRows = [[
+    "日期",
+    "时间",
+    "脱敏用户编号",
+    "功能",
+    "Provider",
+    "模型",
+    "请求编号",
+    "错误代码",
+    "失败原因",
+    "HTTP状态码",
+    "是否可重试",
+    "尝试次数",
+    "耗时（毫秒）"
+  ]];
+  details.forEach((item) => {
+    detailRows.push([
+      safeExportText(item.dateKey),
+      formatExportDateTime(item.createdAt),
+      safeExportText(item.userHash || "anonymous", 40),
+      safeExportText(item.usageTypeLabel || item.usageType),
+      safeExportText(item.provider),
+      safeExportText(item.model),
+      safeExportText(item.requestId),
+      safeExportText(item.errorCode),
+      safeExportText(item.errorMessage || "未提供错误原因"),
+      Number(item.errorStatus) || 0,
+      item.retryable ? "是" : "否",
+      Math.max(1, Number(item.attempt) || 1),
+      Math.max(0, Number(item.durationMs) || 0)
+    ]);
+  });
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(detailRows), "失败明细");
+  return XLSX.write(workbook, { bookType: "xlsx", type: "buffer" });
+}
+
+async function exportModelFailureStats(event, context) {
+  if (!isAdminContext(context)) return adminForbidden();
+  const stats = await getModelUsageStats({ days: 90 }, context);
+  if (!stats || stats.ok === false) return stats;
+  const monthKey = /^\d{4}-\d{2}$/.test(String(event && event.monthKey || ""))
+    ? String(event.monthKey)
+    : monthKeyFromDateKey(
+      stats.todayKey || dateKeyForTimeZone(new Date(), MODEL_USAGE_TIME_ZONE)
+    );
+  const buffer = buildModelFailureExportWorkbook(stats, monthKey);
+  const fileName = `模型失败统计-${monthKey}.xlsx`;
+  const uploaded = await cloud.uploadFile({
+    cloudPath: `exports/model-failure/${Date.now()}-${crypto.randomBytes(4).toString("hex")}.xlsx`,
+    fileContent: buffer
+  });
+  return jsonResponse(true, {
+    fileID: uploaded && uploaded.fileID ? uploaded.fileID : "",
+    fileName,
+    sizeBytes: buffer.length,
+    monthKey,
+    message: "失败统计 Excel 已生成，可以下载。"
   });
 }
 
@@ -8985,6 +9132,7 @@ exports.main = async (event = {}, context) => {
     else if (action === "listDeploymentLogs") result = await listDeploymentLogs(context);
     else if (action === "getModelUsageStats") result = await getModelUsageStats(requestEvent, context);
     else if (action === "exportModelUsageStats") result = await exportModelUsageStats(requestEvent, context);
+    else if (action === "exportModelFailureStats") result = await exportModelFailureStats(requestEvent, context);
     else if (action === "reportAutoFaceFailure") {
       result = await reportAutoFaceFailure(requestEvent, context);
     }
@@ -9136,6 +9284,7 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     normalizeModelUsageEvent,
     aggregateModelUsageEvents,
     buildModelUsageExportWorkbook,
+    buildModelFailureExportWorkbook,
     recordModelUsageEvent,
     getModelUsageTestEvents: () => modelUsageTestEvents.slice(),
     resetModelUsageTestEvents: () => {
@@ -9229,6 +9378,7 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     listDeploymentLogs
     ,
     exportModelUsageStats,
+    exportModelFailureStats,
     exportAutoFaceFailureStats,
     pointsSummary,
     reserveUsage,

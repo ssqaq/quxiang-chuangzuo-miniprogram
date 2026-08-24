@@ -1058,43 +1058,61 @@
         </view>
 
         <view wx:if="{{moduleStates.usage.status === 'ready' || moduleStates.usage.hasData}}" class="usage-failure-panel">
-          <view class="usage-subsection-head">
+          <view class="usage-subsection-head usage-failure-head">
             <view class="usage-subsection-title usage-failure-heading">失败情况</view>
-            <view
-              class="usage-subsection-toggle"
-              data-usage-section="failure"
-              catchtap="toggleUsageSection"
-              hover-class="control-tap"
-              role="button"
-              aria-label="{{usageSections.failure ? '收起失败情况' : '展开失败情况'}}"
-            >
-              <text>{{usageSections.failure ? '收起' : '展开'}}</text>
-              <text class="usage-subsection-chevron {{usageSections.failure ? 'is-open' : ''}}">⌄</text>
+            <view class="usage-failure-actions">
+              <picker
+                mode="selector"
+                range="{{modelFailureView.monthOptions}}"
+                value="{{modelFailureView.monthIndex}}"
+                bindchange="selectModelFailureMonth"
+              >
+                <view class="model-failure-month-picker">{{modelFailureView.selectedMonth || '选择月份'}} <text>⌄</text></view>
+              </picker>
+              <button
+                class="usage-export-button model-failure-export-button"
+                catchtap="exportModelFailureStats"
+                loading="{{modelFailureExporting}}"
+                disabled="{{modelFailureExporting}}"
+              >{{modelFailureExporting ? '生成中' : '导出失败统计'}}</button>
+              <view
+                class="usage-subsection-toggle"
+                data-usage-section="failure"
+                catchtap="toggleUsageSection"
+                hover-class="control-tap"
+                role="button"
+                aria-label="{{usageSections.failure ? '收起失败情况' : '展开失败情况'}}"
+              >
+                <text>{{usageSections.failure ? '收起' : '展开'}}</text>
+                <text class="usage-subsection-chevron {{usageSections.failure ? 'is-open' : ''}}">⌄</text>
+              </view>
             </view>
           </view>
           <view wx:if="{{usageSections.failure}}" class="usage-subsection-body">
           <view class="usage-failure-summary">
             <view class="usage-failure-summary-item">
               <text>失败次数</text>
-              <text>{{usageStats.failureStats.total}}</text>
+              <text>{{modelFailureView.total}}</text>
+              <text>{{modelFailureView.selectedMonth || '选中月份'}}</text>
             </view>
             <view class="usage-failure-summary-item">
               <text>失败率</text>
-              <text>{{usageStats.failureStats.failureRate}}%</text>
+              <text>{{modelFailureView.failureRate}}%</text>
+              <text>当前月份失败率</text>
             </view>
             <view class="usage-failure-summary-item usage-failure-summary-model">
               <text>失败最多的模型</text>
-              <text wx:if="{{usageStats.failureStats.failedModels.length}}">
-                {{usageStats.failureStats.failedModels[0].usageTypeLabel}} · {{usageStats.failureStats.failedModels[0].provider}} / {{usageStats.failureStats.failedModels[0].model}}
+              <text wx:if="{{modelFailureView.failedModels.length}}">
+                {{modelFailureView.failedModels[0].usageTypeLabel}} · {{modelFailureView.failedModels[0].provider}} / {{modelFailureView.failedModels[0].model}}
               </text>
               <text wx:else>暂无失败</text>
             </view>
           </view>
-          <view wx:if="{{usageStats.failureStats.topFailureReasons.length}}" class="usage-failure-list">
+          <view wx:if="{{modelFailureView.topFailureReasons.length}}" class="usage-failure-list">
             <view class="usage-failure-list-title">失败原因前 5 名</view>
-            <view wx:for="{{usageStats.failureStats.topFailureReasons}}" wx:key="key" class="usage-failure-row">
+            <view wx:for="{{modelFailureView.topFailureReasons}}" wx:key="key" class="usage-failure-row">
               <view class="usage-failure-row-top">
-                <text class="usage-failure-label">{{index + 1}}. {{item.label}}</text>
+                <text class="usage-failure-label">{{index + 1}}. <text class="failure-type-tag is-{{item.failureTone}}">{{item.label}}</text></text>
                 <text class="usage-failure-count">{{item.count}} 次 · {{item.rate}}%</text>
               </view>
               <view class="usage-failure-row-detail">
@@ -1105,15 +1123,37 @@
               </view>
             </view>
           </view>
-          <view wx:else class="admin-empty usage-empty">最近统计范围内没有失败记录。</view>
-          <view wx:if="{{usageStats.failureStats.failureDetails.length}}" class="failure-detail-list">
-            <view class="usage-failure-list-title">最近失败明细</view>
-            <view wx:for="{{usageStats.failureStats.failureDetails}}" wx:key="requestId" class="failure-detail-row">
+          <view wx:else class="admin-empty usage-empty">{{modelFailureView.emptyText}}</view>
+
+          <view wx:if="{{modelFailureView.users.length}}" class="usage-failure-list">
+            <view class="usage-failure-list-title">按用户统计</view>
+            <view
+              wx:for="{{modelFailureView.users}}"
+              wx:key="userHash"
+              class="usage-failure-user-row"
+              data-index="{{index}}"
+              catchtap="openModelFailureUserDetail"
+            >
+              <view class="usage-failure-user-main">
+                <text>用户 {{item.userHash}}</text>
+                <text>{{item.total}} 次 · 查看详情</text>
+              </view>
+              <view class="usage-failure-user-meta">
+                <text class="failure-type-tag is-{{item.failureTone}}">{{item.topFailureReason}}</text>
+                <text>最近 {{item.lastSeenText}}</text>
+              </view>
+            </view>
+          </view>
+
+          <view wx:if="{{modelFailureView.details.length}}" class="failure-detail-list">
+            <view class="usage-failure-list-title">失败明细</view>
+            <view wx:for="{{modelFailureView.details}}" wx:key="requestId" class="failure-detail-row">
               <view class="failure-detail-head">
                 <view class="failure-detail-title">{{item.createdAtText}} · {{item.usageTypeLabel}} · {{item.provider}} / {{item.model}}</view>
                 <button class="copy-error-button" data-index="{{index}}" catchtap="copyModelFailure">复制错误</button>
               </view>
               <view class="failure-detail-meta">
+                <text class="failure-type-tag is-{{item.failureTone}}">{{item.failureReasonLabel}}</text>
                 <text>{{item.errorCode}}</text>
                 <text wx:if="{{item.errorStatus}}">HTTP {{item.errorStatus}}</text>
                 <text>{{item.durationMs}}ms</text>
@@ -1122,6 +1162,7 @@
               <view class="failure-detail-message">{{item.errorMessage}}</view>
             </view>
           </view>
+          <view wx:else class="admin-empty usage-empty">{{modelFailureView.emptyText}}</view>
           </view>
         </view>
 
@@ -1573,6 +1614,39 @@
             </view>
           </view>
           <view wx:else class="admin-empty usage-empty">这个用户在当前月份没有可显示的失败明细。</view>
+        </view>
+      </view>
+
+      <view
+        wx:if="{{modelFailureDetailOpen}}"
+        class="auto-face-detail-mask"
+        catchtap="closeModelFailureUserDetail"
+      >
+        <view class="auto-face-detail-dialog" catchtap="noop">
+          <view class="auto-face-detail-head">
+            <view>
+              <view class="auto-face-detail-title">用户 {{modelFailureDetail.userHash}} 的失败详情</view>
+              <view class="auto-face-detail-subtitle">{{modelFailureView.selectedMonth}} · 共 {{modelFailureDetail.total}} 次</view>
+            </view>
+            <view class="auto-face-detail-close" catchtap="closeModelFailureUserDetail">关闭</view>
+          </view>
+          <view wx:if="{{modelFailureDetail.details.length}}" class="auto-face-detail-list">
+            <view wx:for="{{modelFailureDetail.details}}" wx:key="requestId" class="auto-face-detail-row">
+              <view class="auto-face-detail-row-top">
+                <text>{{item.createdAtText}}</text>
+                <text class="failure-type-tag is-{{item.failureTone}}">{{item.failureReasonLabel}}</text>
+              </view>
+              <view class="auto-face-detail-meta">
+                <text>{{item.usageTypeLabel}} · {{item.provider}} / {{item.model}}</text>
+                <text>{{item.errorCode}}</text>
+                <text wx:if="{{item.errorStatus}}">HTTP {{item.errorStatus}}</text>
+                <text wx:if="{{item.durationMs}}">用时 {{item.durationMs}}ms</text>
+              </view>
+              <view class="auto-face-detail-message">{{item.errorMessage}}</view>
+              <view wx:if="{{item.requestId}}" class="auto-face-detail-request">请求 {{item.requestId}}</view>
+            </view>
+          </view>
+          <view wx:else class="admin-empty usage-empty">这个用户当前月份没有失败明细。</view>
         </view>
       </view>
 

@@ -110,23 +110,13 @@ async function main() {
   assert.ok(hasEvent("smoke-warn"));
 
   page.previewAuthorQr();
-  assert.strictEqual(
-    events.some((item) => item.type === "previewImage"),
-    false
+  const qrPreviewEvent = events.find((item) => item.type === "previewImage");
+  assert.ok(qrPreviewEvent);
+  assert.strictEqual(qrPreviewEvent.options.current, "/assets/contact/author-wechat-qr.jpg");
+  assert.deepStrictEqual(
+    qrPreviewEvent.options.urls,
+    ["/assets/contact/author-wechat-qr.jpg"]
   );
-  assert.strictEqual(page.data.authorQrPreviewVisible, true);
-  assert.strictEqual(page.data.authorQrPreviewLoading, true);
-  page.onAuthorQrPreviewLoad();
-  assert.strictEqual(page.data.authorQrPreviewLoading, false);
-  page.closeAuthorQrPreview();
-  assert.strictEqual(page.data.authorQrPreviewVisible, false);
-  assert.strictEqual(page.data.authorQrPreviewError, false);
-  page.previewAuthorQr();
-  page.onAuthorQrPreviewError({ errMsg: "image:fail smoke" });
-  assert.strictEqual(page.data.authorQrPreviewVisible, true);
-  assert.strictEqual(page.data.authorQrPreviewError, true);
-  page.closeAuthorQrPreview();
-  assert.strictEqual(page.data.authorQrPreviewVisible, false);
   page.saveAuthorQr();
   assert.ok(events.some((item) => (
     item.type === "saveImageToPhotosAlbum"
@@ -207,6 +197,22 @@ async function main() {
   let checkInCalls = 0;
   let resolveCheckIn = null;
   cloudService.isCloudReady = () => true;
+  cloudService.getAdminStatus = () => Promise.resolve({
+    isAdmin: false,
+    identityHash: "123456789abc"
+  });
+  await page.refreshAdminAccess();
+  assert.strictEqual(page.data.adminVisible, false);
+  assert.strictEqual(page.data.adminIdentityHash, "123456789abc");
+  for (let index = 0; index < 5; index += 1) {
+    page.onTapVersionFooter();
+  }
+  assert.ok(events.some((item) => (
+    item.type === "modal"
+    && item.options.title === "管理员识别码"
+    && item.options.content.includes("123456789abc")
+  )));
+
   cloudService.getMyUserProfile = () => Promise.resolve({ completed: true });
   cloudService.checkIn = () => {
     checkInCalls += 1;

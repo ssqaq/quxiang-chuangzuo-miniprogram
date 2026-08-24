@@ -750,6 +750,13 @@ module.exports = {
       days: Math.max(1, Math.min(90, Number(days) || 30))
     });
   },
+  exportModelFailureStats(monthKey = "") {
+    return callApi({
+      action: "exportModelFailureStats",
+      monthKey: String(monthKey || ""),
+      retryLimit: 0
+    });
+  },
   createVideoTask(payload, options = {}) {
     return callApi({
       action: "createVideoTask",

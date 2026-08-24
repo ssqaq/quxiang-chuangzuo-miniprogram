@@ -5,6 +5,8 @@ const diagnosticLog = require("../../utils/diagnostic-log");
 const pointsUi = require("../../utils/points-ui");
 const app = getApp();
 const AUTHOR_QR_PATH = "/assets/contact/author-wechat-qr.jpg";
+const ADMIN_IDENTITY_TAP_LIMIT = 5;
+const ADMIN_IDENTITY_TAP_WINDOW_MS = 2200;
 
 const ENTRY_MODES = [
   {
@@ -79,11 +81,9 @@ Page({
     pointsCopy: config.points.copy,
     cloudReady: false,
     adminVisible: false,
+    adminIdentityHash: "",
     authorQrPath: AUTHOR_QR_PATH,
     savingAuthorQr: false,
-    authorQrPreviewVisible: false,
-    authorQrPreviewLoading: false,
-    authorQrPreviewError: false,
     contactAuthorExpanded: false,
     entryModes: ENTRY_MODES,
     hasDraft: false,
@@ -133,6 +133,7 @@ Page({
   onUnload() {
     this.clearPromoRefreshTimer();
     this.clearNavigationWatchdog();
+    this.clearAdminIdentityTapTimer();
   },
 
   refreshWorkbench() {
@@ -259,16 +260,84 @@ Page({
 
   async refreshAdminAccess() {
     if (!cloud.isCloudReady()) {
-      this.setData({ adminVisible: false });
+      this.setData({
+        adminVisible: false,
+        adminIdentityHash: ""
+      });
       return;
     }
     try {
       const result = await cloud.getAdminStatus();
-      this.setData({ adminVisible: Boolean(result && result.isAdmin) });
+      this.setData({
+        adminVisible: Boolean(result && result.isAdmin),
+        adminIdentityHash: result && result.identityHash
+          ? String(result.identityHash)
+          : ""
+      });
     } catch (error) {
-      this.setData({ adminVisible: false });
+      this.setData({
+        adminVisible: false,
+        adminIdentityHash: ""
+      });
       diagnosticLog.warn("admin", "status-failed", "管理员入口状态读取失败", { error });
     }
+  },
+
+  clearAdminIdentityTapTimer() {
+    if (this._adminIdentityTapTimer) {
+      clearTimeout(this._adminIdentityTapTimer);
+      this._adminIdentityTapTimer = null;
+    }
+    this._adminIdentityTapCount = 0;
+    this._adminIdentityTapStartedAt = 0;
+  },
+
+  onTapVersionFooter() {
+    const now = Date.now();
+    if (
+      !this._adminIdentityTapStartedAt
+      || now - this._adminIdentityTapStartedAt > ADMIN_IDENTITY_TAP_WINDOW_MS
+    ) {
+      this._adminIdentityTapCount = 0;
+      this._adminIdentityTapStartedAt = now;
+    }
+    this._adminIdentityTapCount += 1;
+    if (this._adminIdentityTapTimer) {
+      clearTimeout(this._adminIdentityTapTimer);
+    }
+    this._adminIdentityTapTimer = setTimeout(
+      () => this.clearAdminIdentityTapTimer(),
+      ADMIN_IDENTITY_TAP_WINDOW_MS
+    );
+    if (this._adminIdentityTapCount < ADMIN_IDENTITY_TAP_LIMIT) return;
+
+    const identityHash = String(this.data.adminIdentityHash || "").trim();
+    this.clearAdminIdentityTapTimer();
+    if (!identityHash) {
+      wx.showToast({
+        title: "当前没有拿到账号识别码",
+        icon: "none"
+      });
+      return;
+    }
+    wx.showModal({
+      title: "管理员识别码",
+      content: `${identityHash}\n\n只把这个码发给项目管理员，不要公开。`,
+      confirmText: "复制",
+      cancelText: "关闭",
+      success: (result) => {
+        if (!result || !result.confirm) return;
+        wx.setClipboardData({
+          data: identityHash,
+          success: () => {
+            wx.showToast({
+              title: "识别码已复制",
+              icon: "success"
+            });
+          }
+        });
+      }
+    });
   },
 
   openAdmin() {
@@ -640,43 +709,23 @@ Page({
   },
 
   previewAuthorQr() {
-    if (!this.data.authorQrPath) {
+    const qrPath = String(this.data.authorQrPath || "").trim();
+    if (!qrPath) {
       wx.showToast({ title: "当前环境不支持查看二维码", icon: "none" });
       return;
     }
-
-    this.setData({
-      authorQrPreviewVisible: true,
-      authorQrPreviewLoading: true,
-      authorQrPreviewError: false
+    if (typeof wx.previewImage !== "function") {
+      wx.showToast({ title: "当前环境不支持查看二维码", icon: "none" });
+      return;
+    }
+    wx.previewImage({
+      current: qrPath,
+      urls: [qrPath],
+      fail: () => {
+        wx.showToast({ title: "二维码打开失败，请重试", icon: "none" });
+      }
     });
   },
-
-  onAuthorQrPreviewLoad() {
-    this.setData({
-      authorQrPreviewLoading: false,
-      authorQrPreviewError: false
-    });
-  },
-
-  onAuthorQrPreviewError() {
-    this.setData({
-      authorQrPreviewVisible: true,
-      authorQrPreviewLoading: false,
-      authorQrPreviewError: true
-    });
-    wx.showToast({ title: "二维码加载失败，请重新编译后再试", icon: "none" });
-  },
-
-  closeAuthorQrPreview() {
-    this.setData({
-      authorQrPreviewVisible: false,
-      authorQrPreviewLoading: false,
-      authorQrPreviewError: false
-    });
-  },
-
-  stopAuthorQrPreviewClose() {},
 
   handleAuthorQrSaveFailure(error) {
     const message = error && error.errMsg ? error.errMsg : "";

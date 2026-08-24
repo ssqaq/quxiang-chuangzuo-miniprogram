@@ -239,33 +239,10 @@
 
 </view>
 
-  <view
-    wx:if="{{authorQrPreviewVisible}}"
-    class="author-qr-preview-mask"
-    catchtap="closeAuthorQrPreview"
-    catchtouchmove="stopAuthorQrPreviewClose"
-  >
-    <view class="author-qr-preview-counter">1 / 1</view>
-    <view wx:if="{{authorQrPreviewLoading}}" class="author-qr-preview-loading">
-      正在打开二维码…
-    </view>
-    <image
-      wx:if="{{!authorQrPreviewError}}"
-      class="author-qr-preview-image"
-      src="{{authorQrPath}}"
-      mode="aspectFit"
-      bindload="onAuthorQrPreviewLoad"
-      binderror="onAuthorQrPreviewError"
-      catchtap="stopAuthorQrPreviewClose"
-    ></image>
-    <view wx:if="{{authorQrPreviewError}}" class="author-qr-preview-error">
-      二维码加载失败，请关闭后重试
-    </view>
-    <view class="author-qr-preview-hint">点击黑色空白处关闭</view>
-  </view>
-
   <view class="workbench-footer">
     <view>局部创作，整体可控</view>
-    <view>版本 {{appVersion}} · {{cloudReady ? '云端已连接' : '本地预览模式'}}</view>
+    <view bindtap="onTapVersionFooter">
+      版本 {{appVersion}} · {{cloudReady ? '云端已连接' : '本地预览模式'}}
+    </view>
   </view>
 </view>

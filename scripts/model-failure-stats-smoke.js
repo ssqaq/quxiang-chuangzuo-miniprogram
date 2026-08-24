@@ -161,6 +161,12 @@ assert.strictEqual(stats.failureStats.topFailureReasons[0].code, "upstream-timeo
 assert.strictEqual(stats.failureStats.topFailureReasons[0].count, 2);
 assert.strictEqual(stats.failureStats.failureDetails.length, 8);
 assert.strictEqual(stats.failureStats.failedModels[0].failure, 3);
+assert.ok(Array.isArray(stats.failureStats.monthly));
+assert.ok(stats.failureStats.monthly.some((item) => item.monthKey === "2026-08"));
+assert.ok(Array.isArray(stats.failureStats.users));
+assert.strictEqual(stats.failureStats.users[0].userHash, "user-c");
+assert.ok(Array.isArray(stats.failureStats.details));
+assert.strictEqual(stats.failureStats.details.length, 8);
 assert.ok(
   stats.failureStats.topFailureReasons.some((item) => item.label.includes("参数不正确")),
   "没有错误码的失败原因没有保留错误说明"
@@ -174,6 +180,14 @@ const workbookBuffer = test.buildModelUsageExportWorkbook(stats);
 const workbook = XLSX.read(workbookBuffer, { type: "buffer" });
 assert.ok(workbook.SheetNames.includes("失败明细"));
 assert.ok(workbook.Sheets["失败明细"]);
+
+const failureWorkbookBuffer = test.buildModelFailureExportWorkbook(stats, "2026-08");
+const failureWorkbook = XLSX.read(failureWorkbookBuffer, { type: "buffer" });
+assert.deepStrictEqual(
+  failureWorkbook.SheetNames,
+  ["统计摘要", "每日明细", "按用户", "失败明细"]
+);
+assert.ok(failureWorkbook.Sheets["按用户"]);
 
 async function testRetryFailureRecordedOnce() {
   const server = http.createServer((request, response) => {

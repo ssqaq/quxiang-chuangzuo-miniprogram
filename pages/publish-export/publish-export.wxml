@@ -81,61 +81,75 @@
     </view>
   </view>
 
-  <view wx:if="{{records.length}}" class="card export-options-card">
-    <view class="section-title">导出设置</view>
+  <view wx:if="{{records.length}}" class="scheme6-export-stack">
+    <view class="card export-options-card scheme6-card scheme6-format-card">
+      <view class="scheme6-card-heading">
+        <view>
+          <view class="section-title">导出设置</view>
+          <view class="scheme6-card-caption">先选择文件格式和 JPG 品质</view>
+        </view>
+        <view class="scheme6-card-status">JPG 88%</view>
+      </view>
 
-    <view class="option-line">
-      <view class="option-label">文件格式</view>
-      <view class="choice-list">
-        <button
-          wx:for="{{formatOptions}}"
-          wx:key="value"
-          class="choice-button {{format === item.value ? 'choice-button-active' : ''}}"
-          data-format="{{item.value}}"
-          bindtap="changeFormat"
-        >
-          {{item.label}}
-        </button>
+      <view class="option-line">
+        <view class="option-label">文件格式</view>
+        <view class="choice-list">
+          <button
+            wx:for="{{formatOptions}}"
+            wx:key="value"
+            class="choice-button {{format === item.value ? 'choice-button-active' : ''}}"
+            data-format="{{item.value}}"
+            bindtap="changeFormat"
+          >
+            {{item.label}}
+          </button>
+        </view>
+      </view>
+
+      <view wx:if="{{format === 'jpg'}}" class="quality-line">
+        <view class="quality-head">
+          <text class="option-label">JPG 品质</text>
+          <text class="quality-value">{{quality}}%</text>
+        </view>
+        <slider
+          value="{{quality}}"
+          min="60"
+          max="100"
+          step="1"
+          activeColor="#1f6feb"
+          backgroundColor="#dfe7f3"
+          block-size="22"
+          bindchanging="changeQuality"
+          bindchange="changeQuality"
+        ></slider>
       </view>
     </view>
 
-    <view wx:if="{{format === 'jpg'}}" class="quality-line">
-      <view class="quality-head">
-        <text class="option-label">JPG 品质</text>
-        <text class="quality-value">{{quality}}%</text>
+    <view class="card scheme6-card scheme6-feature-card">
+      <view class="scheme6-card-heading">
+        <view>
+          <view class="section-title">画面处理</view>
+          <view class="scheme6-card-caption">让颜色、细节和清晰度更自然</view>
+        </view>
+        <view class="scheme6-card-status">3 项开启</view>
       </view>
-      <slider
-        value="{{quality}}"
-        min="60"
-        max="100"
-        step="1"
-        activeColor="#1f6feb"
-        backgroundColor="#dfe7f3"
-        block-size="22"
-        bindchanging="changeQuality"
-        bindchange="changeQuality"
-      ></slider>
-    </view>
-
-    <view class="enhancement-group">
-      <view class="enhancement-group-title">画面处理</view>
-      <view class="enhancement-list">
+      <view class="enhancement-list scheme6-enhancement-list">
         <view class="enhancement-row">
-          <view>
+          <view class="enhancement-row-copy">
             <view class="enhancement-title">基础色彩校正</view>
             <view class="enhancement-description">让颜色看起来自然</view>
           </view>
           <switch checked="{{colorCorrect}}" color="#1f6feb" data-key="colorCorrect" bindchange="toggleEnhancement"></switch>
         </view>
         <view class="enhancement-row">
-          <view>
+          <view class="enhancement-row-copy">
             <view class="enhancement-title">轻度降噪</view>
             <view class="enhancement-description">减少图片上的小杂点</view>
           </view>
           <switch checked="{{denoise}}" color="#1f6feb" data-key="denoise" bindchange="toggleEnhancement"></switch>
         </view>
         <view class="enhancement-row">
-          <view>
+          <view class="enhancement-row-copy">
             <view class="enhancement-title">清晰补偿</view>
             <view class="enhancement-description">让图片看起来更清楚</view>
           </view>
@@ -144,40 +158,31 @@
       </view>
     </view>
 
-    <view class="enhancement-group">
-      <view class="enhancement-group-title">相机质感</view>
-      <view class="enhancement-list">
+    <view class="card scheme6-card scheme6-feature-card">
+      <view class="scheme6-card-heading">
+        <view>
+          <view class="section-title">相机与高级</view>
+          <view class="scheme6-card-caption">相机颗粒和高级处理全部单独展示</view>
+        </view>
+        <view class="scheme6-card-status">全部开启</view>
+      </view>
+      <view class="enhancement-list scheme6-enhancement-list">
         <view class="enhancement-row">
           <view class="enhancement-row-copy">
             <view class="enhancement-title">固定相机颗粒</view>
             <view class="enhancement-description">加一点相机拍出的质感</view>
           </view>
-          <view class="enhancement-side-note">增加颗粒感</view>
           <switch checked="{{cameraNoise}}" color="#1f6feb" data-key="cameraNoise" bindchange="toggleAdvanced"></switch>
         </view>
-        <view class="strength-row">
-          <view class="strength-head">
-            <text class="option-label">颗粒强度</text>
-            <text class="quality-value">{{cameraNoiseStrengthPreview}}</text>
-          </view>
-          <slider value="{{cameraNoiseStrength}}" min="1" max="5" step="0.1" activeColor="#1f6feb" backgroundColor="#dfe7f3" block-size="22" data-key="cameraNoiseStrength" bindchanging="previewAdvancedStrength" bindchange="commitAdvancedStrength"></slider>
-        </view>
-      </view>
-    </view>
-
-    <view class="enhancement-group">
-      <view class="enhancement-group-title">高级画面处理</view>
-      <view class="enhancement-list">
         <view class="enhancement-row">
           <view class="enhancement-row-copy">
             <view class="enhancement-title">频域扰动</view>
             <view class="enhancement-description">轻微改变图片细节</view>
           </view>
-          <view class="enhancement-side-note">调整图片细节</view>
           <switch checked="{{frequencyPerturb}}" color="#1f6feb" data-key="frequencyPerturb" bindchange="toggleAdvanced"></switch>
         </view>
         <view class="enhancement-row">
-          <view>
+          <view class="enhancement-row-copy">
             <view class="enhancement-title">反向重采样</view>
             <view class="enhancement-description">重新处理图片，尺寸不变</view>
           </view>
@@ -188,36 +193,55 @@
             <view class="enhancement-title">可见标记淡化</view>
             <view class="enhancement-description">让看得到的水印、文字或标记等信息变淡</view>
           </view>
-          <view class="enhancement-side-note">水印文字变淡</view>
-        </view>
-        <view class="strength-row">
-          <view class="strength-head">
-            <text class="option-label">淡化强度</text>
-            <text class="quality-value">{{watermarkStrengthPreview}}</text>
-          </view>
-          <slider value="{{watermarkStrength}}" min="1" max="5" step="0.1" activeColor="#1f6feb" backgroundColor="#dfe7f3" block-size="22" data-key="watermarkStrength" bindchanging="previewAdvancedStrength" bindchange="commitAdvancedStrength"></slider>
-        </view>
-        <view class="strength-row">
-          <view class="strength-head">
-            <text class="option-label">扰动强度</text>
-            <text class="quality-value">{{frequencyStrengthPreview}}</text>
-          </view>
-          <slider value="{{frequencyStrength}}" min="1" max="5" step="0.1" activeColor="#1f6feb" backgroundColor="#dfe7f3" block-size="22" data-key="frequencyStrength" bindchanging="previewAdvancedStrength" bindchange="commitAdvancedStrength"></slider>
+          <switch checked="{{removeVisibleMarks}}" color="#1f6feb" data-key="removeVisibleMarks" bindchange="toggleAdvanced"></switch>
         </view>
       </view>
     </view>
 
+    <view class="card scheme6-card scheme6-strength-card">
+      <view class="scheme6-card-heading">
+        <view>
+          <view class="section-title">强度调整</view>
+          <view class="scheme6-card-caption">三个强度默认都是 3，可分别拖动</view>
+        </view>
+        <view class="scheme6-card-status">默认 3</view>
+      </view>
+
+      <view class="strength-row">
+        <view class="strength-head">
+          <text class="option-label">颗粒强度</text>
+          <text class="quality-value">{{cameraNoiseStrengthPreview}}</text>
+        </view>
+        <slider value="{{cameraNoiseStrength}}" min="1" max="5" step="0.1" activeColor="#1f6feb" backgroundColor="#dfe7f3" block-size="22" data-key="cameraNoiseStrength" bindchanging="previewAdvancedStrength" bindchange="commitAdvancedStrength"></slider>
+      </view>
+      <view class="strength-row">
+        <view class="strength-head">
+          <text class="option-label">淡化强度</text>
+          <text class="quality-value">{{watermarkStrengthPreview}}</text>
+        </view>
+        <slider value="{{watermarkStrength}}" min="1" max="5" step="0.1" activeColor="#1f6feb" backgroundColor="#dfe7f3" block-size="22" data-key="watermarkStrength" bindchanging="previewAdvancedStrength" bindchange="commitAdvancedStrength"></slider>
+      </view>
+      <view class="strength-row">
+        <view class="strength-head">
+          <text class="option-label">扰动强度</text>
+          <text class="quality-value">{{frequencyStrengthPreview}}</text>
+        </view>
+        <slider value="{{frequencyStrength}}" min="1" max="5" step="0.1" activeColor="#1f6feb" backgroundColor="#dfe7f3" block-size="22" data-key="frequencyStrength" bindchanging="previewAdvancedStrength" bindchange="commitAdvancedStrength"></slider>
+      </view>
+    </view>
+  </view>
+
+  <view wx:if="{{records.length}}" class="scheme6-fixed-actions">
     <button
-      class="primary-btn export-button"
+      class="primary-btn export-button scheme6-export-button"
       loading="{{processing}}"
       disabled="{{processing || !selectedCount}}"
       bindtap="startExport"
     >
       {{processing ? '正在导出...' : '开始导出并保存到相册'}}
     </button>
-    <button class="plain-btn back-button" bindtap="backToWorkbench">返回工作台</button>
+    <button class="plain-btn back-button scheme6-back-button" bindtap="backToWorkbench">返回工作台</button>
   </view>
-
   <view wx:if="{{processing}}" class="card export-progress-card">
     <view class="progress-head">
       <view class="section-title">正在处理</view>

@@ -55,7 +55,7 @@ assert.strictEqual(defaultOptions.watermarkStrength, 3);
 assert.strictEqual(defaultOptions.resamplePerturb, true);
 assert.strictEqual(
   core.normalizeOptions({ removeVisibleMarks: false }).removeVisibleMarks,
-  true
+  false
 );
 
 assert.strictEqual(
@@ -150,11 +150,12 @@ assert.ok(
   "高级强度滑块没有复用顺滑拖动更新逻辑。"
 );
 [
-  "增加颗粒感",
-  "调整图片细节",
-  "水印文字变淡"
+  "先选择文件格式和 JPG 品质",
+  "让颜色、细节和清晰度更自然",
+  "相机颗粒和高级处理全部单独展示",
+  "三个强度默认都是 3，可分别拖动"
 ].forEach((marker) => {
-  assert.ok(pageWxml.includes(marker), `页面缺少右侧说明：${marker}`);
+  assert.ok(pageWxml.includes(marker), `方案6页面缺少说明：${marker}`);
 });
 assert.ok(
   pageWxml.includes(
@@ -170,10 +171,19 @@ assert.ok(
   "扰动强度没有放在淡化强度下面。"
 );
 assert.ok(
-  !pageWxml.includes('data-key="removeVisibleMarks"')
-    && !pageWxml.includes('checked="{{removeVisibleMarks}}"')
-    && pageJs.includes("removeVisibleMarks: true"),
-  "可见标记淡化仍保留开启开关，或没有默认开启。"
+  pageWxml.includes('data-key="removeVisibleMarks"')
+    && pageWxml.includes('checked="{{removeVisibleMarks}}"')
+    && pageJs.includes("removeVisibleMarks: true")
+    && pageJs.includes('"removeVisibleMarks"'),
+  "可见标记淡化没有显示默认开启的开关，或没有接入导出参数。"
+);
+assert.ok(
+  pageWxml.includes("scheme6-fixed-actions")
+    && pageWxml.includes("scheme6-export-button")
+    && pageWxml.includes("scheme6-back-button")
+    && pageWxss.includes(".scheme6-fixed-actions")
+    && pageWxss.includes("position: fixed"),
+  "方案6固定底部操作栏没有完整接入。"
 );
 assert.ok(
   !pageWxml.includes("高级处理后再导出照片"),

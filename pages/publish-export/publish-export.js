@@ -210,7 +210,10 @@ Page({
     const key = event.currentTarget
       && event.currentTarget.dataset
       && event.currentTarget.dataset.key;
-    if (!["cameraNoise", "frequencyPerturb", "resamplePerturb"].includes(key)) {
+    if (
+      !["cameraNoise", "frequencyPerturb", "resamplePerturb", "removeVisibleMarks"]
+        .includes(key)
+    ) {
       return;
     }
     this.setData({
@@ -318,7 +321,7 @@ Page({
       cameraNoiseStrength: this.data.cameraNoiseStrength,
       frequencyPerturb: this.data.frequencyPerturb,
       frequencyStrength: this.data.frequencyStrength,
-      removeVisibleMarks: true,
+      removeVisibleMarks: this.data.removeVisibleMarks,
       watermarkStrength: this.data.watermarkStrength,
       resamplePerturb: this.data.resamplePerturb
     });

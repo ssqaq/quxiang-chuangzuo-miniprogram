@@ -6,6 +6,10 @@ page {
   padding-bottom: calc(72rpx + env(safe-area-inset-bottom));
 }
 
+.publish-export-page-with-actions {
+  padding-bottom: calc(250rpx + env(safe-area-inset-bottom));
+}
+
 .publish-export-intro {
   background: linear-gradient(135deg, #eef5ff 0%, #ffffff 72%);
 }
@@ -222,6 +226,110 @@ page {
 
 .export-options-card {
   padding-bottom: 24rpx;
+}
+
+.scheme6-export-stack {
+  margin-top: 4rpx;
+}
+
+.scheme6-card {
+  margin-bottom: 22rpx;
+  padding: 30rpx;
+  border-radius: 26rpx;
+}
+
+.scheme6-card-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20rpx;
+}
+
+.scheme6-card-heading .section-title {
+  margin-bottom: 8rpx;
+}
+
+.scheme6-card-caption {
+  color: #8491a5;
+  font-size: 21rpx;
+  line-height: 1.5;
+}
+
+.scheme6-card-status {
+  flex: none;
+  padding-top: 8rpx;
+  color: #1f6feb;
+  font-size: 21rpx;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.scheme6-format-card .option-line {
+  margin-top: 28rpx;
+}
+
+.scheme6-feature-card .enhancement-list {
+  margin-top: 20rpx;
+}
+
+.scheme6-feature-card .enhancement-row {
+  min-height: 104rpx;
+}
+
+.scheme6-feature-card .enhancement-title {
+  font-size: 26rpx;
+}
+
+.scheme6-feature-card .enhancement-description {
+  margin-top: 8rpx;
+  font-size: 21rpx;
+}
+
+.scheme6-strength-card .strength-row {
+  padding: 20rpx 0 12rpx;
+}
+
+.scheme6-strength-card .strength-row:first-of-type {
+  margin-top: 14rpx;
+}
+
+.scheme6-strength-card .option-label {
+  font-size: 26rpx;
+}
+
+.scheme6-fixed-actions {
+  position: fixed;
+  z-index: 20;
+  right: 24rpx;
+  bottom: calc(16rpx + env(safe-area-inset-bottom));
+  left: 24rpx;
+  padding: 18rpx 20rpx 16rpx;
+  border: 1rpx solid #dce5f0;
+  border-radius: 24rpx;
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: 0 -10rpx 30rpx rgba(31, 59, 99, 0.14);
+}
+
+.scheme6-fixed-actions .scheme6-export-button {
+  width: 100% !important;
+  height: 82rpx;
+  min-height: 82rpx;
+  margin: 0;
+  max-width: none;
+  border-radius: 16rpx;
+  font-size: 28rpx;
+  line-height: 82rpx;
+}
+
+.scheme6-fixed-actions .scheme6-back-button {
+  width: 100% !important;
+  height: 58rpx;
+  min-height: 58rpx;
+  margin: 12rpx 0 0;
+  max-width: none;
+  border-radius: 14rpx;
+  font-size: 24rpx;
+  line-height: 58rpx;
 }
 
 .option-line {

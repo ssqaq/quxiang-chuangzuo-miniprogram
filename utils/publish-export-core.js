@@ -89,7 +89,10 @@ function normalizeOptions(input = {}) {
       source.frequencyStrength,
       DEFAULT_OPTIONS.frequencyStrength
     ),
-    removeVisibleMarks: true,
+    removeVisibleMarks: boolValue(
+      source.removeVisibleMarks,
+      DEFAULT_OPTIONS.removeVisibleMarks
+    ),
     watermarkStrength: clampStrength(
       source.watermarkStrength,
       DEFAULT_OPTIONS.watermarkStrength

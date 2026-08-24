@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.29.1";
-const API_BUILD_MARKER = "API_BUILD_TAG_20260824_SINGLE_PROBE_V291";
+const API_BUILD_VERSION = "0.30.0";
+const API_BUILD_MARKER = "API_BUILD_TAG_20260824_SINGLE_PROBE_USER_FILTER_V300";
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
 const cloud = require("wx-server-sdk");
@@ -7189,6 +7189,10 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     getAdminConfig,
     normalizeUserGender,
     normalizeUserNickname,
+    normalizeAdminUserSearch,
+    normalizeAdminUserDateRange,
+    filterAdminUserProfiles,
+    buildAdminUserSignupTrend,
     userProfileView,
     buildAdminUserStats,
     getMyUserProfile,

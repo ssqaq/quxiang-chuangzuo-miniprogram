@@ -395,17 +395,22 @@ PowerShell -ExecutionPolicy Bypass -File `
   "D:\aips小程序\wechat-miniapp\scripts\sync-to-github.ps1"
 ```
 
-脚本会先拉取远端更新，再提交当前文件变化并推送到 `main`。没有变化时不会创建空提交。
+脚本会先拉取远端更新；有变化时先检查并生成发布 ZIP，再按修改范围生成提交标题和文件摘要，
+最后提交并推送到 `main`。没有变化时不会创建空提交。
+
+发布包默认生成在小程序目录旁边：
+
+```text
+D:\aips小程序\wechat-miniapp-release-v版本.zip
+```
+
+如果发布包检查失败，脚本会停止提交和推送，避免把未通过检查的版本同步到 GitHub。
 
 ### 自动同步
 
-Windows 任务计划程序中的任务：
-
-```text
-圈像创作自动同步GitHub
-```
-
-登录当前 Windows 账号后，该任务每 10 分钟执行一次同步脚本。
+当前采用“改完并验证后立即同步”，不依赖 Windows 每 10 分钟轮询任务。
+仓库的 `post-commit` hook 会兜底推送直接提交的分支；宝宝正常修改代码时统一运行上面的同步脚本，
+这样会同时完成提交信息生成、发布包生成和 GitHub 推送。
 
 同步日志保存在项目目录外，不会上传到 GitHub：
 
@@ -431,12 +436,12 @@ git clone https://github.com/ssqaq/quxiang-chuangzuo-miniprogram.git `
 3. 在云函数后台重新配置 API Key 等环境变量；
 4. 在 `cloudfunctions\api` 中安装依赖；
 5. 重新部署 `api` 云函数；
-6. 按上面的方式重新创建 Windows 自动同步任务。
+6. 按上面的方式配置仓库的 `core.hooksPath`，并使用同步脚本完成首次提交。
 
 ### 常见故障
 
 - `git push` 要求登录：按 Git Credential Manager 提示完成 GitHub 网页登录；
 - 提示远端有新提交：先运行 `git pull --rebase --autostash origin main`；
 - 提示冲突：不要强制覆盖，先处理冲突再运行同步脚本；
-- 自动任务结果不是 `0x0`：查看项目外的当天同步日志；
+- 同步脚本失败：查看项目外的当天同步日志；
 - 云函数密钥不会保存在 GitHub，换电脑后必须在云开发后台重新配置。

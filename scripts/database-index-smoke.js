@@ -66,6 +66,7 @@ manifest.indexes.forEach((index, indexPosition) => {
 console.log("database index manifest smoke: OK");
 
 const core = require("./database-index-core");
+const managerCli = require("./cloud-database-index-manager/index");
 
 function managerIndex(name, keys, unique = false) {
   return {
@@ -89,6 +90,14 @@ async function inspectOne(spec, responseOrError) {
 
 function assertErrorCode(callback, expectedCode) {
   assert.throws(callback, (error) => (
+    error
+    && error.code === expectedCode
+    && error.message === expectedCode
+  ));
+}
+
+async function assertRejectsCode(callback, expectedCode) {
+  await assert.rejects(callback, (error) => (
     error
     && error.code === expectedCode
     && error.message === expectedCode
@@ -586,8 +595,257 @@ async function runCoreTests() {
   });
 }
 
+async function runManagerTests() {
+  const targetSpec = manifest.indexes[0];
+
+  function createFakeDatabase(indexesOrError) {
+    const calls = {
+      describeCollection: [],
+      updateCollection: []
+    };
+    const database = {
+      async describeCollection(collectionName) {
+        calls.describeCollection.push(collectionName);
+        if (indexesOrError instanceof Error) {
+          throw indexesOrError;
+        }
+        return { Indexes: indexesOrError };
+      },
+      async updateCollection(collectionName, options) {
+        calls.updateCollection.push({ collectionName, options });
+        return { RequestId: "manager-smoke" };
+      }
+    };
+    return { database, calls };
+  }
+
+  const parsedCheck = managerCli.parseArgs([
+    "node",
+    "index.js",
+    "check",
+    "--manifest",
+    "database-indexes.json",
+    "--environment",
+    "env-smoke"
+  ]);
+  assert.deepStrictEqual(parsedCheck, {
+    command: "check",
+    manifest: "database-indexes.json",
+    environment: "env-smoke"
+  });
+
+  const parsedApply = managerCli.parseArgs([
+    "node",
+    "index.js",
+    "apply",
+    "--manifest",
+    "database-indexes.json",
+    "--environment",
+    "env-smoke",
+    "--collection",
+    targetSpec.collection,
+    "--index",
+    targetSpec.name,
+    "--allow-rebuild"
+  ]);
+  assert.strictEqual(parsedApply.command, "apply");
+  assert.strictEqual(parsedApply.allowRebuild, true);
+
+  [
+    "--secret-id",
+    "--secret-key",
+    "--token",
+    "--session-token"
+  ].forEach((credentialArgument) => {
+    assertErrorCode(
+      () => managerCli.parseArgs([
+        "node",
+        "index.js",
+        "check",
+        credentialArgument,
+        "must-not-be-accepted"
+      ]),
+      "CREDENTIAL_ARGUMENT_FORBIDDEN"
+    );
+  });
+
+  const missing = createFakeDatabase([]);
+  const created = await managerCli.applyIndex({
+    database: missing.database,
+    manifest,
+    collection: targetSpec.collection,
+    indexName: targetSpec.name,
+    allowRebuild: false
+  });
+  assert.strictEqual(created.status, "created");
+  assert.strictEqual(created.requestId, "manager-smoke");
+  assert.strictEqual(missing.calls.describeCollection.length, 1);
+  assert.strictEqual(missing.calls.updateCollection.length, 1);
+  assert.deepStrictEqual(missing.calls.updateCollection[0], {
+    collectionName: targetSpec.collection,
+    options: core.buildCreateOptions(targetSpec)
+  });
+  assert.strictEqual(
+    typeof missing.calls.updateCollection[0]
+      .options.CreateIndexes[0].MgoKeySchema.MgoIsUnique,
+    "boolean"
+  );
+
+  const existing = createFakeDatabase([
+    managerIndex(targetSpec.name, targetSpec.keys, targetSpec.unique)
+  ]);
+  const existingResult = await managerCli.applyIndex({
+    database: existing.database,
+    manifest,
+    collection: targetSpec.collection,
+    indexName: targetSpec.name
+  });
+  assert.strictEqual(existingResult.status, "existing");
+  assert.strictEqual(existing.calls.updateCollection.length, 0);
+
+  const equivalent = createFakeDatabase([
+    managerIndex(
+      `${targetSpec.name}_legacy`,
+      targetSpec.keys,
+      targetSpec.unique
+    )
+  ]);
+  const equivalentResult = await managerCli.applyIndex({
+    database: equivalent.database,
+    manifest,
+    collection: targetSpec.collection,
+    indexName: targetSpec.name
+  });
+  assert.strictEqual(equivalentResult.status, "equivalent");
+  assert.strictEqual(equivalent.calls.updateCollection.length, 0);
+
+  const mismatchedIndexes = [
+    managerIndex(
+      targetSpec.name,
+      [{
+        name: targetSpec.keys[0].name,
+        direction: -targetSpec.keys[0].direction
+      }],
+      targetSpec.unique
+    )
+  ];
+  const mismatchedWithoutConfirmation = createFakeDatabase(
+    mismatchedIndexes
+  );
+  await assertRejectsCode(
+    () => managerCli.applyIndex({
+      database: mismatchedWithoutConfirmation.database,
+      manifest,
+      collection: targetSpec.collection,
+      indexName: targetSpec.name,
+      allowRebuild: false
+    }),
+    "REBUILD_CONFIRMATION_REQUIRED"
+  );
+  assert.strictEqual(
+    mismatchedWithoutConfirmation.calls.updateCollection.length,
+    0
+  );
+
+  const mismatchedWithConfirmation = createFakeDatabase(mismatchedIndexes);
+  const rebuilt = await managerCli.applyIndex({
+    database: mismatchedWithConfirmation.database,
+    manifest,
+    collection: targetSpec.collection,
+    indexName: targetSpec.name,
+    allowRebuild: true
+  });
+  assert.strictEqual(rebuilt.status, "rebuilt");
+  assert.strictEqual(
+    mismatchedWithConfirmation.calls.updateCollection.length,
+    1
+  );
+  assert.deepStrictEqual(
+    mismatchedWithConfirmation.calls.updateCollection[0].options.DropIndexes,
+    [{ IndexName: targetSpec.name }]
+  );
+  assert.strictEqual(
+    typeof mismatchedWithConfirmation.calls.updateCollection[0]
+      .options.CreateIndexes[0].MgoKeySchema.MgoIsUnique,
+    "boolean"
+  );
+
+  const missingCollectionError = new Error("collection not found");
+  missingCollectionError.code = "ResourceNotFound.Collection";
+  const missingCollection = createFakeDatabase(missingCollectionError);
+  await assertRejectsCode(
+    () => managerCli.applyIndex({
+      database: missingCollection.database,
+      manifest,
+      collection: targetSpec.collection,
+      indexName: targetSpec.name
+    }),
+    "COLLECTION_MISSING"
+  );
+  assert.strictEqual(missingCollection.calls.updateCollection.length, 0);
+
+  const checkError = new Error("describe failed");
+  checkError.code = "InternalError";
+  const failedCheck = createFakeDatabase(checkError);
+  await assertRejectsCode(
+    () => managerCli.applyIndex({
+      database: failedCheck.database,
+      manifest,
+      collection: targetSpec.collection,
+      indexName: targetSpec.name
+    }),
+    "INDEX_CHECK_FAILED"
+  );
+  assert.strictEqual(failedCheck.calls.updateCollection.length, 0);
+
+  const checked = await managerCli.checkIndexes({
+    database: missing.database,
+    manifest
+  });
+  assert.strictEqual(checked.results.length, manifest.indexes.length);
+
+  const secretNames = [
+    "TENCENTCLOUD_SECRET_ID",
+    "TENCENTCLOUD_SECRET_KEY",
+    "TENCENTCLOUD_SESSION_TOKEN"
+  ];
+  const originalSecrets = Object.fromEntries(
+    secretNames.map((name) => [name, process.env[name]])
+  );
+  const secretValues = [
+    "manager-secret-id-smoke",
+    "manager-secret-key-smoke",
+    "manager-token-smoke"
+  ];
+  try {
+    secretNames.forEach((name, index) => {
+      process.env[name] = secretValues[index];
+    });
+    const output = JSON.stringify(
+      managerCli.cliErrorPayload(
+        new Error(`failed ${secretValues.join(" ")}`)
+      )
+    );
+    secretValues.forEach((secret) => {
+      assert.strictEqual(output.includes(secret), false);
+    });
+    assert.ok(output.includes("[REDACTED]"));
+  } finally {
+    secretNames.forEach((name) => {
+      if (originalSecrets[name] === undefined) {
+        delete process.env[name];
+      } else {
+        process.env[name] = originalSecrets[name];
+      }
+    });
+  }
+}
+
 runCoreTests().then(() => {
   console.log("database index core smoke: OK");
+  return runManagerTests();
+}).then(() => {
+  console.log("database index manager smoke: OK");
 }).catch((error) => {
   console.error(error);
   process.exitCode = 1;

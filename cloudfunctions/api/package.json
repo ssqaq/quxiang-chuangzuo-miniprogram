@@ -1,6 +1,6 @@
 {
   "name": "display-tool-cloud-api",
-  "version": "0.35.23",
+  "version": "0.35.24",
   "private": true,
   "main": "index.js",
   "dependencies": {
@@ -10,4 +10,3 @@
     "xlsx": "^0.18.5"
   }
 }
-

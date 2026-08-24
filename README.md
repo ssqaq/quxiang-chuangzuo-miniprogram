@@ -269,6 +269,7 @@ PowerShell -ExecutionPolicy Bypass -File .\scripts\check-devtools.ps1
 generation_records
 user_quotas
 auto_face_failure_logs
+auto_face_probe_logs
 photo_to_video_temp_assets
 ```
 
@@ -278,6 +279,9 @@ photo_to_video_temp_assets
 
 `auto_face_failure_logs` 只保留最近 90 天的数据。`api` 云函数在失败上报或管理员刷新统计
 时触发一次懒清理，每次最多删除 100 条过期记录，清理失败不会影响用户上报或管理员查看统计。
+
+`auto_face_probe_logs` 只保存管理员主动检查的探针状态、版本、视觉配置、Provider、Model
+和耗时，保留最近 30 天，管理页最多显示 20 条；不保存 API Key、图片、提示词或完整用户身份。
 
 ## 调试顺序
 

@@ -165,8 +165,21 @@ function emptyAutoFaceProbe() {
     provider: "",
     model: "",
     durationMs: 0,
+    durationText: "未知",
+    serverDurationMs: 0,
+    serverDurationText: "未知",
     checkedAtText: "未知时间",
     errorCode: "",
+    message: ""
+  };
+}
+
+function emptyAutoFaceProbeHistory() {
+  return {
+    history: [],
+    retentionDays: 30,
+    truncated: false,
+    unavailable: false,
     message: ""
   };
 }
@@ -255,6 +268,16 @@ function formatAutoFaceProbe(result, error = null) {
   const failed = Boolean(error) || source.ok === false;
   const vision = source.vision || {};
   const runtime = source.runtime || {};
+  const hasClientDuration = Number.isFinite(Number(source.clientDurationMs));
+  const hasServerDuration = Number.isFinite(Number(source.durationMs));
+  const clientDurationMs = hasClientDuration
+    ? Math.max(0, Number(source.clientDurationMs))
+    : hasServerDuration
+      ? Math.max(0, Number(source.durationMs))
+      : 0;
+  const serverDurationMs = hasServerDuration
+    ? Math.max(0, Number(source.durationMs))
+    : 0;
   const probe = Object.assign(emptyAutoFaceProbe(), {
     available: !failed,
     status: failed ? "failed" : "ok",
@@ -268,12 +291,43 @@ function formatAutoFaceProbe(result, error = null) {
     visionConfigured: Boolean(vision.configured),
     provider: vision.provider || "",
     model: vision.model || "",
-    durationMs: Number(source.durationMs) || 0,
+    durationMs: clientDurationMs,
+    durationText: failed && !hasClientDuration && !hasServerDuration
+      ? "未知"
+      : `${clientDurationMs} 毫秒`,
+    serverDurationMs,
+    serverDurationText: hasServerDuration ? `${serverDurationMs} 毫秒` : "未知",
     checkedAtText: source.checkedAt ? formatAdminDate(source.checkedAt) : formatAdminDate(new Date()),
     errorCode: error && (error.code || error.errCode) || "",
     message: error && error.message || ""
   });
   return probe;
+}
+
+function formatAutoFaceProbeHistory(result) {
+  const source = result || {};
+  const history = Array.isArray(source.history) ? source.history : [];
+  return Object.assign(emptyAutoFaceProbeHistory(), {
+    retentionDays: Number(source.retentionDays) || 30,
+    truncated: Boolean(source.truncated),
+    unavailable: Boolean(source.unavailable),
+    message: source.message || "",
+    history: history.map((item) => ({
+      status: item.status === "ok" ? "ok" : "failed",
+      statusText: item.status === "ok" ? "探针正常" : "探针失败",
+      buildVersion: item.buildVersion || "未知版本",
+      buildMarker: item.buildMarker || "",
+      nodeVersion: item.nodeVersion || "",
+      visionConfigured: Boolean(item.visionConfigured),
+      provider: item.provider || "未知",
+      model: item.model || "未知",
+      durationMs: Number(item.durationMs) || 0,
+      durationText: `云函数 ${Number(item.durationMs) || 0} 毫秒`,
+      errorCode: item.errorCode || "",
+      checkedAt: item.checkedAt || "",
+      checkedAtText: item.checkedAt ? formatAdminDate(item.checkedAt) : "未知时间"
+    }))
+  });
 }
 
 function formatUsageStats(result) {
@@ -538,7 +592,8 @@ Page({
     usageStats: emptyUsageStats(),
     autoFaceFailureLoading: false,
     autoFaceFailureStats: emptyAutoFaceFailureStats(),
-    autoFaceProbe: emptyAutoFaceProbe()
+    autoFaceProbe: emptyAutoFaceProbe(),
+    autoFaceProbeHistory: emptyAutoFaceProbeHistory()
   },
 
   onLoad() {
@@ -598,6 +653,20 @@ Page({
           { error }
         );
       }
+      let autoFaceProbeHistory = emptyAutoFaceProbeHistory();
+      try {
+        autoFaceProbeHistory = formatAutoFaceProbeHistory(
+          await cloud.getAutoFaceProbeHistory()
+        );
+      } catch (error) {
+        autoFaceProbeHistory = Object.assign(autoFaceProbeHistory, {
+          unavailable: true,
+          message: "探针历史暂时读取失败，请点击刷新。"
+        });
+        diagnosticLog.warn("admin", "auto-face-probe-history-load-failed", "探针历史读取失败", {
+          error
+        });
+      }
       this.setData({
         loading: false,
         isAdmin: true,
@@ -607,6 +676,7 @@ Page({
         logs: (logs.logs || []).map(displayLog),
         usageStats,
         autoFaceFailureStats,
+        autoFaceProbeHistory,
         message: ""
       });
       diagnosticLog.info("admin", "config-loaded", "管理员配置读取完成", {
@@ -662,6 +732,25 @@ Page({
         { error }
       );
       this.showError("失败统计刷新失败", error);
+    }
+  },
+
+  async refreshAutoFaceProbeHistory() {
+    try {
+      const result = await cloud.getAutoFaceProbeHistory();
+      this.setData({
+        autoFaceProbeHistory: formatAutoFaceProbeHistory(result)
+      });
+      wx.showToast({ title: "探针历史已刷新", icon: "success" });
+    } catch (error) {
+      this.setData({
+        "autoFaceProbeHistory.unavailable": true,
+        "autoFaceProbeHistory.message": "探针历史读取失败，请稍后重试。"
+      });
+      diagnosticLog.error("admin", "auto-face-probe-history-refresh-failed", "探针历史刷新失败", {
+        error
+      });
+      this.showError("探针历史刷新失败", error);
     }
   },
 
@@ -735,12 +824,20 @@ Page({
     if (this.data.checking) return;
     this.setData({ checking: true, message: "" });
     try {
-      const [result, logs, probeResult] = await Promise.all([
+      const probeStartedAt = Date.now();
+      const [result, probeResult] = await Promise.all([
         cloud.checkDeployment(),
-        cloud.listDeploymentLogs(),
         cloud.probeAutoFace().catch((error) => ({ __probeError: error }))
       ]);
       const probeError = probeResult && probeResult.__probeError;
+      if (probeResult && !probeError) {
+        probeResult.clientDurationMs = Math.max(0, Date.now() - probeStartedAt);
+      }
+      const [logs, probeHistoryResult] = await Promise.all([
+        cloud.listDeploymentLogs(),
+        cloud.getAutoFaceProbeHistory().catch((error) => ({ __historyError: error }))
+      ]);
+      const historyError = probeHistoryResult && probeHistoryResult.__historyError;
       this.setData({
         deployment: result,
         logs: (logs.logs || []).map(displayLog),
@@ -748,6 +845,12 @@ Page({
           probeError ? null : probeResult,
           probeError || null
         ),
+        autoFaceProbeHistory: historyError
+          ? Object.assign(emptyAutoFaceProbeHistory(), {
+            unavailable: true,
+            message: "探针结果已返回，但历史读取失败。"
+          })
+          : formatAutoFaceProbeHistory(probeHistoryResult),
         checking: false,
         message: result.logWritten
           ? (probeError ? "线上部署完成，但自动贴脸探针失败。" : "线上部署检查完成，日志已写入。")

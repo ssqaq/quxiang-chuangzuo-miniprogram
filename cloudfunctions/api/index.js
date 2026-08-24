@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.22.1";
-const API_BUILD_MARKER = "API_BUILD_TAG_20260824_ADMIN_PROBE_STATS_PHOTO_VIDEO_CLEANUP_V221";
+const API_BUILD_VERSION = "0.23.0";
+const API_BUILD_MARKER = "API_BUILD_TAG_20260824_ADMIN_PROBE_HISTORY_V230";
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
 const cloud = require("wx-server-sdk");
@@ -24,6 +24,9 @@ const MODEL_USAGE_TIME_ZONE = "Asia/Shanghai";
 const MODEL_USAGE_TYPES = ["image", "face", "video"];
 const AUTO_FACE_FAILURE_LOG_COLLECTION = "auto_face_failure_logs";
 const AUTO_FACE_FAILURE_TIME_ZONE = "Asia/Shanghai";
+const AUTO_FACE_PROBE_LOG_COLLECTION = "auto_face_probe_logs";
+const AUTO_FACE_PROBE_RETENTION_DAYS = 30;
+const AUTO_FACE_PROBE_CLEANUP_BATCH_SIZE = 100;
 const AUTO_FACE_FAILURE_TYPES = [
   "cloud-unavailable",
   "missing-api-key",
@@ -764,6 +767,7 @@ function normalizeWebPoseSuggestions(value) {
 const db = cloud.database();
 const modelUsageTestEvents = [];
 const autoFaceFailureTestEvents = [];
+const autoFaceProbeTestEvents = [];
 let autoFaceFailureCleanupLastRunAt = 0;
 let autoFaceFailureCleanupPromise = null;
 
@@ -825,6 +829,60 @@ function normalizeAutoFaceProbeReport(payload = {}) {
     model: compactUsageText(source.model, 80),
     durationMs,
     errorCode
+  };
+}
+
+function normalizeAutoFaceProbeHistoryReport(payload = {}, fallbackRequestId = "") {
+  const source = payload && typeof payload === "object" ? payload : {};
+  const status = compactUsageText(source.status, 20).toLowerCase() === "failed"
+    ? "failed"
+    : "ok";
+  const durationMs = Math.max(
+    0,
+    Math.min(60 * 1000, Math.round(Number(source.durationMs) || 0))
+  );
+  const requestId = compactUsageText(source.requestId || fallbackRequestId, 100)
+    .replace(/[^A-Za-z0-9._:-]+/g, "-");
+  const checkedAt = source.checkedAt instanceof Date
+    ? source.checkedAt
+    : new Date(source.checkedAt || Date.now());
+  return {
+    status,
+    requestId,
+    buildVersion: compactUsageText(source.buildVersion, 40),
+    buildMarker: compactUsageText(source.buildMarker, 120),
+    nodeVersion: compactUsageText(source.nodeVersion, 40),
+    cloudEnvConfigured: Boolean(source.cloudEnvConfigured),
+    visionConfigured: Boolean(source.visionConfigured),
+    provider: compactUsageText(source.provider, 40),
+    model: compactUsageText(source.model, 80),
+    durationMs,
+    errorCode: compactUsageText(source.errorCode, 80)
+      .replace(/[^A-Za-z0-9._:-]+/g, "-"),
+    checkedAt: Number.isNaN(checkedAt.getTime()) ? new Date() : checkedAt,
+    createdAt: source.createdAt instanceof Date ? source.createdAt : new Date()
+  };
+}
+
+function autoFaceProbeHistoryDisplayEvent(event = {}) {
+  const source = normalizeAutoFaceProbeHistoryReport(event, event.requestId);
+  const checkedAt = source.checkedAt instanceof Date
+    ? source.checkedAt
+    : new Date(source.checkedAt || 0);
+  return {
+    status: source.status,
+    statusText: source.status === "ok" ? "探针正常" : "探针失败",
+    requestId: source.requestId,
+    buildVersion: source.buildVersion,
+    buildMarker: source.buildMarker,
+    nodeVersion: source.nodeVersion,
+    cloudEnvConfigured: source.cloudEnvConfigured,
+    visionConfigured: source.visionConfigured,
+    provider: source.provider,
+    model: source.model,
+    durationMs: source.durationMs,
+    errorCode: source.errorCode,
+    checkedAt: Number.isNaN(checkedAt.getTime()) ? "" : checkedAt.toISOString()
   };
 }
 
@@ -3225,11 +3283,141 @@ async function detectFaceCircle(event, context) {
   });
 }
 
-async function probeAutoFace(event) {
+function autoFaceProbeHistoryCutoff(baseDate = new Date()) {
+  return new Date(
+    baseDate.getTime() - AUTO_FACE_PROBE_RETENTION_DAYS * 24 * 60 * 60 * 1000
+  );
+}
+
+async function cleanupAutoFaceProbeHistory(baseDate = new Date()) {
+  const cutoff = autoFaceProbeHistoryCutoff(baseDate);
+  if (process.env.WECHAT_MINIAPP_TEST === "1") {
+    let removed = 0;
+    for (let index = autoFaceProbeTestEvents.length - 1; index >= 0; index -= 1) {
+      const createdAt = new Date(autoFaceProbeTestEvents[index].createdAt || 0);
+      if (!Number.isNaN(createdAt.getTime()) && createdAt < cutoff) {
+        autoFaceProbeTestEvents.splice(index, 1);
+        removed += 1;
+      }
+    }
+    return { removed, truncated: false };
+  }
+  try {
+    const command = db.command;
+    const result = await db
+      .collection(AUTO_FACE_PROBE_LOG_COLLECTION)
+      .where({ createdAt: command.lt(cutoff) })
+      .limit(AUTO_FACE_PROBE_CLEANUP_BATCH_SIZE)
+      .get();
+    const rows = result && Array.isArray(result.data) ? result.data : [];
+    let removed = 0;
+    for (const row of rows) {
+      if (!row || !row._id) continue;
+      await db.collection(AUTO_FACE_PROBE_LOG_COLLECTION).doc(row._id).remove();
+      removed += 1;
+    }
+    return {
+      removed,
+      truncated: rows.length >= AUTO_FACE_PROBE_CLEANUP_BATCH_SIZE
+    };
+  } catch (error) {
+    log("warn", "auto-face-probe.cleanup-failed", {
+      error: error && error.message
+    });
+    return { removed: 0, truncated: false, failed: true };
+  }
+}
+
+async function writeAutoFaceProbeHistory(entry) {
+  const report = normalizeAutoFaceProbeHistoryReport(entry, entry && entry.requestId);
+  if (process.env.WECHAT_MINIAPP_TEST === "1") {
+    autoFaceProbeTestEvents.push(report);
+    return true;
+  }
+  try {
+    await db.collection(AUTO_FACE_PROBE_LOG_COLLECTION).add({ data: report });
+    await cleanupAutoFaceProbeHistory(new Date());
+    return true;
+  } catch (error) {
+    log("warn", "auto-face-probe.write-failed", {
+      error: error && error.message
+    });
+    return false;
+  }
+}
+
+async function loadAutoFaceProbeHistory(startDate) {
+  if (process.env.WECHAT_MINIAPP_TEST === "1") {
+    return autoFaceProbeTestEvents.slice();
+  }
+  const command = db.command;
+  const result = await db
+    .collection(AUTO_FACE_PROBE_LOG_COLLECTION)
+    .where({ createdAt: command.gte(startDate) })
+    .orderBy("checkedAt", "desc")
+    .limit(20)
+    .get();
+  return result && Array.isArray(result.data) ? result.data : [];
+}
+
+async function getAutoFaceProbeHistory(event, context) {
+  if (!isAdminContext(context)) return adminForbidden();
+  const baseDate = new Date();
+  const startDate = autoFaceProbeHistoryCutoff(baseDate);
+  try {
+    await cleanupAutoFaceProbeHistory(baseDate);
+    const rows = await loadAutoFaceProbeHistory(startDate);
+    return jsonResponse(true, {
+      history: rows
+        .map(autoFaceProbeHistoryDisplayEvent)
+        .sort((left, right) => (
+          new Date(right.checkedAt || 0).getTime()
+          - new Date(left.checkedAt || 0).getTime()
+        ))
+        .slice(0, 20),
+      retentionDays: AUTO_FACE_PROBE_RETENTION_DAYS,
+      truncated: rows.length >= 20,
+      unavailable: false,
+      message: ""
+    });
+  } catch (error) {
+    log("warn", "auto-face-probe.read-failed", {
+      error: error && error.message
+    });
+    return jsonResponse(true, {
+      history: [],
+      retentionDays: AUTO_FACE_PROBE_RETENTION_DAYS,
+      truncated: false,
+      unavailable: true,
+      message: "探针历史暂时读取失败，请先创建 auto_face_probe_logs 集合。"
+    });
+  }
+}
+
+async function probeAutoFace(event, context) {
+  if (!isAdminContext(context)) return adminForbidden();
+  const startedAt = Date.now();
+  const probe = buildAutoFaceProbe();
+  const durationMs = Math.max(0, Math.min(60 * 1000, Date.now() - startedAt));
+  const historyWritten = await writeAutoFaceProbeHistory({
+    status: "ok",
+    requestId: event.requestId,
+    buildVersion: probe.buildVersion,
+    buildMarker: probe.buildMarker,
+    nodeVersion: probe.runtime.nodeVersion,
+    cloudEnvConfigured: probe.runtime.cloudEnvConfigured,
+    visionConfigured: probe.vision.configured,
+    provider: probe.vision.provider,
+    model: probe.vision.model,
+    durationMs,
+    checkedAt: probe.checkedAt
+  });
   return jsonResponse(true, Object.assign({
     action: "probeAutoFace",
-    requestId: event.requestId
-  }, buildAutoFaceProbe()));
+    requestId: event.requestId,
+    durationMs,
+    historyWritten
+  }, probe));
 }
 
 async function analyzeWebPoses(event) {
@@ -5456,7 +5644,10 @@ exports.main = async (event = {}, context) => {
       result = await cleanupPhotoToVideoTempAssets(new Date());
     } else if (action === "analyze") result = await analyze(requestEvent, context);
     else if (action === "detectFaceCircle") result = await detectFaceCircle(requestEvent, context);
-    else if (action === "probeAutoFace") result = await probeAutoFace(requestEvent);
+    else if (action === "probeAutoFace") result = await probeAutoFace(requestEvent, context);
+    else if (action === "getAutoFaceProbeHistory") {
+      result = await getAutoFaceProbeHistory(requestEvent, context);
+    }
     else if (action === "analyzeWebPoses") result = await analyzeWebPoses(requestEvent, context);
     else if (action === "prepareAssetUpload") result = await prepareAssetUpload(requestEvent, context);
     else if (action === "registerAsset") result = await registerAsset(requestEvent, context);
@@ -5550,6 +5741,12 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     autoFaceFailureDisplayEvent,
     buildAutoFaceFailureStats,
     normalizeAutoFaceProbeReport,
+    normalizeAutoFaceProbeHistoryReport,
+    autoFaceProbeHistoryDisplayEvent,
+    autoFaceProbeHistoryCutoff,
+    cleanupAutoFaceProbeHistory,
+    writeAutoFaceProbeHistory,
+    getAutoFaceProbeHistory,
     autoFaceFailureCleanupCutoff,
     shouldRunAutoFaceFailureCleanup,
     normalizePhotoToVideoTempKind,
@@ -5573,6 +5770,10 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     getAutoFaceFailureTestEvents: () => autoFaceFailureTestEvents.slice(),
     resetAutoFaceFailureTestEvents: () => {
       autoFaceFailureTestEvents.splice(0, autoFaceFailureTestEvents.length);
+    },
+    getAutoFaceProbeTestEvents: () => autoFaceProbeTestEvents.slice(),
+    resetAutoFaceProbeTestEvents: () => {
+      autoFaceProbeTestEvents.splice(0, autoFaceProbeTestEvents.length);
     },
     isPromoDate,
     calculateNextStreak,

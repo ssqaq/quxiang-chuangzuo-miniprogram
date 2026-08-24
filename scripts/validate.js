@@ -73,7 +73,8 @@ const jsFiles = [
   "scripts/model-cost-stats-smoke.js",
   "scripts/model-failure-stats-smoke.js",
   "scripts/auto-face-failure-stats-smoke.js",
-  "scripts/photo-to-video-cleanup-smoke.js"
+  "scripts/photo-to-video-cleanup-smoke.js",
+  "scripts/auto-face-probe-history-smoke.js"
 ];
 const pythonFiles = ["scripts/package-release.py"];
 const powerShellFiles = [
@@ -168,7 +169,8 @@ const required = [
   "scripts/auto-face-failure-stats-smoke.js",
   "cloudfunctions/api/index.js",
   "cloudfunctions/api/config.json",
-  "scripts/photo-to-video-cleanup-smoke.js"
+  "scripts/photo-to-video-cleanup-smoke.js",
+  "scripts/auto-face-probe-history-smoke.js"
 ];
 for (const relative of required) {
   if (!fs.existsSync(path.join(root, relative))) {
@@ -303,13 +305,19 @@ if (
   || !adminJs.includes("cloud.saveAdminConfig")
   || !adminJs.includes("cloud.checkDeployment()")
   || !adminJs.includes("cloud.listDeploymentLogs()")
+  || !adminJs.includes("cloud.getAutoFaceProbeHistory()")
+  || !adminJs.includes("refreshAutoFaceProbeHistory")
   || !adminWxml.includes("生图模型")
   || !adminWxml.includes("视频模型")
   || !adminWxml.includes("立即检查线上部署")
   || !adminWxml.includes("部署检查日志")
+  || !adminWxml.includes("接口耗时")
+  || !adminWxml.includes("云函数处理耗时")
+  || !adminWxml.includes("探针历史")
   || !adminWxml.includes("API Key")
   || !adminWxss.includes(".admin-grid")
   || !adminWxss.includes(".deployment-grid")
+  || !adminWxss.includes(".auto-face-probe-history-row")
 ) {
   throw new Error("管理员配置页或部署检查日志入口不完整。");
 }

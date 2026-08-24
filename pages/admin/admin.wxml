@@ -423,9 +423,45 @@
         <view><text>视觉配置</text><text>{{autoFaceProbe.visionConfigured ? '已就绪' : '未就绪'}}</text></view>
         <view><text>Provider / Model</text><text>{{autoFaceProbe.provider || '未知'}} / {{autoFaceProbe.model || '未知'}}</text></view>
         <view><text>Node.js</text><text>{{autoFaceProbe.nodeVersion || '未知'}}</text></view>
+        <view><text>接口耗时</text><text>{{autoFaceProbe.durationText}}</text></view>
+        <view><text>云函数处理耗时</text><text>{{autoFaceProbe.serverDurationText}}</text></view>
         <view><text>检查时间</text><text>{{autoFaceProbe.checkedAtText}}</text></view>
       </view>
       <view wx:if="{{autoFaceProbe.message}}" class="usage-message is-warn">{{autoFaceProbe.message}}</view>
+    </view>
+
+    <view class="card admin-section auto-face-probe-history-card">
+      <view class="admin-section-head">
+        <view>
+          <view class="admin-section-title">探针历史</view>
+          <view class="admin-section-help">
+            保存最近 {{autoFaceProbeHistory.retentionDays}} 天的管理员主动检查，最多显示 20 条。
+          </view>
+        </view>
+        <button class="usage-refresh-button" bindtap="refreshAutoFaceProbeHistory">刷新</button>
+      </view>
+      <view wx:if="{{autoFaceProbeHistory.message}}" class="usage-message {{autoFaceProbeHistory.unavailable ? 'is-warn' : ''}}">
+        {{autoFaceProbeHistory.message}}
+      </view>
+      <view wx:if="{{!autoFaceProbeHistory.history.length && !autoFaceProbeHistory.message}}" class="admin-empty">
+        还没有探针历史，点击上面的“立即检查线上部署”生成第一条。
+      </view>
+      <view wx:for="{{autoFaceProbeHistory.history}}" wx:key="checkedAt" class="auto-face-probe-history-row">
+        <view class="auto-face-probe-history-top">
+          <view>
+            <text class="{{item.status === 'ok' ? 'log-ok' : 'log-warn'}}">{{item.statusText}}</text>
+            <text class="auto-face-probe-history-time">{{item.checkedAtText}}</text>
+          </view>
+          <text class="auto-face-probe-history-duration">{{item.durationText}}</text>
+        </view>
+        <view class="auto-face-probe-history-meta">
+          {{item.buildVersion}} · {{item.visionConfigured ? '视觉配置已就绪' : '视觉配置未就绪'}} · {{item.provider}} / {{item.model}}
+        </view>
+        <view class="auto-face-probe-history-meta">{{item.buildMarker}}</view>
+        <view wx:if="{{item.status === 'failed' && item.errorCode}}" class="auto-face-probe-history-error">
+          错误码：{{item.errorCode}}
+        </view>
+      </view>
     </view>
 
     <view class="card admin-section">

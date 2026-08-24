@@ -523,6 +523,12 @@ module.exports = {
       retryLimit: 0
     });
   },
+  getAutoFaceProbeHistory() {
+    return callApi({
+      action: "getAutoFaceProbeHistory",
+      retryLimit: 0
+    });
+  },
   generateImage(payload, options = {}) {
     return callApi({
       action: "generate",

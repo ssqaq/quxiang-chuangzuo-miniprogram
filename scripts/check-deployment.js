@@ -7,6 +7,8 @@ const config = require(path.join(root, "config.js"));
 const projectConfig = JSON.parse(
   fs.readFileSync(path.join(root, "project.config.json"), "utf8")
 );
+const apiIndexPath = path.join(root, "cloudfunctions", "api", "index.js");
+const apiIndex = fs.readFileSync(apiIndexPath, "utf8");
 const envExamplePath = path.join(root, "cloudfunctions", "api", ".env.example");
 const envExample = fs.readFileSync(envExamplePath, "utf8");
 
@@ -33,6 +35,22 @@ if (projectConfig.appid !== "wxa5aaf3392cbeb39a") {
 }
 if (!["generations", "edits"].includes(config.imageMode)) {
   errors.push(`config.js 的 imageMode 不支持：${config.imageMode || "空"}`);
+}
+const apiBuildVersionMatch = apiIndex.match(
+  /const API_BUILD_VERSION = "([^"]+)"/
+);
+const apiBuildMarkerMatch = apiIndex.match(
+  /const API_BUILD_MARKER = "([^"]+)"/
+);
+if (!apiBuildVersionMatch) {
+  errors.push("云函数 index.js 缺少 API_BUILD_VERSION。");
+} else if (apiBuildVersionMatch[1] !== config.appVersion) {
+  errors.push(
+    `版本不一致：config.js=${config.appVersion || "空"}，云函数代码=${apiBuildVersionMatch[1]}`
+  );
+}
+if (!apiBuildMarkerMatch || !apiBuildMarkerMatch[1]) {
+  errors.push("云函数 index.js 缺少 API_BUILD_MARKER。");
 }
 if (!config.cloudEnvId || config.cloudEnvId === "YOUR_CLOUDBASE_ENV_ID") {
   warnings.push("config.js 尚未填写 cloudEnvId；当前只能运行本地预览。");
@@ -79,6 +97,7 @@ for (const filePath of sourceFiles) {
 console.log(`工程：${root}`);
 console.log(`AppID：${projectConfig.appid || "空"}`);
 console.log(`CloudBase：${config.cloudEnvId ? "已填写" : "未填写"}`);
+console.log(`本地云函数版本：${apiBuildVersionMatch ? apiBuildVersionMatch[1] : "空"}`);
 console.log(`AI 变量模板：${missingEnvTemplate.length ? "不完整" : "完整"}`);
 warnings.forEach((item) => console.log(`⚠️ ${item}`));
 errors.forEach((item) => console.log(`❌ ${item}`));

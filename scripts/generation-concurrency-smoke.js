@@ -3,8 +3,8 @@
 const assert = require("assert");
 
 process.env.WECHAT_MINIAPP_TEST = "1";
-process.env.PROMO_START_DATE = "2026-08-20";
-process.env.PROMO_END_DATE = "2026-08-24";
+process.env.PROMO_START_DATE = "2000-01-01";
+process.env.PROMO_END_DATE = "2099-12-31";
 process.env.DAILY_FREE_LIMIT = "0";
 
 const api = require("../cloudfunctions/api/index.js");
@@ -129,7 +129,7 @@ async function main() {
     );
     assert.strictEqual(videoClaims.filter((item) => item.claimed).length, 1);
 
-    process.env.PROMO_END_DATE = "2026-08-22";
+    process.env.PROMO_END_DATE = "2000-01-01";
     const poorUser = { OPENID: "poor-user" };
     const insufficient = await Promise.all(
       Array.from({ length: 5 }, (_, index) => helpers.reserveUsage(

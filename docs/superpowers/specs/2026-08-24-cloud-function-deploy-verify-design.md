@@ -13,6 +13,9 @@
 5. 对比线上 `buildVersion` 和本地 `appVersion`；
 6. 版本一致才返回成功，否则明确提示线上仍是旧版本。
 
+本地 `cloudfunctions/api/index.js` 的 `API_BUILD_VERSION` 也必须和
+`config.js` 一致，避免发布包自己就带着两个版本号。
+
 ## 2. 方案比较
 
 ### 方案 A：只增加“部署后验证”脚本（采用）

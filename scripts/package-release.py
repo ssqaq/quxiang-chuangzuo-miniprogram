@@ -76,6 +76,22 @@ def main() -> None:
         raise RuntimeError(
             f"版本不一致：config.js={version}，cloud function={package_json.get('version')}"
         )
+    api_source = (ROOT / "cloudfunctions" / "api" / "index.js").read_text(
+        encoding="utf-8"
+    )
+    api_version_match = re.search(
+        r'const API_BUILD_VERSION = "([^"]+)"', api_source
+    )
+    api_marker_match = re.search(
+        r'const API_BUILD_MARKER = "([^"]+)"', api_source
+    )
+    if not api_version_match or api_version_match.group(1) != version:
+        raise RuntimeError(
+            "版本不一致："
+            f"config.js={version}，api index={api_version_match.group(1) if api_version_match else 'missing'}"
+        )
+    if not api_marker_match or not api_marker_match.group(1):
+        raise RuntimeError("云函数 index.js 缺少 API_BUILD_MARKER")
     media_worker_package = json.loads(
         (ROOT / "media-worker" / "package.json").read_text(encoding="utf-8")
     )
@@ -101,6 +117,7 @@ def main() -> None:
             "上传前置检查：代码包禁止包含 .wasm",
             "云函数依赖：部署时可选择云端安装依赖",
             "CloudBase 环境 ID：需在 config.js 中填写后再部署",
+            "云函数部署：执行 scripts/deploy-and-verify-api.ps1，部署后自动对比线上版本和构建标记",
             "数据库初始化：部署 api 后执行 scripts/init-cloud-database.ps1，自动补齐 17 个集合（含 user_profiles、user_diagnostic_logs、publish_export_jobs）",
             "数据库索引：执行 scripts/check-cloud-database-indexes.ps1，先检查再逐项确认创建 11 组必需索引",
             "用户资料：仅在首次签到时要求选择头像、填写昵称并选择男/女，保存后自动签到",
@@ -184,6 +201,7 @@ def main() -> None:
         "scripts/database-indexes.json",
         "scripts/database-index-core.js",
         "scripts/database-index-smoke.js",
+        "scripts/deploy-and-verify-api.ps1",
         "scripts/check-cloud-database-indexes.ps1",
         "scripts/cloud-database-index-manager/package.json",
         "scripts/cloud-database-index-manager/package-lock.json",

@@ -97,6 +97,7 @@ const jsFiles = [
 const pythonFiles = ["scripts/package-release.py"];
 const powerShellFiles = [
   "scripts/check-devtools.ps1",
+  "scripts/deploy-and-verify-api.ps1",
   "scripts/init-cloud-database.ps1",
   "scripts/refresh-preview.ps1",
   "scripts/check-cloud-database-indexes.ps1"
@@ -219,6 +220,7 @@ const required = [
   "scripts/database-indexes.json",
   "scripts/database-index-core.js",
   "scripts/database-index-smoke.js",
+  "scripts/deploy-and-verify-api.ps1",
   "scripts/check-cloud-database-indexes.ps1",
   "scripts/cloud-database-index-manager/package.json",
   "scripts/cloud-database-index-manager/package-lock.json",
@@ -376,12 +378,16 @@ if (
   !appConfig.appVersion
   || apiPackage.version !== appConfig.appVersion
   || apiLock.version !== appConfig.appVersion
+  || !new RegExp(
+    `const API_BUILD_VERSION = "${appConfig.appVersion.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`
+  ).test(cloudJs)
+  || !/const API_BUILD_MARKER = "[^"]+"/.test(cloudJs)
   || !appConfig.photoToVideo
   || !appConfig.photoToVideo.cleanup
   || appConfig.photoToVideo.cleanup.idlePeriodMs !== 2 * 60 * 60 * 1000
   || appConfig.photoToVideo.cleanup.gracePeriodMs !== 3 * 24 * 60 * 60 * 1000
 ) {
-  throw new Error("小程序、云函数和锁文件版本不一致，或照片转视频 2 小时/3×24 小时清理配置不正确。");
+  throw new Error("小程序、云函数代码、云函数锁文件版本不一致，或照片转视频 2 小时/3×24 小时清理配置不正确。");
 }
 if (
   !Array.isArray(cloudTriggerConfig.triggers)

@@ -69,8 +69,19 @@ async function main() {
       }
       sendJson(response, 200, {
         status: "done",
-        video: { url: "https://video.invalid/provider-task-001.mp4" }
+        video: { url: `http://127.0.0.1:${server.address().port}/videos/provider-task-001.mp4` }
       });
+      return;
+    }
+    if (
+      request.method === "GET"
+      && request.url === "/videos/provider-task-001.mp4"
+    ) {
+      const body = Buffer.from("fake-mp4-result");
+      response.statusCode = 200;
+      response.setHeader("Content-Type", "video/mp4");
+      response.setHeader("Content-Length", body.length);
+      response.end(body);
       return;
     }
     if (request.method === "GET" && request.url === "/v1/videos/failed-task") {
@@ -132,8 +143,17 @@ async function main() {
     assert.strictEqual(queried.ok, true);
     assert.strictEqual(queried.requestId, requestId);
     assert.strictEqual(queried.status, "succeeded");
-    assert.strictEqual(queried.videoURL, "https://video.invalid/provider-task-001.mp4");
+    assert.ok(queried.videoURL.includes("/videos/provider-task-001.mp4"));
     assert.strictEqual(queryAttempts, 2, "查询接口应允许重试");
+    const materialized = await test.materializeVideoResult(
+      "video-smoke-openid",
+      requestId,
+      created.taskId,
+      queried.videoURL,
+      { requestId, action: "video.smoke" }
+    );
+    assert.ok(materialized.videoFileID.includes("photo-to-video-results"));
+    assert.strictEqual(materialized.videoBytes, Buffer.byteLength("fake-mp4-result"));
 
     const failed = await api.main({
       action: "queryVideoTask",

@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.35.16";
-const API_BUILD_MARKER = "API_BUILD_TAG_20260824_PUBLISH_EXPORT_BACK_BUTTON_V3513";
+const API_BUILD_VERSION = "0.35.18";
+const API_BUILD_MARKER = "API_BUILD_TAG_20260824_DEPLOY_VERIFY_V3518";
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
 const cloud = require("wx-server-sdk");
@@ -9399,6 +9399,14 @@ function normalizedVideoSourceCloudPath(openid, requestId) {
   ].join("/");
 }
 
+function normalizedVideoResultCloudPath(openid, requestId, taskId) {
+  return [
+    "photo-to-video-results",
+    motionPhotoOwnerHash(openid),
+    `${motionPhotoArtifactHash(openid, requestId, taskId, "result")}.mp4`
+  ].join("/");
+}
+
 function androidMotionPhotoFileName(requestId, taskId) {
   return `${motionPhotoArtifactHash(requestId, taskId, "android-motion-photo")}-MP.jpg`;
 }
@@ -9611,6 +9619,20 @@ async function downloadRemoteVideo(url, meta = {}) {
   return response.buffer;
 }
 
+async function materializeVideoResult(openid, requestId, taskId, videoURL, meta = {}) {
+  const videoBuffer = await downloadRemoteVideo(videoURL, Object.assign({}, meta, {
+    action: "video.result-download",
+    fileType: "video-result"
+  }));
+  const cloudPath = normalizedVideoResultCloudPath(openid, requestId, taskId);
+  const videoFileID = await uploadCloudBuffer(cloudPath, videoBuffer);
+  return {
+    videoFileID,
+    videoCloudPath: cloudPath,
+    videoBytes: Buffer.from(videoBuffer).length
+  };
+}
+
 async function createVideoTask(event, context) {
   const configs = await resolveEffectiveConfigs();
   const video = configs.video;
@@ -9809,13 +9831,41 @@ async function queryVideoTask(event, context) {
     }
   }
   if (normalized.status === "succeeded" && operation) {
-    await completeGenerationOperation(openid, requestId, Object.assign({}, normalized, {
+    const storedVideoFileID = String(
+      operation.videoFileID
+      || operation.result && operation.result.videoFileID
+      || operation.result && operation.result.resultFileID
+      || ""
+    ).trim();
+    const materialized = storedVideoFileID
+      ? {
+        videoFileID: storedVideoFileID,
+        videoCloudPath: String(operation.videoCloudPath || "").trim(),
+        videoBytes: Math.max(
+          0,
+          Number(operation.videoBytes || operation.result && operation.result.videoBytes) || 0
+        )
+      }
+      : await materializeVideoResult(
+        openid,
+        requestId,
+        taskId,
+        normalized.videoURL,
+        { requestId, action: "video.query" }
+      );
+    const completedResult = Object.assign({}, normalized, materialized, {
       taskId,
       requestId,
       provider: video.provider
-    }));
+    });
+    await completeGenerationOperation(openid, requestId, completedResult);
+    Object.assign(normalized, materialized);
   }
-  if (normalized.status === "succeeded" && !normalized.videoURL) {
+  if (
+    normalized.status === "succeeded"
+    && !normalized.videoURL
+    && !normalized.videoFileID
+  ) {
     return fail(
       "视频任务已完成，但服务没有返回视频地址。",
       "VIDEO_RESULT_URL_MISSING",
@@ -10395,6 +10445,8 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     videoQueryUrl,
     motionPhotoArtifactHash,
     normalizedVideoSourceCloudPath,
+    normalizedVideoResultCloudPath,
+    materializeVideoResult,
     androidMotionPhotoFileName,
     androidMotionPhotoCloudPath,
     appleLivePhotoFileName,

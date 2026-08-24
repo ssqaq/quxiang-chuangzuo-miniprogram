@@ -246,6 +246,16 @@ node .\scripts\check-deployment.js --strict
 
 不填 `cloudEnvId` 时，普通检查会给出警告；`--strict` 适合正式发布前使用。
 
+不要只看开发者工具弹出的“部署成功”。部署 `api` 时，直接运行下面这个脚本：
+
+```powershell
+PowerShell -NoProfile -ExecutionPolicy Bypass -File .\scripts\deploy-and-verify-api.ps1
+```
+
+它会自动完成“部署云函数 → 调用线上云函数 → 对比本地版本和线上版本/构建标记”。
+只有线上返回完全一致才会显示通过；如果线上还是旧版本，脚本会报错并停止。
+运行前要在微信开发者工具里登录管理员微信，并打开服务端口。
+
 微信开发者工具本机检查：
 
 ```powershell

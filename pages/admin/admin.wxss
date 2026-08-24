@@ -1429,7 +1429,13 @@ page {
 }
 
 .usage-failure-heading {
+  flex: none;
   margin-top: 0;
+  color: #334258;
+  font-size: 20rpx;
+  font-weight: 800;
+  line-height: 30rpx;
+  white-space: nowrap;
 }
 
 .usage-failure-head {
@@ -1439,32 +1445,45 @@ page {
 .usage-failure-actions {
   display: flex;
   min-width: 0;
-  flex: none;
-  margin-right: 12rpx;
+  flex: 1;
   align-items: center;
-  gap: 8rpx;
+  justify-content: flex-end;
+  gap: 6rpx;
 }
 
 .model-failure-month-picker {
   display: inline-flex;
+  min-width: 0;
   min-height: 46rpx;
-  padding: 0 12rpx;
+  max-width: 126rpx;
+  padding: 0 8rpx;
   align-items: center;
   gap: 5rpx;
   border: 1rpx solid #d8e3f3;
   border-radius: 12rpx;
   color: #2f70d4;
   background: #f5f8fd;
-  font-size: 24rpx;
+  overflow: hidden;
+  font-size: 20rpx;
   font-weight: 800;
   line-height: 46rpx;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .model-failure-export-button {
-  width: 176rpx;
-  font-size: 24rpx;
+  flex: 1 1 auto;
+  width: 150rpx;
+  min-width: 0;
+  max-width: 176rpx;
+  font-size: 20rpx;
   font-weight: 800;
+}
+
+.usage-failure-actions .usage-subsection-toggle {
+  min-width: 80rpx;
+  padding: 0 8rpx;
+  font-size: 18rpx;
 }
 
 .usage-failure-summary {
@@ -1479,6 +1498,7 @@ page {
   min-width: 0;
   min-height: 88rpx;
   padding: 14rpx 12rpx;
+  overflow: hidden;
   flex-direction: column;
   align-items: center;
   justify-content: center;
@@ -1505,10 +1525,21 @@ page {
   font-weight: 800;
 }
 
+.usage-failure-summary-item text:last-child {
+  margin-top: 2rpx;
+  color: #718098;
+  font-size: 16rpx;
+  font-weight: 400;
+  line-height: 22rpx;
+}
+
 .usage-failure-summary-model text + text {
+  width: 100%;
+  max-width: 100%;
   color: #526780;
   font-size: 20rpx;
   font-weight: 700;
+  line-height: 28rpx;
 }
 
 .usage-failure-list {

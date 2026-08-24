@@ -891,6 +891,10 @@ page {
   margin-right: -12rpx;
 }
 
+.monitor-deployment-group > .monitor-section-head .monitor-section-toggle-button {
+  margin-right: -12rpx;
+}
+
 .monitor-fold-card.is-collapsed {
   padding-bottom: 0;
 }

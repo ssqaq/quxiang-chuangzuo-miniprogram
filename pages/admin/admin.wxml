@@ -880,50 +880,75 @@
               {{moduleStates.probeHistory.label}}
             </view>
             <button class="usage-refresh-button" bindtap="refreshAutoFaceProbeHistory">刷新</button>
-          </view>
-        </view>
-        <view wx:if="{{moduleStates.probeHistory.status === 'loading'}}" class="usage-message">
-          正在读取探针历史...
-        </view>
-        <view wx:if="{{moduleStates.probeHistory.status === 'failed'}}" class="usage-message is-warn">
-          {{moduleStates.probeHistory.message || '探针历史读取失败，请点击刷新。'}}
-        </view>
-        <view wx:if="{{autoFaceProbeHistory.message}}" class="usage-message {{autoFaceProbeHistory.unavailable ? 'is-warn' : ''}}">
-          {{autoFaceProbeHistory.message}}
-        </view>
-        <view wx:if="{{(moduleStates.probeHistory.status === 'ready' || moduleStates.probeHistory.hasData) && !autoFaceProbeHistory.history.length && !autoFaceProbeHistory.message}}" class="admin-empty">
-          还没有探针历史，点击“立即检查线上部署”生成第一条。
-        </view>
-        <view wx:for="{{autoFaceProbeHistory.history}}" wx:key="checkedAt" class="auto-face-probe-history-row">
-          <view class="auto-face-probe-history-top">
-            <view>
-              <text class="{{item.status === 'ok' ? 'log-ok' : 'log-warn'}}">{{item.statusText}}</text>
-              <text class="auto-face-probe-history-time">{{item.checkedAtText}}</text>
+            <view
+              class="monitor-section-toggle-button"
+              data-deployment-section="probeHistory"
+              catchtap="toggleDeploymentSection"
+              hover-class="control-tap"
+              role="button"
+              aria-label="{{deploymentSections.probeHistory ? '收起探针历史' : '展开探针历史'}}"
+            >
+              <text>{{deploymentSections.probeHistory ? '收起' : '展开'}}</text>
+              <text class="monitor-section-chevron {{deploymentSections.probeHistory ? 'is-open' : ''}}">⌄</text>
             </view>
-            <text class="auto-face-probe-history-duration">{{item.durationText}}</text>
           </view>
-          <view class="auto-face-probe-history-meta">
-            {{item.buildVersion}} · {{item.visionConfigured ? '视觉配置已就绪' : '视觉配置未就绪'}} · {{item.provider}} / {{item.model}}
+        </view>
+        <view wx:if="{{deploymentSections.probeHistory}}" class="monitor-fold-body">
+          <view wx:if="{{moduleStates.probeHistory.status === 'loading'}}" class="usage-message">
+            正在读取探针历史...
           </view>
-          <view class="auto-face-probe-history-meta">{{item.buildMarker}}</view>
-          <view wx:if="{{item.status === 'failed' && item.errorCode}}" class="auto-face-probe-history-error">
-            错误码：{{item.errorCode}}
+          <view wx:if="{{moduleStates.probeHistory.status === 'failed'}}" class="usage-message is-warn">
+            {{moduleStates.probeHistory.message || '探针历史读取失败，请点击刷新。'}}
+          </view>
+          <view wx:if="{{autoFaceProbeHistory.message}}" class="usage-message {{autoFaceProbeHistory.unavailable ? 'is-warn' : ''}}">
+            {{autoFaceProbeHistory.message}}
+          </view>
+          <view wx:if="{{(moduleStates.probeHistory.status === 'ready' || moduleStates.probeHistory.hasData) && !autoFaceProbeHistory.history.length && !autoFaceProbeHistory.message}}" class="admin-empty">
+            还没有探针历史，点击“立即检查线上部署”生成第一条。
+          </view>
+          <view wx:for="{{autoFaceProbeHistory.history}}" wx:key="checkedAt" class="auto-face-probe-history-row">
+            <view class="auto-face-probe-history-top">
+              <view>
+                <text class="{{item.status === 'ok' ? 'log-ok' : 'log-warn'}}">{{item.statusText}}</text>
+                <text class="auto-face-probe-history-time">{{item.checkedAtText}}</text>
+              </view>
+              <text class="auto-face-probe-history-duration">{{item.durationText}}</text>
+            </view>
+            <view class="auto-face-probe-history-meta">
+              {{item.buildVersion}} · {{item.visionConfigured ? '视觉配置已就绪' : '视觉配置未就绪'}} · {{item.provider}} / {{item.model}}
+            </view>
+            <view class="auto-face-probe-history-meta">{{item.buildMarker}}</view>
+            <view wx:if="{{item.status === 'failed' && item.errorCode}}" class="auto-face-probe-history-error">
+              错误码：{{item.errorCode}}
+            </view>
           </view>
         </view>
       </view>
-        <view class="card admin-section deployment-log-card">
-          <view class="admin-section-head">
-            <view>
-              <view class="admin-section-title">部署检查日志</view>
-              <view class="admin-section-help">只记录版本、状态和配置完整性，不记录 Key 和素材。</view>
+      <view class="card admin-section deployment-log-card">
+        <view class="admin-section-head">
+          <view>
+            <view class="admin-section-title">部署检查日志</view>
+            <view class="admin-section-help">只记录版本、状态和配置完整性，不记录 Key 和素材。</view>
+          </view>
+          <view class="admin-section-tools">
+            <view class="config-state {{moduleStates.logs.status === 'failed' ? 'is-off' : 'is-ready'}}">
+              {{moduleStates.logs.label}}
             </view>
-            <view class="admin-section-tools">
-              <view class="config-state {{moduleStates.logs.status === 'failed' ? 'is-off' : 'is-ready'}}">
-                {{moduleStates.logs.label}}
-              </view>
-              <text class="admin-log-count">{{logs.length}} 条</text>
+            <text class="admin-log-count">{{logs.length}} 条</text>
+            <view
+              class="monitor-section-toggle-button"
+              data-deployment-section="logs"
+              catchtap="toggleDeploymentSection"
+              hover-class="control-tap"
+              role="button"
+              aria-label="{{deploymentSections.logs ? '收起部署检查日志' : '展开部署检查日志'}}"
+            >
+              <text>{{deploymentSections.logs ? '收起' : '展开'}}</text>
+              <text class="monitor-section-chevron {{deploymentSections.logs ? 'is-open' : ''}}">⌄</text>
             </view>
           </view>
+        </view>
+        <view wx:if="{{deploymentSections.logs}}" class="monitor-fold-body">
           <view wx:if="{{moduleStates.logs.status === 'loading'}}" class="usage-message">
             正在读取部署日志...
           </view>
@@ -942,7 +967,8 @@
             <view class="admin-log-meta">{{item.faceText}} · {{item.analysisText}} · {{item.imageText}} · {{item.videoText}}</view>
           </view>
         </view>
-        </view>
+      </view>
+      </view>
       </view>
 
       <view id="monitor-section-usage" class="card admin-section usage-section monitor-fold-card {{monitorSections.usage ? 'is-open' : 'is-collapsed'}}">

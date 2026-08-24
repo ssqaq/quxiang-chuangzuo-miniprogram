@@ -1074,6 +1074,12 @@ page {
   justify-content: flex-end;
 }
 
+.auto-face-probe-history-card .admin-section-tools,
+.deployment-log-card .admin-section-tools {
+  width: 100%;
+  justify-content: flex-end;
+}
+
 .admin-section-title {
   color: #1b2638;
   font-size: 30rpx;

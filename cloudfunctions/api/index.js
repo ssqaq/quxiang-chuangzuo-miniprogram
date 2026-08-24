@@ -1,4 +1,4 @@
-const API_BUILD_VERSION = "0.35.14";
+const API_BUILD_VERSION = "0.35.15";
 const API_BUILD_MARKER = "API_BUILD_TAG_20260824_PUBLISH_EXPORT_BACK_BUTTON_V3513";
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
@@ -8148,7 +8148,9 @@ function buildVideoGenerationPayload(payload = {}, imageBuffer, video = resolveV
   const result = {
     model: String(video.model || payload.model),
     prompt,
-    image: toDataUrl(imageBuffer, detectMime(imageBuffer))
+    image: {
+      url: toDataUrl(imageBuffer, detectMime(imageBuffer))
+    }
   };
   const duration = Number(payload.durationSeconds || payload.duration);
   if (Number.isFinite(duration) && duration > 0) {

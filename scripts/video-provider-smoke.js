@@ -56,7 +56,8 @@ async function main() {
       assert.strictEqual(body.model, "grok-smoke-model");
       assert.strictEqual(body.resolution, "720p");
       assert.ok(body.prompt.includes("本地协议测试"));
-      assert.ok(/^data:image\/jpeg;base64,/.test(body.image));
+      assert.ok(body.image && typeof body.image === "object");
+      assert.ok(/^data:image\/jpeg;base64,/.test(body.image.url));
       sendJson(response, 200, { request_id: "provider-task-001" });
       return;
     }

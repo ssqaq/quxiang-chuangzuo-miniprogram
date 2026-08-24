@@ -103,6 +103,10 @@ const MONITOR_SECTION_KEYS = Object.freeze([
   "diagnosticLogs",
   "deployment"
 ]);
+const DEPLOYMENT_SECTION_KEYS = Object.freeze([
+  "probeHistory",
+  "logs"
+]);
 const USAGE_SECTION_KEYS = Object.freeze([
   "failure",
   "daily",
@@ -136,6 +140,13 @@ function defaultAutoFaceFailureSections() {
     daily: true,
     users: false,
     monthly: false
+  };
+}
+
+function defaultDeploymentSections() {
+  return {
+    probeHistory: false,
+    logs: false
   };
 }
 
@@ -1900,6 +1911,7 @@ Page({
     },
     usageSections: defaultUsageSections(),
     autoFaceFailureSections: defaultAutoFaceFailureSections(),
+    deploymentSections: defaultDeploymentSections(),
     monitorOnlyAbnormal: false
   },
 
@@ -3026,6 +3038,9 @@ Page({
     AUTO_FACE_FAILURE_SECTION_KEYS.forEach((section) => {
       patch[`autoFaceFailureSections.${section}`] = expanded;
     });
+    DEPLOYMENT_SECTION_KEYS.forEach((section) => {
+      patch[`deploymentSections.${section}`] = expanded;
+    });
     this.setData(patch, () => this.persistMonitorLayout());
   },
 
@@ -3039,6 +3054,7 @@ Page({
     const storedMonitorSections = stored.monitorSections || {};
     const storedUsageSections = stored.usageSections || {};
     const storedAutoFaceFailureSections = stored.autoFaceFailureSections || {};
+    const storedDeploymentSections = stored.deploymentSections || {};
     const monitorSections = {};
     MONITOR_SECTION_KEYS.forEach((section) => {
       monitorSections[section] = typeof storedMonitorSections[section] === "boolean"
@@ -3057,6 +3073,12 @@ Page({
         ? storedAutoFaceFailureSections[section]
         : Boolean(this.data.autoFaceFailureSections[section]);
     });
+    const deploymentSections = {};
+    DEPLOYMENT_SECTION_KEYS.forEach((section) => {
+      deploymentSections[section] = typeof storedDeploymentSections[section] === "boolean"
+        ? storedDeploymentSections[section]
+        : Boolean(this.data.deploymentSections[section]);
+    });
     this.setData({
       monitorExpanded: typeof stored.monitorExpanded === "boolean"
         ? stored.monitorExpanded
@@ -3064,6 +3086,7 @@ Page({
       monitorSections,
       usageSections,
       autoFaceFailureSections,
+      deploymentSections,
       monitorOnlyAbnormal: Boolean(stored.monitorOnlyAbnormal)
     });
   },
@@ -3109,6 +3132,7 @@ Page({
         monitorSections: Object.assign({}, this.data.monitorSections),
         usageSections: Object.assign({}, this.data.usageSections),
         autoFaceFailureSections: Object.assign({}, this.data.autoFaceFailureSections),
+        deploymentSections: Object.assign({}, this.data.deploymentSections),
         monitorOnlyAbnormal: Boolean(this.data.monitorOnlyAbnormal)
       });
     } catch (error) {
@@ -3137,6 +3161,18 @@ Page({
     if (!AUTO_FACE_FAILURE_SECTION_KEYS.includes(section)) return;
     this.setData({
       [`autoFaceFailureSections.${section}`]: !this.data.autoFaceFailureSections[section]
+    }, () => this.persistMonitorLayout());
+  },
+
+  toggleDeploymentSection(event) {
+    const section = String(
+      event && event.currentTarget && event.currentTarget.dataset
+        ? event.currentTarget.dataset.deploymentSection
+        : ""
+    );
+    if (!DEPLOYMENT_SECTION_KEYS.includes(section)) return;
+    this.setData({
+      [`deploymentSections.${section}`]: !this.data.deploymentSections[section]
     }, () => this.persistMonitorLayout());
   },
 

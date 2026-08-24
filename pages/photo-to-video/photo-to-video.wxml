@@ -134,7 +134,6 @@
   </view>
 
   <view wx:if="{{records.length}}" class="card convert-action-card">
-    <view class="selection-summary">每张照片独立处理，某一张失败不会拖垮整批。</view>
     <button
       class="primary-btn export-button"
       loading="{{processing}}"

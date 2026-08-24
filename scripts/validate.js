@@ -30,6 +30,7 @@ const jsFiles = [
   "utils/mask.js",
   "utils/repair.js",
   "utils/image.js",
+  "utils/publish-export-core.js",
   "utils/canvas-gesture.js",
   "utils/circle-gesture.js",
   "utils/publish-export.js",
@@ -52,6 +53,7 @@ const jsFiles = [
   "cloudfunctions/api/lib/retry.js",
   "cloudfunctions/api/lib/multipart.js",
   "cloudfunctions/api/lib/web-pose.js",
+  "cloudfunctions/api/lib/publish-export-core.js",
   "scripts/check-deployment.js",
   "scripts/compat-smoke.js",
   "scripts/ai-provider-smoke.js",
@@ -83,7 +85,9 @@ const jsFiles = [
   "scripts/auto-face-failure-stats-smoke.js",
   "scripts/photo-to-video-cleanup-smoke.js",
   "scripts/photo-to-video-session-smoke.js",
-  "scripts/auto-face-probe-history-smoke.js"
+  "scripts/auto-face-probe-history-smoke.js",
+  "scripts/publish-export-advanced-smoke.js",
+  "scripts/publish-export-cloud-smoke.js"
 ];
 const pythonFiles = ["scripts/package-release.py"];
 const powerShellFiles = [
@@ -187,6 +191,9 @@ const required = [
   "pages/index/index.wxss",
   "utils/canvas-gesture.js",
   "utils/circle-gesture.js",
+  "utils/publish-export-core.js",
+  "workers/publish-export-worker.js",
+  "cloudfunctions/api/lib/publish-export-core.js",
   "scripts/canvas-gesture-smoke.js",
   "scripts/circle-gesture-smoke.js",
   "scripts/auto-face-fallback-smoke.js",
@@ -200,7 +207,9 @@ const required = [
   "cloudfunctions/api/config.json",
   "scripts/photo-to-video-cleanup-smoke.js",
   "scripts/photo-to-video-session-smoke.js",
-  "scripts/auto-face-probe-history-smoke.js"
+  "scripts/auto-face-probe-history-smoke.js",
+  "scripts/publish-export-advanced-smoke.js",
+  "scripts/publish-export-cloud-smoke.js"
 ];
 for (const relative of required) {
   if (!fs.existsSync(path.join(root, relative))) {
@@ -252,6 +261,18 @@ const publishExportWxss = fs.readFileSync(
 );
 const publishExportUtil = fs.readFileSync(
   path.join(root, "utils/publish-export.js"),
+  "utf8"
+);
+const publishExportCoreJs = fs.readFileSync(
+  path.join(root, "utils/publish-export-core.js"),
+  "utf8"
+);
+const publishExportWorkerJs = fs.readFileSync(
+  path.join(root, "workers/publish-export-worker.js"),
+  "utf8"
+);
+const cloudPublishExportCoreJs = fs.readFileSync(
+  path.join(root, "cloudfunctions/api/lib/publish-export-core.js"),
   "utf8"
 );
 const photoToVideoJs = fs.readFileSync(

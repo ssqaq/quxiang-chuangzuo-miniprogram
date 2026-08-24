@@ -364,7 +364,13 @@ Page({
       if (!result || !result.fileID) {
         throw new Error("云端处理完成但没有返回结果文件。");
       }
-      return cloud.downloadFile(result.fileID);
+      const downloaded = await cloud.downloadFile(result.fileID);
+      try {
+        await cloud.deleteFile(result.fileID);
+      } catch (cleanupError) {
+        console.warn("[publish-export] 云端结果临时文件清理失败", cleanupError);
+      }
+      return downloaded;
     } catch (error) {
       if (uploaded && uploaded.fileID) {
         try {
@@ -406,10 +412,12 @@ Page({
           progressText: `正在处理第 ${index + 1} / ${records.length} 张：${record.projectName}`
         });
 
+        let decision = null;
+        let sourcePath = "";
         try {
-          const sourcePath = await publishExport.resolveImageSource(record);
+          sourcePath = await publishExport.resolveImageSource(record);
           const imageInfo = await publishExport.getImageInfo(sourcePath);
-          const decision = publishExport.getProcessingDecision(
+          decision = publishExport.getProcessingDecision(
             imageInfo.width,
             imageInfo.height,
             exportOptions,
@@ -472,6 +480,39 @@ Page({
             mode: decision.mode
           });
         } catch (error) {
+          if (
+            decision
+            && decision.mode !== "cloud"
+            && !/取消了云端处理/.test(String(error && error.message || error))
+          ) {
+            try {
+              const confirmed = await this.confirmCloudExport(
+                "手机本地处理失败，可以改用云端继续。"
+              );
+              if (confirmed) {
+                this.setData({
+                  progressText: `本地处理失败，正在云端处理第 ${index + 1} / ${records.length} 张...`
+                });
+                const cloudTempFilePath = await this.cloudExportRecord(
+                  record,
+                  sourcePath,
+                  exportOptions
+                );
+                await publishExport.saveToAlbum(cloudTempFilePath);
+                successCount += 1;
+                diagnosticLog.info("export", "item-cloud-fallback-success", "本地失败后云端导出完成", {
+                  recordId: record.id,
+                  projectName: record.projectName,
+                  format: exportOptions.format,
+                  outputSize: decision.output
+                });
+                continue;
+              }
+              error = new Error("你取消了云端处理。");
+            } catch (cloudError) {
+              error = cloudError;
+            }
+          }
           console.warn("[publish-export] 单张导出失败", record.id, error);
           diagnosticLog.error("export", "item-failed", "单张图片导出失败", {
             recordId: record.id,

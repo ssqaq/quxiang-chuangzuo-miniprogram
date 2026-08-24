@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.32.2";
-const API_BUILD_MARKER = "API_BUILD_TAG_20260824_ADMIN_USER_FILTER_DETAIL_V322";
+const API_BUILD_VERSION = "0.32.3";
+const API_BUILD_MARKER = "API_BUILD_TAG_20260824_ADMIN_USER_FILTER_DETAIL_V323";
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
 const cloud = require("wx-server-sdk");
@@ -11,8 +11,10 @@ cloud.init({
 const https = require("https");
 const http = require("http");
 const crypto = require("crypto");
+const jpeg = require("jpeg-js");
 const { PNG } = require("pngjs");
 const XLSX = require("xlsx");
+const publishExportCore = require("./lib/publish-export-core");
 
 // CloudBase 某些部署实例会丢失自定义相对模块，入口必须可以单文件启动。
 const DEFAULT_RETRY_STATUSES = new Set([408, 409, 425, 429, 500, 502, 503, 504]);
@@ -77,6 +79,12 @@ const USER_DIAGNOSTIC_LOG_BATCH_SIZE = 20;
 const USER_DIAGNOSTIC_LOG_CLEANUP_BATCH_SIZE = 100;
 const USER_DIAGNOSTIC_LOG_MAX_READ = 5000;
 const USER_DIAGNOSTIC_LEVELS = new Set(["info", "warn", "error"]);
+const PUBLISH_EXPORT_JOB_COLLECTION = "publish_export_jobs";
+const PUBLISH_EXPORT_PROCESSING_TIMEOUT_MS = 90 * 1000;
+const PUBLISH_EXPORT_JOB_TTL_MS = 24 * 60 * 60 * 1000;
+const PUBLISH_EXPORT_CLEANUP_BATCH_SIZE = 50;
+const PUBLISH_EXPORT_MAX_INPUT_BYTES = 64 * 1024 * 1024;
+const PUBLISH_EXPORT_MAX_SOURCE_PIXELS = 100 * 1000 * 1000;
 const USER_DIAGNOSTIC_CATEGORY_LABELS = Object.freeze({
   app: "应用启动",
   navigation: "页面操作",
@@ -133,6 +141,7 @@ const REQUIRED_DATABASE_COLLECTIONS = Object.freeze([
   MODEL_USAGE_EVENT_COLLECTION,
   PHOTO_TO_VIDEO_TEMP_ASSET_COLLECTION,
   POINTS_LEDGER_COLLECTION,
+  PUBLISH_EXPORT_JOB_COLLECTION,
   REPAIR_CHAIN_COLLECTION,
   POINTS_ACCOUNT_COLLECTION,
   USER_PROFILE_COLLECTION,
@@ -5323,7 +5332,7 @@ async function registerAsset(event, context) {
       kind,
       cloudPath: ticket.cloudPath,
       refCount: Math.max(0, Number(existing && existing.refCount) || 0),
-      temporary: false,
+      temporary: Boolean(event.temporary),
       createdAt: existing && existing.createdAt || new Date(),
       updatedAt: new Date()
     });
@@ -5357,6 +5366,503 @@ async function findUserAsset(openid, fileID, kind, store = db) {
     throw error;
   }
   return asset;
+}
+
+function publishExportJobId(openid, fileID, recordId, options) {
+  return crypto.createHash("sha256")
+    .update([
+      "publish-export",
+      String(openid || ""),
+      String(fileID || ""),
+      String(recordId || ""),
+      publishExportCore.optionsHashPayload(options)
+    ].join(":"))
+    .digest("hex")
+    .slice(0, 32);
+}
+
+function publishExportDate(value, fallback = null) {
+  if (value instanceof Date && Number.isFinite(value.getTime())) return value;
+  const date = value ? new Date(value) : null;
+  return date && Number.isFinite(date.getTime()) ? date : fallback;
+}
+
+function publishExportError(message, code, retryable = false) {
+  const error = new Error(message);
+  error.code = code;
+  error.retryable = retryable;
+  if (retryable) error.status = 409;
+  return error;
+}
+
+async function resolvePublishExportSource(event, context) {
+  const openid = getOpenId(context);
+  if (openid === "anonymous") {
+    throw publishExportError("请先完成微信授权后再导出图片。", "wechat-binding-required");
+  }
+  const recordId = String(event && event.recordId || "").trim();
+  let fileID = String(event && event.fileID || "").trim();
+  let record = null;
+
+  if (recordId) {
+    record = await readGenerationRecord(recordId);
+    if (!record || record.openid !== openid) {
+      throw publishExportError("找不到这条制作记录，或记录不属于当前用户。", "publish-export-record-forbidden");
+    }
+    if (record.isTombstone) {
+      throw publishExportError("这条制作记录已经删除，不能继续导出。", "publish-export-record-deleted");
+    }
+    const recordFileID = String(record.fileID || "").trim();
+    if (!recordFileID) {
+      throw publishExportError("这条制作记录没有可导出的原图。", "publish-export-source-missing");
+    }
+    if (fileID && fileID !== recordFileID) {
+      throw publishExportError("导出文件与制作记录不匹配。", "publish-export-file-mismatch");
+    }
+    fileID = recordFileID;
+  } else {
+    if (!/^cloud:\/\//i.test(fileID)) {
+      throw publishExportError("临时导出文件必须是 cloud:// fileID。", "publish-export-file-invalid");
+    }
+    await findUserAsset(openid, fileID, "");
+  }
+
+  if (!/^cloud:\/\//i.test(fileID)) {
+    throw publishExportError("导出源文件不是有效的云文件。", "publish-export-file-invalid");
+  }
+  if (event && event.temporaryInput && recordId) {
+    throw publishExportError("制作记录不能标记为临时上传文件。", "publish-export-temporary-mismatch");
+  }
+  return {
+    openid,
+    recordId,
+    fileID,
+    record,
+    temporaryInput: Boolean(event && event.temporaryInput) && !recordId
+  };
+}
+
+function readJpegOrientation(buffer) {
+  const source = Buffer.from(buffer || []);
+  if (source.length < 4 || source[0] !== 0xff || source[1] !== 0xd8) return 1;
+  let offset = 2;
+  while (offset + 4 <= source.length) {
+    if (source[offset] !== 0xff) {
+      offset += 1;
+      continue;
+    }
+    const marker = source[offset + 1];
+    if (marker === 0xda || marker === 0xd9) break;
+    const length = source.readUInt16BE(offset + 2);
+    if (length < 2 || offset + 2 + length > source.length) break;
+    if (marker === 0xe1 && length >= 8) {
+      const exifStart = offset + 4;
+      if (source.toString("ascii", exifStart, exifStart + 6) !== "Exif\u0000\u0000") {
+        offset += 2 + length;
+        continue;
+      }
+      const tiff = exifStart + 6;
+      const littleEndian = source.toString("ascii", tiff, tiff + 2) === "II";
+      const read16 = (position) => littleEndian
+        ? source.readUInt16LE(position)
+        : source.readUInt16BE(position);
+      const read32 = (position) => littleEndian
+        ? source.readUInt32LE(position)
+        : source.readUInt32BE(position);
+      if (read16(tiff + 2) !== 42) return 1;
+      const ifdOffset = read32(tiff + 4);
+      const ifd = tiff + ifdOffset;
+      if (ifd + 2 > source.length) return 1;
+      const count = Math.min(read16(ifd), 256);
+      for (let index = 0; index < count; index += 1) {
+        const entry = ifd + 2 + index * 12;
+        if (entry + 12 > source.length) break;
+        if (read16(entry) !== 0x0112) continue;
+        const type = read16(entry + 2);
+        const items = read32(entry + 4);
+        if (type === 3 && items >= 1) {
+          return Math.max(1, Math.min(8, read16(entry + 8)));
+        }
+        if (type === 4 && items >= 1) {
+          return Math.max(1, Math.min(8, read32(entry + 8)));
+        }
+      }
+    }
+    offset += 2 + length;
+  }
+  return 1;
+}
+
+function orientPublishRgba(data, width, height, orientation) {
+  const value = Math.max(1, Math.min(8, Number(orientation) || 1));
+  if (value === 1) {
+    return {
+      data: data instanceof Uint8ClampedArray
+        ? new Uint8ClampedArray(data)
+        : new Uint8ClampedArray(data || []),
+      width,
+      height
+    };
+  }
+  const swapped = value >= 5;
+  const outputWidth = swapped ? height : width;
+  const outputHeight = swapped ? width : height;
+  const output = new Uint8ClampedArray(outputWidth * outputHeight * 4);
+  for (let y = 0; y < outputHeight; y += 1) {
+    for (let x = 0; x < outputWidth; x += 1) {
+      let sourceX = x;
+      let sourceY = y;
+      if (value === 2) {
+        sourceX = width - 1 - x;
+      } else if (value === 3) {
+        sourceX = width - 1 - x;
+        sourceY = height - 1 - y;
+      } else if (value === 4) {
+        sourceY = height - 1 - y;
+      } else if (value === 5) {
+        sourceX = y;
+        sourceY = x;
+      } else if (value === 6) {
+        sourceX = y;
+        sourceY = height - 1 - x;
+      } else if (value === 7) {
+        sourceX = width - 1 - y;
+        sourceY = height - 1 - x;
+      } else if (value === 8) {
+        sourceX = width - 1 - y;
+        sourceY = x;
+      }
+      const sourceIndex = (sourceY * width + sourceX) * 4;
+      const targetIndex = (y * outputWidth + x) * 4;
+      output[targetIndex] = data[sourceIndex];
+      output[targetIndex + 1] = data[sourceIndex + 1];
+      output[targetIndex + 2] = data[sourceIndex + 2];
+      output[targetIndex + 3] = data[sourceIndex + 3];
+    }
+  }
+  return {
+    data: output,
+    width: outputWidth,
+    height: outputHeight
+  };
+}
+
+function decodePublishExport(buffer) {
+  const source = Buffer.from(buffer || []);
+  if (!source.length) {
+    throw publishExportError("云端下载到的原图为空。", "publish-export-source-empty");
+  }
+  if (source.length > PUBLISH_EXPORT_MAX_INPUT_BYTES) {
+    throw publishExportError("原图文件过大，暂时无法云端处理。", "publish-export-source-too-large");
+  }
+  if (source[0] === 0xff && source[1] === 0xd8) {
+    const decoded = jpeg.decode(source, {
+      useTArray: true,
+      formatAsRGBA: true
+    });
+    const oriented = orientPublishRgba(
+      new Uint8ClampedArray(decoded.data),
+      Number(decoded.width) || 1,
+      Number(decoded.height) || 1,
+      readJpegOrientation(source)
+    );
+    if (oriented.width * oriented.height > PUBLISH_EXPORT_MAX_SOURCE_PIXELS) {
+      throw publishExportError("原图像素过大，暂时无法云端处理。", "publish-export-source-too-large");
+    }
+    return Object.assign(oriented, { mime: "image/jpeg" });
+  }
+  if (
+    source.length >= 8
+    && source[0] === 0x89
+    && source[1] === 0x50
+    && source[2] === 0x4e
+    && source[3] === 0x47
+  ) {
+    const decoded = PNG.sync.read(source);
+    const oriented = orientPublishRgba(
+      new Uint8ClampedArray(decoded.data),
+      Number(decoded.width) || 1,
+      Number(decoded.height) || 1,
+      1
+    );
+    if (oriented.width * oriented.height > PUBLISH_EXPORT_MAX_SOURCE_PIXELS) {
+      throw publishExportError("原图像素过大，暂时无法云端处理。", "publish-export-source-too-large");
+    }
+    return Object.assign(oriented, { mime: "image/png" });
+  }
+  throw publishExportError(
+    "云端暂时只支持 JPG 或 PNG 原图。",
+    "publish-export-format-unsupported"
+  );
+}
+
+function encodePublishExport(data, width, height, options) {
+  const normalized = publishExportCore.normalizeOptions(options);
+  if (normalized.format === "png") {
+    const png = new PNG({ width, height });
+    png.data = Buffer.from(data);
+    return {
+      buffer: PNG.sync.write(png),
+      mime: "image/png",
+      extension: "png"
+    };
+  }
+  const encoded = jpeg.encode({
+    data: Buffer.from(data),
+    width,
+    height
+  }, normalized.quality);
+  return {
+    buffer: Buffer.from(encoded.data),
+    mime: "image/jpeg",
+    extension: "jpg"
+  };
+}
+
+async function claimPublishExportJob(openid, jobId, source, options, requestId) {
+  const now = new Date();
+  return db.runTransaction(async (transaction) => {
+    const ref = transaction.collection(PUBLISH_EXPORT_JOB_COLLECTION).doc(jobId);
+    const previous = await readDocument(ref);
+    const previousUpdatedAt = publishExportDate(previous && previous.updatedAt, null);
+    if (previous && previous.status === "done" && previous.outputFileID) {
+      return { state: "done", job: previous };
+    }
+    if (
+      previous
+      && previous.status === "processing"
+      && previousUpdatedAt
+      && now.getTime() - previousUpdatedAt.getTime() < PUBLISH_EXPORT_PROCESSING_TIMEOUT_MS
+    ) {
+      return { state: "processing", job: previous };
+    }
+    const next = Object.assign({}, previous || {}, {
+      _id: jobId,
+      openid,
+      inputFileID: source.fileID,
+      recordId: source.recordId,
+      temporaryInput: source.temporaryInput,
+      options,
+      status: "processing",
+      attempt: Math.max(0, Number(previous && previous.attempt) || 0) + 1,
+      requestId,
+      createdAt: previous && previous.createdAt || now,
+      updatedAt: now,
+      expiresAt: new Date(now.getTime() + PUBLISH_EXPORT_JOB_TTL_MS),
+      outputFileID: "",
+      outputMime: "",
+      outputWidth: 0,
+      outputHeight: 0,
+      processingInfo: null,
+      lastError: ""
+    });
+    await ref.set({ data: stripDocumentId(next) });
+    return { state: "claimed", job: next };
+  }, 5);
+}
+
+async function updatePublishExportJob(jobId, patch) {
+  await db.collection(PUBLISH_EXPORT_JOB_COLLECTION).doc(jobId).update({
+    data: Object.assign({}, patch, { updatedAt: new Date() })
+  });
+}
+
+async function deleteCloudFileQuiet(fileID, requestId, reason) {
+  if (!fileID) return;
+  try {
+    await cloud.deleteFile({ fileList: [fileID] });
+  } catch (error) {
+    log("warn", "publish-export.file-cleanup-failed", {
+      requestId,
+      fileID,
+      reason,
+      message: error && error.message ? error.message : String(error)
+    });
+  }
+}
+
+async function publishExport(event, context) {
+  const source = await resolvePublishExportSource(event, context);
+  const options = publishExportCore.normalizeOptions(event && event.options);
+  const jobId = publishExportJobId(
+    source.openid,
+    source.fileID,
+    source.recordId,
+    options
+  );
+  const requestId = String(event && event.requestId || createRequestId("publish-export"));
+  const claim = await claimPublishExportJob(
+    source.openid,
+    jobId,
+    source,
+    options,
+    requestId
+  );
+  if (claim.state === "done") {
+    return jsonResponse(true, {
+      jobId,
+      fileID: claim.job.outputFileID,
+      width: claim.job.outputWidth,
+      height: claim.job.outputHeight,
+      format: options.format,
+      processingInfo: claim.job.processingInfo || {},
+      deduplicated: true
+    });
+  }
+  if (claim.state === "processing") {
+    throw publishExportError("这张图片正在云端处理，请稍后重试。", "PUBLISH_EXPORT_PROCESSING", true);
+  }
+
+  let outputFileID = "";
+  try {
+    const inputBuffer = await downloadCloudFile(source.fileID, {
+      requestId,
+      action: "publishExport",
+      fileType: "publish-export-source"
+    });
+    const decoded = decodePublishExport(inputBuffer);
+    const outputSize = publishExportCore.getOutputSize(
+      decoded.width,
+      decoded.height,
+      options.maxLongEdge
+    );
+    const resized = decoded.width === outputSize.width && decoded.height === outputSize.height
+      ? decoded.data
+      : publishExportCore.resizeRgba(
+        decoded.data,
+        decoded.width,
+        decoded.height,
+        outputSize.width,
+        outputSize.height
+      );
+    const processed = publishExportCore.processRgba({
+      data: resized,
+      width: outputSize.width,
+      height: outputSize.height,
+      options,
+      seed: `${jobId}:${options.format}`
+    });
+    const encoded = encodePublishExport(
+      processed,
+      outputSize.width,
+      outputSize.height,
+      options
+    );
+    const uploaded = await cloud.uploadFile({
+      cloudPath: `publish-exports/${usageUserHash(source.openid)}/${jobId}.${encoded.extension}`,
+      fileContent: encoded.buffer
+    });
+    outputFileID = uploaded && uploaded.fileID || "";
+    if (!outputFileID) {
+      throw new Error("云端编码完成但没有返回结果文件。");
+    }
+    const processingInfo = {
+      algorithm: "publish-export-core",
+      sourceMime: decoded.mime,
+      outputMime: encoded.mime,
+      sourceWidth: decoded.width,
+      sourceHeight: decoded.height,
+      outputWidth: outputSize.width,
+      outputHeight: outputSize.height,
+      alphaPreserved: options.format === "png",
+      options
+    };
+    await updatePublishExportJob(jobId, {
+      status: "done",
+      outputFileID,
+      outputMime: encoded.mime,
+      outputWidth: outputSize.width,
+      outputHeight: outputSize.height,
+      processingInfo,
+      finishedAt: new Date(),
+      lastError: ""
+    });
+    if (source.temporaryInput) {
+      await deleteCloudFileQuiet(source.fileID, requestId, "temporary-input-success");
+    }
+    log("info", "publish-export.finish", {
+      requestId,
+      jobId,
+      inputFileID: source.fileID,
+      outputFileID,
+      width: outputSize.width,
+      height: outputSize.height,
+      format: options.format
+    });
+    return jsonResponse(true, {
+      jobId,
+      fileID: outputFileID,
+      width: outputSize.width,
+      height: outputSize.height,
+      format: options.format,
+      processingInfo
+    });
+  } catch (error) {
+    if (outputFileID) {
+      await deleteCloudFileQuiet(outputFileID, requestId, "publish-export-failed");
+    }
+    try {
+      await updatePublishExportJob(jobId, {
+        status: "failed",
+        lastError: String(error && error.message || error),
+        failedAt: new Date()
+      });
+    } catch (updateError) {
+      log("warn", "publish-export.job-update-failed", {
+        requestId,
+        jobId,
+        message: updateError && updateError.message
+      });
+    }
+    if (source.temporaryInput) {
+      await deleteCloudFileQuiet(source.fileID, requestId, "temporary-input-failed");
+    }
+    throw error;
+  }
+}
+
+async function cleanupPublishExportJobs(baseDate = new Date()) {
+  const now = baseDate instanceof Date ? baseDate : new Date(baseDate);
+  try {
+    const result = await db.collection(PUBLISH_EXPORT_JOB_COLLECTION)
+      .where({ expiresAt: db.command.lte(now) })
+      .limit(PUBLISH_EXPORT_CLEANUP_BATCH_SIZE)
+      .get();
+    const rows = result && Array.isArray(result.data) ? result.data : [];
+    let removed = 0;
+    let failed = 0;
+    for (const row of rows) {
+      try {
+        if (row.outputFileID) {
+          await deleteCloudFileQuiet(row.outputFileID, "", "publish-export-job-expired");
+        }
+        if (row.temporaryInput && row.inputFileID) {
+          await deleteCloudFileQuiet(row.inputFileID, "", "publish-export-input-expired");
+        }
+        if (row._id) {
+          await db.collection(PUBLISH_EXPORT_JOB_COLLECTION).doc(row._id).remove();
+        }
+        removed += 1;
+      } catch (error) {
+        failed += 1;
+        log("warn", "publish-export.cleanup-failed", {
+          jobId: row && row._id,
+          message: error && error.message
+        });
+      }
+    }
+    return {
+      scanned: rows.length,
+      removed,
+      failed,
+      truncated: rows.length >= PUBLISH_EXPORT_CLEANUP_BATCH_SIZE
+    };
+  } catch (error) {
+    if (isCollectionMissingError(error)) {
+      return { scanned: 0, removed: 0, failed: 0, skipped: true };
+    }
+    throw error;
+  }
 }
 
 async function getMyUserProfile(context) {
@@ -7457,11 +7963,12 @@ exports.main = async (event = {}, context) => {
     let result;
     if (isPhotoToVideoCleanupTrigger(requestEvent)) {
       const cleanupDate = new Date();
-      const [photoToVideo, diagnosticLogs] = await Promise.all([
+      const [photoToVideo, diagnosticLogs, publishExportJobs] = await Promise.all([
         cleanupPhotoToVideoTempAssets(cleanupDate),
-        cleanupDiagnosticLogs(cleanupDate)
+        cleanupDiagnosticLogs(cleanupDate),
+        cleanupPublishExportJobs(cleanupDate)
       ]);
-      result = jsonResponse(true, { photoToVideo, diagnosticLogs });
+      result = jsonResponse(true, { photoToVideo, diagnosticLogs, publishExportJobs });
     } else if (action === "analyze") result = await analyze(requestEvent, context);
     else if (action === "detectFaceCircle") result = await detectFaceCircle(requestEvent, context);
     else if (action === "probeAutoFace") result = await probeAutoFace(requestEvent, context);
@@ -7471,6 +7978,7 @@ exports.main = async (event = {}, context) => {
     else if (action === "analyzeWebPoses") result = await analyzeWebPoses(requestEvent, context);
     else if (action === "prepareAssetUpload") result = await prepareAssetUpload(requestEvent, context);
     else if (action === "registerAsset") result = await registerAsset(requestEvent, context);
+    else if (action === "publishExport") result = await publishExport(requestEvent, context);
     else if (action === "generate") result = await generate(requestEvent, context);
     else if (action === "repairImage") result = await repairImage(requestEvent, context);
     else if (action === "getMyUserProfile") result = await getMyUserProfile(context);
@@ -7567,6 +8075,14 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     buildRepairChainId: repairChainId,
     normalizeAssetKind,
     assetPathMatches,
+    publishExportJobId,
+    decodePublishExport,
+    encodePublishExport,
+    orientPublishRgba,
+    readJpegOrientation,
+    publishExportCore,
+    cleanupPublishExportJobs,
+    publishExport,
     extractImageItem,
     detectMime,
     invertMask,

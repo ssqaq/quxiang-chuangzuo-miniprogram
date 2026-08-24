@@ -130,6 +130,10 @@ assert.strictEqual(stats.monthly[0].total, 30, "当月失败数量统计不正�
 assert.strictEqual(stats.users.length, 1, "按用户统计数量不正确");
 assert.strictEqual(stats.users[0].userHash, "anonymous", "匿名用户统计不正确");
 assert.strictEqual(stats.users[0].total, 31, "用户失败数量统计不正确");
+assert.strictEqual(stats.details.length, 31, "失败明细数量不正确");
+assert.ok(stats.details.every((item) => item.userHash), "失败明细缺少脱敏用户编号");
+assert.ok(stats.details.every((item) => !Object.prototype.hasOwnProperty.call(item, "prompt")));
+assert.ok(stats.details.some((item) => item.monthKey === "2026-08"), "失败明细缺少月份字段");
 assert.strictEqual(stats.probeSummary.total, 30, "探针统计总数不正确");
 assert.ok(stats.probeSummary.ok > 0, "探针正常次数统计不正确");
 assert.ok(stats.probeSummary.failed > 0, "探针失败次数统计不正确");
@@ -177,6 +181,7 @@ async function main() {
   assert.ok(Array.isArray(adminStats.daily));
   assert.ok(Array.isArray(adminStats.monthly));
   assert.ok(Array.isArray(adminStats.users));
+  assert.ok(Array.isArray(adminStats.details));
 
   console.log("auto face failure stats smoke: OK");
   console.log(JSON.stringify({

@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.35.4";
-const API_BUILD_MARKER = "API_BUILD_TAG_20260824_DATABASE_INDEX_CHECK_V354";
+const API_BUILD_VERSION = "0.35.5";
+const API_BUILD_MARKER = "API_BUILD_TAG_20260824_AUTO_FACE_FAILURE_CONTROLS_V355";
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
 const cloud = require("wx-server-sdk");
@@ -9177,3 +9177,5 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     getAdminRuntimeCache: () => adminRuntimeCache
   };
 }
+
+

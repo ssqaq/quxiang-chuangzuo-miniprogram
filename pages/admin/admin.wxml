@@ -1288,7 +1288,7 @@
         <view class="admin-section-head">
           <view>
             <view class="admin-section-title">自动贴脸失败统计</view>
-            <view class="admin-section-help">最近 90 天的失败数量、探针结果和脱敏原因。每 10 分钟自动刷新，最近更新 {{moduleStates.autoFaceFailure.updatedAtText}}</view>
+            <view class="admin-section-help">最近 90 天的失败数量（最近 30 天可看每日明细）、探针结果和脱敏原因。每 10 分钟自动刷新，最近更新 {{moduleStates.autoFaceFailure.updatedAtText}}</view>
           </view>
           <view class="admin-section-tools">
             <view class="config-state {{moduleStates.autoFaceFailure.status === 'failed' ? 'is-off' : 'is-ready'}}">

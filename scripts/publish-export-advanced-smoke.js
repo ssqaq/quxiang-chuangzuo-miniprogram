@@ -187,6 +187,23 @@ assert.ok(
     && !/\.scheme6-actions\s*\{[^}]*position\s*:\s*fixed/i.test(pageWxss),
   "方案6底部操作栏没有改成跟随页面滚动。"
 );
+const scheme6ExportButtonStyle = pageWxss.match(
+  /\.scheme6-actions\s+\.scheme6-export-button\s*\{([^}]*)\}/
+);
+const scheme6BackButtonStyle = pageWxss.match(
+  /\.scheme6-actions\s+\.scheme6-back-button\s*\{([^}]*)\}/
+);
+assert.ok(
+  scheme6ExportButtonStyle
+    && scheme6BackButtonStyle
+    && /height:\s*82rpx/.test(scheme6ExportButtonStyle[1])
+    && /min-height:\s*82rpx/.test(scheme6ExportButtonStyle[1])
+    && /line-height:\s*82rpx/.test(scheme6ExportButtonStyle[1])
+    && /height:\s*82rpx/.test(scheme6BackButtonStyle[1])
+    && /min-height:\s*82rpx/.test(scheme6BackButtonStyle[1])
+    && /line-height:\s*82rpx/.test(scheme6BackButtonStyle[1]),
+  "返回工作台按钮没有和导出按钮使用相同高度。"
+);
 assert.ok(
   !pageWxml.includes("高级处理后再导出照片"),
   "页面仍显示旧的导出标题。"

@@ -314,13 +314,13 @@ page {
 
 .scheme6-actions .scheme6-back-button {
   width: 100% !important;
-  height: 58rpx;
-  min-height: 58rpx;
+  height: 82rpx;
+  min-height: 82rpx;
   margin: 12rpx 0 0;
   max-width: none;
   border-radius: 14rpx;
   font-size: 24rpx;
-  line-height: 58rpx;
+  line-height: 82rpx;
 }
 
 .option-line {

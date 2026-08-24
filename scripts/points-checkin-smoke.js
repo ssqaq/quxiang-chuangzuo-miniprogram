@@ -6,6 +6,47 @@ process.env.WECHAT_MINIAPP_TEST = "1";
 
 const api = require("../cloudfunctions/api/index.js");
 const helpers = api.__test;
+const db = helpers.getTestDatabase();
+
+function clone(value) {
+  return value === undefined ? value : structuredClone(value);
+}
+
+function createMemoryStore() {
+  const records = new Map();
+  const collection = (name) => ({
+    doc(id) {
+      const key = `${name}/${id}`;
+      return {
+        async get() {
+          if (!records.has(key)) {
+            const error = new Error("document not exist");
+            error.code = "DATABASE_DOCUMENT_NOT_EXIST";
+            throw error;
+          }
+          return { data: clone(records.get(key)) };
+        },
+        async set({ data }) {
+          if (data && Object.prototype.hasOwnProperty.call(data, "_id")) {
+            const error = new Error("不能更新_id的值");
+            error.code = "-501007";
+            throw error;
+          }
+          records.set(key, clone(data));
+          return { stats: { updated: 1 } };
+        }
+      };
+    }
+  });
+  return { records, collection };
+}
+
+function valuesFor(store, collectionName) {
+  const prefix = `${collectionName}/`;
+  return [...store.records.entries()]
+    .filter(([key]) => key.startsWith(prefix))
+    .map(([, value]) => value);
+}
 
 const points = helpers.resolvePointsConfig({});
 assert.strictEqual(config.points.copy.cardTitle, "每日签到");
@@ -68,6 +109,42 @@ async function main() {
   const ledger = await api.main({ action: "getPointLedger", requestId: "ledger-anonymous" }, {});
   assert.strictEqual(ledger.ok, true);
   assert.deepStrictEqual(ledger.records, []);
+
+  const store = createMemoryStore();
+  const originalCollection = db.collection;
+  const originalRunTransaction = db.runTransaction;
+  db.collection = store.collection;
+  db.runTransaction = async (callback) => callback({ collection: store.collection });
+  try {
+    const user = { OPENID: "same-day-checkin-user" };
+    const first = await helpers.checkIn(user);
+    const duplicate = await helpers.checkIn(user);
+    assert.strictEqual(first.ok, true);
+    assert.strictEqual(first.duplicate, false);
+    assert.strictEqual(first.earnedToday, 5);
+    assert.strictEqual(first.pointsBalance, 5);
+    assert.strictEqual(first.totalEarned, 5);
+    assert.strictEqual(first.currentStreak, 1);
+    assert.strictEqual(duplicate.ok, true);
+    assert.strictEqual(duplicate.duplicate, true);
+    assert.strictEqual(duplicate.earnedToday, 0);
+    assert.strictEqual(duplicate.pointsBalance, 5);
+    assert.strictEqual(duplicate.totalEarned, 5);
+    assert.strictEqual(duplicate.currentStreak, 1);
+    const accounts = valuesFor(store, "user_accounts");
+    const checkinLedger = valuesFor(store, "point_ledger")
+      .filter((item) => item.type === "checkin");
+    assert.strictEqual(accounts.length, 1);
+    assert.strictEqual(accounts[0].pointsBalance, 5);
+    assert.strictEqual(accounts[0].totalEarned, 5);
+    assert.strictEqual(accounts[0].currentStreak, 1);
+    assert.strictEqual(checkinLedger.length, 1);
+    assert.strictEqual(checkinLedger[0].amount, 5);
+    assert.strictEqual(checkinLedger[0].balanceAfter, 5);
+  } finally {
+    db.collection = originalCollection;
+    db.runTransaction = originalRunTransaction;
+  }
 
   console.log("points/check-in smoke: OK");
 }

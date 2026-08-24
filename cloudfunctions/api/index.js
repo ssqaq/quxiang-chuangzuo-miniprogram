@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.24.3";
-const API_BUILD_MARKER = "API_BUILD_TAG_20260824_CHECKIN_STRIP_ID_V243";
+const API_BUILD_VERSION = "0.24.4";
+const API_BUILD_MARKER = "API_BUILD_TAG_20260824_DB_INIT_IDEMPOTENCY_V244";
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
 const cloud = require("wx-server-sdk");
@@ -71,6 +71,22 @@ const REPAIR_CHAIN_COLLECTION = "repair_chains";
 const REPAIR_MAX_REVISIONS = 10;
 const ASSET_TICKET_TTL_MS = 10 * 60 * 1000;
 const REPAIR_ASSET_KINDS = new Set(["main", "mask", "face", "wardrobe"]);
+const REQUIRED_DATABASE_COLLECTIONS = Object.freeze([
+  ADMIN_DEPLOYMENT_LOG_COLLECTION,
+  ADMIN_RUNTIME_CONFIG_COLLECTION,
+  ASSET_UPLOAD_TICKET_COLLECTION,
+  AUTO_FACE_FAILURE_LOG_COLLECTION,
+  AUTO_FACE_PROBE_LOG_COLLECTION,
+  GENERATION_OPERATION_COLLECTION,
+  "generation_records",
+  MODEL_USAGE_EVENT_COLLECTION,
+  PHOTO_TO_VIDEO_TEMP_ASSET_COLLECTION,
+  POINTS_LEDGER_COLLECTION,
+  REPAIR_CHAIN_COLLECTION,
+  POINTS_ACCOUNT_COLLECTION,
+  USER_ASSET_COLLECTION,
+  USER_QUOTA_COLLECTION
+].sort());
 let adminRuntimeCache = {
   value: null,
   expiresAt: 0
@@ -2903,6 +2919,118 @@ async function getAdminConfig(context) {
     }
   }
   return jsonResponse(true, adminConfigView(configs, runtime, metadata));
+}
+
+function isCollectionMissingError(error) {
+  const code = String(
+    error && (
+      error.code
+      || error.errCode
+      || error.errorCode
+    ) || ""
+  );
+  const message = String(
+    error && (
+      error.message
+      || error.errMsg
+    ) || error || ""
+  );
+  return code === "-502005"
+    || /DATABASE_COLLECTION_NOT_EXIST|TCB_DB_COLLECTION_NOT_EXISTS/i.test(code)
+    || /database collection not exists?|collection not exists?/i.test(message);
+}
+
+async function probeDatabaseCollection(store, collectionName) {
+  await store.collection(collectionName).limit(1).get();
+}
+
+async function ensureDatabaseCollection(store, collectionName) {
+  try {
+    await probeDatabaseCollection(store, collectionName);
+    return { collection: collectionName, status: "existing" };
+  } catch (error) {
+    if (!isCollectionMissingError(error)) throw error;
+  }
+
+  try {
+    const result = await store.createCollection(collectionName);
+    return {
+      collection: collectionName,
+      status: "created",
+      requestId: result && result.requestId ? String(result.requestId) : ""
+    };
+  } catch (createError) {
+    // 两个初始化请求撞在一起时，另一个请求可能已经创建完成。
+    try {
+      await probeDatabaseCollection(store, collectionName);
+      return { collection: collectionName, status: "existing" };
+    } catch (_) {
+      throw createError;
+    }
+  }
+}
+
+async function initializeDatabaseCollections(
+  store = db,
+  collectionNames = REQUIRED_DATABASE_COLLECTIONS
+) {
+  const results = await Promise.all(collectionNames.map(async (collectionName) => {
+    try {
+      return await ensureDatabaseCollection(store, collectionName);
+    } catch (error) {
+      return {
+        collection: collectionName,
+        status: "failed",
+        errorCode: String(
+          error && (
+            error.code
+            || error.errCode
+            || error.errorCode
+          ) || "DATABASE_COLLECTION_INIT_FAILED"
+        ),
+        message: String(
+          error && (
+            error.message
+            || error.errMsg
+          ) || error || "集合初始化失败"
+        )
+      };
+    }
+  }));
+  const created = results.filter((item) => item.status === "created").length;
+  const existing = results.filter((item) => item.status === "existing").length;
+  const failed = results.filter((item) => item.status === "failed").length;
+  return {
+    total: results.length,
+    created,
+    existing,
+    failed,
+    results
+  };
+}
+
+async function initializeDatabase(context) {
+  if (!isAdminContext(context)) return adminForbidden();
+  const summary = await initializeDatabaseCollections(db);
+  const payload = Object.assign({
+    environment: env("CLOUDBASE_ENV_ID", ""),
+    buildVersion: API_BUILD_VERSION
+  }, summary);
+  log(summary.failed ? "error" : "info", "admin.database.initialize", {
+    initializedBy: getOpenId(context),
+    total: summary.total,
+    created: summary.created,
+    existing: summary.existing,
+    failed: summary.failed
+  });
+  if (summary.failed) {
+    return fail(
+      `有 ${summary.failed} 个数据库集合初始化失败。`,
+      "DATABASE_INIT_FAILED",
+      payload
+    );
+  }
+  return jsonResponse(true, payload);
 }
 
 async function saveAdminConfig(event, context) {
@@ -5881,6 +6009,7 @@ exports.main = async (event = {}, context) => {
     else if (action === "queryVideoTask") result = await queryVideoTask(requestEvent, context);
     else if (action === "getAdminStatus") result = await getAdminStatus(context);
     else if (action === "getAdminConfig") result = await getAdminConfig(context);
+    else if (action === "initializeDatabase") result = await initializeDatabase(context);
     else if (action === "saveAdminConfig") result = await saveAdminConfig(requestEvent, context);
     else if (action === "checkDeployment") result = await checkDeployment(requestEvent, context);
     else if (action === "listDeploymentLogs") result = await listDeploymentLogs(context);
@@ -6032,6 +6161,11 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     mergeRuntimeConfig,
     getAdminStatus,
     getAdminConfig,
+    isCollectionMissingError,
+    ensureDatabaseCollection,
+    initializeDatabaseCollections,
+    initializeDatabase,
+    requiredDatabaseCollections: REQUIRED_DATABASE_COLLECTIONS.slice(),
     saveAdminConfig,
     checkDeployment,
     listDeploymentLogs

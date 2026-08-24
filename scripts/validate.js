@@ -65,6 +65,7 @@ const jsFiles = [
   "scripts/photo-to-video-smoke.js",
   "scripts/video-provider-smoke.js",
   "scripts/admin-config-smoke.js",
+  "scripts/database-init-smoke.js",
   "scripts/points-checkin-smoke.js",
   "scripts/generation-concurrency-smoke.js",
   "scripts/repair-smoke.js",
@@ -80,6 +81,7 @@ const jsFiles = [
 const pythonFiles = ["scripts/package-release.py"];
 const powerShellFiles = [
   "scripts/check-devtools.ps1",
+  "scripts/init-cloud-database.ps1",
   "scripts/refresh-preview.ps1"
 ];
 
@@ -165,6 +167,8 @@ const required = [
   "scripts/canvas-gesture-smoke.js",
   "scripts/circle-gesture-smoke.js",
   "scripts/auto-face-fallback-smoke.js",
+  "scripts/database-init-smoke.js",
+  "scripts/init-cloud-database.ps1",
   "scripts/points-checkin-smoke.js",
   "scripts/model-cost-stats-smoke.js",
   "scripts/auto-face-failure-stats-smoke.js",
@@ -260,6 +264,10 @@ const pointsWxml = fs.readFileSync(path.join(root, "pages/points/points.wxml"), 
 const pointsWxss = fs.readFileSync(path.join(root, "pages/points/points.wxss"), "utf8");
 const refreshPreviewPs1 = fs.readFileSync(
   path.join(root, "scripts/refresh-preview.ps1"),
+  "utf8"
+);
+const initCloudDatabasePs1 = fs.readFileSync(
+  path.join(root, "scripts/init-cloud-database.ps1"),
   "utf8"
 );
 const cleanupSmokeJs = fs.readFileSync(
@@ -450,6 +458,9 @@ if (
   || !cloudJs.includes('action === "getUserPoints"')
   || !cloudJs.includes('action === "checkIn"')
   || !cloudJs.includes('action === "getPointLedger"')
+  || !cloudJs.includes('action === "initializeDatabase"')
+  || !cloudJs.includes("REQUIRED_DATABASE_COLLECTIONS")
+  || !cloudJs.includes("createCollection(collectionName)")
   || !clientCloudJs.includes("getUserPoints")
   || !clientCloudJs.includes("checkIn")
   || !clientCloudJs.includes("getPointLedger")
@@ -461,6 +472,13 @@ if (
   || !refreshPreviewPs1.includes("wechat-miniapp-preview-latest-info.json")
 ) {
   throw new Error("积分签到入口、明细页或云函数路由不完整。");
+}
+if (
+  !initCloudDatabasePs1.includes("initializeDatabase")
+  || !initCloudDatabasePs1.includes('"automation_evaluate"')
+  || !initCloudDatabasePs1.includes("DryRun")
+) {
+  throw new Error("云数据库一键初始化脚本不完整。");
 }
 if (
   !indexWxml.includes('class="hero-heading"')

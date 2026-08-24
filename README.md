@@ -263,19 +263,38 @@ PowerShell -ExecutionPolicy Bypass -File .\scripts\check-devtools.ps1
 
 ### 6. 创建数据库集合
 
-在云开发数据库创建：
+先部署最新版 `api` 云函数，并确认当前测试微信已经加入云函数环境变量
+`ADMIN_OPENIDS`。然后在工程根目录执行：
 
-```text
-generation_records
-user_quotas
-auto_face_failure_logs
-auto_face_probe_logs
-photo_to_video_temp_assets
+```powershell
+PowerShell -NoProfile -ExecutionPolicy Bypass -File .\scripts\init-cloud-database.ps1
 ```
 
+脚本会通过微信开发者工具当前登录态调用管理员初始化接口，自动检查并补齐以下集合：
+
+```text
+admin_deployment_logs
+admin_runtime_config
+asset_upload_tickets
+auto_face_failure_logs
+auto_face_probe_logs
+generation_operations
+generation_records
+model_usage_events
+photo_to_video_temp_assets
+point_ledger
+repair_chains
+user_accounts
+user_assets
+user_quotas
+```
+
+已经存在的集合只会显示为 `existing`，不会清空或覆盖数据。正式执行前可追加
+`-DryRun`，只检查项目配置和微信开发者工具命令入口，不发送云端请求。
+
 以上集合权限统一设置为“仅云函数可读写”。前端不直接读写数据库，统一通过 `api`
-云函数处理；微信开发者工具 CLI 目前没有提供数据库权限规则修改命令，所以这一步需要
-在 CloudBase 控制台的“数据库 → 集合 → 权限设置”里完成。
+云函数处理；初始化脚本不修改数据库权限规则，所以首次创建后仍需在 CloudBase 控制台的
+“数据库 → 集合 → 权限设置”里统一确认一次。
 
 `auto_face_failure_logs` 只保留最近 90 天的数据。`api` 云函数在失败上报或管理员刷新统计
 时触发一次懒清理，每次最多删除 100 条过期记录，清理失败不会影响用户上报或管理员查看统计。

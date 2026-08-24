@@ -40,6 +40,11 @@ assert.strictEqual(options.maxLongEdge, 2048);
 assert.strictEqual(options.cameraNoiseStrength, 2.4);
 assert.strictEqual(options.frequencyStrength, 1);
 assert.strictEqual(options.watermarkStrength, 4);
+assert.strictEqual(options.removeVisibleMarks, true);
+assert.strictEqual(
+  core.normalizeOptions({ removeVisibleMarks: false }).removeVisibleMarks,
+  true
+);
 
 assert.strictEqual(
   core.chooseLocalMode(1200, 800, { maxLongEdge: 2048 }).mode,
@@ -126,6 +131,12 @@ assert.ok(
     'value="{{watermarkStrength}}" min="1" max="5" step="0.1"'
   ),
   "淡化强度滑块没有使用连续步进。"
+);
+assert.ok(
+  !pageWxml.includes('data-key="removeVisibleMarks"')
+    && !pageWxml.includes('checked="{{removeVisibleMarks}}"')
+    && pageJs.includes("removeVisibleMarks: true"),
+  "可见标记淡化仍保留开启开关，或没有默认开启。"
 );
 assert.ok(
   !pageWxml.includes("高级处理后再导出照片"),

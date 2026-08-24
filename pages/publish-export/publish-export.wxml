@@ -196,7 +196,6 @@
             <view class="enhancement-description">仅尝试淡化可见标记，不保证移除不可见溯源或AI来源标识</view>
           </view>
           <view class="enhancement-side-note">只把图片上肉眼能看到的水印、文字或标记变淡一点。</view>
-          <switch checked="{{removeVisibleMarks}}" color="#1f6feb" data-key="removeVisibleMarks" bindchange="toggleAdvanced"></switch>
         </view>
         <view class="strength-row">
           <view class="strength-head">

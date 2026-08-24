@@ -110,6 +110,12 @@ const USAGE_SECTION_KEYS = Object.freeze([
   "models",
   "monthly"
 ]);
+const AUTO_FACE_FAILURE_SECTION_KEYS = Object.freeze([
+  "failure",
+  "daily",
+  "users",
+  "monthly"
+]);
 const MONITOR_LAYOUT_STORAGE_KEY = "admin-monitor-layout-v2";
 
 function defaultUsageSections() {
@@ -119,6 +125,15 @@ function defaultUsageSections() {
     users: true,
     models: false,
     monthly: true
+  };
+}
+
+function defaultAutoFaceFailureSections() {
+  return {
+    failure: true,
+    daily: true,
+    users: false,
+    monthly: false
   };
 }
 
@@ -236,6 +251,9 @@ function emptyAutoFaceFailureStats() {
       versions: []
     },
     recent: [],
+    daily: [],
+    monthly: [],
+    users: [],
     eventCount: 0,
     truncated: false,
     unavailable: false,
@@ -496,6 +514,30 @@ function formatAutoFaceFailureStats(result) {
       probeModel: item.probe && item.probe.model || "",
       probeSummaryText: formatProbeSummaryText(item.probe),
       createdAtText: formatAdminDate(item.createdAt)
+    })),
+    daily: (Array.isArray(source.daily) ? source.daily : []).map((item) => ({
+      dateKey: item.dateKey || "",
+      total: Number(item.total) || 0,
+      userCount: Number(item.userCount) || 0,
+      topFailureType: item.topFailureType || "unknown",
+      topFailureTypeLabel: item.topFailureTypeLabel || "其他失败",
+      lastSeenText: item.lastSeen ? formatAdminDate(item.lastSeen) : "暂无"
+    })),
+    monthly: (Array.isArray(source.monthly) ? source.monthly : []).map((item) => ({
+      monthKey: item.monthKey || "",
+      total: Number(item.total) || 0,
+      userCount: Number(item.userCount) || 0,
+      topFailureType: item.topFailureType || "unknown",
+      topFailureTypeLabel: item.topFailureTypeLabel || "其他失败",
+      lastSeenText: item.lastSeen ? formatAdminDate(item.lastSeen) : "暂无"
+    })),
+    users: (Array.isArray(source.users) ? source.users : []).map((item) => ({
+      userHash: item.userHash || "anonymous",
+      userLabel: item.userHash === "anonymous" ? "匿名用户" : `用户 ${item.userHash}`,
+      total: Number(item.total) || 0,
+      topFailureType: item.topFailureType || "unknown",
+      topFailureTypeLabel: item.topFailureTypeLabel || "其他失败",
+      lastSeenText: item.lastSeen ? formatAdminDate(item.lastSeen) : "暂无"
     }))
   });
 }
@@ -1509,6 +1551,7 @@ Page({
       deployment: false
     },
     usageSections: defaultUsageSections(),
+    autoFaceFailureSections: defaultAutoFaceFailureSections(),
     monitorOnlyAbnormal: false
   },
 
@@ -1624,6 +1667,10 @@ Page({
       Object.assign(patch, this.buildAdminDerivedPatch(patch, nextStates));
       this.setData(patch);
       if (unavailable) {
+        if (MONITOR_SECTION_KEYS.includes(key)) {
+          patch.monitorExpanded = true;
+          patch[`monitorSections.${key}`] = true;
+        }
         diagnosticLog.warn("admin", "module-load-unavailable", `${label}返回不可用状态`, {
           error: formatted && formatted.message
         });
@@ -1651,6 +1698,10 @@ Page({
         moduleStates: nextStates
       };
       if (options.loadingKey) patch[options.loadingKey] = false;
+      if (MONITOR_SECTION_KEYS.includes(key)) {
+        patch.monitorExpanded = true;
+        patch[`monitorSections.${key}`] = true;
+      }
       Object.assign(patch, this.buildAdminDerivedPatch({}, nextStates));
       this.setData(patch);
       diagnosticLog.warn("admin", "module-load-failed", `${label}读取失败`, { error });
@@ -2451,6 +2502,9 @@ Page({
     USAGE_SECTION_KEYS.forEach((section) => {
       patch[`usageSections.${section}`] = expanded;
     });
+    AUTO_FACE_FAILURE_SECTION_KEYS.forEach((section) => {
+      patch[`autoFaceFailureSections.${section}`] = expanded;
+    });
     this.setData(patch, () => this.persistMonitorLayout());
   },
 
@@ -2463,6 +2517,7 @@ Page({
     }
     const storedMonitorSections = stored.monitorSections || {};
     const storedUsageSections = stored.usageSections || {};
+    const storedAutoFaceFailureSections = stored.autoFaceFailureSections || {};
     const monitorSections = {};
     MONITOR_SECTION_KEYS.forEach((section) => {
       monitorSections[section] = typeof storedMonitorSections[section] === "boolean"
@@ -2475,12 +2530,19 @@ Page({
         ? storedUsageSections[section]
         : Boolean(this.data.usageSections[section]);
     });
+    const autoFaceFailureSections = {};
+    AUTO_FACE_FAILURE_SECTION_KEYS.forEach((section) => {
+      autoFaceFailureSections[section] = typeof storedAutoFaceFailureSections[section] === "boolean"
+        ? storedAutoFaceFailureSections[section]
+        : Boolean(this.data.autoFaceFailureSections[section]);
+    });
     this.setData({
       monitorExpanded: typeof stored.monitorExpanded === "boolean"
         ? stored.monitorExpanded
         : this.data.monitorExpanded,
       monitorSections,
       usageSections,
+      autoFaceFailureSections,
       monitorOnlyAbnormal: Boolean(stored.monitorOnlyAbnormal)
     });
   },
@@ -2492,6 +2554,7 @@ Page({
         monitorExpanded: Boolean(this.data.monitorExpanded),
         monitorSections: Object.assign({}, this.data.monitorSections),
         usageSections: Object.assign({}, this.data.usageSections),
+        autoFaceFailureSections: Object.assign({}, this.data.autoFaceFailureSections),
         monitorOnlyAbnormal: Boolean(this.data.monitorOnlyAbnormal)
       });
     } catch (error) {
@@ -2508,6 +2571,18 @@ Page({
     if (!USAGE_SECTION_KEYS.includes(section)) return;
     this.setData({
       [`usageSections.${section}`]: !this.data.usageSections[section]
+    }, () => this.persistMonitorLayout());
+  },
+
+  toggleAutoFaceFailureSection(event) {
+    const section = String(
+      event && event.currentTarget && event.currentTarget.dataset
+        ? event.currentTarget.dataset.autoFaceFailureSection
+        : ""
+    );
+    if (!AUTO_FACE_FAILURE_SECTION_KEYS.includes(section)) return;
+    this.setData({
+      [`autoFaceFailureSections.${section}`]: !this.data.autoFaceFailureSections[section]
     }, () => this.persistMonitorLayout());
   },
 

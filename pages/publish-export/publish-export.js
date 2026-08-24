@@ -69,7 +69,7 @@ Page({
     frequencyPerturb: true,
     frequencyStrength: 3,
     frequencyStrengthPreview: 3,
-    removeVisibleMarks: false,
+    removeVisibleMarks: true,
     watermarkStrength: 1,
     watermarkStrengthPreview: 1,
     resamplePerturb: true,
@@ -210,7 +210,7 @@ Page({
     const key = event.currentTarget
       && event.currentTarget.dataset
       && event.currentTarget.dataset.key;
-    if (!["cameraNoise", "frequencyPerturb", "removeVisibleMarks", "resamplePerturb"].includes(key)) {
+    if (!["cameraNoise", "frequencyPerturb", "resamplePerturb"].includes(key)) {
       return;
     }
     this.setData({
@@ -318,7 +318,7 @@ Page({
       cameraNoiseStrength: this.data.cameraNoiseStrength,
       frequencyPerturb: this.data.frequencyPerturb,
       frequencyStrength: this.data.frequencyStrength,
-      removeVisibleMarks: this.data.removeVisibleMarks,
+      removeVisibleMarks: true,
       watermarkStrength: this.data.watermarkStrength,
       resamplePerturb: this.data.resamplePerturb
     });

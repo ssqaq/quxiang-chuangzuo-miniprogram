@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.35.0";
-const API_BUILD_MARKER = "API_BUILD_TAG_20260824_PUBLISH_EXPORT_SLIDER_V350";
+const API_BUILD_VERSION = "0.35.1";
+const API_BUILD_MARKER = "API_BUILD_TAG_20260824_PUBLISH_EXPORT_MARKS_ALWAYS_ON_V351";
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
 const cloud = require("wx-server-sdk");
@@ -1162,9 +1162,16 @@ function buildAutoFaceFailureStats(events = [], baseDate = new Date()) {
   const todayKey = dateKeyForTimeZone(baseDate, AUTO_FACE_FAILURE_TIME_ZONE);
   const last7StartKey = shiftDateKey(todayKey, -6);
   const last30StartKey = shiftDateKey(todayKey, -29);
+  const retentionStartKey = shiftDateKey(
+    todayKey,
+    -(AUTO_FACE_FAILURE_RETENTION_DAYS - 1)
+  );
   const byType = {};
   const recent = [];
   const probeVersions = {};
+  const dailyMap = {};
+  const monthlyMap = {};
+  const userMap = {};
   const probeSummary = {
     total: 0,
     ok: 0,
@@ -1194,11 +1201,79 @@ function buildAutoFaceFailureStats(events = [], baseDate = new Date()) {
     })
     .filter((item) => (
       item.dateKey
-      && item.dateKey >= last30StartKey
+      && item.dateKey >= retentionStartKey
       && item.dateKey <= todayKey
     ))
     .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())
     .forEach((item) => {
+      const inLast30d = item.dateKey >= last30StartKey;
+      const monthKey = monthKeyFromDateKey(item.dateKey);
+      const userHash = compactUsageText(item.event && item.event.userHash, 40) || "anonymous";
+      if (!dailyMap[item.dateKey]) {
+        dailyMap[item.dateKey] = {
+          dateKey: item.dateKey,
+          total: 0,
+          userSet: {},
+          typeMap: {},
+          lastSeen: ""
+        };
+      }
+      dailyMap[item.dateKey].total += 1;
+      dailyMap[item.dateKey].userSet[userHash] = true;
+      dailyMap[item.dateKey].typeMap[
+        normalizeAutoFaceFailureType(item.event && item.event.failureType)
+      ] = (
+        dailyMap[item.dateKey].typeMap[
+          normalizeAutoFaceFailureType(item.event && item.event.failureType)
+        ] || 0
+      ) + 1;
+      if (!dailyMap[item.dateKey].lastSeen) {
+        dailyMap[item.dateKey].lastSeen = item.createdAt.toISOString();
+      }
+      if (monthKey) {
+        if (!monthlyMap[monthKey]) {
+          monthlyMap[monthKey] = {
+            monthKey,
+            total: 0,
+            userSet: {},
+            typeMap: {},
+            lastSeen: ""
+          };
+        }
+        monthlyMap[monthKey].total += 1;
+        monthlyMap[monthKey].userSet[userHash] = true;
+        monthlyMap[monthKey].typeMap[
+          normalizeAutoFaceFailureType(item.event && item.event.failureType)
+        ] = (
+          monthlyMap[monthKey].typeMap[
+            normalizeAutoFaceFailureType(item.event && item.event.failureType)
+          ] || 0
+        ) + 1;
+        if (!monthlyMap[monthKey].lastSeen) {
+          monthlyMap[monthKey].lastSeen = item.createdAt.toISOString();
+        }
+      }
+      if (!userMap[userHash]) {
+        userMap[userHash] = {
+          userHash,
+          total: 0,
+          typeMap: {},
+          lastSeen: ""
+        };
+      }
+      userMap[userHash].total += 1;
+      userMap[userHash].typeMap[
+        normalizeAutoFaceFailureType(item.event && item.event.failureType)
+      ] = (
+        userMap[userHash].typeMap[
+          normalizeAutoFaceFailureType(item.event && item.event.failureType)
+        ] || 0
+      ) + 1;
+      if (!userMap[userHash].lastSeen) {
+        userMap[userHash].lastSeen = item.createdAt.toISOString();
+      }
+
+      if (!inLast30d) return;
       total30d += 1;
       if (item.dateKey === todayKey) today += 1;
       if (item.dateKey >= last7StartKey) last7d += 1;
@@ -1256,6 +1331,51 @@ function buildAutoFaceFailureStats(events = [], baseDate = new Date()) {
         return left.buildVersion.localeCompare(right.buildVersion);
       })
     }),
+    daily: Object.values(dailyMap)
+      .sort((left, right) => right.dateKey.localeCompare(left.dateKey))
+      .map((item) => {
+        const topType = Object.entries(item.typeMap)
+          .sort((left, right) => right[1] - left[1])[0];
+        return {
+          dateKey: item.dateKey,
+          total: item.total,
+          userCount: Object.keys(item.userSet).length,
+          topFailureType: topType ? topType[0] : "unknown",
+          topFailureTypeLabel: formatAutoFaceFailureType(topType ? topType[0] : "unknown"),
+          lastSeen: item.lastSeen
+        };
+      })
+      .filter((item) => item.dateKey >= last30StartKey),
+    monthly: Object.values(monthlyMap)
+      .sort((left, right) => right.monthKey.localeCompare(left.monthKey))
+      .map((item) => {
+        const topType = Object.entries(item.typeMap)
+          .sort((left, right) => right[1] - left[1])[0];
+        return {
+          monthKey: item.monthKey,
+          total: item.total,
+          userCount: Object.keys(item.userSet).length,
+          topFailureType: topType ? topType[0] : "unknown",
+          topFailureTypeLabel: formatAutoFaceFailureType(topType ? topType[0] : "unknown"),
+          lastSeen: item.lastSeen
+        };
+      }),
+    users: Object.values(userMap)
+      .sort((left, right) => {
+        if (right.total !== left.total) return right.total - left.total;
+        return left.userHash.localeCompare(right.userHash);
+      })
+      .map((item) => {
+        const topType = Object.entries(item.typeMap)
+          .sort((left, right) => right[1] - left[1])[0];
+        return {
+          userHash: item.userHash,
+          total: item.total,
+          topFailureType: topType ? topType[0] : "unknown",
+          topFailureTypeLabel: formatAutoFaceFailureType(topType ? topType[0] : "unknown"),
+          lastSeen: item.lastSeen
+        };
+      }),
     eventCount: total30d,
     unavailable: false,
     message: ""
@@ -1632,11 +1752,12 @@ async function cleanupPhotoToVideoTempAssets(baseDate = new Date()) {
   return jsonResponse(true, summary);
 }
 
-async function reportAutoFaceFailure(event = {}) {
+async function reportAutoFaceFailure(event = {}, context = {}) {
   const report = normalizeAutoFaceFailureReport(
     event && event.payload,
     event && event.requestId
   );
+  report.userHash = usageUserHash(context && context.OPENID);
   if (process.env.WECHAT_MINIAPP_TEST === "1") {
     autoFaceFailureTestEvents.push(report);
     return jsonResponse(true, {
@@ -1684,7 +1805,7 @@ async function getAutoFaceFailureStats(event, context) {
   if (!isAdminContext(context)) return adminForbidden();
   const baseDate = new Date();
   const todayKey = dateKeyForTimeZone(baseDate, AUTO_FACE_FAILURE_TIME_ZONE);
-  const startKey = shiftDateKey(todayKey, -29);
+  const startKey = shiftDateKey(todayKey, -(AUTO_FACE_FAILURE_RETENTION_DAYS - 1));
   const startDate = new Date(`${startKey}T00:00:00+08:00`);
   try {
     await cleanupAutoFaceFailureLogs(baseDate);
@@ -8682,7 +8803,9 @@ exports.main = async (event = {}, context) => {
     else if (action === "listDeploymentLogs") result = await listDeploymentLogs(context);
     else if (action === "getModelUsageStats") result = await getModelUsageStats(requestEvent, context);
     else if (action === "exportModelUsageStats") result = await exportModelUsageStats(requestEvent, context);
-    else if (action === "reportAutoFaceFailure") result = await reportAutoFaceFailure(requestEvent);
+    else if (action === "reportAutoFaceFailure") {
+      result = await reportAutoFaceFailure(requestEvent, context);
+    }
     else if (action === "getAutoFaceFailureStats") result = await getAutoFaceFailureStats(requestEvent, context);
     else if (action === "registerPhotoToVideoTempAsset") {
       result = await registerPhotoToVideoTempAsset(requestEvent, context);

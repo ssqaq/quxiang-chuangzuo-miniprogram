@@ -39,7 +39,7 @@
 
 - 频域扰动：默认开，强度 1-5，默认 3；
 - 反向重采样：默认开；
-- 可见标记淡化：默认关，强度 1-5，默认 1。
+- 可见标记淡化：固定开启，强度 1-5，默认 1；页面只调整淡化强度。
 
 “可见标记淡化”文案必须说明：仅尝试淡化可见标记，不保证移除不可见溯源信息或 AI 来源标识，可能影响局部细节。
 
@@ -97,7 +97,7 @@
     cameraNoiseStrength: 3,
     frequencyPerturb: true,
     frequencyStrength: 3,
-    removeVisibleMarks: false,
+    removeVisibleMarks: true,
     watermarkStrength: 1,
     resamplePerturb: true
   }
@@ -138,4 +138,3 @@ Node 端使用 `jpeg-js + pngjs`，JPEG 上限 4096px，PNG 上限 2048px。目�
 - fileID 归属和幂等锁；
 - 云端成功后的相册保存和临时文件清理；
 - 原图不覆盖。
-

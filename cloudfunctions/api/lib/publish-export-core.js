@@ -16,7 +16,7 @@ const DEFAULT_OPTIONS = Object.freeze({
   cameraNoiseStrength: 3,
   frequencyPerturb: true,
   frequencyStrength: 3,
-  removeVisibleMarks: false,
+  removeVisibleMarks: true,
   watermarkStrength: 1,
   resamplePerturb: true
 });
@@ -89,10 +89,7 @@ function normalizeOptions(input = {}) {
       source.frequencyStrength,
       DEFAULT_OPTIONS.frequencyStrength
     ),
-    removeVisibleMarks: boolValue(
-      source.removeVisibleMarks,
-      DEFAULT_OPTIONS.removeVisibleMarks
-    ),
+    removeVisibleMarks: true,
     watermarkStrength: clampStrength(
       source.watermarkStrength,
       DEFAULT_OPTIONS.watermarkStrength

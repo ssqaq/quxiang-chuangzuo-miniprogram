@@ -48,8 +48,16 @@ assert.ok(/^[a-f0-9]{32}$/.test(firstJobId), "云端任务 ID 生成失败。");
 assert.strictEqual(firstJobId, secondJobId, "云端幂等任务 ID 不稳定。");
 
 assert.ok(cloudJs.includes('action: "publishExport"'), "客户端没有调用 publishExport。");
+assert.ok(
+  cloudJs.includes('action: "cleanupPublishExportResult"'),
+  "客户端没有确认清理云端导出结果。"
+);
 assert.ok(cloudJs.includes("temporaryInput"), "客户端没有标记临时输入文件。");
 assert.ok(apiJs.includes('action === "publishExport"'), "云函数没有接入 publishExport action。");
+assert.ok(
+  apiJs.includes('action === "cleanupPublishExportResult"'),
+  "云函数没有接入导出结果清理 action。"
+);
 assert.ok(apiJs.includes("PUBLISH_EXPORT_JOB_COLLECTION"), "云函数没有使用导出任务集合。");
 assert.ok(apiJs.includes("jpeg-js"), "云端没有接入 JPEG 解码。");
 assert.ok(apiJs.includes("PNG.sync.read"), "云端没有接入 PNG 解码。");

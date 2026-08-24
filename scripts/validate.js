@@ -1102,7 +1102,7 @@ if (
   || !publishExportJs.includes("confirmCloudExport")
   || !publishExportJs.includes("本地处理失败，可以改用云端继续")
   || !publishExportJs.includes("cloud.publishExport")
-  || !publishExportJs.includes("cloud.deleteFile(result.fileID)")
+  || !publishExportJs.includes("cloud.cleanupPublishExportResult")
   || !publishExportJs.includes("1536px")
   || !publishExportJs.includes("2048px")
   || !publishExportJs.includes("4096px")
@@ -1124,10 +1124,12 @@ if (
   || !publishExportWorkerJs.includes("publish-export-core")
   || !cloudPublishExportCoreJs.includes("function processRgba")
   || !cloudJs.includes('action === "publishExport"')
+  || !cloudJs.includes('action === "cleanupPublishExportResult"')
   || !cloudJs.includes("PUBLISH_EXPORT_JOB_COLLECTION")
   || !cloudJs.includes("jpeg-js")
   || !cloudJs.includes("PNG.sync.read")
   || !clientCloudJs.includes('action: "publishExport"')
+  || !clientCloudJs.includes('action: "cleanupPublishExportResult"')
   || !clientCloudJs.includes("temporaryInput")
 ) {
   throw new Error("高级导出参数、本地/Worker/云端共用算法、云端兜底或临时文件清理链路不完整。");

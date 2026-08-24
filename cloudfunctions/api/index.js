@@ -5840,6 +5840,47 @@ async function publishExport(event, context) {
   }
 }
 
+async function cleanupPublishExportResult(event, context) {
+  const openid = getOpenId(context);
+  if (openid === "anonymous") {
+    return fail("请先完成微信授权后再清理导出结果。", "wechat-binding-required");
+  }
+  const jobId = String(event && event.jobId || "").trim();
+  const fileID = String(event && event.fileID || "").trim();
+  if (!/^[a-f0-9]{32}$/i.test(jobId) || !/^cloud:\/\//i.test(fileID)) {
+    return fail("导出结果清理参数不完整。", "publish-export-cleanup-invalid");
+  }
+  const ref = db.collection(PUBLISH_EXPORT_JOB_COLLECTION).doc(jobId);
+  const job = await readDocument(ref);
+  if (
+    !job
+    || job.openid !== openid
+    || job.status !== "done"
+    || job.outputFileID !== fileID
+  ) {
+    return fail("找不到可清理的导出结果，或结果不属于当前用户。", "publish-export-cleanup-forbidden");
+  }
+  try {
+    const response = await cloud.deleteFile({ fileList: [fileID] });
+    const failed = response && Array.isArray(response.fileList)
+      ? response.fileList.find((item) => item && item.fileID === fileID && Number(item.status) !== 0)
+      : null;
+    if (failed) {
+      const error = new Error(failed.errMsg || "导出结果文件清理失败。");
+      error.code = "publish-export-cleanup-file-failed";
+      throw error;
+    }
+  } catch (error) {
+    if (!isPhotoToVideoTempFileMissing(error)) throw error;
+  }
+  await ref.remove();
+  return jsonResponse(true, {
+    jobId,
+    fileID,
+    removed: true
+  });
+}
+
 async function cleanupPublishExportJobs(baseDate = new Date()) {
   const now = baseDate instanceof Date ? baseDate : new Date(baseDate);
   try {
@@ -7999,6 +8040,9 @@ exports.main = async (event = {}, context) => {
     else if (action === "prepareAssetUpload") result = await prepareAssetUpload(requestEvent, context);
     else if (action === "registerAsset") result = await registerAsset(requestEvent, context);
     else if (action === "publishExport") result = await publishExport(requestEvent, context);
+    else if (action === "cleanupPublishExportResult") {
+      result = await cleanupPublishExportResult(requestEvent, context);
+    }
     else if (action === "generate") result = await generate(requestEvent, context);
     else if (action === "repairImage") result = await repairImage(requestEvent, context);
     else if (action === "getMyUserProfile") result = await getMyUserProfile(context);
@@ -8103,6 +8147,7 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     publishExportCore,
     cleanupPublishExportJobs,
     publishExport,
+    cleanupPublishExportResult,
     extractImageItem,
     detectMime,
     invertMask,

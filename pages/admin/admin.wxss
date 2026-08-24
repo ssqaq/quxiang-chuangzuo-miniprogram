@@ -1069,6 +1069,11 @@ page {
   gap: 8rpx;
 }
 
+.diagnostic-admin-section .admin-section-tools {
+  width: 100%;
+  justify-content: flex-end;
+}
+
 .admin-section-title {
   color: #1b2638;
   font-size: 30rpx;

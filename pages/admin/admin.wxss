@@ -717,7 +717,7 @@ page {
   display: grid;
   width: 45%;
   min-width: 300rpx;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10rpx;
   align-items: stretch;
 }
@@ -1197,7 +1197,7 @@ page {
   line-height: 28rpx;
 }
 
-.usage-cost-item text + text {
+.usage-cost-item > text:nth-child(2) {
   margin-top: 4rpx;
   color: #9b6f0a;
   font-size: 30rpx;
@@ -1205,9 +1205,9 @@ page {
   line-height: 38rpx;
 }
 
-.usage-cost-item text:last-child {
+.usage-cost-item .usage-cost-meta-line {
   width: 100%;
-  overflow: visible;
+  margin-top: 2rpx;
   color: #9a8960;
   font-size: 17rpx;
   white-space: normal;
@@ -1345,6 +1345,11 @@ page {
   white-space: normal;
   overflow-wrap: anywhere;
   word-break: break-all;
+}
+
+.usage-model-line {
+  display: block;
+  width: 100%;
 }
 
 .usage-failure-panel {

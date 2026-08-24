@@ -163,6 +163,7 @@ function emptyUsageCounter() {
     estimatedCost: 0,
     estimatedCostDisplay: "0",
     pricedCost: 0,
+    pricedCount: 0,
     unavailableCostCount: 0,
     inputTokens: 0,
     outputTokens: 0,
@@ -183,6 +184,9 @@ function emptyUsageCounter() {
 
 function formatUsageCounter(counter) {
   const normalized = Object.assign(emptyUsageCounter(), counter || {});
+  normalized.total = Math.max(0, Number(normalized.total) || 0);
+  normalized.unavailableCostCount = Math.max(0, Number(normalized.unavailableCostCount) || 0);
+  normalized.pricedCount = Math.max(0, normalized.total - normalized.unavailableCostCount);
   normalized.estimatedCost = Math.max(0, Number(normalized.estimatedCost) || 0);
   normalized.pricedCost = Math.max(0, Number(normalized.pricedCost) || 0);
   normalized.estimatedCostDisplay = formatCostDisplay(normalized.estimatedCost);
@@ -224,7 +228,8 @@ function emptyUsageStats() {
       total: 0,
       success: 0,
       failure: 0,
-      modelText: "暂无调用"
+      modelText: "暂无调用",
+      modelLines: ["暂无调用"]
     })),
     daily: [],
     monthly: [],
@@ -964,7 +969,12 @@ function formatUsageStats(result) {
       })
       .filter((item, index, list) => list.indexOf(item) === index)
       .join("、") || "暂无调用";
-    return Object.assign({}, meta, counter, { modelText });
+    const modelLines = models
+      .filter((item) => item.usageType === meta.key)
+      .map((item) => `${item.provider || "未知 Provider"} / ${item.model || "未知模型"}`)
+      .filter((item, index, list) => list.indexOf(item) === index);
+    if (!modelLines.length) modelLines.push("暂无调用");
+    return Object.assign({}, meta, counter, { modelText, modelLines });
   });
   const daily = (Array.isArray(source.daily) ? source.daily : []).map((item) => ({
     dateKey: item.dateKey,

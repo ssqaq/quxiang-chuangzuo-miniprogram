@@ -682,7 +682,6 @@
         <view class="monitor-toggle-title">运行监控</view>
         <view class="monitor-toggle-subtitle">
           {{deployment && deployment.face.ready && deployment.analysis.ready && deployment.image.ready && deployment.video.ready ? '部署检查通过' : '部署状态待确认'}}
-          · 自动贴脸失败 {{autoFaceFailureStats.total30d || 0}} 条
           · 错误日志 {{diagnosticLogs.summary.errorCount || 0}} 条
         </view>
       </view>
@@ -719,15 +718,8 @@
         <view class="monitor-overview-main">
           <view class="monitor-overview-kicker">系统运行概览</view>
           <view class="monitor-overview-title">{{dashboardStatus.title}}</view>
-          <view
-            class="monitor-overview-note monitor-overview-note-action"
-            data-section="autoFaceFailure"
-            catchtap="jumpToMonitorSection"
-            hover-class="control-tap"
-            role="button"
-            aria-label="查看自动贴脸失败统计"
-          >
-            部署检查通过；自动贴脸有 {{autoFaceFailureStats.total30d || 0}} 条失败待查看。
+          <view class="monitor-overview-note">
+            下方可查看模型用量、错误日志和部署记录。
           </view>
         </view>
         <view class="monitor-overview-stats">
@@ -741,17 +733,6 @@
           >
             <text>今日成本</text>
             <text>¥{{usageStats.today.estimatedCostDisplay}}</text>
-          </view>
-          <view
-            class="monitor-overview-stat monitor-overview-stat-action"
-            data-section="autoFaceFailure"
-            catchtap="jumpToMonitorSection"
-            hover-class="control-tap"
-            role="button"
-            aria-label="查看自动贴脸失败统计"
-          >
-            <text>自动贴脸失败</text>
-            <text>{{autoFaceFailureStats.total30d || 0}}</text>
           </view>
           <view
             class="monitor-overview-stat monitor-overview-stat-action"
@@ -1027,17 +1008,20 @@
           <view class="usage-cost-item">
             <text>今日预计成本</text>
             <text>¥{{usageStats.today.estimatedCostDisplay}}</text>
-            <text>已计算 {{usageStats.today.pricedCostDisplay}} 元 · 未计算 {{usageStats.today.unavailableCostCount}} 条</text>
+            <text class="usage-cost-meta-line">已计算 {{usageStats.today.pricedCount}} 次，共 {{usageStats.today.pricedCostDisplay}} 元</text>
+            <text class="usage-cost-meta-line">未计算 {{usageStats.today.unavailableCostCount}} 次</text>
           </view>
           <view class="usage-cost-item">
             <text>最近7天预计成本</text>
             <text>¥{{usageStats.last7d.estimatedCostDisplay}}</text>
-            <text>Token {{usageStats.last7d.totalTokens}} · 视频 {{usageStats.last7d.videoDurationSeconds}} 秒</text>
+            <text class="usage-cost-meta-line">Token {{usageStats.last7d.totalTokens}}</text>
+            <text class="usage-cost-meta-line">视频 {{usageStats.last7d.videoDurationSeconds}} 秒</text>
           </view>
           <view class="usage-cost-item">
             <text>最近30天预计成本</text>
             <text>¥{{usageStats.last30d.estimatedCostDisplay}}</text>
-            <text>Token {{usageStats.last30d.totalTokens}} · 视频 {{usageStats.last30d.videoDurationSeconds}} 秒</text>
+            <text class="usage-cost-meta-line">Token {{usageStats.last30d.totalTokens}}</text>
+            <text class="usage-cost-meta-line">视频 {{usageStats.last30d.videoDurationSeconds}} 秒</text>
           </view>
         </view>
 
@@ -1053,7 +1037,9 @@
               <text>成功 {{item.success}}</text>
               <text>失败 {{item.failure}}</text>
             </view>
-            <view class="usage-model-text">{{item.modelText}}</view>
+            <view class="usage-model-text">
+              <text wx:for="{{item.modelLines}}" wx:key="*this" class="usage-model-line">{{item}}</text>
+            </view>
           </view>
         </view>
 
@@ -1322,298 +1308,6 @@
         </scroll-view>
         <view wx:if="{{!usageStats.monthly.length}}" class="admin-empty usage-empty">还没有月度统计数据。</view>
         </view>
-        </view>
-      </view>
-
-      <view id="monitor-section-autoFaceFailure" class="card admin-section auto-face-failure-section monitor-fold-card {{monitorSections.autoFaceFailure ? 'is-open' : 'is-collapsed'}}">
-        <view class="admin-section-head">
-          <view>
-            <view class="admin-section-title">自动贴脸失败统计</view>
-            <view class="admin-section-help">最近 90 天的失败数量（最近 30 天可看每日明细）、探针结果和脱敏原因。每 10 分钟自动刷新，最近更新 {{moduleStates.autoFaceFailure.updatedAtText}}</view>
-          </view>
-          <view class="admin-section-tools">
-            <view class="config-state {{moduleStates.autoFaceFailure.status === 'failed' ? 'is-off' : 'is-ready'}}">
-              {{moduleStates.autoFaceFailure.label}}
-            </view>
-            <button
-              class="usage-refresh-button"
-              catchtap="refreshAutoFaceFailureStats"
-              loading="{{autoFaceFailureLoading}}"
-              disabled="{{autoFaceFailureLoading}}"
-            >
-              {{autoFaceFailureLoading ? '刷新中' : '刷新统计'}}
-            </button>
-            <button
-              class="usage-export-button"
-              catchtap="exportAutoFaceFailureStats"
-              loading="{{autoFaceFailureExporting}}"
-              disabled="{{autoFaceFailureExporting}}"
-            >
-              {{autoFaceFailureExporting ? '生成中' : '导出失败统计'}}
-            </button>
-            <view
-              class="monitor-section-toggle-button"
-              data-section="autoFaceFailure"
-              catchtap="toggleMonitorSection"
-              hover-class="control-tap"
-              role="button"
-              aria-label="{{monitorSections.autoFaceFailure ? '收起自动贴脸失败统计' : '展开自动贴脸失败统计'}}"
-            >
-              <text>{{monitorSections.autoFaceFailure ? '收起' : '展开'}}</text>
-              <text class="monitor-section-chevron {{monitorSections.autoFaceFailure ? 'is-open' : ''}}">⌄</text>
-            </view>
-          </view>
-        </view>
-
-        <view wx:if="{{monitorSections.autoFaceFailure}}" class="monitor-fold-body">
-        <view wx:if="{{moduleStates.autoFaceFailure.status === 'loading'}}" class="usage-message">
-          正在读取自动贴脸失败统计...
-        </view>
-        <view wx:if="{{moduleStates.autoFaceFailure.status === 'failed'}}" class="usage-message is-warn">
-          {{moduleStates.autoFaceFailure.message || '自动贴脸失败统计读取失败，请点击刷新统计。'}}
-        </view>
-        <view wx:if="{{autoFaceFailureStats.message}}" class="usage-message {{autoFaceFailureStats.unavailable ? 'is-warn' : ''}}">
-          {{autoFaceFailureStats.message}}
-        </view>
-
-        <view wx:if="{{moduleStates.autoFaceFailure.status === 'ready' || moduleStates.autoFaceFailure.hasData}}" class="auto-face-failure-panels">
-          <view class="auto-face-failure-panel">
-            <view
-              class="usage-subsection-head auto-face-failure-subsection-head"
-              data-auto-face-failure-section="failure"
-              catchtap="toggleAutoFaceFailureSection"
-              hover-class="control-tap"
-              role="button"
-              aria-label="{{autoFaceFailureSections.failure ? '收起失败情况' : '展开失败情况'}}"
-            >
-              <view class="usage-subsection-title">失败情况</view>
-              <view class="usage-subsection-toggle">
-                <text>{{autoFaceFailureSections.failure ? '收起' : '展开'}}</text>
-                <text class="usage-subsection-chevron {{autoFaceFailureSections.failure ? 'is-open' : ''}}">⌄</text>
-              </view>
-            </view>
-            <view wx:if="{{autoFaceFailureSections.failure}}" class="auto-face-failure-panel-body">
-              <view class="auto-face-failure-summary">
-                <view class="auto-face-failure-summary-item">
-                  <text>失败次数</text>
-                   <text>{{autoFaceFailureView.total}}</text>
-                   <text>{{autoFaceFailureView.selectedMonth || '选中月份'}}</text>
-                </view>
-                <view class="auto-face-failure-summary-item">
-                  <text>今天</text>
-                   <text>{{autoFaceFailureView.today}}</text>
-                   <text>今天失败次数</text>
-                </view>
-                <view class="auto-face-failure-summary-item">
-                  <text>最近 7 天</text>
-                   <text>{{autoFaceFailureView.last7d}}</text>
-                   <text>最近 7 天失败次数</text>
-                </view>
-              </view>
-
-              <view class="auto-face-probe-summary">
-                <view class="auto-face-probe-summary-item">
-                  <text>探针正常</text>
-                  <text>{{autoFaceFailureStats.probeSummary.ok}}</text>
-                </view>
-                <view class="auto-face-probe-summary-item">
-                  <text>探针失败</text>
-                  <text>{{autoFaceFailureStats.probeSummary.failed}}</text>
-                </view>
-                <view class="auto-face-probe-summary-item">
-                  <text>未返回</text>
-                  <text>{{autoFaceFailureStats.probeSummary.notRun}}</text>
-                </view>
-                <view class="auto-face-probe-summary-item auto-face-probe-summary-wide">
-                  <text>涉及线上版本</text>
-                  <text>{{autoFaceFailureStats.probeSummary.versionText}}</text>
-                </view>
-              </view>
-
-              <view class="auto-face-failure-subtitle">探针汇总</view>
-              <view class="auto-face-probe-hint">
-                <text>视觉配置已就绪 {{autoFaceFailureStats.probeSummary.visionConfigured}} 次</text>
-                <text>未就绪 {{autoFaceFailureStats.probeSummary.visionUnavailable}} 次</text>
-              </view>
-
-              <view class="auto-face-failure-subtitle">失败类型</view>
-               <view wx:if="{{autoFaceFailureView.byType.length}}" class="auto-face-failure-type-list">
-                 <view wx:for="{{autoFaceFailureView.byType}}" wx:key="type" class="auto-face-failure-type-row">
-                   <view>
-                     <text class="auto-face-failure-type-label failure-type-tag is-{{item.failureTypeTone}}">{{item.label}}</text>
-                     <text class="auto-face-failure-type-last">最近 {{item.lastSeenText}}</text>
-                   </view>
-                  <text class="auto-face-failure-type-count">{{item.count}} 次</text>
-                </view>
-              </view>
-               <view wx:else class="admin-empty usage-empty">{{autoFaceFailureView.emptyText}}</view>
-            </view>
-          </view>
-
-          <view class="auto-face-failure-panel">
-            <view
-              class="usage-subsection-head auto-face-failure-subsection-head"
-              data-auto-face-failure-section="daily"
-              catchtap="toggleAutoFaceFailureSection"
-              hover-class="control-tap"
-              role="button"
-              aria-label="{{autoFaceFailureSections.daily ? '收起最近30天每日明细' : '展开最近30天每日明细'}}"
-            >
-              <view class="usage-subsection-title">最近30天每日明细</view>
-              <view class="usage-subsection-toggle">
-                <text>{{autoFaceFailureSections.daily ? '收起' : '展开'}}</text>
-                <text class="usage-subsection-chevron {{autoFaceFailureSections.daily ? 'is-open' : ''}}">⌄</text>
-              </view>
-            </view>
-            <view wx:if="{{autoFaceFailureSections.daily}}" class="auto-face-failure-panel-body">
-               <view wx:if="{{autoFaceFailureView.daily.length}}" class="auto-face-failure-daily-list">
-                 <view wx:for="{{autoFaceFailureView.daily}}" wx:key="dateKey" class="auto-face-failure-daily-row">
-                  <view class="auto-face-failure-daily-top">
-                    <text>{{item.dateKey}}</text>
-                    <text>合计 {{item.total}} 次</text>
-                  </view>
-                  <view class="auto-face-failure-daily-meta">
-                    <text>用户 {{item.userCount}}</text>
-                     <text class="failure-type-tag is-{{item.topFailureTypeTone}}">主要原因 {{item.topFailureTypeLabel}}</text>
-                    <text>最近 {{item.lastSeenText}}</text>
-                  </view>
-                </view>
-              </view>
-               <view wx:else class="admin-empty usage-empty">该月份没有每日失败记录。</view>
-
-              <view class="auto-face-failure-subtitle">最近失败记录</view>
-               <view wx:if="{{autoFaceFailureView.recent.length}}" class="auto-face-failure-recent-list">
-                 <view wx:for="{{autoFaceFailureView.recent}}" wx:key="requestId">
-                   <view class="auto-face-failure-recent-top">
-                     <text>{{item.createdAtText}} · <text class="failure-type-tag is-{{item.failureTypeTone}}">{{item.failureTypeLabel}}</text></text>
-                    <button class="copy-error-button" data-index="{{index}}" catchtap="copyAutoFaceFailure">复制错误</button>
-                  </view>
-                  <view class="auto-face-failure-recent-meta">
-                    <text>错误码 {{item.errorCode}}</text>
-                    <text wx:if="{{item.status}}">HTTP {{item.status}}</text>
-                    <text wx:if="{{item.durationMs}}">用时 {{item.durationMs}}ms</text>
-                    <text wx:if="{{item.requestId}}">请求 {{item.requestId}}</text>
-                  </view>
-                  <view class="auto-face-failure-recent-probe">{{item.probeSummaryText}}</view>
-                   <view class="auto-face-failure-recent-message">{{item.message}}</view>
-                 </view>
-               </view>
-               <view wx:else class="admin-empty usage-empty">该月份还没有失败记录。</view>
-            </view>
-          </view>
-
-          <view class="auto-face-failure-panel">
-            <view
-              class="usage-subsection-head auto-face-failure-subsection-head"
-              data-auto-face-failure-section="users"
-              catchtap="toggleAutoFaceFailureSection"
-              hover-class="control-tap"
-              role="button"
-              aria-label="{{autoFaceFailureSections.users ? '收起按用户统计' : '展开按用户统计'}}"
-            >
-              <view class="usage-subsection-title">按用户统计</view>
-              <view class="usage-subsection-toggle">
-                <text>{{autoFaceFailureSections.users ? '收起' : '展开'}}</text>
-                <text class="usage-subsection-chevron {{autoFaceFailureSections.users ? 'is-open' : ''}}">⌄</text>
-              </view>
-            </view>
-            <view wx:if="{{autoFaceFailureSections.users}}" class="auto-face-failure-panel-body">
-               <view wx:if="{{autoFaceFailureView.users.length}}" class="auto-face-failure-user-list">
-                 <view
-                   wx:for="{{autoFaceFailureView.users}}"
-                   wx:key="userHash"
-                   class="auto-face-failure-user-row auto-face-failure-user-row-action"
-                   data-index="{{index}}"
-                   catchtap="openAutoFaceFailureUserDetail"
-                   hover-class="control-tap"
-                 >
-                   <view class="auto-face-failure-user-main">
-                     <text class="auto-face-failure-user-name">{{item.userLabel}}</text>
-                     <text class="auto-face-failure-user-meta">主要原因 <text class="failure-type-tag is-{{item.failureTypeTone}}">{{item.topFailureTypeLabel}}</text> · 最近 {{item.lastSeenText}}</text>
-                   </view>
-                   <view class="auto-face-failure-user-side">
-                     <text class="auto-face-failure-user-count">{{item.total}} 次</text>
-                     <text class="auto-face-failure-user-detail-link">查看详情</text>
-                   </view>
-                 </view>
-               </view>
-               <view wx:else class="admin-empty usage-empty">该月份还没有按用户统计数据。</view>
-            </view>
-          </view>
-
-          <view class="auto-face-failure-panel">
-            <view
-              class="usage-subsection-head auto-face-failure-subsection-head"
-              data-auto-face-failure-section="monthly"
-              catchtap="toggleAutoFaceFailureSection"
-              hover-class="control-tap"
-              role="button"
-              aria-label="{{autoFaceFailureSections.monthly ? '收起按月统计' : '展开按月统计'}}"
-            >
-               <view class="usage-subsection-title">按月统计</view>
-               <picker
-                 mode="selector"
-                 range="{{autoFaceFailureView.monthOptions}}"
-                 value="{{autoFaceFailureView.monthOptionIndex}}"
-                 bindchange="selectAutoFaceFailureMonth"
-               >
-                 <view class="auto-face-month-picker">{{autoFaceFailureView.selectedMonth || '选择月份'}} <text>⌄</text></view>
-               </picker>
-              <view class="usage-subsection-toggle">
-                <text>{{autoFaceFailureSections.monthly ? '收起' : '展开'}}</text>
-                <text class="usage-subsection-chevron {{autoFaceFailureSections.monthly ? 'is-open' : ''}}">⌄</text>
-              </view>
-            </view>
-            <view wx:if="{{autoFaceFailureSections.monthly}}" class="auto-face-failure-panel-body">
-               <view wx:if="{{autoFaceFailureView.monthly.length}}" class="auto-face-failure-monthly-list">
-                 <view wx:for="{{autoFaceFailureView.monthly}}" wx:key="monthKey" class="auto-face-failure-monthly-row {{item.monthKey === autoFaceFailureView.selectedMonth ? 'is-selected' : ''}}">
-                  <view class="auto-face-failure-monthly-top">
-                    <text>{{item.monthKey}}</text>
-                    <text>合计 {{item.total}} 次</text>
-                  </view>
-                   <view class="auto-face-failure-monthly-meta">
-                     <text>用户 {{item.userCount}}</text>
-                     <text class="failure-type-tag is-{{item.topFailureTypeTone || 'neutral'}}">主要原因 {{item.topFailureTypeLabel}}</text>
-                     <text>最近 {{item.lastSeenText}}</text>
-                  </view>
-                </view>
-              </view>
-              <view wx:else class="admin-empty usage-empty">还没有按月统计数据。</view>
-            </view>
-          </view>
-        </view>
-        </view>
-      </view>
-
-      <view
-        wx:if="{{autoFaceFailureDetailOpen}}"
-        class="auto-face-detail-mask"
-        catchtap="closeAutoFaceFailureUserDetail"
-      >
-        <view class="auto-face-detail-dialog" catchtap="noop">
-          <view class="auto-face-detail-head">
-            <view>
-              <view class="auto-face-detail-title">{{autoFaceFailureDetail.userLabel}} 的失败详情</view>
-              <view class="auto-face-detail-subtitle">{{autoFaceFailureView.selectedMonth}} · 共 {{autoFaceFailureDetail.total}} 次</view>
-            </view>
-            <view class="auto-face-detail-close" catchtap="closeAutoFaceFailureUserDetail">关闭</view>
-          </view>
-          <view wx:if="{{autoFaceFailureDetail.details.length}}" class="auto-face-detail-list">
-            <view wx:for="{{autoFaceFailureDetail.details}}" wx:key="requestId" class="auto-face-detail-row">
-              <view class="auto-face-detail-row-top">
-                <text>{{item.createdAtText}}</text>
-                <text class="failure-type-tag is-{{item.failureTypeTone}}">{{item.failureTypeLabel}}</text>
-              </view>
-              <view class="auto-face-detail-meta">
-                <text>错误码 {{item.errorCode}}</text>
-                <text wx:if="{{item.status}}">HTTP {{item.status}}</text>
-                <text wx:if="{{item.durationMs}}">用时 {{item.durationMs}}ms</text>
-              </view>
-              <view class="auto-face-detail-message">{{item.message}}</view>
-              <view wx:if="{{item.requestId}}" class="auto-face-detail-request">请求 {{item.requestId}}</view>
-            </view>
-          </view>
-          <view wx:else class="admin-empty usage-empty">这个用户在当前月份没有可显示的失败明细。</view>
         </view>
       </view>
 

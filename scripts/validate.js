@@ -681,17 +681,8 @@ if (
   || !adminJs.includes("openAutoFaceFailureUserDetail")
   || !adminJs.includes("exportAutoFaceFailureStats")
   || !adminJs.includes("AUTO_FACE_FAILURE_AUTO_REFRESH_MS")
-  || !adminWxml.includes("自动贴脸失败统计")
-  || !adminWxml.includes("最近 30 天")
-  || !adminWxml.includes("最近30天每日明细")
-  || !adminWxml.includes("按用户统计")
-  || !adminWxml.includes("按月统计")
   || !adminJs.includes("toggleAutoFaceFailureSection")
   || !adminJs.includes("autoFaceFailureSections")
-  || !adminWxml.includes("最近失败记录")
-  || !adminWxml.includes("导出失败统计")
-  || !adminWxml.includes("查看详情")
-  || !adminWxml.includes("autoFaceFailureView")
   || !adminWxss.includes(".auto-face-failure-summary")
   || !adminWxss.includes(".auto-face-failure-type-list")
   || !adminWxss.includes(".auto-face-failure-recent-list")
@@ -710,8 +701,10 @@ if (
   || !cloudJs.includes("userHash")
   || !cloudJs.includes("ADMIN_FORBIDDEN")
   || !fs.existsSync(path.join(root, "scripts/auto-face-failure-stats-smoke.js"))
+  || adminWxml.includes("autoFaceFailure")
+  || adminWxml.includes("自动贴脸失败统计")
 ) {
-  throw new Error("自动贴脸失败日志上报、管理员30天统计或脱敏测试不完整。");
+  throw new Error("自动贴脸失败后台统计能力不完整，或管理页仍残留已移除的统计界面。");
 }
 if (
   !appJson.pages.includes("pages/points/points")

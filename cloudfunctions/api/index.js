@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.35.8";
-const API_BUILD_MARKER = "API_BUILD_TAG_20260824_ADMIN_IDENTITY_BOOTSTRAP_V358";
+const API_BUILD_VERSION = "0.35.9";
+const API_BUILD_MARKER = "API_BUILD_TAG_20260824_QR_NATIVE_PREVIEW_V359";
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
 const cloud = require("wx-server-sdk");

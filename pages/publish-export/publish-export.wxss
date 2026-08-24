@@ -337,15 +337,15 @@ slider {
 .back-button {
   display: flex;
   width: 100%;
-  height: 68rpx;
-  min-height: 68rpx;
+  height: 82rpx;
+  min-height: 82rpx;
   margin-top: 14rpx;
   padding: 0;
   align-items: center;
   justify-content: center;
-  border-radius: 14rpx;
-  font-size: 24rpx;
-  line-height: 68rpx;
+  border-radius: 16rpx;
+  font-size: 28rpx;
+  line-height: 82rpx;
   text-align: center;
 }
 

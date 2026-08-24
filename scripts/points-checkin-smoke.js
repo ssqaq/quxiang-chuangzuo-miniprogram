@@ -34,6 +34,32 @@ function createMemoryStore() {
           }
           records.set(key, clone(data));
           return { stats: { updated: 1 } };
+        },
+        async remove() {
+          records.delete(key);
+          return { stats: { removed: 1 } };
+        }
+      };
+    },
+    where(query = {}) {
+      return {
+        limit(max) {
+          return {
+            async get() {
+              const prefix = `${name}/`;
+              const rows = [...records.entries()]
+                .filter(([key, value]) => (
+                  key.startsWith(prefix)
+                  && Object.keys(query).every((field) => value[field] === query[field])
+                ))
+                .slice(0, Number(max) || 20)
+                .map(([key, value]) => Object.assign(
+                  { _id: key.slice(prefix.length) },
+                  clone(value)
+                ));
+              return { data: rows };
+            }
+          };
         }
       };
     }
@@ -150,6 +176,23 @@ async function main() {
     assert.strictEqual(checkinLedger.length, 1);
     assert.strictEqual(checkinLedger[0].amount, 5);
     assert.strictEqual(checkinLedger[0].balanceAfter, 5);
+
+    const reset = await helpers.resetMyPoints(user);
+    assert.strictEqual(reset.ok, true);
+    assert.strictEqual(reset.reset, true);
+    assert.strictEqual(reset.removedLedgerRecords, 1);
+    assert.strictEqual(reset.pointsBalance, 0);
+    assert.strictEqual(reset.totalEarned, 0);
+    assert.strictEqual(reset.totalSpent, 0);
+    assert.strictEqual(reset.currentStreak, 0);
+    assert.strictEqual(reset.checkedInToday, false);
+    assert.strictEqual(valuesFor(store, "point_ledger").length, 0);
+
+    const afterResetCheckIn = await helpers.checkIn(user);
+    assert.strictEqual(afterResetCheckIn.ok, true);
+    assert.strictEqual(afterResetCheckIn.duplicate, false);
+    assert.strictEqual(afterResetCheckIn.earnedToday, 5);
+    assert.strictEqual(afterResetCheckIn.pointsBalance, 5);
   } finally {
     db.collection = originalCollection;
     db.runTransaction = originalRunTransaction;

@@ -171,16 +171,6 @@ page {
   background: #fff1f6;
 }
 
-.privacy-note {
-  margin-top: 26rpx;
-  padding: 18rpx;
-  border-radius: 16rpx;
-  color: #6f7f94;
-  background: #f4f7fb;
-  font-size: 20rpx;
-  line-height: 32rpx;
-}
-
 .profile-error {
   margin-top: 18rpx;
   color: #ad3f4b;

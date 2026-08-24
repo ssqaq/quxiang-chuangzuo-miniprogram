@@ -56,10 +56,6 @@
       </view>
     </view>
 
-    <view class="privacy-note">
-      保存代表你同意小程序按隐私保护指引收集头像、昵称和性别。原始微信身份不会显示在管理页。
-    </view>
-
     <view wx:if="{{errorMessage}}" class="profile-error">{{errorMessage}}</view>
 
     <button

@@ -8,8 +8,17 @@
     <view class="admin-access-badge">{{isAdmin ? '管理员' : '未授权'}}</view>
   </view>
 
-  <view wx:if="{{loading}}" class="card admin-state-card">
-    <view>正在读取管理员配置...</view>
+  <view wx:if="{{loading}}" class="card admin-state-card admin-loading-card">
+    <view class="admin-loading-title">正在读取管理员配置...</view>
+    <view class="admin-loading-skeleton admin-loading-skeleton-title"></view>
+    <view class="admin-loading-skeleton-grid">
+      <view class="admin-loading-skeleton admin-loading-skeleton-tile"></view>
+      <view class="admin-loading-skeleton admin-loading-skeleton-tile"></view>
+      <view class="admin-loading-skeleton admin-loading-skeleton-tile"></view>
+      <view class="admin-loading-skeleton admin-loading-skeleton-tile"></view>
+    </view>
+    <view class="admin-loading-skeleton admin-loading-skeleton-row"></view>
+    <view class="admin-loading-skeleton admin-loading-skeleton-row"></view>
     <view wx:if="{{canRetry}}" class="admin-retry-button" bindtap="loadAdminPage">重新读取</view>
   </view>
 
@@ -304,9 +313,18 @@
         </view>
       </view>
 
-      <view wx:if="{{usageExpanded}}" class="monitor-fold-body">
+      <view wx:if="{{usageExpanded}}" class="monitor-fold-body usage-fold-body {{moduleStates.usage.status === 'loading' ? 'is-loading' : ''}}">
       <view wx:if="{{moduleStates.usage.status === 'loading'}}" class="usage-message">
         正在读取模型用量和成本...
+      </view>
+      <view wx:if="{{moduleStates.usage.status === 'loading'}}" class="module-loading-placeholder">
+        <view class="admin-loading-skeleton admin-loading-skeleton-row"></view>
+        <view class="admin-loading-skeleton-grid">
+          <view class="admin-loading-skeleton admin-loading-skeleton-tile"></view>
+          <view class="admin-loading-skeleton admin-loading-skeleton-tile"></view>
+          <view class="admin-loading-skeleton admin-loading-skeleton-tile"></view>
+        </view>
+        <view class="admin-loading-skeleton admin-loading-skeleton-panel"></view>
       </view>
       <view wx:if="{{moduleStates.usage.status === 'failed'}}" class="usage-message is-warn">
         {{moduleStates.usage.message || '模型用量和成本读取失败，请点击刷新统计。'}}
@@ -1300,9 +1318,14 @@
             </view>
           </view>
         </view>
-        <view wx:if="{{deploymentSections.probeHistory}}" class="monitor-fold-body">
+        <view wx:if="{{deploymentSections.probeHistory}}" class="monitor-fold-body module-fold-body {{moduleStates.probeHistory.status === 'loading' ? 'is-loading' : ''}}">
           <view wx:if="{{moduleStates.probeHistory.status === 'loading'}}" class="usage-message">
             正在读取探针历史...
+          </view>
+          <view wx:if="{{moduleStates.probeHistory.status === 'loading'}}" class="module-loading-placeholder">
+            <view class="admin-loading-skeleton admin-loading-skeleton-row"></view>
+            <view class="admin-loading-skeleton admin-loading-skeleton-row"></view>
+            <view class="admin-loading-skeleton admin-loading-skeleton-row"></view>
           </view>
           <view wx:if="{{moduleStates.probeHistory.status === 'failed'}}" class="usage-message is-warn">
             {{moduleStates.probeHistory.message || '探针历史读取失败，请点击刷新。'}}
@@ -1355,9 +1378,14 @@
             </view>
           </view>
         </view>
-        <view wx:if="{{deploymentSections.logs}}" class="monitor-fold-body">
+        <view wx:if="{{deploymentSections.logs}}" class="monitor-fold-body module-fold-body {{moduleStates.logs.status === 'loading' ? 'is-loading' : ''}}">
           <view wx:if="{{moduleStates.logs.status === 'loading'}}" class="usage-message">
             正在读取部署日志...
+          </view>
+          <view wx:if="{{moduleStates.logs.status === 'loading'}}" class="module-loading-placeholder">
+            <view class="admin-loading-skeleton admin-loading-skeleton-row"></view>
+            <view class="admin-loading-skeleton admin-loading-skeleton-row"></view>
+            <view class="admin-loading-skeleton admin-loading-skeleton-row"></view>
           </view>
           <view wx:if="{{moduleStates.logs.status === 'failed'}}" class="usage-message is-warn">
             {{moduleStates.logs.message || '部署日志读取失败，请点击一键刷新全部。'}}
@@ -1408,9 +1436,18 @@
           </view>
         </view>
 
-        <view wx:if="{{monitorSections.diagnosticLogs}}" class="monitor-fold-body">
+        <view wx:if="{{monitorSections.diagnosticLogs}}" class="monitor-fold-body module-fold-body {{moduleStates.diagnosticLogs.status === 'loading' ? 'is-loading' : ''}}">
         <view wx:if="{{moduleStates.diagnosticLogs.status === 'loading'}}" class="usage-message">
           正在整理用户端日志...
+        </view>
+        <view wx:if="{{moduleStates.diagnosticLogs.status === 'loading'}}" class="module-loading-placeholder">
+          <view class="admin-loading-skeleton admin-loading-skeleton-row"></view>
+          <view class="admin-loading-skeleton-grid">
+            <view class="admin-loading-skeleton admin-loading-skeleton-tile"></view>
+            <view class="admin-loading-skeleton admin-loading-skeleton-tile"></view>
+            <view class="admin-loading-skeleton admin-loading-skeleton-tile"></view>
+          </view>
+          <view class="admin-loading-skeleton admin-loading-skeleton-panel"></view>
         </view>
         <view wx:if="{{moduleStates.diagnosticLogs.status === 'failed'}}" class="usage-message is-warn">
           {{moduleStates.diagnosticLogs.message || '用户端日志读取失败，请点击刷新。'}}
@@ -1494,7 +1531,6 @@
         >
           <view class="diagnostic-admin-user-picker">
             <text>用户筛选</text>
-            <text>{{diagnosticUserLabel}} ›</text>
           </view>
         </picker>
 

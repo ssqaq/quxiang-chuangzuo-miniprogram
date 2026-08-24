@@ -6,9 +6,6 @@
   <view class="card source-upload-card">
     <view class="section-title">1. 导入照片</view>
     <view class="section-subtitle">从手机相册选择照片导入</view>
-    <button class="primary-btn upload-main-button" bindtap="chooseDevicePhotos">
-      {{deviceRecords.length ? '重新选择照片' : '选择照片'}}
-    </button>
     <view wx:if="{{deviceRecords.length}}" class="device-photo-preview-list">
       <image
         wx:for="{{deviceRecords}}"
@@ -23,6 +20,9 @@
     <view wx:if="{{deviceRecords.length}}" class="device-photo-hint">
       已导入 {{deviceRecords.length}} 张照片，当前将导出这些照片。
     </view>
+    <button class="primary-btn upload-main-button" bindtap="chooseDevicePhotos">
+      {{deviceRecords.length ? '重新选择照片' : '选择照片'}}
+    </button>
   </view>
 
   <view class="card">

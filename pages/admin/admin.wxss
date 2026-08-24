@@ -3954,7 +3954,268 @@ page {
   color: #b36d18;
 }
 
+/* 管理员页统一视觉收口：主卡片 22rpx，内部卡片 18rpx，按钮 14rpx。 */
+.admin-page {
+  padding-right: 24rpx;
+  padding-left: 24rpx;
+}
+
+.card,
+.status-console,
+.monitor-toggle,
+.monitor-overview-card,
+.monitor-deployment-group,
+.admin-section,
+.admin-state-card,
+.config-editor {
+  border-radius: 22rpx;
+}
+
+.quick-launch,
+.current-config-row,
+.today-item,
+.usage-collapsed-statistics-card {
+  border-radius: 18rpx;
+}
+
+.usage-summary-item,
+.usage-cost-item,
+.usage-type-card,
+.monitor-overview-stats > view,
+.diagnostic-admin-summary-item,
+.deployment-grid view,
+.auto-face-probe-summary-item,
+.auto-face-failure-summary-item,
+.usage-failure-summary-item {
+  border-radius: 16rpx;
+}
+
+.config-close-button,
+.config-tool-button,
+.admin-back-button,
+.admin-retry-button,
+.usage-refresh-button,
+.usage-export-button,
+.monitor-section-toggle-button,
+.monitor-all-button,
+.monitor-filter-button,
+.usage-subsection-toggle,
+.model-probe-single-button {
+  border-radius: 14rpx;
+}
+
+.status-console {
+  margin-top: 20rpx;
+}
+
+.quick-launch-grid {
+  gap: 16rpx;
+  margin-top: 20rpx;
+}
+
+.overview-section {
+  margin-top: 22rpx;
+}
+
+.today-grid {
+  gap: 16rpx;
+}
+
+.admin-content {
+  margin-top: 20rpx;
+}
+
+.admin-section {
+  margin-bottom: 20rpx;
+}
+
+.monitor-content {
+  margin-top: 20rpx;
+}
+
+.monitor-deployment-body .admin-section {
+  margin-bottom: 16rpx;
+}
+
+.admin-content > .admin-section + .admin-section,
+.monitor-deployment-body > .admin-section + .admin-section {
+  border-top-color: #e7edf5;
+}
+
+.admin-section-head {
+  gap: 18rpx;
+  padding-bottom: 20rpx;
+}
+
+.module-fold-body,
+.usage-fold-body {
+  min-width: 0;
+}
+
+.module-loading-placeholder {
+  padding-top: 2rpx;
+}
+
+.admin-loading-card {
+  min-height: 560rpx;
+  padding: 28rpx;
+}
+
+.admin-loading-title {
+  color: #52647d;
+  font-size: 24rpx;
+  font-weight: 700;
+  line-height: 34rpx;
+}
+
+.admin-loading-skeleton {
+  position: relative;
+  overflow: hidden;
+  background: #edf2f8;
+}
+
+.admin-loading-skeleton::after {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -40%;
+  width: 40%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.8), transparent);
+  content: "";
+  animation: admin-skeleton-shimmer 1.35s ease-in-out infinite;
+}
+
+.admin-loading-skeleton-title {
+  width: 56%;
+  height: 28rpx;
+  margin-top: 22rpx;
+  border-radius: 10rpx;
+}
+
+.admin-loading-skeleton-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12rpx;
+  margin-top: 18rpx;
+}
+
+.admin-loading-skeleton-tile {
+  height: 116rpx;
+  border-radius: 16rpx;
+}
+
+.admin-loading-skeleton-row {
+  width: 100%;
+  height: 82rpx;
+  margin-top: 16rpx;
+  border-radius: 16rpx;
+}
+
+.admin-loading-skeleton-panel {
+  width: 100%;
+  height: 210rpx;
+  margin-top: 16rpx;
+  border-radius: 18rpx;
+}
+
+.usage-fold-body.is-loading {
+  min-height: 500rpx;
+}
+
+.module-fold-body.is-loading {
+  min-height: 300rpx;
+}
+
+@keyframes admin-skeleton-shimmer {
+  0% {
+    transform: translateX(0);
+  }
+
+  100% {
+    transform: translateX(350%);
+  }
+}
+
 @media (max-width: 360px) {
+  .admin-page {
+    padding-right: 16rpx;
+    padding-left: 16rpx;
+  }
+
+  .status-console,
+  .admin-section,
+  .admin-state-card,
+  .config-editor {
+    padding: 18rpx;
+  }
+
+  .status-console-actions {
+    flex-wrap: wrap;
+  }
+
+  .status-check-button {
+    flex: 1 1 calc(50% - 6rpx);
+    width: calc(50% - 6rpx);
+  }
+
+  .status-check-button:last-child {
+    flex-basis: 100%;
+    width: 100%;
+  }
+
+  .quick-launch-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12rpx;
+  }
+
+  .quick-launch {
+    height: 128rpx;
+  }
+
+  .admin-section-head,
+  .admin-section-tools {
+    gap: 10rpx;
+  }
+
+  .admin-section-tools,
+  .usage-toolbar {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .admin-section-tools > .config-state,
+  .admin-section-tools > .usage-refresh-button,
+  .admin-section-tools > .monitor-section-toggle-button {
+    flex: 1 1 calc(50% - 5rpx);
+    width: auto;
+  }
+
+  .monitor-section-head {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .monitor-section-head .monitor-section-toggle-button {
+    margin-left: auto;
+  }
+
+  .monitor-deployment-body {
+    padding-right: 8rpx;
+    padding-left: 8rpx;
+  }
+
+  .monitor-overview-card {
+    padding: 18rpx;
+  }
+
+  .admin-loading-card {
+    min-height: 520rpx;
+  }
+
+  .admin-loading-skeleton-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .admin-grid,
   .deployment-grid {
     grid-template-columns: 1fr;
@@ -3977,11 +4238,10 @@ page {
   }
 
   .diagnostic-admin-summary {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .usage-toolbar {
-    width: 100%;
     margin-top: 10rpx;
   }
 
@@ -4025,6 +4285,15 @@ page {
   .user-stats-d-overview {
     padding-right: 12rpx;
     padding-left: 12rpx;
+  }
+
+  .model-probe-row {
+    flex-direction: column;
+  }
+
+  .model-probe-side {
+    width: 100%;
+    align-items: flex-start;
   }
 
   .user-stats-d-donut {

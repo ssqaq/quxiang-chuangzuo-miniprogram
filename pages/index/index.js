@@ -605,34 +605,6 @@ Page({
     this._pageScrollTop = Math.max(0, scrollTop);
   },
 
-  scrollToGenerationResults() {
-    if (
-      this._pageDestroyed
-      || !this.data.generatedResults.length
-      || typeof wx.createSelectorQuery !== "function"
-      || typeof wx.pageScrollTo !== "function"
-    ) {
-      return;
-    }
-    const query = wx.createSelectorQuery().in(this);
-    query.select("#generation-results").boundingClientRect((rect) => {
-      if (!rect || !Number.isFinite(Number(rect.top))) return;
-      const currentScrollTop = Number(this._pageScrollTop) || 0;
-      const targetScrollTop = Math.max(
-        0,
-        currentScrollTop + Number(rect.top) - 24
-      );
-      wx.pageScrollTo({
-        scrollTop: targetScrollTop,
-        duration: 280
-      });
-      diagnosticLog.info("generation", "results-focus", "生成完成后滚动到结果区", {
-        step: "save",
-        scrollTop: targetScrollTop
-      });
-    }).exec();
-  },
-
   resetForNewCreation(mode) {
     const entry = resolveEntryMode({ mode }) || ENTRY_MODE_META.custom;
     this.clearCanvasDrawTimer();
@@ -2452,14 +2424,6 @@ Page({
         generationElapsedSeconds: 0,
         generationRetryCount: 0,
         generationTimedOut: false
-      }, () => {
-        if (!generationSucceeded) return;
-        const scroll = () => this.scrollToGenerationResults();
-        if (typeof wx.nextTick === "function") {
-          wx.nextTick(scroll);
-        } else {
-          setTimeout(scroll, 0);
-        }
       });
     }
   },

@@ -126,14 +126,20 @@ page {
 }
 
 .scope-button {
+  display: flex;
   flex: 1;
   height: 72rpx;
   min-height: 72rpx;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
   border-radius: 14rpx;
   background: #f4f6fa;
   color: #65738a;
   font-size: 26rpx;
-  line-height: 72rpx;
+  line-height: normal;
+  padding: 0;
+  text-align: center;
 }
 
 .scope-button-active {

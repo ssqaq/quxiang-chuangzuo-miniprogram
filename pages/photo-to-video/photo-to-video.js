@@ -9,24 +9,44 @@ const SCOPE_OPTIONS = [
   { value: "all", label: "全部记录" }
 ];
 
+function firstRecordValue(...values) {
+  return values.find((value) => value !== undefined && value !== null && String(value).trim()) || "";
+}
+
+function isCloudFileId(value) {
+  return /^cloud:\/\//i.test(String(value || ""));
+}
+
 function normalizeRecord(record, index) {
   const item = record && typeof record === "object" ? record : {};
-  const sourcePath = item.sourcePath || item.path || "";
-  const sourceFileID = item.sourceFileID || item.fileID || "";
+  const sourceCandidate = firstRecordValue(item.sourcePath, item.path);
+  const sourceFileID = firstRecordValue(
+    item.sourceFileID,
+    item.fileID,
+    isCloudFileId(sourceCandidate) ? sourceCandidate : "",
+    isCloudFileId(item.tempFileURL) ? item.tempFileURL : ""
+  );
+  const sourcePath = isCloudFileId(sourceCandidate) ? "" : sourceCandidate;
+  const displayCandidate = firstRecordValue(item.displayURL, item.tempFileURL, sourcePath);
+  const displayURL = isCloudFileId(displayCandidate) ? "" : displayCandidate;
+  const resultPath = firstRecordValue(item.resultPath, item.videoPath);
+  const resultFileID = firstRecordValue(item.resultFileID, item.videoFileID);
   return {
     id: item.id || item._id || `record-${index}-${Date.now()}`,
     fileID: sourceFileID,
     sourceFileID,
-    resultFileID: item.resultFileID || "",
+    resultFileID,
     projectName: item.projectName || "未命名项目",
     createdAt: item.createdAt || "刚刚生成",
-    tempFileURL: item.tempFileURL || "",
+    displayURL,
+    tempFileURL: firstRecordValue(item.tempFileURL, displayURL),
     sourcePath,
     path: sourcePath,
     selected: false,
     status: item.status || "idle",
     statusText: item.statusText || "待处理",
-    videoPath: item.videoPath || ""
+    resultPath,
+    videoPath: resultPath
   };
 }
 
@@ -37,7 +57,7 @@ function uniqueRecords(records) {
     .filter((item) => {
       if (seen[item.id]) return false;
       seen[item.id] = true;
-      return Boolean(item.tempFileURL || item.path || item.fileID);
+      return Boolean(item.displayURL || item.sourcePath || item.sourceFileID);
     });
 }
 
@@ -169,6 +189,7 @@ Page({
   onHide() {
     this._pageVisible = false;
     this.cancelActiveRun();
+    this.clearFinishTimer();
     this.stopPreview();
   },
 
@@ -176,6 +197,7 @@ Page({
     this._destroyed = true;
     this._pageVisible = false;
     this.cancelActiveRun();
+    this.clearFinishTimer();
     this.stopPreview();
   },
 
@@ -221,6 +243,13 @@ Page({
     if (this._activeRun === run) this._activeRun = null;
   },
 
+  clearFinishTimer() {
+    if (this._finishTimer) {
+      clearTimeout(this._finishTimer);
+      this._finishTimer = null;
+    }
+  },
+
   getCleanupConfig() {
     const cleanup = config.photoToVideo && config.photoToVideo.cleanup;
     return {
@@ -264,6 +293,15 @@ Page({
       });
     }
     storage.savePhotoToVideoCleanup(queue);
+    if (typeof cloud.registerPhotoToVideoTempAsset === "function") {
+      cloud.registerPhotoToVideoTempAsset(fileID, kind || "file").catch((error) => {
+        diagnosticLog.warn("video", "cleanup-register-failed", "照片转视频临时云文件登记失败，保留本地清理队列", {
+          fileID,
+          kind,
+          error
+        });
+      });
+    }
   },
 
   isCleanupNotFoundError(error) {
@@ -446,6 +484,7 @@ Page({
               selected: true,
               status: "idle",
               statusText: "待处理",
+              resultPath: "",
               videoPath: ""
             }
           : null;
@@ -510,16 +549,89 @@ Page({
   },
 
   selectPreviewRecord(record) {
-    const imagePath = record.tempFileURL || record.path || "";
-    if (!imagePath) return;
+    const item = normalizeRecord(record, 0);
+    const previewToken = (this._previewToken || 0) + 1;
+    this._previewToken = previewToken;
+    this._previewRecord = item;
+    const imageCandidate = item.displayURL || item.sourcePath || "";
+    const imagePath = isCloudFileId(imageCandidate) ? "" : imageCandidate;
+    const resultPath = isCloudFileId(item.resultPath) ? "" : item.resultPath;
     this.stopPreview();
     this.setDataIfActive({
       preview: {
         imagePath,
-        videoPath: record.videoPath || "",
-        title: record.projectName || "预览照片"
+        videoPath: resultPath,
+        title: item.projectName || "预览照片"
       }
     });
+    if (!imagePath && item.sourceFileID) {
+      this.resolvePreviewSource(item, previewToken);
+    }
+    if (!resultPath && item.resultFileID) {
+      this.resolvePreviewVideo(item, previewToken);
+    }
+  },
+
+  async resolvePreviewSource(record, previewToken) {
+    try {
+      const imagePath = await publishExport.resolveImageSource(record);
+      if (
+        this._previewToken !== previewToken
+        || !this.isPageActive()
+      ) return;
+      this.setDataIfActive({
+        preview: Object.assign({}, this.data.preview, { imagePath })
+      });
+    } catch (error) {
+      diagnosticLog.warn("video", "preview-source-failed", "预览照片路径失效且无法重新读取", {
+        error
+      });
+    }
+  },
+
+  async resolvePreviewVideo(record, previewToken) {
+    try {
+      const videoPath = await this.resolveVideoPath(record);
+      if (
+        this._previewToken !== previewToken
+        || !this.isPageActive()
+      ) return;
+      this.setDataIfActive({
+        preview: Object.assign({}, this.data.preview, { videoPath })
+      });
+    } catch (error) {
+      diagnosticLog.warn("video", "preview-result-failed", "预览视频路径失效且无法重新读取", {
+        error
+      });
+    }
+  },
+
+  onPreviewImageError() {
+    const record = this._previewRecord;
+    if (!record || !record.sourceFileID || this._previewFallbackLoading) return;
+    this._previewFallbackLoading = true;
+    const previewToken = this._previewToken;
+    publishExport.resolveImageSource(Object.assign({}, record, {
+      sourcePath: "",
+      path: "",
+      displayURL: "",
+      tempFileURL: ""
+    }))
+      .then((imagePath) => {
+        if (this._previewToken === previewToken && this.isPageActive()) {
+          this.setDataIfActive({
+            preview: Object.assign({}, this.data.preview, { imagePath })
+          });
+        }
+      })
+      .catch((error) => {
+        diagnosticLog.warn("video", "preview-image-fallback-failed", "预览照片临时路径已失效，云端回退也失败", {
+          error
+        });
+      })
+      .finally(() => {
+        this._previewFallbackLoading = false;
+      });
   },
 
   onPreviewTouchStart() {
@@ -640,6 +752,12 @@ Page({
   },
 
   async resolveVideoPath(result) {
+    if (result && result.resultPath && !isCloudFileId(result.resultPath)) {
+      return result.resultPath;
+    }
+    if (result && result.videoPath && !isCloudFileId(result.videoPath)) {
+      return result.videoPath;
+    }
     if (result && result.resultFileID) return cloud.downloadFile(result.resultFileID);
     if (result && result.videoFileID) return cloud.downloadFile(result.videoFileID);
     if (result && result.resultURL) return downloadUrl(result.resultURL);
@@ -695,16 +813,17 @@ Page({
     if (resultFileID) {
       this.enqueuePhotoToVideoCleanup(resultFileID, "result");
     }
-    const videoPath = await this.resolveVideoPath(result);
+    const resultPath = await this.resolveVideoPath(result);
     this.assertRunActive(run);
     await saveImageToAlbum(sourcePath);
     this.assertRunActive(run);
-    await saveVideoToAlbum(videoPath);
+    await saveVideoToAlbum(resultPath);
     this.assertRunActive(run);
     this.updateRecord(record.id, {
       status: "success",
       statusText: "已保存照片和视频",
-      videoPath,
+      resultPath,
+      videoPath: resultPath,
       sourcePath,
       sourceFileID: upload.fileID,
       resultFileID
@@ -712,7 +831,7 @@ Page({
     this.setDataIfActive({
       preview: {
         imagePath: sourcePath,
-        videoPath,
+        videoPath: resultPath,
         title: record.projectName
       }
     });
@@ -722,7 +841,7 @@ Page({
       requestId: result && result.requestId || created.requestId || requestId,
       durationMs: Date.now() - startedAt
     });
-    return { videoPath };
+    return { resultPath };
   },
 
   async runBatch(records, run) {
@@ -818,7 +937,9 @@ Page({
       }
     } finally {
       this.finishRun(run);
-      setTimeout(() => {
+      this.clearFinishTimer();
+      this._finishTimer = setTimeout(() => {
+        this._finishTimer = null;
         if (this.isPageActive()) {
           this.setDataIfActive({
             processing: false,
@@ -858,7 +979,9 @@ Page({
       }
     } finally {
       this.finishRun(run);
-      setTimeout(() => {
+      this.clearFinishTimer();
+      this._finishTimer = setTimeout(() => {
+        this._finishTimer = null;
         if (this.isPageActive()) {
           this.setDataIfActive({
             processing: false,

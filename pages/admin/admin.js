@@ -134,10 +134,39 @@ function emptyAutoFaceFailureStats() {
     last7d: 0,
     total30d: 0,
     byType: [],
+    probeSummary: {
+      total: 0,
+      ok: 0,
+      failed: 0,
+      pending: 0,
+      notRun: 0,
+      visionConfigured: 0,
+      visionUnavailable: 0,
+      versions: []
+    },
     recent: [],
     eventCount: 0,
     truncated: false,
     unavailable: false,
+    message: ""
+  };
+}
+
+function emptyAutoFaceProbe() {
+  return {
+    available: false,
+    status: "not-run",
+    statusText: "尚未检查",
+    buildVersion: "",
+    buildMarker: "",
+    nodeVersion: "",
+    cloudEnvConfigured: false,
+    visionConfigured: false,
+    provider: "",
+    model: "",
+    durationMs: 0,
+    checkedAtText: "未知时间",
+    errorCode: "",
     message: ""
   };
 }
@@ -153,6 +182,26 @@ function formatAdminDate(value) {
 
 function formatAutoFaceFailureStats(result) {
   const source = result || {};
+  const probeSource = source.probeSummary || {};
+  const probeSummary = Object.assign(emptyAutoFaceFailureStats().probeSummary, {
+    total: Number(probeSource.total) || 0,
+    ok: Number(probeSource.ok) || 0,
+    failed: Number(probeSource.failed) || 0,
+    pending: Number(probeSource.pending) || 0,
+    notRun: Number(probeSource.notRun) || 0,
+    visionConfigured: Number(probeSource.visionConfigured) || 0,
+    visionUnavailable: Number(probeSource.visionUnavailable) || 0,
+    versions: (Array.isArray(probeSource.versions) ? probeSource.versions : []).map((item) => ({
+      buildVersion: item.buildVersion || "未知版本",
+      buildMarker: item.buildMarker || "",
+      count: Number(item.count) || 0
+    }))
+  });
+  probeSummary.versionText = probeSummary.versions.length
+    ? probeSummary.versions
+      .map((item) => `${item.buildVersion}${item.count > 1 ? ` (${item.count})` : ""}`)
+      .join("、")
+    : "暂无";
   return Object.assign(emptyAutoFaceFailureStats(), source, {
     today: Number(source.today) || 0,
     last7d: Number(source.last7d) || 0,
@@ -160,6 +209,7 @@ function formatAutoFaceFailureStats(result) {
     eventCount: Number(source.eventCount) || 0,
     truncated: Boolean(source.truncated),
     unavailable: Boolean(source.unavailable),
+    probeSummary,
     byType: (Array.isArray(source.byType) ? source.byType : []).map((item) => ({
       type: item.type || "unknown",
       label: item.label || "其他失败",
@@ -177,9 +227,53 @@ function formatAutoFaceFailureStats(result) {
       stage: item.stage || "",
       durationMs: Number(item.durationMs) || 0,
       appVersion: item.appVersion || "unknown",
+      probeStatus: item.probe && item.probe.status || "not-run",
+      probeBuildVersion: item.probe && item.probe.buildVersion || "",
+      probeBuildMarker: item.probe && item.probe.buildMarker || "",
+      probeVisionConfigured: Boolean(item.probe && item.probe.visionConfigured),
+      probeSummaryText: formatProbeSummaryText(item.probe),
       createdAtText: formatAdminDate(item.createdAt)
     }))
   });
+}
+
+function formatProbeSummaryText(probe = {}) {
+  const source = probe || {};
+  if (source.status === "ok") {
+    const version = source.buildVersion || "未知版本";
+    return `探针正常 · ${version} · 视觉配置${source.visionConfigured ? "已就绪" : "未就绪"}`;
+  }
+  if (source.status === "failed") {
+    return `探针失败${source.errorCode ? ` · ${source.errorCode}` : ""}`;
+  }
+  if (source.status === "pending") return "探针当时仍在返回";
+  return "探针未返回";
+}
+
+function formatAutoFaceProbe(result, error = null) {
+  const source = result || {};
+  const failed = Boolean(error) || source.ok === false;
+  const vision = source.vision || {};
+  const runtime = source.runtime || {};
+  const probe = Object.assign(emptyAutoFaceProbe(), {
+    available: !failed,
+    status: failed ? "failed" : "ok",
+    statusText: failed
+      ? `探针失败${error && error.code ? `：${error.code}` : ""}`
+      : "探针正常",
+    buildVersion: source.buildVersion || "",
+    buildMarker: source.buildMarker || "",
+    nodeVersion: runtime.nodeVersion || "",
+    cloudEnvConfigured: Boolean(runtime.cloudEnvConfigured),
+    visionConfigured: Boolean(vision.configured),
+    provider: vision.provider || "",
+    model: vision.model || "",
+    durationMs: Number(source.durationMs) || 0,
+    checkedAtText: source.checkedAt ? formatAdminDate(source.checkedAt) : formatAdminDate(new Date()),
+    errorCode: error && (error.code || error.errCode) || "",
+    message: error && error.message || ""
+  });
+  return probe;
 }
 
 function formatUsageStats(result) {
@@ -443,7 +537,8 @@ Page({
     usageExporting: false,
     usageStats: emptyUsageStats(),
     autoFaceFailureLoading: false,
-    autoFaceFailureStats: emptyAutoFaceFailureStats()
+    autoFaceFailureStats: emptyAutoFaceFailureStats(),
+    autoFaceProbe: emptyAutoFaceProbe()
   },
 
   onLoad() {
@@ -640,17 +735,32 @@ Page({
     if (this.data.checking) return;
     this.setData({ checking: true, message: "" });
     try {
-      const result = await cloud.checkDeployment();
-      const logs = await cloud.listDeploymentLogs();
+      const [result, logs, probeResult] = await Promise.all([
+        cloud.checkDeployment(),
+        cloud.listDeploymentLogs(),
+        cloud.probeAutoFace().catch((error) => ({ __probeError: error }))
+      ]);
+      const probeError = probeResult && probeResult.__probeError;
       this.setData({
         deployment: result,
         logs: (logs.logs || []).map(displayLog),
+        autoFaceProbe: formatAutoFaceProbe(
+          probeError ? null : probeResult,
+          probeError || null
+        ),
         checking: false,
-        message: result.logWritten ? "线上部署检查完成，日志已写入。" : "检查完成，但日志写入失败。"
+        message: result.logWritten
+          ? (probeError ? "线上部署完成，但自动贴脸探针失败。" : "线上部署检查完成，日志已写入。")
+          : "检查完成，但日志写入失败。"
       });
       diagnosticLog.info("admin", "deployment-checked", "线上部署检查完成", {
         buildVersion: result.buildVersion,
         buildMarker: result.buildMarker,
+        probeStatus: probeError ? "failed" : "ok",
+        probeBuildVersion: probeResult && probeResult.buildVersion || "",
+        probeVisionConfigured: Boolean(
+          probeResult && probeResult.vision && probeResult.vision.configured
+        ),
         logWritten: result.logWritten
       });
     } catch (error) {

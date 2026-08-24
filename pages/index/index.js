@@ -935,7 +935,11 @@ Page({
       retryable: Boolean(info.retryable),
       stage: String(stage || "cloud-failed"),
       durationMs: Math.max(0, Number(info.clientTotalMs) || 0),
-      appVersion: String(config.appVersion || "")
+      appVersion: String(config.appVersion || ""),
+      probe: Object.assign(
+        { status: "not-run" },
+        this._autoFaceProbe || {}
+      )
     };
     try {
       const pending = cloud.reportAutoFaceFailure(payload);
@@ -1602,6 +1606,9 @@ Page({
     }
     this.setData({ analysisAction: "faceCircle" });
     const autoFaceStartedAt = Date.now();
+    this._autoFaceProbe = {
+      status: "not-run"
+    };
     try {
       const project = this.data.project;
       const mainImageKey = this.getMainImageKey(project.mainImage);
@@ -1624,26 +1631,50 @@ Page({
       );
       if (typeof cloud.probeAutoFace === "function") {
         const probeStartedAt = Date.now();
+        this._autoFaceProbe = {
+          status: "pending"
+        };
         cloud.probeAutoFace()
           .then((probe) => {
-            diagnosticLog.info("auto-face", "cloud-probe", "自动贴脸云端探针返回", {
+            this._autoFaceProbe = {
+              status: "ok",
               requestId: probe && probe.requestId || "",
-              durationMs: Date.now() - probeStartedAt,
               buildVersion: probe && probe.buildVersion || "",
               buildMarker: probe && probe.buildMarker || "",
+              nodeVersion: probe && probe.runtime && probe.runtime.nodeVersion || "",
               cloudEnvConfigured: Boolean(
                 probe && probe.runtime && probe.runtime.cloudEnvConfigured
               ),
               visionConfigured: Boolean(
                 probe && probe.vision && probe.vision.configured
               ),
-              visionProvider: probe && probe.vision && probe.vision.provider || "",
-              visionModel: probe && probe.vision && probe.vision.model || ""
+              provider: probe && probe.vision && probe.vision.provider || "",
+              model: probe && probe.vision && probe.vision.model || "",
+              durationMs: Date.now() - probeStartedAt
+            };
+            diagnosticLog.info("auto-face", "cloud-probe", "自动贴脸云端探针返回", {
+              requestId: this._autoFaceProbe.requestId,
+              durationMs: this._autoFaceProbe.durationMs,
+              buildVersion: this._autoFaceProbe.buildVersion,
+              buildMarker: this._autoFaceProbe.buildMarker,
+              cloudEnvConfigured: this._autoFaceProbe.cloudEnvConfigured,
+              visionConfigured: this._autoFaceProbe.visionConfigured,
+              visionProvider: this._autoFaceProbe.provider,
+              visionModel: this._autoFaceProbe.model
             });
           })
           .catch((error) => {
+            const probeError = safeErrorInfo(error, "自动贴脸探针失败");
+            this._autoFaceProbe = {
+              status: "failed",
+              requestId: probeError.requestId || "",
+              errorCode: probeError.code || "probe-failed",
+              durationMs: Date.now() - probeStartedAt
+            };
             diagnosticLog.warn("auto-face", "cloud-probe-failed", "自动贴脸云端探针失败", {
-              durationMs: Date.now() - probeStartedAt,
+              requestId: this._autoFaceProbe.requestId,
+              durationMs: this._autoFaceProbe.durationMs,
+              code: this._autoFaceProbe.errorCode,
               error
             });
           });

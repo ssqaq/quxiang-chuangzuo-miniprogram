@@ -568,6 +568,54 @@ page {
   line-height: 26rpx;
 }
 
+.auto-face-probe-summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12rpx;
+  margin-top: 14rpx;
+}
+
+.auto-face-probe-summary-item {
+  min-width: 0;
+  padding: 14rpx 12rpx;
+  border: 1rpx solid #dce8f6;
+  border-radius: 14rpx;
+  background: #f7fbff;
+}
+
+.auto-face-probe-summary-wide {
+  grid-column: 1 / -1;
+}
+
+.auto-face-probe-summary-item text,
+.auto-face-probe-hint text {
+  display: block;
+  overflow: hidden;
+  color: #6c7f96;
+  font-size: 18rpx;
+  line-height: 27rpx;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.auto-face-probe-summary-item text + text {
+  margin-top: 3rpx;
+  color: #2f659d;
+  font-size: 25rpx;
+  font-weight: 800;
+}
+
+.auto-face-probe-hint {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8rpx 18rpx;
+  margin-top: 10rpx;
+}
+
+.auto-face-probe-hint text {
+  color: #71859e;
+}
+
 .auto-face-failure-subtitle {
   margin-top: 22rpx;
   padding-top: 18rpx;
@@ -653,6 +701,16 @@ page {
   color: #6f4a51;
   font-size: 19rpx;
   line-height: 28rpx;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.auto-face-failure-recent-probe {
+  margin-top: 5rpx;
+  overflow: hidden;
+  color: #3974a8;
+  font-size: 18rpx;
+  line-height: 26rpx;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -799,6 +857,10 @@ page {
 }
 
 .deployment-card {
+  margin-top: 0;
+}
+
+.auto-face-probe-card {
   margin-top: 0;
 }
 

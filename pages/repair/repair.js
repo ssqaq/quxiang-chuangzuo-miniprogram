@@ -56,6 +56,7 @@ Page({
     sourceImage: null,
     sourceFileID: "",
     parentSourceFileID: "",
+    originalMainFileID: "",
     cloudReady: false,
     imageWidth: 0,
     imageHeight: 0,
@@ -130,6 +131,9 @@ Page({
     }
     let sourcePath = record.tempFileURL || record.path || "";
     const sourceFileID = record.fileID || repairContext.sourceFileID || "";
+    const originalMainFileID = repairContext.originalMainFileID
+      || repairContext.mainInputFileID
+      || "";
     if (!sourceFileID) {
       throw new Error("当前记录缺少云端结果图，不能继续修正。");
     }
@@ -175,6 +179,7 @@ Page({
         : null,
       sourceFileID,
       parentSourceFileID: sourceFileID,
+      originalMainFileID,
       imageWidth: info.width,
       imageHeight: info.height,
       faceRefs,
@@ -205,7 +210,7 @@ Page({
   prepareCanvas() {
     if (!this.data.sourceImage) return;
     const info = wx.getSystemInfoSync ? wx.getSystemInfoSync() : { windowWidth: 375 };
-    const width = Math.min(690, Math.max(280, Number(info.windowWidth || 375) - 56));
+    const width = Math.min(690, Math.max(280, Number(info.windowWidth || 375) - 40));
     const height = width * this.data.imageHeight / Math.max(1, this.data.imageWidth);
     this.setData({
       canvasWidth: Math.round(width),
@@ -313,6 +318,7 @@ Page({
       projectName: this.data.projectName,
       issues: this.data.selectedIssueKeys,
       hasFaceReferences: this.data.faceRefs.length > 0,
+      hasOriginalMainImage: Boolean(this.data.originalMainFileID),
       hasWardrobeReferences: this.data.wardrobeRefs.length > 0,
       maskGeometry: circle
     });
@@ -351,7 +357,7 @@ Page({
           imageHeight: preparedInfo.height,
           maskCircle: null,
           maskConfirmed: false,
-          statusText: "主图已更换；连接云端并重新确认红圈后才能生成"
+        statusText: "修正底图已更换；连接云端并重新确认红圈后才能生成"
         }, () => this.prepareCanvas());
         return;
       }
@@ -368,7 +374,7 @@ Page({
         imageHeight: preparedInfo.height,
         maskCircle: null,
         maskConfirmed: false,
-        statusText: "主图已更换，请重新拖动确认红圈"
+        statusText: "修正底图已更换，请重新拖动确认红圈"
       }, () => this.prepareCanvas());
     } catch (error) {
       wx.showToast({ title: error.message || "主图选择失败", icon: "none" });
@@ -524,6 +530,7 @@ Page({
         projectName: this.data.projectName,
         sourceFileID: this.data.parentSourceFileID || this.data.record.fileID,
         mainFileID: this.data.sourceFileID,
+        originalMainFileID: this.data.originalMainFileID,
         maskFileID: maskUpload.fileID,
         faceFileIDs: this.data.faceRefs.map((item) => item.fileID).filter(Boolean),
         wardrobeFileIDs: this.data.wardrobeRefs.map((item) => item.fileID).filter(Boolean),

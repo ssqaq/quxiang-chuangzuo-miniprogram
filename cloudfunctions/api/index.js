@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.21.11";
-const API_BUILD_MARKER = "API_BUILD_TAG_20260824_AUTO_FACE_PROBE_V2111";
+const API_BUILD_VERSION = "0.22.0";
+const API_BUILD_MARKER = "API_BUILD_TAG_20260824_ADMIN_PROBE_STATS_V220";
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
 const cloud = require("wx-server-sdk");
@@ -35,6 +35,7 @@ const AUTO_FACE_FAILURE_TYPES = [
   "network",
   "unknown"
 ];
+const AUTO_FACE_PROBE_STATUSES = ["ok", "failed", "pending", "not-run"];
 const AUTO_FACE_FAILURE_TYPE_LABELS = {
   "cloud-unavailable": "云端未连接",
   "missing-api-key": "视觉服务未配置",
@@ -49,6 +50,9 @@ const AUTO_FACE_FAILURE_TYPE_LABELS = {
 const AUTO_FACE_FAILURE_RETENTION_DAYS = 90;
 const AUTO_FACE_FAILURE_CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const AUTO_FACE_FAILURE_CLEANUP_BATCH_SIZE = 100;
+const PHOTO_TO_VIDEO_TEMP_ASSET_COLLECTION = "photo_to_video_temp_assets";
+const PHOTO_TO_VIDEO_TEMP_ASSET_TTL_MS = 3 * 24 * 60 * 60 * 1000;
+const PHOTO_TO_VIDEO_TEMP_ASSET_CLEANUP_BATCH_SIZE = 100;
 const MODEL_COST_CONFIG_VERSION = "2026-08-23-v1";
 const ADMIN_RUNTIME_CACHE_TTL_MS = 15000;
 const POINTS_ACCOUNT_COLLECTION = "user_accounts";
@@ -795,6 +799,35 @@ function normalizeAutoFaceFailureType(value) {
   return AUTO_FACE_FAILURE_TYPES.includes(type) ? type : "unknown";
 }
 
+function normalizeAutoFaceProbeReport(payload = {}) {
+  const source = payload && typeof payload === "object" ? payload : {};
+  const rawStatus = compactUsageText(source.status, 20).toLowerCase();
+  const status = AUTO_FACE_PROBE_STATUSES.includes(rawStatus)
+    ? rawStatus
+    : "not-run";
+  const durationMs = Math.max(
+    0,
+    Math.min(60 * 1000, Math.round(Number(source.durationMs) || 0))
+  );
+  const requestId = compactUsageText(source.requestId, 100)
+    .replace(/[^A-Za-z0-9._:-]+/g, "-");
+  const errorCode = compactUsageText(source.errorCode || source.code, 80)
+    .replace(/[^A-Za-z0-9._:-]+/g, "-");
+  return {
+    status,
+    requestId,
+    buildVersion: compactUsageText(source.buildVersion, 40),
+    buildMarker: compactUsageText(source.buildMarker, 120),
+    nodeVersion: compactUsageText(source.nodeVersion, 40),
+    cloudEnvConfigured: Boolean(source.cloudEnvConfigured),
+    visionConfigured: Boolean(source.visionConfigured),
+    provider: compactUsageText(source.provider, 40),
+    model: compactUsageText(source.model, 80),
+    durationMs,
+    errorCode
+  };
+}
+
 function sanitizeAutoFaceFailureMessage(value) {
   return sanitizeFailureMessage(value, 240)
     .replace(
@@ -830,6 +863,7 @@ function normalizeAutoFaceFailureReport(payload = {}, fallbackRequestId = "") {
     stage: compactUsageText(source.stage, 40) || "cloud-failed",
     durationMs,
     appVersion: compactUsageText(source.appVersion, 40) || "unknown",
+    probe: normalizeAutoFaceProbeReport(source.probe),
     createdAt: new Date()
   };
 }
@@ -857,6 +891,7 @@ function autoFaceFailureDisplayEvent(event = {}) {
     stage: normalized.stage,
     durationMs: normalized.durationMs,
     appVersion: normalized.appVersion,
+    probe: normalized.probe,
     createdAt: createdAtIso
   };
 }
@@ -867,6 +902,17 @@ function buildAutoFaceFailureStats(events = [], baseDate = new Date()) {
   const last30StartKey = shiftDateKey(todayKey, -29);
   const byType = {};
   const recent = [];
+  const probeVersions = {};
+  const probeSummary = {
+    total: 0,
+    ok: 0,
+    failed: 0,
+    pending: 0,
+    notRun: 0,
+    visionConfigured: 0,
+    visionUnavailable: 0,
+    versions: []
+  };
   let today = 0;
   let last7d = 0;
   let total30d = 0;
@@ -895,6 +941,25 @@ function buildAutoFaceFailureStats(events = [], baseDate = new Date()) {
       if (item.dateKey === todayKey) today += 1;
       if (item.dateKey >= last7StartKey) last7d += 1;
       const type = normalizeAutoFaceFailureType(item.event && item.event.failureType);
+      const probe = normalizeAutoFaceProbeReport(item.event && item.event.probe);
+      probeSummary.total += 1;
+      if (probe.status === "ok") probeSummary.ok += 1;
+      else if (probe.status === "failed") probeSummary.failed += 1;
+      else if (probe.status === "pending") probeSummary.pending += 1;
+      else probeSummary.notRun += 1;
+      if (probe.visionConfigured) probeSummary.visionConfigured += 1;
+      else probeSummary.visionUnavailable += 1;
+      if (probe.buildVersion) {
+        const versionKey = `${probe.buildVersion}|${probe.buildMarker}`;
+        if (!probeVersions[versionKey]) {
+          probeVersions[versionKey] = {
+            buildVersion: probe.buildVersion,
+            buildMarker: probe.buildMarker,
+            count: 0
+          };
+        }
+        probeVersions[versionKey].count += 1;
+      }
       if (!byType[type]) {
         byType[type] = {
           type,
@@ -923,6 +988,12 @@ function buildAutoFaceFailureStats(events = [], baseDate = new Date()) {
       return left.type.localeCompare(right.type);
     }),
     recent,
+    probeSummary: Object.assign({}, probeSummary, {
+      versions: Object.values(probeVersions).sort((left, right) => {
+        if (right.count !== left.count) return right.count - left.count;
+        return left.buildVersion.localeCompare(right.buildVersion);
+      })
+    }),
     eventCount: total30d,
     unavailable: false,
     message: ""
@@ -999,6 +1070,145 @@ async function cleanupAutoFaceFailureLogs(baseDate = new Date()) {
     }
   })();
   return autoFaceFailureCleanupPromise;
+}
+
+function normalizePhotoToVideoTempKind(value) {
+  const kind = compactUsageText(value, 20).toLowerCase();
+  return ["source", "result"].includes(kind) ? kind : "";
+}
+
+function photoToVideoTempAssetDocumentId(fileID, kind) {
+  return crypto
+    .createHash("sha256")
+    .update(`${normalizePhotoToVideoTempKind(kind)}:${String(fileID || "")}`)
+    .digest("hex")
+    .slice(0, 30);
+}
+
+function photoToVideoTempCleanupCutoff(baseDate = new Date()) {
+  return new Date(baseDate.getTime() - PHOTO_TO_VIDEO_TEMP_ASSET_TTL_MS);
+}
+
+function isPhotoToVideoCleanupTrigger(event = {}) {
+  const source = event && typeof event === "object" ? event : {};
+  return (
+    source.Type === "Timer"
+    || source.type === "timer"
+    || source.triggerName === "photo-to-video-temp-cleanup"
+    || source.action === "cleanupPhotoToVideoTempAssets"
+  );
+}
+
+function normalizePhotoToVideoTempFileError(error) {
+  return sanitizeFailureMessage(
+    error && (error.errMsg || error.message) || error || "云文件清理失败",
+    240
+  );
+}
+
+function isPhotoToVideoTempFileMissing(error) {
+  return /not.?found|不存在|不存在该文件|file.?not.?exist|no such file|404/i
+    .test(normalizePhotoToVideoTempFileError(error));
+}
+
+async function deletePhotoToVideoTempFile(fileID) {
+  const response = await cloud.deleteFile({ fileList: [fileID] });
+  const item = response && Array.isArray(response.fileList)
+    ? response.fileList.find((entry) => entry && entry.fileID === fileID)
+    : null;
+  if (item && Number(item.status) !== 0) {
+    const error = new Error(item.errMsg || "云文件清理失败");
+    error.code = "PHOTO_TO_VIDEO_TEMP_DELETE_FAILED";
+    throw error;
+  }
+  return response;
+}
+
+async function registerPhotoToVideoTempAsset(event = {}, context) {
+  const fileID = String(event.fileID || "").trim();
+  const kind = normalizePhotoToVideoTempKind(event.kind);
+  if (!/^cloud:\/\//i.test(fileID)) {
+    return fail("照片转视频临时文件必须是 cloud:// fileID。", "PHOTO_TO_VIDEO_TEMP_FILE_ID_INVALID");
+  }
+  if (!kind) {
+    return fail("照片转视频临时文件类型只能是 source 或 result。", "PHOTO_TO_VIDEO_TEMP_KIND_INVALID");
+  }
+  const now = new Date();
+  const documentId = photoToVideoTempAssetDocumentId(fileID, kind);
+  const data = {
+    fileID,
+    kind,
+    ownerOpenId: getOpenId(context),
+    createdAt: now,
+    cleanupAfter: new Date(now.getTime() + PHOTO_TO_VIDEO_TEMP_ASSET_TTL_MS),
+    status: "pending",
+    attempts: 0,
+    lastError: "",
+    updatedAt: now
+  };
+  await db.collection(PHOTO_TO_VIDEO_TEMP_ASSET_COLLECTION)
+    .doc(documentId)
+    .set({ data });
+  return jsonResponse(true, {
+    accepted: true,
+    fileID,
+    kind,
+    cleanupAfter: data.cleanupAfter.toISOString()
+  });
+}
+
+async function cleanupPhotoToVideoTempAssets(baseDate = new Date()) {
+  const cutoff = photoToVideoTempCleanupCutoff(baseDate);
+  const result = await db
+    .collection(PHOTO_TO_VIDEO_TEMP_ASSET_COLLECTION)
+    .where({ cleanupAfter: db.command.lte(cutoff) })
+    .orderBy("cleanupAfter", "asc")
+    .limit(PHOTO_TO_VIDEO_TEMP_ASSET_CLEANUP_BATCH_SIZE)
+    .get();
+  const rows = result && Array.isArray(result.data) ? result.data : [];
+  let removed = 0;
+  let retried = 0;
+  let failed = 0;
+  for (const row of rows) {
+    if (!row || !row._id || !row.fileID) continue;
+    try {
+      await deletePhotoToVideoTempFile(row.fileID);
+      await db.collection(PHOTO_TO_VIDEO_TEMP_ASSET_COLLECTION).doc(row._id).remove();
+      removed += 1;
+    } catch (error) {
+      if (isPhotoToVideoTempFileMissing(error)) {
+        await db.collection(PHOTO_TO_VIDEO_TEMP_ASSET_COLLECTION).doc(row._id).remove();
+        removed += 1;
+        continue;
+      }
+      failed += 1;
+      retried += 1;
+      await db.collection(PHOTO_TO_VIDEO_TEMP_ASSET_COLLECTION).doc(row._id).update({
+        data: {
+          status: "failed",
+          attempts: Math.max(0, Number(row.attempts) || 0) + 1,
+          lastError: normalizePhotoToVideoTempFileError(error),
+          updatedAt: new Date()
+        }
+      });
+      log("warn", "photo-to-video-temp.cleanup-failed", {
+        fileID: row.fileID,
+        kind: row.kind,
+        error: normalizePhotoToVideoTempFileError(error)
+      });
+    }
+  }
+  const summary = {
+    skipped: false,
+    cutoff: cutoff.toISOString(),
+    scanned: rows.length,
+    removed,
+    retried,
+    failed,
+    truncated: rows.length >= PHOTO_TO_VIDEO_TEMP_ASSET_CLEANUP_BATCH_SIZE
+  };
+  log("info", "photo-to-video-temp.cleanup", summary);
+  return jsonResponse(true, summary);
 }
 
 async function reportAutoFaceFailure(event = {}) {
@@ -3154,6 +3364,11 @@ async function requestImageEdits(
   );
 
   const references = []
+    .concat(payload.identityFileID ? [{
+      fileID: payload.identityFileID,
+      role: "identity",
+      index: 0
+    }] : [])
     .concat((payload.faceFileIDs || []).filter(Boolean).slice(0, 6).map((fileID, index) => ({
       fileID,
       role: "face",
@@ -4404,6 +4619,7 @@ async function generate(event, context) {
       revisionNumber: 0,
       repairContext: {
         sourceFileID: fileID.fileID,
+        originalMainFileID: String(payload.mainFileID || ""),
         mainInputFileID: String(payload.mainFileID || ""),
         maskFileID: String(payload.maskFileID || ""),
         maskGeometry: payload.maskGeometry && typeof payload.maskGeometry === "object"
@@ -4521,8 +4737,22 @@ async function repairImage(event, context) {
     const error = revisionConflictError("当前结果不是这条修正链的最新结果，请刷新后重试。");
     return fail(error.message, error.code);
   }
+  const rootRecordId = String(parentRecord.rootRecordId || parentRecordId);
+  const rootRecord = rootRecordId === parentRecordId
+    ? parentRecord
+    : await readGenerationRecord(rootRecordId);
+  const rootRepairContext = rootRecord && rootRecord.repairContext || {};
+  const originalMainFileID = String(
+    rootRepairContext.originalMainFileID
+      || rootRepairContext.mainInputFileID
+      || payload.originalMainFileID
+      || mainFileID
+  ).trim();
   if (mainFileID !== sourceFileID) {
     await findUserAsset(openid, mainFileID, "main");
+  }
+  if (originalMainFileID) {
+    await findUserAsset(openid, originalMainFileID, "main");
   }
 
   const faceFileIDs = Array.from(new Set(
@@ -4574,6 +4804,7 @@ async function repairImage(event, context) {
     const response = await requestImageEdits(
       {
         mainFileID,
+        identityFileID: originalMainFileID,
         maskFileID,
         faceFileIDs,
         wardrobeFileIDs,
@@ -4630,6 +4861,7 @@ async function repairImage(event, context) {
         : [],
       repairContext: {
         sourceFileID: uploaded.fileID,
+        originalMainFileID,
         mainInputFileID: mainFileID,
         maskFileID,
         maskGeometry: payload.maskGeometry && typeof payload.maskGeometry === "object"
@@ -4678,6 +4910,7 @@ async function repairImage(event, context) {
       const referenced = Array.from(new Set(
         [maskFileID]
           .concat(mainFileID !== sourceFileID ? [mainFileID] : [])
+          .concat(originalMainFileID ? [originalMainFileID] : [])
           .concat(faceFileIDs, wardrobeFileIDs)
           .filter(Boolean)
       ));
@@ -4689,6 +4922,8 @@ async function repairImage(event, context) {
             ? "mask"
             : fileID === mainFileID && mainFileID !== sourceFileID
               ? "main"
+              : fileID === originalMainFileID
+                ? "main"
               : faceFileIDs.includes(fileID)
                 ? "face"
                 : "wardrobe",
@@ -5210,7 +5445,9 @@ exports.main = async (event = {}, context) => {
   });
   try {
     let result;
-    if (action === "analyze") result = await analyze(requestEvent, context);
+    if (isPhotoToVideoCleanupTrigger(requestEvent)) {
+      result = await cleanupPhotoToVideoTempAssets(new Date());
+    } else if (action === "analyze") result = await analyze(requestEvent, context);
     else if (action === "detectFaceCircle") result = await detectFaceCircle(requestEvent, context);
     else if (action === "probeAutoFace") result = await probeAutoFace(requestEvent);
     else if (action === "analyzeWebPoses") result = await analyzeWebPoses(requestEvent, context);
@@ -5235,6 +5472,9 @@ exports.main = async (event = {}, context) => {
     else if (action === "exportModelUsageStats") result = await exportModelUsageStats(requestEvent, context);
     else if (action === "reportAutoFaceFailure") result = await reportAutoFaceFailure(requestEvent);
     else if (action === "getAutoFaceFailureStats") result = await getAutoFaceFailureStats(requestEvent, context);
+    else if (action === "registerPhotoToVideoTempAsset") {
+      result = await registerPhotoToVideoTempAsset(requestEvent, context);
+    }
     else result = fail(`不支持的操作：${action || "空"}`, "unsupported-action");
     log("info", "function.finish", {
       requestId,
@@ -5302,8 +5542,15 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     formatAutoFaceFailureType,
     autoFaceFailureDisplayEvent,
     buildAutoFaceFailureStats,
+    normalizeAutoFaceProbeReport,
     autoFaceFailureCleanupCutoff,
     shouldRunAutoFaceFailureCleanup,
+    normalizePhotoToVideoTempKind,
+    photoToVideoTempAssetDocumentId,
+    photoToVideoTempCleanupCutoff,
+    isPhotoToVideoCleanupTrigger,
+    registerPhotoToVideoTempAsset,
+    cleanupPhotoToVideoTempAssets,
     dateKeyForTimeZone,
     shiftDateKey,
     shiftMonthKey,

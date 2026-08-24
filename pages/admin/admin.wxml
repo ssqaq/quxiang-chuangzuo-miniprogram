@@ -239,6 +239,31 @@
         </view>
       </view>
 
+      <view class="auto-face-probe-summary">
+        <view class="auto-face-probe-summary-item">
+          <text>探针正常</text>
+          <text>{{autoFaceFailureStats.probeSummary.ok}}</text>
+        </view>
+        <view class="auto-face-probe-summary-item">
+          <text>探针失败</text>
+          <text>{{autoFaceFailureStats.probeSummary.failed}}</text>
+        </view>
+        <view class="auto-face-probe-summary-item">
+          <text>未返回</text>
+          <text>{{autoFaceFailureStats.probeSummary.notRun}}</text>
+        </view>
+        <view class="auto-face-probe-summary-item auto-face-probe-summary-wide">
+          <text>涉及线上版本</text>
+          <text>{{autoFaceFailureStats.probeSummary.versionText}}</text>
+        </view>
+      </view>
+
+      <view class="auto-face-failure-subtitle">探针汇总</view>
+      <view class="auto-face-probe-hint">
+        <text>视觉配置已就绪 {{autoFaceFailureStats.probeSummary.visionConfigured}} 次</text>
+        <text>未就绪 {{autoFaceFailureStats.probeSummary.visionUnavailable}} 次</text>
+      </view>
+
       <view class="auto-face-failure-subtitle">失败类型</view>
       <view wx:if="{{autoFaceFailureStats.byType.length}}" class="auto-face-failure-type-list">
         <view wx:for="{{autoFaceFailureStats.byType}}" wx:key="type" class="auto-face-failure-type-row">
@@ -264,6 +289,7 @@
             <text wx:if="{{item.durationMs}}">用时 {{item.durationMs}}ms</text>
             <text wx:if="{{item.requestId}}">请求 {{item.requestId}}</text>
           </view>
+          <view class="auto-face-failure-recent-probe">{{item.probeSummaryText}}</view>
           <view class="auto-face-failure-recent-message">{{item.message}}</view>
         </view>
       </view>
@@ -381,6 +407,25 @@
         <view><text>动态配置版本</text><text>{{deployment.runtimeConfigVersion}}</text></view>
         <view><text>检查时间</text><text>{{deployment.checkedAt}}</text></view>
       </view>
+    </view>
+
+    <view wx:if="{{autoFaceProbe.available || autoFaceProbe.status === 'failed'}}" class="card admin-section auto-face-probe-card">
+      <view class="admin-section-head">
+        <view>
+          <view class="admin-section-title">自动贴脸探针</view>
+          <view class="admin-section-help">只显示版本、运行时和视觉配置状态，不显示密钥或图片。</view>
+        </view>
+        <text class="{{autoFaceProbe.status === 'ok' ? 'log-ok' : 'log-warn'}}">{{autoFaceProbe.statusText}}</text>
+      </view>
+      <view class="deployment-grid">
+        <view><text>云函数版本</text><text>{{autoFaceProbe.buildVersion || '未知'}}</text></view>
+        <view><text>构建标记</text><text>{{autoFaceProbe.buildMarker || '未知'}}</text></view>
+        <view><text>视觉配置</text><text>{{autoFaceProbe.visionConfigured ? '已就绪' : '未就绪'}}</text></view>
+        <view><text>Provider / Model</text><text>{{autoFaceProbe.provider || '未知'}} / {{autoFaceProbe.model || '未知'}}</text></view>
+        <view><text>Node.js</text><text>{{autoFaceProbe.nodeVersion || '未知'}}</text></view>
+        <view><text>检查时间</text><text>{{autoFaceProbe.checkedAtText}}</text></view>
+      </view>
+      <view wx:if="{{autoFaceProbe.message}}" class="usage-message is-warn">{{autoFaceProbe.message}}</view>
     </view>
 
     <view class="card admin-section">

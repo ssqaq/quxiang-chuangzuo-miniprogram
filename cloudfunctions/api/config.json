@@ -1,0 +1,9 @@
+{
+  "triggers": [
+    {
+      "name": "photo-to-video-temp-cleanup",
+      "type": "timer",
+      "config": "0 0 3 * * * *"
+    }
+  ]
+}

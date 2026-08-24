@@ -24,6 +24,19 @@ const dangerousReport = test.normalizeAutoFaceFailureReport({
   stage: "cloud-failed",
   durationMs: 1234,
   appVersion: "0.20.2",
+  probe: {
+    status: "ok",
+    requestId: "probe-1",
+    buildVersion: "0.22.0",
+    buildMarker: "API_BUILD_TAG_20260824_ADMIN_PROBE_STATS_V220",
+    nodeVersion: "Nodejs16.13",
+    cloudEnvConfigured: true,
+    visionConfigured: true,
+    provider: "dashscope",
+    model: "qwen3-vl-flash",
+    durationMs: 42,
+    errorCode: "secret-probe-code"
+  },
   imagePath: "C:\\secret\\face.png",
   fileID: "cloud://private/main.jpg",
   prompt: "完整提示词",
@@ -40,8 +53,16 @@ assert.ok(!Object.prototype.hasOwnProperty.call(dangerousReport, "prompt"));
 assert.ok(!Object.prototype.hasOwnProperty.call(dangerousReport, "stack"));
 assert.ok(!dangerousReport.message.includes("sk-test-secret"));
 assert.ok(!dangerousReport.message.includes("C:\\secret\\face.png"));
+assert.strictEqual(dangerousReport.probe.status, "ok");
+assert.strictEqual(dangerousReport.probe.buildVersion, "0.22.0");
+assert.strictEqual(dangerousReport.probe.visionConfigured, true);
 
 function event(dayOffset, failureType, index = 0) {
+  const probeStatus = index % 4 === 0
+    ? "failed"
+    : index % 4 === 1
+      ? "not-run"
+      : "ok";
   return Object.assign(
     {},
     test.normalizeAutoFaceFailureReport({
@@ -53,7 +74,18 @@ function event(dayOffset, failureType, index = 0) {
       retryable: failureType !== "empty-face-detection",
       stage: "cloud-failed",
       durationMs: 500 + index,
-      appVersion: "0.20.2"
+      appVersion: "0.20.2",
+      probe: {
+        status: probeStatus,
+        buildVersion: probeStatus === "ok" ? "0.22.0" : "0.21.11",
+        buildMarker: probeStatus === "ok"
+          ? "API_BUILD_TAG_20260824_ADMIN_PROBE_STATS_V220"
+          : "API_BUILD_TAG_20260824_AUTO_FACE_PROBE_V2111",
+        visionConfigured: probeStatus === "ok" && index % 2 === 0,
+        provider: "dashscope",
+        model: "qwen3-vl-flash",
+        durationMs: 20 + index
+      }
     }),
     { createdAt: shanghaiDate(dayOffset, 10 + (index % 4)) }
   );
@@ -91,6 +123,11 @@ assert.ok(
 assert.strictEqual(stats.today, 2, "今天统计不正确");
 assert.strictEqual(stats.last7d, 28, "近 7 天统计不正确");
 assert.strictEqual(stats.total30d, 30, "近 30 天统计不正确");
+assert.strictEqual(stats.probeSummary.total, 30, "探针统计总数不正确");
+assert.ok(stats.probeSummary.ok > 0, "探针正常次数统计不正确");
+assert.ok(stats.probeSummary.failed > 0, "探针失败次数统计不正确");
+assert.ok(stats.probeSummary.notRun > 0, "探针未返回次数统计不正确");
+assert.ok(stats.probeSummary.versions.length >= 2, "探针版本统计不完整");
 assert.strictEqual(stats.recent.length, 20, "最近记录应最多返回 20 条");
 assert.strictEqual(
   stats.byType.find((item) => item.type === "network").count,
@@ -100,6 +137,7 @@ assert.strictEqual(
 assert.strictEqual(stats.byType[0].type, "network", "失败类型应按次数倒序");
 assert.ok(stats.recent[0].createdAt, "最近记录缺少时间");
 assert.ok(stats.recent.every((item) => !Object.prototype.hasOwnProperty.call(item, "stack")));
+assert.ok(stats.recent.some((item) => item.probe && item.probe.buildVersion === "0.22.0"));
 
 async function main() {
   test.resetAutoFaceFailureTestEvents();

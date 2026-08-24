@@ -48,10 +48,10 @@ withEnv({
   assert.strictEqual(config.timeoutMs, 25000);
 
   const probe = test.buildAutoFaceProbe();
-  assert.strictEqual(probe.buildVersion, "0.21.11");
+  assert.strictEqual(probe.buildVersion, "0.22.0");
   assert.strictEqual(
     probe.buildMarker,
-    "API_BUILD_TAG_20260824_AUTO_FACE_PROBE_V2111"
+    "API_BUILD_TAG_20260824_ADMIN_PROBE_STATS_V220"
   );
   assert.strictEqual(probe.vision.configured, true);
   assert.strictEqual(probe.vision.apiKeyConfigured, true);

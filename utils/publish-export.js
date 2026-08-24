@@ -61,8 +61,10 @@ function downloadCloudFile(fileID) {
 
 async function resolveImageSource(record) {
   const item = record && typeof record === "object" ? record : {};
-  const source = item.tempFileURL || item.path || "";
-  const fileID = item.fileID || (isCloudFileId(source) ? source : "");
+  const source = item.sourcePath || item.path || item.displayURL || item.tempFileURL || "";
+  const fileID = item.sourceFileID
+    || item.fileID
+    || (isCloudFileId(source) ? source : "");
 
   if (source && !isCloudFileId(source)) {
     try {

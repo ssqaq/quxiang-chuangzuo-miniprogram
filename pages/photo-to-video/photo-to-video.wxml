@@ -24,7 +24,7 @@
         wx:for="{{deviceRecords}}"
         wx:key="id"
         class="device-photo-preview"
-        src="{{item.path}}"
+        src="{{item.displayURL || item.sourcePath || item.path}}"
         mode="aspectFill"
         data-id="{{item.id}}"
         bindtap="previewRecord"
@@ -73,9 +73,9 @@
           bindtap="toggleRecord"
         >
           <image
-            wx:if="{{item.tempFileURL || item.path}}"
+          wx:if="{{item.displayURL || item.sourcePath || item.path}}"
             class="publish-record-image"
-            src="{{item.tempFileURL || item.path}}"
+            src="{{item.displayURL || item.sourcePath || item.path}}"
             mode="aspectFill"
             data-id="{{item.id}}"
             catchtap="previewRecord"
@@ -102,7 +102,12 @@
     <view
       class="live-preview {{isPressed ? 'live-preview-pressed' : ''}}"
     >
-      <image class="live-preview-image" src="{{preview.imagePath}}" mode="aspectFit"></image>
+      <image
+        class="live-preview-image"
+        src="{{preview.imagePath}}"
+        mode="aspectFit"
+        binderror="onPreviewImageError"
+      ></image>
       <video
         wx:if="{{preview.videoPath}}"
         id="photo-to-video-preview"

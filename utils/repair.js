@@ -2,31 +2,34 @@ const ISSUE_GROUPS = [
   {
     key: "face",
     title: "人脸",
+    description: "身份、五官、角度、融合",
     items: [
-      ["identity", "身份"],
-      ["lighting", "光影"],
-      ["skinTone", "肤色"],
-      ["gaze", "眼神"],
-      ["angle", "角度"],
-      ["edge", "边缘"],
-      ["features", "五官"],
-      ["hair", "头发"]
+      ["identity", "脸部身份不像原始主图人物"],
+      ["lighting", "脸部光影和原始主图不一致"],
+      ["skinTone", "肤色和原始主图不一致"],
+      ["gaze", "眼神方向不对"],
+      ["angle", "面部角度不对"],
+      ["edge", "面部融合边缘生硬"],
+      ["features", "五官比例变形"],
+      ["hair", "头发被改了"]
     ]
   },
   {
     key: "background",
     title: "背景",
+    description: "背景、构图和红圈外内容",
     items: [
-      ["outsideChanged", "红圈外内容被改动"],
-      ["background", "背景"],
-      ["composition", "构图"]
+      ["outsideChanged", "红圈外的内容被改动"],
+      ["background", "背景被改了"],
+      ["composition", "构图被改了"]
     ]
   },
   {
     key: "wardrobe",
     title: "衣服",
+    description: "衣服、穿搭和配饰",
     items: [
-      ["clothing", "衣服"],
+      ["clothing", "衣服被改了"],
       ["garment", "衣物"],
       ["accessories", "配饰"],
       ["穿模", "穿模"]
@@ -35,9 +38,10 @@ const ISSUE_GROUPS = [
   {
     key: "quality",
     title: "画质",
+    description: "质感、清晰度和生成痕迹",
     items: [
-      ["makeup", "妆容"],
-      ["skinTexture", "皮肤质感"],
+      ["makeup", "妆容对不上"],
+      ["skinTexture", "皮肤质感太假"],
       ["beauty", "过度美颜"]
     ]
   }
@@ -77,7 +81,8 @@ function createSelectableIssueOptions(hasWardrobe, keys) {
   return createIssueOptions(hasWardrobe).map((group) => Object.assign({}, group, {
     items: group.items.map((item) => Object.assign({}, item, {
       checked: selected.has(item.key)
-    }))
+    })),
+    selectedCount: group.items.filter((item) => selected.has(item.key)).length
   }));
 }
 
@@ -107,6 +112,7 @@ function buildRepairPrompt({
   projectName,
   issues,
   hasFaceReferences,
+  hasOriginalMainImage,
   hasWardrobeReferences,
   maskGeometry
 } = {}) {
@@ -121,9 +127,12 @@ function buildRepairPrompt({
     `本次只处理：${labels.join("、")}。`,
     region,
     "以当前结果图为底板，只修正红圈内与所选问题直接相关的内容；红圈外所有像素、人物位置、背景、构图、比例、镜头和画质必须保持不变。",
+    hasOriginalMainImage
+      ? "人物身份、脸部结构和关键五官必须以用户最初上传的原始主图为准；不得把当前结果图里已经变形的脸当成身份标准。"
+      : "无法读取原始主图时，仍不得改变当前结果图中的人物身份。",
     hasFaceReferences
-      ? "如涉及人脸，优先参考已选人脸素材，但必须服从当前结果图的头部角度、表情、光影、肤色和边缘。"
-      : "没有新增人脸参考素材时，只在当前结果图基础上修正，不改变人物身份。",
+      ? "如涉及人脸，已选人脸素材只能作为辅助参考，必须服从原始主图人物身份和当前结果图的头部角度、表情、光影、肤色及边缘。"
+      : "没有新增人脸参考素材时，只以原始主图人物身份为基准修正，不改变人物身份。",
     hasWardrobeReferences
       ? "如涉及衣物或配饰，只使用已选穿搭参考，不新增未指定的衣服、配饰、文字或图案。"
       : "没有穿搭参考时，不修改衣服、配饰和身体。",

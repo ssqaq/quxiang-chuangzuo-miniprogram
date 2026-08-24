@@ -16,7 +16,7 @@ module.exports = {
     quality: 82,
     minBytes: 262144
   },
-  appVersion: "0.21.11",
+  appVersion: "0.22.0",
   points: {
     dailyFreeLimit: 3,
     imageCost: 10,
@@ -86,7 +86,7 @@ module.exports = {
     maxPolls: 120,
     cleanup: {
       enabled: true,
-      gracePeriodMs: 24 * 60 * 60 * 1000,
+      gracePeriodMs: 3 * 24 * 60 * 60 * 1000,
       maxQueueItems: 100
     }
   }

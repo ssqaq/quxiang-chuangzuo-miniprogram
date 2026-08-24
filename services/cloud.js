@@ -334,6 +334,16 @@ function registerAsset(ticket, fileID, kind) {
   });
 }
 
+function registerPhotoToVideoTempAsset(fileID, kind) {
+  return callApi({
+    action: "registerPhotoToVideoTempAsset",
+    fileID,
+    kind,
+    retryLimit: 0,
+    silent: true
+  });
+}
+
 async function uploadAsset(filePath, kind, options = {}) {
   const ticket = await prepareAssetUpload(kind, filePath, options);
   if (!ticket || !ticket.cloudPath) {
@@ -494,6 +504,7 @@ module.exports = {
   uploadAsset,
   prepareAssetUpload,
   registerAsset,
+  registerPhotoToVideoTempAsset,
   getTempUrl,
   downloadFile,
   deleteFile,

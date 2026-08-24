@@ -36,6 +36,7 @@ function normalizedArgumentName(value) {
 
 function parseArgs(argv) {
   const values = Array.isArray(argv) ? argv : [];
+  const seenArguments = new Set();
   const args = {
     command: String(values[2] || "")
   };
@@ -51,11 +52,18 @@ function parseArgs(argv) {
       throw createError("CREDENTIAL_ARGUMENT_FORBIDDEN");
     }
     if (name === "allow-rebuild") {
+      if (seenArguments.has(name)) {
+        throw createError("ARGUMENT_DUPLICATE");
+      }
+      seenArguments.add(name);
       args.allowRebuild = true;
       continue;
     }
     if (!VALUE_ARGUMENTS.has(name)) {
       throw createError("ARGUMENT_INVALID");
+    }
+    if (seenArguments.has(name)) {
+      throw createError("ARGUMENT_DUPLICATE");
     }
 
     const value = values[index + 1];
@@ -66,6 +74,7 @@ function parseArgs(argv) {
     ) {
       throw createError("ARGUMENT_VALUE_MISSING");
     }
+    seenArguments.add(name);
     args[name] = value;
     index += 1;
   }
@@ -73,18 +82,88 @@ function parseArgs(argv) {
   return args;
 }
 
+function isPlainObject(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function isNonBlankString(value) {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function validateManifest(manifest) {
+  if (
+    !isPlainObject(manifest)
+    || manifest.version !== 1
+    || !Array.isArray(manifest.indexes)
+    || manifest.indexes.length !== 11
+  ) {
+    throw createError("INDEX_MANIFEST_INVALID");
+  }
+
+  const identities = new Set();
+  manifest.indexes.forEach((index) => {
+    if (
+      !isPlainObject(index)
+      || !isNonBlankString(index.collection)
+      || !isNonBlankString(index.name)
+      || !isNonBlankString(index.reason)
+      || !Array.isArray(index.keys)
+      || index.keys.length === 0
+      || index.unique !== false
+    ) {
+      throw createError("INDEX_MANIFEST_INVALID");
+    }
+
+    const identity = `${index.collection.trim()}\u0000${index.name.trim()}`;
+    if (identities.has(identity)) {
+      throw createError("INDEX_MANIFEST_INVALID");
+    }
+    identities.add(identity);
+
+    const keyNames = new Set();
+    index.keys.forEach((key) => {
+      if (
+        !isPlainObject(key)
+        || !isNonBlankString(key.name)
+        || (key.direction !== 1 && key.direction !== -1)
+      ) {
+        throw createError("INDEX_MANIFEST_INVALID");
+      }
+
+      const keyName = key.name.trim();
+      if (keyNames.has(keyName)) {
+        throw createError("INDEX_MANIFEST_INVALID");
+      }
+      keyNames.add(keyName);
+    });
+  });
+
+  return manifest;
+}
+
 function loadManifest(manifestPath) {
   if (typeof manifestPath !== "string" || !manifestPath.trim()) {
     throw createError("INDEX_MANIFEST_PATH_MISSING");
   }
 
-  const parsed = JSON.parse(
-    fs.readFileSync(path.resolve(manifestPath), "utf8")
-  );
-  if (!parsed || !Array.isArray(parsed.indexes)) {
+  let content;
+  try {
+    content = fs.readFileSync(path.resolve(manifestPath), "utf8");
+  } catch {
+    throw createError("INDEX_MANIFEST_READ_FAILED");
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
     throw createError("INDEX_MANIFEST_INVALID");
   }
-  return parsed;
+  return validateManifest(parsed);
 }
 
 function createDatabase(environmentId) {
@@ -114,21 +193,22 @@ function createDatabase(environmentId) {
   return database;
 }
 
-function assertManagerInputs(database, manifest) {
+function assertManagerInputs(database, manifest, needsUpdate) {
+  validateManifest(manifest);
   if (
     !database
     || typeof database.describeCollection !== "function"
-    || typeof database.updateCollection !== "function"
+    || (
+      needsUpdate
+      && typeof database.updateCollection !== "function"
+    )
   ) {
     throw createError("DATABASE_ADAPTER_INVALID");
-  }
-  if (!manifest || !Array.isArray(manifest.indexes)) {
-    throw createError("INDEX_MANIFEST_INVALID");
   }
 }
 
 async function checkIndexes({ database, manifest }) {
-  assertManagerInputs(database, manifest);
+  assertManagerInputs(database, manifest, false);
   return core.inspectDatabaseIndexes(
     manifest.indexes,
     (collectionName) => database.describeCollection(collectionName)
@@ -157,7 +237,7 @@ async function applyIndex({
   indexName,
   allowRebuild = false
 }) {
-  assertManagerInputs(database, manifest);
+  assertManagerInputs(database, manifest, true);
   const spec = findSpec(manifest, collection, indexName);
   if (!spec) {
     throw createError("INDEX_SPEC_NOT_FOUND");
@@ -185,7 +265,7 @@ async function applyIndex({
   if (current.status === "check-failed") {
     throw createError("INDEX_CHECK_FAILED");
   }
-  if (current.status === "mismatched" && !allowRebuild) {
+  if (current.status === "mismatched" && allowRebuild !== true) {
     throw createError("REBUILD_CONFIRMATION_REQUIRED");
   }
   if (
@@ -280,6 +360,7 @@ if (require.main === module) {
 
 module.exports = {
   parseArgs,
+  validateManifest,
   loadManifest,
   createDatabase,
   checkIndexes,

@@ -2,6 +2,7 @@
 
 const assert = require("assert");
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 
 const manifestPath = path.join(__dirname, "database-indexes.json");
@@ -747,6 +748,32 @@ async function runManagerTests() {
     0
   );
 
+  const invalidRebuildConfirmations = [
+    "false",
+    "0",
+    0,
+    1,
+    -1,
+    {},
+    [],
+    null,
+    undefined
+  ];
+  for (const allowRebuild of invalidRebuildConfirmations) {
+    const rejectedRebuild = createFakeDatabase(mismatchedIndexes);
+    await assertRejectsCode(
+      () => managerCli.applyIndex({
+        database: rejectedRebuild.database,
+        manifest,
+        collection: targetSpec.collection,
+        indexName: targetSpec.name,
+        allowRebuild
+      }),
+      "REBUILD_CONFIRMATION_REQUIRED"
+    );
+    assert.strictEqual(rejectedRebuild.calls.updateCollection.length, 0);
+  }
+
   const mismatchedWithConfirmation = createFakeDatabase(mismatchedIndexes);
   const rebuilt = await managerCli.applyIndex({
     database: mismatchedWithConfirmation.database,
@@ -797,6 +824,339 @@ async function runManagerTests() {
     "INDEX_CHECK_FAILED"
   );
   assert.strictEqual(failedCheck.calls.updateCollection.length, 0);
+
+  const duplicateArguments = [
+    [
+      "--manifest",
+      "first.json",
+      "--manifest",
+      "second.json"
+    ],
+    [
+      "--environment",
+      "env-first",
+      "--environment",
+      "env-second"
+    ],
+    [
+      "--collection",
+      "first_collection",
+      "--collection",
+      "second_collection"
+    ],
+    [
+      "--index",
+      "first_index",
+      "--index",
+      "second_index"
+    ],
+    [
+      "--allow-rebuild",
+      "--allow-rebuild"
+    ]
+  ];
+  duplicateArguments.forEach((argumentList) => {
+    assertErrorCode(
+      () => managerCli.parseArgs([
+        "node",
+        "index.js",
+        "apply",
+        ...argumentList
+      ]),
+      "ARGUMENT_DUPLICATE"
+    );
+  });
+
+  function copyManifest(change) {
+    const copied = JSON.parse(JSON.stringify(manifest));
+    change(copied);
+    return copied;
+  }
+
+  const invalidManifestCases = [
+    {
+      name: "version",
+      value: copyManifest((value) => {
+        value.version = 2;
+      })
+    },
+    {
+      name: "empty-indexes",
+      value: copyManifest((value) => {
+        value.indexes = [];
+      })
+    },
+    {
+      name: "truncated-indexes",
+      value: copyManifest((value) => {
+        value.indexes = value.indexes.slice(0, 10);
+      })
+    },
+    {
+      name: "extra-index",
+      value: copyManifest((value) => {
+        value.indexes.push({
+          ...value.indexes[0],
+          name: "idx_extra_smoke"
+        });
+      })
+    },
+    {
+      name: "index-null",
+      value: copyManifest((value) => {
+        value.indexes[0] = null;
+      })
+    },
+    {
+      name: "index-array",
+      value: copyManifest((value) => {
+        value.indexes[0] = [];
+      })
+    },
+    {
+      name: "collection-empty",
+      value: copyManifest((value) => {
+        value.indexes[0].collection = "   ";
+      })
+    },
+    {
+      name: "collection-non-string",
+      value: copyManifest((value) => {
+        value.indexes[0].collection = 123;
+      })
+    },
+    {
+      name: "name-empty",
+      value: copyManifest((value) => {
+        value.indexes[0].name = "";
+      })
+    },
+    {
+      name: "name-non-string",
+      value: copyManifest((value) => {
+        value.indexes[0].name = ["idx_invalid"];
+      })
+    },
+    {
+      name: "reason-empty",
+      value: copyManifest((value) => {
+        value.indexes[0].reason = " ";
+      })
+    },
+    {
+      name: "reason-non-string",
+      value: copyManifest((value) => {
+        value.indexes[0].reason = true;
+      })
+    },
+    {
+      name: "keys-empty",
+      value: copyManifest((value) => {
+        value.indexes[0].keys = [];
+      })
+    },
+    {
+      name: "keys-non-array",
+      value: copyManifest((value) => {
+        value.indexes[0].keys = {};
+      })
+    },
+    {
+      name: "unique-true",
+      value: copyManifest((value) => {
+        value.indexes[0].unique = true;
+      })
+    },
+    {
+      name: "unique-non-boolean",
+      value: copyManifest((value) => {
+        value.indexes[0].unique = "false";
+      })
+    },
+    {
+      name: "duplicate-index",
+      value: copyManifest((value) => {
+        value.indexes[1].collection = value.indexes[0].collection;
+        value.indexes[1].name = value.indexes[0].name;
+      })
+    },
+    {
+      name: "key-null",
+      value: copyManifest((value) => {
+        value.indexes[0].keys[0] = null;
+      })
+    },
+    {
+      name: "key-array",
+      value: copyManifest((value) => {
+        value.indexes[0].keys[0] = [];
+      })
+    },
+    {
+      name: "key-name-empty",
+      value: copyManifest((value) => {
+        value.indexes[0].keys[0].name = " ";
+      })
+    },
+    {
+      name: "key-name-non-string",
+      value: copyManifest((value) => {
+        value.indexes[0].keys[0].name = 123;
+      })
+    },
+    {
+      name: "key-direction-zero",
+      value: copyManifest((value) => {
+        value.indexes[0].keys[0].direction = 0;
+      })
+    },
+    {
+      name: "key-direction-string",
+      value: copyManifest((value) => {
+        value.indexes[0].keys[0].direction = "1";
+      })
+    },
+    {
+      name: "duplicate-key",
+      value: copyManifest((value) => {
+        value.indexes[0].keys.push({
+          ...value.indexes[0].keys[0]
+        });
+      })
+    }
+  ];
+
+  assert.strictEqual(managerCli.validateManifest(manifest), manifest);
+  invalidManifestCases.forEach((testCase) => {
+    assertErrorCode(
+      () => managerCli.validateManifest(testCase.value),
+      "INDEX_MANIFEST_INVALID"
+    );
+  });
+
+  const entryInvalidManifests = invalidManifestCases.filter((testCase) => (
+    testCase.name === "version"
+    || testCase.name === "empty-indexes"
+    || testCase.name === "truncated-indexes"
+  ));
+  for (const testCase of entryInvalidManifests) {
+    const invalidCheckDatabase = createFakeDatabase([]);
+    await assertRejectsCode(
+      () => managerCli.checkIndexes({
+        database: invalidCheckDatabase.database,
+        manifest: testCase.value
+      }),
+      "INDEX_MANIFEST_INVALID"
+    );
+    assert.strictEqual(
+      invalidCheckDatabase.calls.describeCollection.length,
+      0
+    );
+
+    const invalidApplyDatabase = createFakeDatabase([]);
+    await assertRejectsCode(
+      () => managerCli.applyIndex({
+        database: invalidApplyDatabase.database,
+        manifest: testCase.value,
+        collection: targetSpec.collection,
+        indexName: targetSpec.name,
+        allowRebuild: true
+      }),
+      "INDEX_MANIFEST_INVALID"
+    );
+    assert.strictEqual(
+      invalidApplyDatabase.calls.describeCollection.length,
+      0
+    );
+    assert.strictEqual(
+      invalidApplyDatabase.calls.updateCollection.length,
+      0
+    );
+  }
+
+  const manifestTempDirectory = fs.mkdtempSync(
+    path.join(os.tmpdir(), "database-index-manager-smoke-")
+  );
+  const manifestSecret = "manifest-file-secret-smoke";
+  try {
+    const validManifestPath = path.join(
+      manifestTempDirectory,
+      "valid.json"
+    );
+    fs.writeFileSync(
+      validManifestPath,
+      JSON.stringify(manifest),
+      "utf8"
+    );
+    assert.deepStrictEqual(
+      managerCli.loadManifest(validManifestPath),
+      manifest
+    );
+
+    for (const testCase of entryInvalidManifests) {
+      const invalidManifestPath = path.join(
+        manifestTempDirectory,
+        `${testCase.name}.json`
+      );
+      fs.writeFileSync(
+        invalidManifestPath,
+        JSON.stringify(testCase.value),
+        "utf8"
+      );
+      assertErrorCode(
+        () => managerCli.loadManifest(invalidManifestPath),
+        "INDEX_MANIFEST_INVALID"
+      );
+    }
+
+    const malformedManifestPath = path.join(
+      manifestTempDirectory,
+      "malformed.json"
+    );
+    fs.writeFileSync(
+      malformedManifestPath,
+      `{"secret":"${manifestSecret}",`,
+      "utf8"
+    );
+    let malformedError;
+    try {
+      managerCli.loadManifest(malformedManifestPath);
+    } catch (error) {
+      malformedError = error;
+    }
+    assert.ok(malformedError);
+    assert.strictEqual(malformedError.code, "INDEX_MANIFEST_INVALID");
+    assert.strictEqual(malformedError.message, "INDEX_MANIFEST_INVALID");
+    assert.strictEqual(
+      JSON.stringify(managerCli.cliErrorPayload(malformedError))
+        .includes(manifestSecret),
+      false
+    );
+
+    const missingManifestPath = path.join(
+      manifestTempDirectory,
+      `${manifestSecret}-missing.json`
+    );
+    let readError;
+    try {
+      managerCli.loadManifest(missingManifestPath);
+    } catch (error) {
+      readError = error;
+    }
+    assert.ok(readError);
+    assert.strictEqual(readError.code, "INDEX_MANIFEST_READ_FAILED");
+    assert.strictEqual(readError.message, "INDEX_MANIFEST_READ_FAILED");
+    assert.strictEqual(
+      JSON.stringify(managerCli.cliErrorPayload(readError))
+        .includes(manifestSecret),
+      false
+    );
+  } finally {
+    fs.rmSync(manifestTempDirectory, {
+      recursive: true,
+      force: true
+    });
+  }
 
   const checked = await managerCli.checkIndexes({
     database: missing.database,

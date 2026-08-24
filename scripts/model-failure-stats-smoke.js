@@ -146,7 +146,10 @@ const sourceEvents = [
   }
 ];
 
-const normalizedEvents = sourceEvents.map((item) => test.normalizeModelUsageEvent(item));
+const normalizedEvents = sourceEvents.map((item) => test.normalizeModelUsageEvent({
+  createdAt: new Date(`${item.dateKey}T12:00:00.000Z`),
+  ...item
+}));
 const stats = test.aggregateModelUsageEvents(normalizedEvents, 30, baseDate);
 
 assert.strictEqual(stats.last30d.total, 9);

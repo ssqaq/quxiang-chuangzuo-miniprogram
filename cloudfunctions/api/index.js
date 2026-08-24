@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.29.0";
-const API_BUILD_MARKER = "API_BUILD_TAG_20260824_ANALYSIS_ADMIN_V290";
+const API_BUILD_VERSION = "0.29.1";
+const API_BUILD_MARKER = "API_BUILD_TAG_20260824_SINGLE_PROBE_V291";
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
 const cloud = require("wx-server-sdk");
@@ -22,6 +22,7 @@ const ADMIN_DEPLOYMENT_LOG_COLLECTION = "admin_deployment_logs";
 const MODEL_USAGE_EVENT_COLLECTION = "model_usage_events";
 const MODEL_USAGE_TIME_ZONE = "Asia/Shanghai";
 const MODEL_USAGE_TYPES = ["image", "analysis", "face", "video"];
+const MODEL_PROBE_TYPES = ["face", "analysis", "image", "video"];
 const MODEL_USAGE_TYPE_LABELS = {
   image: "生图",
   analysis: "图片分析",
@@ -67,6 +68,14 @@ const MODEL_COST_CONFIG_VERSION = "2026-08-23-v1";
 const ADMIN_RUNTIME_CACHE_TTL_MS = 15000;
 const POINTS_ACCOUNT_COLLECTION = "user_accounts";
 const USER_PROFILE_COLLECTION = "user_profiles";
+const ADMIN_USER_DATE_RANGES = new Set(["all", "today", "7d", "30d"]);
+const ADMIN_USER_DATE_RANGE_LABELS = {
+  all: "全部",
+  today: "今天",
+  "7d": "近7天",
+  "30d": "近30天"
+};
+const ADMIN_USER_TREND_DAYS = 7;
 const POINTS_LEDGER_COLLECTION = "point_ledger";
 const POINTS_RESET_LEDGER_BATCH_SIZE = 100;
 const USER_QUOTA_COLLECTION = "user_quotas";
@@ -3573,10 +3582,23 @@ async function probeOneModel(type, modelConfig) {
   }
 }
 
+function normalizeModelProbeType(value) {
+  const type = String(value || "").trim().toLowerCase();
+  return MODEL_PROBE_TYPES.includes(type) ? type : "";
+}
+
 async function probeModels(event, context) {
   if (!isAdminContext(context)) return adminForbidden();
+  const requestedValue = String(event && event.modelType || "").trim();
+  const requestedType = normalizeModelProbeType(requestedValue);
+  if (requestedValue && !requestedType) {
+    return fail(
+      `不支持探测的模型类型：${requestedValue}`,
+      "invalid-model-type"
+    );
+  }
   const configs = await resolveEffectiveConfigs();
-  const types = ["face", "analysis", "image", "video"];
+  const types = requestedType ? [requestedType] : MODEL_PROBE_TYPES;
   const results = await Promise.all(types.map((type) => (
     probeOneModel(type, configs[type])
   )));
@@ -3585,6 +3607,8 @@ async function probeModels(event, context) {
     buildVersion: API_BUILD_VERSION,
     buildMarker: API_BUILD_MARKER,
     checkedAt: new Date().toISOString(),
+    scope: requestedType ? "single" : "all",
+    requestedType,
     allReady: readyCount === results.length,
     readyCount,
     total: results.length,
@@ -4580,10 +4604,98 @@ function normalizeUserNickname(value) {
     .slice(0, 32);
 }
 
+function normalizeAdminUserSearch(value) {
+  return String(value || "")
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 32)
+    .toLowerCase();
+}
+
+function normalizeAdminUserDateRange(value) {
+  const dateRange = String(value || "").trim().toLowerCase();
+  return ADMIN_USER_DATE_RANGES.has(dateRange) ? dateRange : "all";
+}
+
+function adminUserHash(source = {}) {
+  return compactUsageText(source.userHash, 40) || usageUserHash(source.openid);
+}
+
+function adminUserCreatedDateKey(source = {}) {
+  const createdAt = source.createdAt instanceof Date
+    ? source.createdAt
+    : new Date(source.createdAt || 0);
+  return Number.isNaN(createdAt.getTime())
+    ? ""
+    : dateKeyForTimeZone(createdAt, POINTS_TIME_ZONE);
+}
+
+function adminUserDateRangeStart(dateRange, todayKey) {
+  if (dateRange === "today") return todayKey;
+  if (dateRange === "7d") return shiftDateKey(todayKey, -6);
+  if (dateRange === "30d") return shiftDateKey(todayKey, -29);
+  return "";
+}
+
+function filterAdminUserProfiles(rows = [], options = {}, baseDate = new Date()) {
+  const search = normalizeAdminUserSearch(options.search);
+  const dateRange = normalizeAdminUserDateRange(options.dateRange);
+  const normalizedBaseDate = baseDate instanceof Date ? baseDate : new Date(baseDate || Date.now());
+  const todayKey = dateKeyForTimeZone(
+    Number.isNaN(normalizedBaseDate.getTime()) ? new Date() : normalizedBaseDate,
+    POINTS_TIME_ZONE
+  );
+  const startKey = adminUserDateRangeStart(dateRange, todayKey);
+  const filteredRows = normalizeAdminUserProfileRows(rows).filter((item) => {
+    if (startKey) {
+      const createdDateKey = adminUserCreatedDateKey(item);
+      if (!createdDateKey || createdDateKey < startKey || createdDateKey > todayKey) {
+        return false;
+      }
+    }
+    if (!search) return true;
+    const nickname = normalizeUserNickname(item.nickname).toLowerCase();
+    return nickname.includes(search) || adminUserHash(item).toLowerCase().includes(search);
+  });
+  return {
+    rows: filteredRows,
+    search,
+    dateRange,
+    todayKey
+  };
+}
+
+function buildAdminUserSignupTrend(rows = [], baseDate = new Date(), days = ADMIN_USER_TREND_DAYS) {
+  const safeDays = Math.max(1, Math.min(30, Number(days) || ADMIN_USER_TREND_DAYS));
+  const normalizedBaseDate = baseDate instanceof Date ? baseDate : new Date(baseDate || Date.now());
+  const todayKey = dateKeyForTimeZone(
+    Number.isNaN(normalizedBaseDate.getTime()) ? new Date() : normalizedBaseDate,
+    POINTS_TIME_ZONE
+  );
+  const firstKey = shiftDateKey(todayKey, -(safeDays - 1));
+  const counts = {};
+  normalizeAdminUserProfileRows(rows).forEach((item) => {
+    const dateKey = adminUserCreatedDateKey(item);
+    if (dateKey && dateKey >= firstKey && dateKey <= todayKey) {
+      counts[dateKey] = (counts[dateKey] || 0) + 1;
+    }
+  });
+  const trend = [];
+  for (let index = -(safeDays - 1); index <= 0; index += 1) {
+    const dateKey = shiftDateKey(todayKey, index);
+    trend.push({
+      dateKey,
+      count: counts[dateKey] || 0
+    });
+  }
+  return trend;
+}
+
 function userProfileView(source = {}) {
   const gender = normalizeUserGender(source.gender);
   return {
-    userHash: compactUsageText(source.userHash, 40),
+    userHash: adminUserHash(source),
     nickname: normalizeUserNickname(source.nickname),
     avatarFileID: compactUsageText(source.avatarFileID, 500),
     avatarUrl: compactUsageText(source.avatarFileID, 500),
@@ -4594,16 +4706,12 @@ function userProfileView(source = {}) {
   };
 }
 
-function buildAdminUserStats(rows = [], offset = 0, limit = 20) {
-  const valid = (Array.isArray(rows) ? rows : [])
-    .map((item) => Object.assign({}, item, {
-      gender: normalizeUserGender(item && item.gender)
-    }))
-    .filter((item) => item.gender && normalizeUserNickname(item.nickname))
-    .sort((left, right) => (
-      new Date(right.createdAt || 0).getTime()
-      - new Date(left.createdAt || 0).getTime()
-    ));
+function buildAdminUserStats(rows = [], offset = 0, limit = 20, options = {}) {
+  const baseDate = options.baseDate instanceof Date
+    ? options.baseDate
+    : new Date(options.baseDate || Date.now());
+  const filtered = filterAdminUserProfiles(rows, options, baseDate);
+  const valid = filtered.rows;
   const maleCount = valid.filter((item) => item.gender === "male").length;
   const femaleCount = valid.filter((item) => item.gender === "female").length;
   const total = maleCount + femaleCount;
@@ -4623,6 +4731,9 @@ function buildAdminUserStats(rows = [], offset = 0, limit = 20) {
     users,
     offset: safeOffset,
     limit: safeLimit,
+    search: filtered.search,
+    dateRange: filtered.dateRange,
+    signupTrend: buildAdminUserSignupTrend(rows, baseDate),
     nextOffset: safeOffset + users.length < total
       ? safeOffset + users.length
       : null
@@ -4925,37 +5036,21 @@ async function getAdminUserStats(event, context) {
   if (!isAdminContext(context)) return adminForbidden();
   const offset = Math.max(0, Number(event && event.offset) || 0);
   const limit = Math.max(1, Math.min(50, Number(event && event.limit) || 20));
+  const options = {
+    search: event && event.search,
+    dateRange: event && event.dateRange
+  };
   if (process.env.WECHAT_MINIAPP_TEST === "1") {
-    return jsonResponse(true, buildAdminUserStats(userProfileTestRows, offset, limit));
+    return jsonResponse(true, buildAdminUserStats(userProfileTestRows, offset, limit, options));
   }
-  const collection = db.collection(USER_PROFILE_COLLECTION);
-  const [maleResult, femaleResult, listResult] = await Promise.all([
-    collection.where({ gender: "male" }).count(),
-    collection.where({ gender: "female" }).count(),
-    collection
-      .orderBy("createdAt", "desc")
-      .skip(offset)
-      .limit(limit)
-      .get()
-  ]);
-  const maleCount = Number(maleResult && maleResult.total) || 0;
-  const femaleCount = Number(femaleResult && femaleResult.total) || 0;
-  const total = maleCount + femaleCount;
-  const maleRatio = total ? Math.round(maleCount / total * 1000) / 10 : 0;
-  const femaleRatio = total ? Math.round((100 - maleRatio) * 10) / 10 : 0;
-  const users = (listResult && Array.isArray(listResult.data) ? listResult.data : [])
-    .map(userProfileView);
-  return jsonResponse(true, {
-    total,
-    maleCount,
-    femaleCount,
-    maleRatio,
-    femaleRatio,
-    users,
-    offset,
-    limit,
-    nextOffset: offset + users.length < total ? offset + users.length : null
-  });
+  const loaded = await loadAllAdminUserProfiles();
+  return jsonResponse(true, Object.assign(
+    buildAdminUserStats(loaded.rows, offset, limit, options),
+    {
+      sourceTotal: loaded.total,
+      truncated: loaded.truncated
+    }
+  ));
 }
 
 function normalizeAdminUserProfileRows(rows = []) {
@@ -4971,8 +5066,9 @@ function normalizeAdminUserProfileRows(rows = []) {
     ));
 }
 
-function buildAdminUserExportWorkbook(rows = [], exportedAt = new Date()) {
-  const users = normalizeAdminUserProfileRows(rows);
+function buildAdminUserExportWorkbook(rows = [], exportedAt = new Date(), options = {}) {
+  const filtered = filterAdminUserProfiles(rows, options, exportedAt);
+  const users = filtered.rows;
   const maleCount = users.filter((item) => item.gender === "male").length;
   const femaleCount = users.filter((item) => item.gender === "female").length;
   const total = maleCount + femaleCount;
@@ -4986,6 +5082,8 @@ function buildAdminUserExportWorkbook(rows = [], exportedAt = new Date()) {
     ["男性比例", `${maleRatio}%`],
     ["女性数量", femaleCount],
     ["女性比例", `${femaleRatio}%`],
+    ["日期范围", ADMIN_USER_DATE_RANGE_LABELS[filtered.dateRange]],
+    ["搜索条件", filtered.search || "无"],
     ["导出时间", formatExportDateTime(exportedAt)]
   ]);
   summarySheet["!cols"] = [{ wch: 18 }, { wch: 26 }];
@@ -5057,7 +5155,12 @@ async function loadAllAdminUserProfiles() {
 async function exportAdminUserStats(event, context) {
   if (!isAdminContext(context)) return adminForbidden();
   const loaded = await loadAllAdminUserProfiles();
-  const buffer = buildAdminUserExportWorkbook(loaded.rows);
+  const options = {
+    search: event && event.search,
+    dateRange: event && event.dateRange
+  };
+  const filtered = filterAdminUserProfiles(loaded.rows, options);
+  const buffer = buildAdminUserExportWorkbook(loaded.rows, new Date(), options);
   const dateKey = dateKeyForTimeZone(new Date(), MODEL_USAGE_TIME_ZONE);
   const fileName = `用户统计-${dateKey}.xlsx`;
   const uploaded = await cloud.uploadFile({
@@ -5068,8 +5171,11 @@ async function exportAdminUserStats(event, context) {
     fileID: uploaded && uploaded.fileID ? uploaded.fileID : "",
     fileName,
     sizeBytes: buffer.length,
-    exportedCount: normalizeAdminUserProfileRows(loaded.rows).length,
-    total: loaded.total,
+    exportedCount: filtered.rows.length,
+    total: filtered.rows.length,
+    sourceTotal: loaded.total,
+    search: filtered.search,
+    dateRange: filtered.dateRange,
     truncated: loaded.truncated,
     message: loaded.truncated
       ? "Excel 已生成；用户超过 10000 人，本次导出前 10000 人。"
@@ -7106,6 +7212,7 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     modelProbeUrl,
     listedModelIds,
     probeOneModel,
+    normalizeModelProbeType,
     probeModels,
     listDeploymentLogs
     ,

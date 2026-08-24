@@ -264,6 +264,10 @@ function emptyUserStats() {
     maleRatio: 0,
     femaleRatio: 0,
     users: [],
+    search: "",
+    dateRange: "all",
+    signupTrend: [],
+    signupTrendTotal: 0,
     nextOffset: null,
     unavailable: false,
     message: ""
@@ -524,6 +528,34 @@ function formatModelProbes(result, error = null) {
     total,
     results,
     message: error && error.message || source.message || ""
+  });
+}
+
+function mergeSingleModelProbe(current, incoming, modelType) {
+  const previous = current || emptyModelProbes();
+  const next = incoming || emptyModelProbes();
+  const byType = {};
+  (Array.isArray(previous.results) ? previous.results : []).forEach((item) => {
+    if (item && item.type) byType[item.type] = item;
+  });
+  (Array.isArray(next.results) ? next.results : []).forEach((item) => {
+    if (item && item.type) byType[item.type] = item;
+  });
+  const results = USAGE_TYPE_META
+    .map((item) => byType[item.key])
+    .filter(Boolean);
+  const readyCount = results.filter((item) => item.ready).length;
+  const target = byType[modelType] || next.results && next.results[0] || null;
+  const total = results.length;
+  return Object.assign(emptyModelProbes(), previous, next, {
+    available: true,
+    status: total > 0 && readyCount === total ? "ok" : "warn",
+    statusText: target
+      ? `${target.typeLabel}：${target.statusText}`
+      : `${readyCount}/${total} 套正常`,
+    readyCount,
+    total,
+    results
   });
 }
 
@@ -809,6 +841,26 @@ function formatUsageStats(result) {
   });
 }
 
+function formatUserSignupTrend(items = []) {
+  const days = (Array.isArray(items) ? items : []).map((item) => {
+    const dateKey = String(item && item.dateKey || "");
+    const dateParts = dateKey.slice(5).split("-");
+    return {
+      dateKey,
+      label: dateParts.length === 2
+        ? `${Number(dateParts[0])}/${Number(dateParts[1])}`
+        : dateKey,
+      count: Math.max(0, Number(item && item.count) || 0)
+    };
+  });
+  const maxCount = Math.max(0, ...days.map((item) => item.count));
+  return days.map((item) => Object.assign({}, item, {
+    barPercent: item.count && maxCount
+      ? Math.max(14, Math.round(item.count / maxCount * 100))
+      : 0
+  }));
+}
+
 function formatUserStats(result, previousUsers = []) {
   const source = result || {};
   const incoming = (Array.isArray(source.users) ? source.users : []).map((item) => ({
@@ -824,6 +876,7 @@ function formatUserStats(result, previousUsers = []) {
       list.findIndex((candidate) => candidate.userHash === item.userHash) === index
     ))
     : incoming;
+  const signupTrend = formatUserSignupTrend(source.signupTrend);
   return Object.assign(emptyUserStats(), {
     total: Number(source.total) || 0,
     maleCount: Number(source.maleCount) || 0,
@@ -831,6 +884,10 @@ function formatUserStats(result, previousUsers = []) {
     maleRatio: Number(source.maleRatio) || 0,
     femaleRatio: Number(source.femaleRatio) || 0,
     users,
+    search: String(source.search || ""),
+    dateRange: String(source.dateRange || "all"),
+    signupTrend,
+    signupTrendTotal: signupTrend.reduce((total, item) => total + item.count, 0),
     nextOffset: source.nextOffset === null || source.nextOffset === undefined
       ? null
       : Math.max(0, Number(source.nextOffset) || 0)
@@ -1171,6 +1228,7 @@ Page({
     saving: false,
     checking: false,
     modelProbing: false,
+    modelProbingType: "",
     refreshingAll: false,
     isAdmin: false,
     form: emptyForm(),
@@ -1186,6 +1244,15 @@ Page({
     userStatsLoading: false,
     userStatsExporting: false,
     userStats: emptyUserStats(),
+    userSearchInput: "",
+    userSearch: "",
+    userDateRange: "all",
+    userDateRanges: [
+      { value: "all", label: "全部" },
+      { value: "today", label: "今天" },
+      { value: "7d", label: "近7天" },
+      { value: "30d", label: "近30天" }
+    ],
     autoFaceFailureLoading: false,
     autoFaceFailureStats: emptyAutoFaceFailureStats(),
     autoFaceProbe: emptyAutoFaceProbe(),
@@ -1367,7 +1434,10 @@ Page({
       this.loadAdminModule(
         token,
         "users",
-        () => cloud.getAdminUserStats(0, 20),
+        () => cloud.getAdminUserStats(0, 20, {
+          search: this.data.userSearch,
+          dateRange: this.data.userDateRange
+        }),
         formatUserStats,
         (userStats) => ({ userStats }),
         {
@@ -1570,15 +1640,54 @@ Page({
     }
   },
 
+  onUserSearchInput(event) {
+    this.setData({
+      userSearchInput: String(event && event.detail && event.detail.value || "").slice(0, 32)
+    });
+  },
+
+  applyUserSearch() {
+    const search = String(this.data.userSearchInput || "").trim().slice(0, 32);
+    this.setData({
+      userSearchInput: search,
+      userSearch: search
+    }, () => this.refreshUserStats(true));
+  },
+
+  clearUserSearch() {
+    if (!this.data.userSearchInput && !this.data.userSearch) return;
+    this.setData({
+      userSearchInput: "",
+      userSearch: ""
+    }, () => this.refreshUserStats(true));
+  },
+
+  selectUserDateRange(event) {
+    const dateRange = String(
+      event && event.currentTarget && event.currentTarget.dataset
+        ? event.currentTarget.dataset.range
+        : ""
+    );
+    if (!["all", "today", "7d", "30d"].includes(dateRange)
+      || dateRange === this.data.userDateRange) {
+      return;
+    }
+    this.setData({ userDateRange: dateRange }, () => this.refreshUserStats(true));
+  },
+
   async refreshUserStats(reset = true) {
     if (this.data.userStatsLoading) return;
-    const offset = reset ? 0 : this.data.userStats.nextOffset;
-    if (!reset && (offset === null || offset === undefined)) return;
-    const previousUsers = reset ? [] : this.data.userStats.users;
+    const shouldReset = reset !== false;
+    const offset = shouldReset ? 0 : this.data.userStats.nextOffset;
+    if (!shouldReset && (offset === null || offset === undefined)) return;
+    const previousUsers = shouldReset ? [] : this.data.userStats.users;
     const result = await this.loadAdminModule(
       this._adminLoadToken || 0,
       "users",
-      () => cloud.getAdminUserStats(offset || 0, 20),
+      () => cloud.getAdminUserStats(offset || 0, 20, {
+        search: this.data.userSearch,
+        dateRange: this.data.userDateRange
+      }),
       (rawResult) => formatUserStats(rawResult, previousUsers),
       (userStats) => ({ userStats }),
       {
@@ -1587,7 +1696,7 @@ Page({
       }
     );
     if (result.stale) return;
-    if (result.ok && reset) {
+    if (result.ok && shouldReset) {
       wx.showToast({ title: "用户统计已刷新", icon: "success" });
     } else if (!result.ok) {
       this.showError(
@@ -1605,7 +1714,10 @@ Page({
     if (this.data.userStatsExporting) return;
     this.setData({ userStatsExporting: true });
     try {
-      const result = await cloud.exportAdminUserStats();
+      const result = await cloud.exportAdminUserStats({
+        search: this.data.userSearch,
+        dateRange: this.data.userDateRange
+      });
       if (!result || !result.fileID) throw new Error("用户统计 Excel 生成失败。");
       const filePath = await cloud.downloadFile(result.fileID);
       if (!filePath || typeof wx.openDocument !== "function") {
@@ -1683,7 +1795,10 @@ Page({
       this.loadAdminModule(
         token,
         "users",
-        () => cloud.getAdminUserStats(0, 20),
+        () => cloud.getAdminUserStats(0, 20, {
+          search: this.data.userSearch,
+          dateRange: this.data.userDateRange
+        }),
         formatUserStats,
         (userStats) => ({ userStats }),
         { label: "用户统计", loadingKey: "userStatsLoading" }
@@ -1969,38 +2084,72 @@ Page({
     }
   },
 
-  async probeModels() {
+  probeModels() {
+    return this.runModelProbe("");
+  },
+
+  probeSingleModel(event) {
+    const modelType = String(
+      event && event.currentTarget && event.currentTarget.dataset.modelType || ""
+    ).trim();
+    if (!modelType) return;
+    return this.runModelProbe(modelType);
+  },
+
+  async runModelProbe(modelType = "") {
     if (this.data.modelProbing) return;
+    const typeLabel = modelType ? usageTypeLabel(modelType) : "四套模型";
     this.setData({
       modelProbing: true,
-      message: "正在探测四套模型接口..."
+      modelProbingType: modelType || "all",
+      message: `正在探测${typeLabel}接口...`
     });
     try {
-      const result = await cloud.probeModels();
-      const modelProbes = formatModelProbes(result);
+      const result = await cloud.probeModels(modelType);
+      const formatted = formatModelProbes(result);
+      const modelProbes = modelType
+        ? mergeSingleModelProbe(this.data.modelProbes, formatted, modelType)
+        : formatted;
+      const target = modelType
+        ? modelProbes.results.find((item) => item.type === modelType)
+        : null;
       this.setData({
         modelProbing: false,
+        modelProbingType: "",
         modelProbes,
         monitorExpanded: true,
-        message: `模型接口探测完成：${modelProbes.readyCount}/${modelProbes.total} 套正常。`
+        message: modelType && target
+          ? `${target.typeLabel}探测完成：${target.statusText}。`
+          : `模型接口探测完成：${modelProbes.readyCount}/${modelProbes.total} 套正常。`
       });
       wx.showToast({
-        title: modelProbes.readyCount === modelProbes.total
-          ? "四套模型均正常"
-          : `${modelProbes.readyCount}/${modelProbes.total} 套正常`,
-        icon: modelProbes.readyCount === modelProbes.total ? "success" : "none"
+        title: modelType && target
+          ? `${target.typeLabel}${target.statusText}`
+          : modelProbes.readyCount === modelProbes.total
+            ? "四套模型均正常"
+            : `${modelProbes.readyCount}/${modelProbes.total} 套正常`,
+        icon: modelType
+          ? target && target.ready ? "success" : "none"
+          : modelProbes.readyCount === modelProbes.total ? "success" : "none"
       });
     } catch (error) {
-      const modelProbes = formatModelProbes(error && error.payload, error);
+      const formatted = formatModelProbes(error && error.payload, error);
+      const modelProbes = modelType && formatted.results.length
+        ? mergeSingleModelProbe(this.data.modelProbes, formatted, modelType)
+        : this.data.modelProbes;
       this.setData({
         modelProbing: false,
+        modelProbingType: "",
         modelProbes,
         monitorExpanded: true,
-        message: "四套模型接口探测失败，请查看结果说明。"
+        message: `${typeLabel}接口探测失败，请查看结果说明。`
       });
-      diagnosticLog.error("admin", "model-probe-failed", "四套模型接口探测失败", {
-        error
-      });
+      diagnosticLog.error(
+        "admin",
+        "model-probe-failed",
+        `${typeLabel}接口探测失败`,
+        { error, modelType }
+      );
       this.showError("探测失败", error);
     }
   },

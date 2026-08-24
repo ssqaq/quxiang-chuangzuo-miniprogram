@@ -412,6 +412,49 @@
         <view class="user-stats-d-helper">
           这里显示已保存个人资料的用户，不是小程序访问人数。
         </view>
+        <view class="user-stats-filter-panel">
+          <view class="user-stats-search-row">
+            <view class="user-stats-search-box">
+              <text class="user-stats-search-icon">⌕</text>
+              <input
+                class="user-stats-search-input"
+                value="{{userSearchInput}}"
+                maxlength="32"
+                placeholder="搜索昵称或匿名编号"
+                confirm-type="search"
+                bindinput="onUserSearchInput"
+                bindconfirm="applyUserSearch"
+              />
+            </view>
+            <view
+              class="user-stats-search-action"
+              bindtap="applyUserSearch"
+              hover-class="control-tap"
+              role="button"
+              aria-label="搜索用户"
+            >搜索</view>
+            <view
+              wx:if="{{userSearchInput || userSearch}}"
+              class="user-stats-search-clear"
+              bindtap="clearUserSearch"
+              hover-class="control-tap"
+              role="button"
+              aria-label="清空用户搜索"
+            >清空</view>
+          </view>
+          <view class="user-stats-date-filter">
+            <view
+              wx:for="{{userDateRanges}}"
+              wx:key="value"
+              class="user-stats-date-option {{userDateRange === item.value ? 'is-active' : ''}}"
+              data-range="{{item.value}}"
+              bindtap="selectUserDateRange"
+              hover-class="control-tap"
+              role="button"
+              aria-label="查看{{item.label}}注册用户"
+            >{{item.label}}</view>
+          </view>
+        </view>
         <view class="user-stats-d-state-row">
           <view class="config-state {{moduleStates.users.status === 'failed' ? 'is-off' : 'is-ready'}}">
             {{moduleStates.users.label}}
@@ -455,11 +498,32 @@
             <text class="user-stats-d-gender-label">女性 · {{userStats.femaleRatio}}%</text>
           </view>
         </view>
+        <view wx:if="{{moduleStates.users.status === 'ready' || moduleStates.users.hasData}}" class="user-signup-trend">
+          <view class="user-signup-trend-head">
+            <view>
+              <view class="user-signup-trend-title">最近7天新增用户</view>
+              <view class="user-signup-trend-help">按完善资料的日期统计</view>
+            </view>
+            <text>共 {{userStats.signupTrendTotal}} 人</text>
+          </view>
+          <view class="user-signup-trend-chart">
+            <view wx:for="{{userStats.signupTrend}}" wx:key="dateKey" class="user-signup-trend-day">
+              <view class="user-signup-trend-bar-area">
+                <text class="user-signup-trend-count">{{item.count}}</text>
+                <view
+                  class="user-signup-trend-bar {{item.count ? '' : 'is-zero'}}"
+                  style="height: {{item.barPercent}}%;"
+                ></view>
+              </view>
+              <text class="user-signup-trend-label">{{item.label}}</text>
+            </view>
+          </view>
+        </view>
         <view
           wx:if="{{moduleStates.users.status === 'ready' || moduleStates.users.hasData}}"
           class="user-stats-d-list-title"
         >
-          用户明细
+          用户明细 · {{userStats.total}}人
         </view>
         <view wx:if="{{(moduleStates.users.status === 'ready' || moduleStates.users.hasData) && userStats.users.length}}" class="admin-user-list user-stats-d-user-list">
           <view wx:for="{{userStats.users}}" wx:key="userHash" class="admin-user-row user-stats-d-user-row">
@@ -473,7 +537,7 @@
             <view class="admin-user-gender gender-{{item.gender}}">{{item.genderText}}</view>
           </view>
         </view>
-        <view wx:elif="{{moduleStates.users.status === 'ready' || moduleStates.users.hasData}}" class="admin-empty">还没有已完善资料的用户。</view>
+        <view wx:elif="{{moduleStates.users.status === 'ready' || moduleStates.users.hasData}}" class="admin-empty">没有符合条件的用户。</view>
         <button
           wx:if="{{userStats.nextOffset !== null}}"
           class="user-load-more"
@@ -585,6 +649,14 @@
             <view class="model-probe-side">
               <text class="{{item.ready ? 'log-ok' : 'log-warn'}}">{{item.statusText}}</text>
               <text>{{item.durationText}}</text>
+              <view
+                class="model-probe-single-button {{modelProbingType === item.type ? 'is-disabled' : ''}}"
+                data-model-type="{{item.type}}"
+                catchtap="probeSingleModel"
+                hover-class="control-tap"
+                role="button"
+                aria-label="单独探测{{item.typeLabel}}"
+              >{{modelProbingType === item.type ? '探测中' : '单独探测'}}</view>
             </view>
           </view>
         </view>

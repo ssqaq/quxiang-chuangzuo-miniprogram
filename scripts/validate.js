@@ -483,14 +483,18 @@ if (
   || !adminWxss.includes(".quick-launch.is-abnormal")
   || !adminWxss.includes(".copy-error-button")
   || !adminJs.includes("copyFaceConfigToAnalysis")
-  || !adminJs.includes("cloud.probeModels()")
+  || !adminJs.includes("cloud.probeModels(modelType)")
+  || !adminJs.includes("probeSingleModel")
+  || !adminJs.includes("mergeSingleModelProbe")
   || !adminJs.includes("analysisInputPerMillionTokens")
   || !adminWxml.includes("复制人脸配置")
   || !adminWxml.includes("探测四套模型")
+  || !adminWxml.includes("单独探测")
   || !adminWxml.includes("图片分析输入 / 百万Token")
   || !adminWxml.includes("usageTypeLabel")
   || !adminWxss.includes(".config-tool-button")
   || !adminWxss.includes(".model-probe-row")
+  || !adminWxss.includes(".model-probe-single-button")
 ) {
   throw new Error("模型配置、图片分析价格、接口探测、失败类型或复制配置功能不完整。");
 }
@@ -538,6 +542,7 @@ if (
   || !cloudJs.includes("costs.analysis")
   || !cloudJs.includes("modelErrorMessage")
   || !cloudJs.includes("probeOneModel")
+  || !cloudJs.includes("normalizeModelProbeType")
   || !cloudJs.includes('action === "probeModels"')
   || !clientCloudJs.includes('action: "probeModels"')
   || !fs.existsSync(path.join(root, "scripts/analysis-cost-probe-smoke.js"))

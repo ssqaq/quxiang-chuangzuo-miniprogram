@@ -1308,6 +1308,98 @@ page {
   word-break: normal;
 }
 
+.user-stats-filter-panel {
+  margin-top: 14rpx;
+  padding: 14rpx;
+  border: 1rpx solid #dce7f5;
+  border-radius: 18rpx;
+  background: #f9fbfe;
+}
+
+.user-stats-search-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10rpx;
+}
+
+.user-stats-search-box {
+  display: flex;
+  min-width: 0;
+  height: 64rpx;
+  padding: 0 16rpx;
+  align-items: center;
+  flex: 1;
+  border: 1rpx solid #cedced;
+  border-radius: 15rpx;
+  background: #ffffff;
+}
+
+.user-stats-search-icon {
+  flex: none;
+  margin-right: 8rpx;
+  color: #6682a5;
+  font-size: 26rpx;
+  line-height: 1;
+}
+
+.user-stats-search-input {
+  min-width: 0;
+  height: 100%;
+  flex: 1;
+  color: #193250;
+  font-size: 21rpx;
+}
+
+.user-stats-search-action,
+.user-stats-search-clear {
+  display: flex;
+  flex: none;
+  height: 64rpx;
+  padding: 0 20rpx;
+  align-items: center;
+  justify-content: center;
+  border-radius: 15rpx;
+  color: #ffffff;
+  background: #2f72d6;
+  font-size: 20rpx;
+  font-weight: 800;
+}
+
+.user-stats-search-clear {
+  padding: 0 14rpx;
+  color: #637997;
+  background: #eaf0f8;
+}
+
+.user-stats-date-filter {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8rpx;
+  margin-top: 12rpx;
+}
+
+.user-stats-date-option {
+  display: flex;
+  min-width: 0;
+  height: 54rpx;
+  align-items: center;
+  justify-content: center;
+  border: 1rpx solid #dce5f1;
+  border-radius: 13rpx;
+  color: #687d99;
+  background: #ffffff;
+  font-size: 18rpx;
+  font-weight: 700;
+}
+
+.user-stats-date-option.is-active {
+  border-color: #8cb7f0;
+  color: #175ebd;
+  background: #eaf3ff;
+  box-shadow: inset 0 0 0 1rpx rgba(23, 94, 189, 0.08);
+}
+
 .user-stats-d-state-row {
   display: flex;
   min-width: 0;
@@ -1441,6 +1533,102 @@ page {
   color: #74849b;
   font-size: 17rpx;
   line-height: 24rpx;
+}
+
+.user-signup-trend {
+  margin-top: 16rpx;
+  padding: 18rpx 18rpx 14rpx;
+  border: 1rpx solid #dce6f3;
+  border-radius: 20rpx;
+  background: #fbfcff;
+}
+
+.user-signup-trend-head {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16rpx;
+}
+
+.user-signup-trend-title {
+  color: #203853;
+  font-size: 22rpx;
+  font-weight: 900;
+  line-height: 30rpx;
+}
+
+.user-signup-trend-help {
+  margin-top: 2rpx;
+  color: #8a98aa;
+  font-size: 16rpx;
+  line-height: 24rpx;
+}
+
+.user-signup-trend-head > text {
+  flex: none;
+  color: #3374c9;
+  font-size: 18rpx;
+  font-weight: 800;
+  line-height: 28rpx;
+}
+
+.user-signup-trend-chart {
+  display: flex;
+  height: 176rpx;
+  margin-top: 14rpx;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 6rpx;
+}
+
+.user-signup-trend-day {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  flex: 1;
+  flex-direction: column;
+}
+
+.user-signup-trend-bar-area {
+  display: flex;
+  width: 100%;
+  min-height: 0;
+  align-items: center;
+  flex: 1;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+.user-signup-trend-count {
+  margin-bottom: 5rpx;
+  color: #5d7190;
+  font-size: 16rpx;
+  font-weight: 700;
+  line-height: 22rpx;
+}
+
+.user-signup-trend-bar {
+  width: 28rpx;
+  max-height: 112rpx;
+  border-radius: 9rpx 9rpx 4rpx 4rpx;
+  background: linear-gradient(180deg, #78adf4 0%, #397bd4 100%);
+}
+
+.user-signup-trend-bar.is-zero {
+  height: 2rpx !important;
+  background: #dce5f0;
+}
+
+.user-signup-trend-label {
+  margin-top: 7rpx;
+  overflow: hidden;
+  color: #8492a5;
+  font-size: 15rpx;
+  line-height: 22rpx;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .user-stats-d-list-title {
@@ -2132,6 +2320,30 @@ page {
   color: #7d899b;
   font-size: 18rpx;
   line-height: 26rpx;
+}
+
+.model-probe-single-button {
+  display: flex;
+  min-width: 108rpx;
+  height: 48rpx;
+  margin-top: 4rpx;
+  padding: 0 14rpx;
+  align-items: center;
+  justify-content: center;
+  border: 1rpx solid #c8d8ee;
+  border-radius: 14rpx;
+  color: #2869d7;
+  background: #eef5ff;
+  font-size: 18rpx;
+  font-weight: 700;
+  line-height: 1;
+  text-align: center;
+}
+
+.model-probe-single-button.is-disabled {
+  color: #8a99ad;
+  background: #f3f5f8;
+  opacity: 0.75;
 }
 
 .auto-face-probe-history-card {

@@ -630,15 +630,21 @@ module.exports = {
       silent: Boolean(options.silent)
     });
   },
-  getAdminUserStats(offset = 0, limit = 20) {
+  getAdminUserStats(offset = 0, limit = 20, filters = {}) {
     return callApi({
       action: "getAdminUserStats",
       offset: Math.max(0, Number(offset) || 0),
-      limit: Math.max(1, Math.min(50, Number(limit) || 20))
+      limit: Math.max(1, Math.min(50, Number(limit) || 20)),
+      search: String(filters.search || "").trim().slice(0, 32),
+      dateRange: String(filters.dateRange || "all")
     });
   },
-  exportAdminUserStats() {
-    return callApi({ action: "exportAdminUserStats" });
+  exportAdminUserStats(filters = {}) {
+    return callApi({
+      action: "exportAdminUserStats",
+      search: String(filters.search || "").trim().slice(0, 32),
+      dateRange: String(filters.dateRange || "all")
+    });
   },
   saveAdminConfig(config) {
     return callApi({
@@ -649,9 +655,10 @@ module.exports = {
   checkDeployment() {
     return callApi({ action: "checkDeployment" });
   },
-  probeModels() {
+  probeModels(modelType = "") {
     return callApi({
       action: "probeModels",
+      modelType: String(modelType || "").trim(),
       retryLimit: 0
     });
   },

@@ -95,6 +95,8 @@ assert.strictEqual(
   }).message,
   "人脸识别模型：没有配置密钥"
 );
+assert.strictEqual(test.normalizeModelProbeType("analysis"), "analysis");
+assert.strictEqual(test.normalizeModelProbeType("unknown"), "");
 
 function listen(server) {
   return new Promise((resolve, reject) => {
@@ -131,6 +133,10 @@ async function main() {
   const address = await listen(server);
   const baseUrl = `http://127.0.0.1:${address.port}/v1`;
   try {
+    process.env.AI_VISION_PROVIDER = "openai-compatible";
+    process.env.AI_VISION_BASE_URL = baseUrl;
+    process.env.AI_VISION_MODEL = "target-model";
+    process.env.AI_VISION_API_KEY = "good-key";
     assert.strictEqual(
       test.modelProbeUrl({
         endpoint: `http://127.0.0.1:${address.port}/v1/chat/completions`
@@ -167,6 +173,25 @@ async function main() {
     assert.strictEqual(unsupported.status, "endpoint-not-supported");
     assert.strictEqual(ok.endpoint, `${baseUrl}/models`);
 
+    const singleResult = await api.main({
+      action: "probeModels",
+      requestId: "single-analysis-probe",
+      modelType: "analysis"
+    }, { OPENID: "probe-admin" });
+    assert.strictEqual(singleResult.ok, true);
+    assert.strictEqual(singleResult.scope, "single");
+    assert.strictEqual(singleResult.requestedType, "analysis");
+    assert.strictEqual(singleResult.total, 1);
+    assert.strictEqual(singleResult.results[0].type, "analysis");
+
+    const invalidResult = await api.main({
+      action: "probeModels",
+      requestId: "invalid-model-probe",
+      modelType: "unknown"
+    }, { OPENID: "probe-admin" });
+    assert.strictEqual(invalidResult.ok, false);
+    assert.strictEqual(invalidResult.errorCode, "invalid-model-type");
+
     console.log("analysis cost and model probe smoke: OK");
     console.log(JSON.stringify({
       fallbackAnalysisCost: fallbackCosts.analysis,
@@ -180,7 +205,8 @@ async function main() {
         missingModel.status,
         badKey.status,
         unsupported.status
-      ]
+      ],
+      singleProbeType: singleResult.results[0].type
     }));
   } finally {
     await close(server);

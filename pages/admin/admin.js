@@ -2964,6 +2964,7 @@ Page({
       activeConfigSection: nextSection,
       activeConfigTitle: nextSection ? CONFIG_SECTION_TITLES[nextSection] : ""
     }, () => {
+      this.persistMonitorLayout();
       if (nextSection === "users" && this.data.userStats.unavailable) {
         this.refreshUserStats(true);
       }
@@ -2980,7 +2981,7 @@ Page({
     this.setData({
       activeConfigSection: "",
       activeConfigTitle: ""
-    });
+    }, () => this.persistMonitorLayout());
   },
 
   toggleMonitor() {
@@ -3076,6 +3077,10 @@ Page({
     const storedUsageSections = stored.usageSections || {};
     const storedAutoFaceFailureSections = stored.autoFaceFailureSections || {};
     const storedDeploymentSections = stored.deploymentSections || {};
+    const storedActiveConfigSection = typeof stored.activeConfigSection === "string"
+      && CONFIG_SECTION_TITLES[stored.activeConfigSection]
+      ? stored.activeConfigSection
+      : "";
     const usageExpanded = typeof stored.usageExpanded === "boolean"
       ? stored.usageExpanded
       : typeof storedMonitorSections.usage === "boolean"
@@ -3089,9 +3094,7 @@ Page({
     });
     const usageSections = {};
     USAGE_SECTION_KEYS.forEach((section) => {
-      usageSections[section] = section === "failure"
-        ? false
-        : typeof storedUsageSections[section] === "boolean"
+      usageSections[section] = typeof storedUsageSections[section] === "boolean"
         ? storedUsageSections[section]
         : Boolean(this.data.usageSections[section]);
     });
@@ -3116,6 +3119,10 @@ Page({
       usageSections,
       autoFaceFailureSections,
       deploymentSections,
+      activeConfigSection: storedActiveConfigSection,
+      activeConfigTitle: storedActiveConfigSection
+        ? CONFIG_SECTION_TITLES[storedActiveConfigSection]
+        : "",
       monitorOnlyAbnormal: Boolean(stored.monitorOnlyAbnormal)
     });
   },
@@ -3156,13 +3163,16 @@ Page({
   persistMonitorLayout() {
     try {
       wx.setStorageSync(MONITOR_LAYOUT_STORAGE_KEY, {
-        version: 5,
+        version: 6,
         monitorExpanded: Boolean(this.data.monitorExpanded),
         usageExpanded: Boolean(this.data.usageExpanded),
         monitorSections: Object.assign({}, this.data.monitorSections),
         usageSections: Object.assign({}, this.data.usageSections),
         autoFaceFailureSections: Object.assign({}, this.data.autoFaceFailureSections),
         deploymentSections: Object.assign({}, this.data.deploymentSections),
+        activeConfigSection: CONFIG_SECTION_TITLES[this.data.activeConfigSection]
+          ? this.data.activeConfigSection
+          : "",
         monitorOnlyAbnormal: Boolean(this.data.monitorOnlyAbnormal)
       });
     } catch (error) {

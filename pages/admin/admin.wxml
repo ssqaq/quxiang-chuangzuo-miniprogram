@@ -274,41 +274,45 @@
           <view class="admin-section-help">按北京时间统计调用次数、Token、视频秒数和预计成本。最近更新 {{moduleStates.usage.updatedAtText}}</view>
         </view>
         <view class="usage-toolbar">
-          <button class="usage-refresh-button" bindtap="refreshModelUsage" loading="{{usageLoading}}" disabled="{{usageLoading}}">
-            {{usageLoading ? '刷新中' : '刷新统计'}}
-          </button>
-          <button class="usage-export-button" bindtap="exportModelUsage" loading="{{usageExporting}}" disabled="{{usageExporting}}">
-            {{usageExporting ? '生成中' : '导出 Excel'}}
-          </button>
-          <view
-            class="monitor-all-button"
-            data-expanded="1"
-            catchtap="setAllUsageSections"
-            hover-class="control-tap"
-            role="button"
-            aria-label="全部展开模型用量统计"
-          >全展开</view>
-          <view
-            class="monitor-all-button"
-            data-expanded="0"
-            catchtap="setAllUsageSections"
-            hover-class="control-tap"
-            role="button"
-            aria-label="全部收起模型用量统计"
-          >全收起</view>
-          <view class="config-state {{moduleStates.usage.status === 'failed' ? 'is-off' : 'is-ready'}}">
-            {{moduleStates.usage.label}}
+          <view class="usage-primary-actions">
+            <button class="usage-refresh-button" bindtap="refreshModelUsage" loading="{{usageLoading}}" disabled="{{usageLoading}}">
+              {{usageLoading ? '刷新中' : '刷新统计'}}
+            </button>
+            <button class="usage-export-button" bindtap="exportModelUsage" loading="{{usageExporting}}" disabled="{{usageExporting}}">
+              {{usageExporting ? '生成中' : '导出 Excel'}}
+            </button>
+            <view
+              class="monitor-section-toggle-button"
+              data-usage-card="1"
+              catchtap="toggleUsageCard"
+              hover-class="control-tap"
+              role="button"
+              aria-label="{{usageExpanded ? '收起模型用量统计' : '展开模型用量统计'}}"
+            >
+              <text>{{usageExpanded ? '收起' : '展开'}}</text>
+              <text class="monitor-section-chevron {{usageExpanded ? 'is-open' : ''}}">⌄</text>
+            </view>
           </view>
-          <view
-            class="monitor-section-toggle-button"
-            data-usage-card="1"
-            catchtap="toggleUsageCard"
-            hover-class="control-tap"
-            role="button"
-            aria-label="{{usageExpanded ? '收起模型用量统计' : '展开模型用量统计'}}"
-          >
-            <text>{{usageExpanded ? '收起' : '展开'}}</text>
-            <text class="monitor-section-chevron {{usageExpanded ? 'is-open' : ''}}">⌄</text>
+          <view class="usage-secondary-actions">
+            <view
+              class="monitor-all-button"
+              data-expanded="1"
+              catchtap="setAllUsageSections"
+              hover-class="control-tap"
+              role="button"
+              aria-label="全部展开模型用量统计"
+            >全展开</view>
+            <view
+              class="monitor-all-button"
+              data-expanded="0"
+              catchtap="setAllUsageSections"
+              hover-class="control-tap"
+              role="button"
+              aria-label="全部收起模型用量统计"
+            >全收起</view>
+            <view class="config-state {{moduleStates.usage.status === 'failed' ? 'is-off' : 'is-ready'}}">
+              {{moduleStates.usage.label}}
+            </view>
           </view>
         </view>
       </view>

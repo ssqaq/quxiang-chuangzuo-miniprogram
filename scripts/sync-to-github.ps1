@@ -97,7 +97,10 @@ try {
     Write-Host "同步时间：$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
     Write-Host "同步仓库：$repoRoot"
     Write-Host "拉取远端最新代码：origin/$branch"
-    git pull --rebase --autostash origin $branch
+    # Git 2.5x 在本地存在多个同名远端跟踪分支配置时，
+    # 使用简写的 main 可能误报“Cannot rebase onto multiple branches”；
+    # 指定完整 ref 可以稳定拉取 origin/main。
+    git pull --rebase --autostash origin "refs/heads/$branch"
     if ($LASTEXITCODE -ne 0) {
         throw "拉取远端代码失败，已停止自动同步。请先处理冲突后重试。"
     }

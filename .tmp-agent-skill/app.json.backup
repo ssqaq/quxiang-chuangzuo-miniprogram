@@ -19,14 +19,6 @@
     "backgroundTextStyle": "light"
   },
   "style": "v2",
-  "sitemapLocation": "sitemap.json",
-  "agent": {
-    "skills": [
-      {
-        "path": ".tmp-agent-skill",
-        "name": "temp-automator",
-        "description": "临时读取当前小程序运行时状态"
-      }
-    ]
-  }
+  "sitemapLocation": "sitemap.json"
 }
+

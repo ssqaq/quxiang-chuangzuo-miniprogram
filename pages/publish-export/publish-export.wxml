@@ -123,21 +123,21 @@
         <view class="enhancement-row">
           <view>
             <view class="enhancement-title">基础色彩校正</view>
-            <view class="enhancement-description">轻微提亮对比度和饱和度</view>
+            <view class="enhancement-description">让颜色看起来自然</view>
           </view>
           <switch checked="{{colorCorrect}}" color="#1f6feb" data-key="colorCorrect" bindchange="toggleEnhancement"></switch>
         </view>
         <view class="enhancement-row">
           <view>
             <view class="enhancement-title">轻度降噪</view>
-            <view class="enhancement-description">尽量压住重新导出后的细碎噪点</view>
+            <view class="enhancement-description">减少图片上的小杂点</view>
           </view>
           <switch checked="{{denoise}}" color="#1f6feb" data-key="denoise" bindchange="toggleEnhancement"></switch>
         </view>
         <view class="enhancement-row">
           <view>
             <view class="enhancement-title">清晰补偿</view>
-            <view class="enhancement-description">轻微加强边缘对比，避免过度锐化</view>
+            <view class="enhancement-description">让图片看起来更清楚</view>
           </view>
           <switch checked="{{sharpen}}" color="#1f6feb" data-key="sharpen" bindchange="toggleEnhancement"></switch>
         </view>
@@ -150,9 +150,9 @@
         <view class="enhancement-row">
           <view class="enhancement-row-copy">
             <view class="enhancement-title">固定相机颗粒</view>
-            <view class="enhancement-description">使用稳定的轻微颗粒，避免彩色噪点</view>
+            <view class="enhancement-description">加一点相机拍出的质感</view>
           </view>
-          <view class="enhancement-side-note">增加自然颗粒</view>
+          <view class="enhancement-side-note">增加颗粒感</view>
           <switch checked="{{cameraNoise}}" color="#1f6feb" data-key="cameraNoise" bindchange="toggleAdvanced"></switch>
         </view>
         <view class="strength-row">
@@ -171,9 +171,9 @@
         <view class="enhancement-row">
           <view class="enhancement-row-copy">
             <view class="enhancement-title">频域扰动</view>
-            <view class="enhancement-description">轻微改变高频细节，尽量不影响整体画面</view>
+            <view class="enhancement-description">轻微改变图片细节</view>
           </view>
-          <view class="enhancement-side-note">改变细节频率</view>
+          <view class="enhancement-side-note">调整图片细节</view>
           <switch checked="{{frequencyPerturb}}" color="#1f6feb" data-key="frequencyPerturb" bindchange="toggleAdvanced"></switch>
         </view>
         <view class="strength-row">
@@ -186,16 +186,16 @@
         <view class="enhancement-row">
           <view>
             <view class="enhancement-title">反向重采样</view>
-            <view class="enhancement-description">轻微扰动像素网格，保持输出尺寸不变</view>
+            <view class="enhancement-description">重新处理图片，尺寸不变</view>
           </view>
           <switch checked="{{resamplePerturb}}" color="#1f6feb" data-key="resamplePerturb" bindchange="toggleAdvanced"></switch>
         </view>
         <view class="enhancement-row">
           <view class="enhancement-row-copy">
             <view class="enhancement-title">可见标记淡化</view>
-            <view class="enhancement-description">仅尝试淡化可见标记，不保证移除不可见溯源或AI来源标识</view>
+            <view class="enhancement-description">让看得到的水印、文字或标记等信息变淡</view>
           </view>
-          <view class="enhancement-side-note">只把图片上肉眼能看到的水印、文字或标记变淡一点。</view>
+          <view class="enhancement-side-note">水印文字变淡</view>
         </view>
         <view class="strength-row">
           <view class="strength-head">

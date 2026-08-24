@@ -117,6 +117,7 @@ const AUTO_FACE_FAILURE_SECTION_KEYS = Object.freeze([
   "monthly"
 ]);
 const MONITOR_LAYOUT_STORAGE_KEY = "admin-monitor-layout-v2";
+const AUTO_FACE_FAILURE_AUTO_REFRESH_MS = 10 * 60 * 1000;
 
 function defaultUsageSections() {
   return {
@@ -512,8 +513,11 @@ function formatAutoFaceFailureStats(result) {
     })),
     recent: (Array.isArray(source.recent) ? source.recent : []).map((item) => ({
       requestId: item.requestId || "",
+      userHash: item.userHash || "anonymous",
+      userLabel: item.userHash === "anonymous" ? "匿名用户" : `用户 ${item.userHash}`,
       failureType: item.failureType || "unknown",
       failureTypeLabel: item.failureTypeLabel || item.failureType || "其他失败",
+      failureTypeTone: autoFaceFailureTypeTone(item.failureType),
       errorCode: item.errorCode || "unknown",
       message: item.message || "未提供错误摘要",
       status: Number(item.status) || 0,
@@ -530,12 +534,38 @@ function formatAutoFaceFailureStats(result) {
       probeSummaryText: formatProbeSummaryText(item.probe),
       createdAtText: formatAdminDate(item.createdAt)
     })),
+    details: (Array.isArray(source.details) ? source.details : []).map((item) => ({
+      requestId: item.requestId || "",
+      userHash: item.userHash || "anonymous",
+      userLabel: item.userHash === "anonymous" ? "匿名用户" : `用户 ${item.userHash}`,
+      failureType: item.failureType || "unknown",
+      failureTypeLabel: item.failureTypeLabel || item.failureType || "其他失败",
+      failureTypeTone: autoFaceFailureTypeTone(item.failureType),
+      errorCode: item.errorCode || "unknown",
+      message: item.message || "未提供错误摘要",
+      status: Number(item.status) || 0,
+      retryable: Boolean(item.retryable),
+      stage: item.stage || "",
+      durationMs: Number(item.durationMs) || 0,
+      appVersion: item.appVersion || "unknown",
+      probeStatus: item.probe && item.probe.status || "not-run",
+      probeBuildVersion: item.probe && item.probe.buildVersion || "",
+      probeBuildMarker: item.probe && item.probe.buildMarker || "",
+      probeVisionConfigured: Boolean(item.probe && item.probe.visionConfigured),
+      probeProvider: item.probe && item.probe.provider || "",
+      probeModel: item.probe && item.probe.model || "",
+      probeSummaryText: formatProbeSummaryText(item.probe),
+      dateKey: item.dateKey || "",
+      monthKey: item.monthKey || String(item.dateKey || "").slice(0, 7),
+      createdAtText: formatAdminDate(item.createdAt)
+    })),
     daily: (Array.isArray(source.daily) ? source.daily : []).map((item) => ({
       dateKey: item.dateKey || "",
       total: Number(item.total) || 0,
       userCount: Number(item.userCount) || 0,
       topFailureType: item.topFailureType || "unknown",
       topFailureTypeLabel: item.topFailureTypeLabel || "其他失败",
+      topFailureTypeTone: autoFaceFailureTypeTone(item.topFailureType),
       lastSeenText: item.lastSeen ? formatAdminDate(item.lastSeen) : "暂无"
     })),
     monthly: (Array.isArray(source.monthly) ? source.monthly : []).map((item) => ({
@@ -544,6 +574,7 @@ function formatAutoFaceFailureStats(result) {
       userCount: Number(item.userCount) || 0,
       topFailureType: item.topFailureType || "unknown",
       topFailureTypeLabel: item.topFailureTypeLabel || "其他失败",
+      topFailureTypeTone: autoFaceFailureTypeTone(item.topFailureType),
       lastSeenText: item.lastSeen ? formatAdminDate(item.lastSeen) : "暂无"
     })),
     users: (Array.isArray(source.users) ? source.users : []).map((item) => ({
@@ -555,6 +586,90 @@ function formatAutoFaceFailureStats(result) {
       lastSeenText: item.lastSeen ? formatAdminDate(item.lastSeen) : "暂无"
     }))
   });
+}
+
+function autoFaceFailureTypeTone(type) {
+  const value = String(type || "").toLowerCase();
+  if (value === "timeout") return "warning";
+  if (value === "network" || value === "upstream" || value === "cloud-unavailable") {
+    return "danger";
+  }
+  if (value === "missing-api-key" || value === "empty-face-detection") return "violet";
+  if (value === "missing-main-image" || value === "image-too-large") return "info";
+  return "neutral";
+}
+
+function buildAutoFaceFailureView(stats, requestedMonth = "") {
+  const source = stats || emptyAutoFaceFailureStats();
+  const currentMonth = String(source.todayKey || "").slice(0, 7);
+  const detailSource = Array.isArray(source.details) && source.details.length
+    ? source.details
+    : source.recent || [];
+  const months = Array.from(new Set(
+    [currentMonth].concat(
+      (Array.isArray(source.monthly) ? source.monthly : []).map((item) => item.monthKey)
+    )
+  ))
+    .filter(Boolean)
+    .sort((left, right) => right.localeCompare(left));
+  const selectedMonth = months.includes(requestedMonth) ? requestedMonth : (months[0] || currentMonth);
+  const details = detailSource
+    .filter((item) => !selectedMonth || item.monthKey === selectedMonth)
+    .map((item) => Object.assign({}, item, {
+      failureTypeTone: item.failureTypeTone || autoFaceFailureTypeTone(item.failureType)
+    }));
+  const daily = (Array.isArray(source.daily) ? source.daily : [])
+    .filter((item) => !selectedMonth || String(item.dateKey || "").startsWith(selectedMonth))
+    .map((item) => Object.assign({}, item, {
+      topFailureTypeTone: autoFaceFailureTypeTone(item.topFailureType)
+    }));
+  const typeMap = {};
+  const userMap = {};
+  details.forEach((item) => {
+    const type = item.failureType || "unknown";
+    if (!typeMap[type]) {
+      typeMap[type] = {
+        type,
+        label: item.failureTypeLabel || "其他失败",
+        count: 0,
+        lastSeenText: item.createdAtText || "暂无",
+        failureTypeTone: item.failureTypeTone || autoFaceFailureTypeTone(type)
+      };
+    }
+    typeMap[type].count += 1;
+    if (!userMap[item.userHash || "anonymous"]) {
+      userMap[item.userHash || "anonymous"] = {
+        userHash: item.userHash || "anonymous",
+        userLabel: item.userLabel || "匿名用户",
+        total: 0,
+        topFailureType: type,
+        topFailureTypeLabel: item.failureTypeLabel || "其他失败",
+        failureTypeTone: item.failureTypeTone || autoFaceFailureTypeTone(type),
+        lastSeenText: item.createdAtText || "暂无"
+      };
+    }
+    userMap[item.userHash || "anonymous"].total += 1;
+  });
+  const users = Object.values(userMap).sort((left, right) => {
+    if (right.total !== left.total) return right.total - left.total;
+    return left.userHash.localeCompare(right.userHash);
+  });
+  const byType = Object.values(typeMap).sort((left, right) => right.count - left.count);
+  return {
+    selectedMonth,
+    monthOptions: months,
+    monthOptionIndex: Math.max(0, months.indexOf(selectedMonth)),
+    total: details.length,
+    today: selectedMonth === currentMonth ? Number(source.today) || 0 : 0,
+    last7d: selectedMonth === currentMonth ? Number(source.last7d) || 0 : 0,
+    byType,
+    daily,
+    users,
+    recent: details.slice(0, 20),
+    details,
+    monthly: Array.isArray(source.monthly) ? source.monthly : [],
+    emptyText: selectedMonth ? `${selectedMonth} 没有自动贴脸失败记录。` : "没有自动贴脸失败记录。"
+  };
 }
 
 function formatProbeSummaryText(probe = {}) {
@@ -1545,7 +1660,12 @@ Page({
       { value: "other", label: "其他" }
     ],
     autoFaceFailureLoading: false,
+    autoFaceFailureExporting: false,
     autoFaceFailureStats: emptyAutoFaceFailureStats(),
+    autoFaceFailureView: buildAutoFaceFailureView(emptyAutoFaceFailureStats()),
+    autoFaceFailureSelectedMonth: "",
+    autoFaceFailureDetailOpen: false,
+    autoFaceFailureDetail: null,
     autoFaceProbe: emptyAutoFaceProbe(),
     autoFaceProbeHistory: emptyAutoFaceProbeHistory(),
     modelProbes: emptyModelProbes(),
@@ -1574,10 +1694,12 @@ Page({
     this._adminLoadToken = 0;
     this.restoreMonitorLayout();
     this.loadAdminPage();
+    this.startAutoFaceFailureAutoRefresh();
   },
 
   onUnload() {
     this._adminLoadToken = (this._adminLoadToken || 0) + 1;
+    this.stopAutoFaceFailureAutoRefresh();
   },
 
   onPullDownRefresh() {
@@ -1601,6 +1723,9 @@ Page({
     const autoFaceFailureStats = hasOwnValue("autoFaceFailureStats")
       ? overrides.autoFaceFailureStats
       : this.data.autoFaceFailureStats;
+    const autoFaceFailureSelectedMonth = hasOwnValue("autoFaceFailureSelectedMonth")
+      ? overrides.autoFaceFailureSelectedMonth
+      : this.data.autoFaceFailureSelectedMonth;
     const userStats = hasOwnValue("userStats") ? overrides.userStats : this.data.userStats;
     return {
       dashboardStatus: buildDashboardStatus(
@@ -1624,7 +1749,11 @@ Page({
         userStats,
         moduleStates
       ),
-      todayFailureText: buildTodayFailureText(usageStats, moduleStates)
+      todayFailureText: buildTodayFailureText(usageStats, moduleStates),
+      autoFaceFailureView: buildAutoFaceFailureView(
+        autoFaceFailureStats,
+        autoFaceFailureSelectedMonth
+      )
     };
   },
 
@@ -1920,8 +2049,30 @@ Page({
     }
   },
 
-  async refreshAutoFaceFailureStats() {
+  startAutoFaceFailureAutoRefresh() {
+    this.stopAutoFaceFailureAutoRefresh();
+    this._autoFaceFailureRefreshTimer = setInterval(() => {
+      if (
+        !this.data.isAdmin
+        || this.data.autoFaceFailureLoading
+        || this.data.loading
+      ) {
+        return;
+      }
+      this.refreshAutoFaceFailureStats({ silent: true });
+    }, AUTO_FACE_FAILURE_AUTO_REFRESH_MS);
+  },
+
+  stopAutoFaceFailureAutoRefresh() {
+    if (this._autoFaceFailureRefreshTimer) {
+      clearInterval(this._autoFaceFailureRefreshTimer);
+      this._autoFaceFailureRefreshTimer = null;
+    }
+  },
+
+  async refreshAutoFaceFailureStats(options = {}) {
     if (this.data.autoFaceFailureLoading) return;
+    const silent = Boolean(options && options.silent);
     const result = await this.loadAdminModule(
       this._adminLoadToken || 0,
       "autoFaceFailure",
@@ -1935,14 +2086,54 @@ Page({
     );
     if (result.stale) return;
     if (result.ok) {
-      wx.showToast({ title: "失败统计已刷新", icon: "success" });
+      if (!silent) wx.showToast({ title: "失败统计已刷新", icon: "success" });
     } else {
-      this.showError(
-        "失败统计刷新失败",
-        result.error || new Error("统计读取失败，请稍后重试。")
-      );
+      if (silent) {
+        diagnosticLog.warn("admin", "auto-face-failure-auto-refresh-failed", "自动刷新失败统计失败", {
+          error: result.error
+        });
+      } else {
+        this.showError(
+          "失败统计刷新失败",
+          result.error || new Error("统计读取失败，请稍后重试。")
+        );
+      }
     }
   },
+
+  selectAutoFaceFailureMonth(event) {
+    const index = Number(event && event.detail && event.detail.value);
+    const options = this.data.autoFaceFailureView.monthOptions || [];
+    const monthKey = options[index] || options[0] || "";
+    this.setData({
+      autoFaceFailureSelectedMonth: monthKey
+    }, () => {
+      this.setData(this.buildAdminDerivedPatch({
+        autoFaceFailureSelectedMonth: monthKey
+      }, this.data.moduleStates));
+    });
+  },
+
+  openAutoFaceFailureUserDetail(event) {
+    const index = Number(event && event.currentTarget && event.currentTarget.dataset.index);
+    const user = this.data.autoFaceFailureView.users[index];
+    if (!user) return;
+    const details = this.data.autoFaceFailureView.details
+      .filter((item) => item.userHash === user.userHash);
+    this.setData({
+      autoFaceFailureDetailOpen: true,
+      autoFaceFailureDetail: Object.assign({}, user, { details })
+    });
+  },
+
+  closeAutoFaceFailureUserDetail() {
+    this.setData({
+      autoFaceFailureDetailOpen: false,
+      autoFaceFailureDetail: null
+    });
+  },
+
+  noop() {},
 
   async refreshAutoFaceProbeHistory() {
     if (this.data.probeHistoryLoading) return;
@@ -2395,7 +2586,7 @@ Page({
 
   copyAutoFaceFailure(event) {
     const index = Number(event.currentTarget.dataset.index);
-    const item = this.data.autoFaceFailureStats.recent[index];
+    const item = this.data.autoFaceFailureView.recent[index];
     if (!item) return;
     wx.setClipboardData({
       data: autoFaceFailureCopyText(item),
@@ -2563,6 +2754,39 @@ Page({
       autoFaceFailureSections,
       monitorOnlyAbnormal: Boolean(stored.monitorOnlyAbnormal)
     });
+  },
+
+  async exportAutoFaceFailureStats() {
+    if (this.data.autoFaceFailureExporting) return;
+    const monthKey = this.data.autoFaceFailureView.selectedMonth
+      || this.data.autoFaceFailureStats.todayKey.slice(0, 7);
+    this.setData({ autoFaceFailureExporting: true });
+    try {
+      const result = await cloud.exportAutoFaceFailureStats(monthKey);
+      if (!result || !result.fileID) throw new Error("失败统计 Excel 生成失败。");
+      const filePath = await cloud.downloadFile(result.fileID);
+      if (!filePath || typeof wx.openDocument !== "function") {
+        throw new Error("文件已生成，但当前微信版本无法打开 Excel 文件。");
+      }
+      await new Promise((resolve, reject) => {
+        wx.openDocument({
+          filePath,
+          fileType: "xlsx",
+          showMenu: true,
+          success: resolve,
+          fail: reject
+        });
+      });
+      this.setData({ autoFaceFailureExporting: false });
+      wx.showToast({ title: "失败统计已导出", icon: "success" });
+    } catch (error) {
+      this.setData({ autoFaceFailureExporting: false });
+      diagnosticLog.error("admin", "auto-face-failure-export-failed", "自动贴脸失败统计 Excel 导出失败", {
+        error,
+        monthKey
+      });
+      this.showError("导出失败", error);
+    }
   },
 
   persistMonitorLayout() {

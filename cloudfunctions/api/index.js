@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.35.2";
-const API_BUILD_MARKER = "API_BUILD_TAG_20260824_AUTO_FACE_FAILURE_MONTHLY_V352";
+const API_BUILD_VERSION = "0.35.3";
+const API_BUILD_MARKER = "API_BUILD_TAG_20260824_PUBLISH_EXPORT_COPY_SIMPLIFIED_V353";
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
 const cloud = require("wx-server-sdk");
@@ -1142,8 +1142,13 @@ function autoFaceFailureDisplayEvent(event = {}) {
     : new Date(source.createdAt || 0);
   const createdAtIso = Number.isNaN(createdAt.getTime()) ? "" : createdAt.toISOString();
   const normalized = normalizeAutoFaceFailureReport(source, source.requestId);
+  const userHash = compactUsageText(source.userHash, 40) || "anonymous";
+  const dateKey = Number.isNaN(createdAt.getTime())
+    ? ""
+    : dateKeyForTimeZone(createdAt, AUTO_FACE_FAILURE_TIME_ZONE);
   return {
     requestId: normalized.requestId,
+    userHash,
     failureType: normalized.failureType,
     failureTypeLabel: formatAutoFaceFailureType(normalized.failureType),
     errorCode: normalized.errorCode,
@@ -1154,7 +1159,9 @@ function autoFaceFailureDisplayEvent(event = {}) {
     durationMs: normalized.durationMs,
     appVersion: normalized.appVersion,
     probe: normalized.probe,
-    createdAt: createdAtIso
+    createdAt: createdAtIso,
+    dateKey,
+    monthKey: dateKey ? monthKeyFromDateKey(dateKey) : ""
   };
 }
 
@@ -1168,6 +1175,7 @@ function buildAutoFaceFailureStats(events = [], baseDate = new Date()) {
   );
   const byType = {};
   const recent = [];
+  const details = [];
   const probeVersions = {};
   const dailyMap = {};
   const monthlyMap = {};
@@ -1273,6 +1281,7 @@ function buildAutoFaceFailureStats(events = [], baseDate = new Date()) {
         userMap[userHash].lastSeen = item.createdAt.toISOString();
       }
 
+      details.push(autoFaceFailureDisplayEvent(item.event));
       if (!inLast30d) return;
       total30d += 1;
       if (item.dateKey === todayKey) today += 1;
@@ -1325,6 +1334,7 @@ function buildAutoFaceFailureStats(events = [], baseDate = new Date()) {
       return left.type.localeCompare(right.type);
     }),
     recent,
+    details,
     probeSummary: Object.assign({}, probeSummary, {
       versions: Object.values(probeVersions).sort((left, right) => {
         if (right.count !== left.count) return right.count - left.count;
@@ -4516,6 +4526,114 @@ async function exportModelUsageStats(event, context) {
     sizeBytes: buffer.length,
     days,
     message: "Excel 文件已生成，可以下载。"
+  });
+}
+
+function buildAutoFaceFailureExportWorkbook(stats = {}, monthKey = "") {
+  const normalizedMonth = /^\d{4}-\d{2}$/.test(String(monthKey || ""))
+    ? String(monthKey)
+    : monthKeyFromDateKey(stats.todayKey || dateKeyForTimeZone(new Date(), AUTO_FACE_FAILURE_TIME_ZONE));
+  const details = (Array.isArray(stats.details) ? stats.details : [])
+    .filter((item) => item && item.monthKey === normalizedMonth);
+  const daily = (Array.isArray(stats.daily) ? stats.daily : [])
+    .filter((item) => item && String(item.dateKey || "").startsWith(normalizedMonth));
+  const byType = {};
+  const byUser = {};
+  details.forEach((item) => {
+    const type = normalizeAutoFaceFailureType(item.failureType);
+    byType[type] = (byType[type] || 0) + 1;
+    const userHash = compactUsageText(item.userHash, 40) || "anonymous";
+    if (!byUser[userHash]) byUser[userHash] = 0;
+    byUser[userHash] += 1;
+  });
+  const workbook = XLSX.utils.book_new();
+  const selectedMonthly = (Array.isArray(stats.monthly) ? stats.monthly : [])
+    .find((item) => item && item.monthKey === normalizedMonth);
+  const summaryRows = [
+    ["统计项目", "数值"],
+    ["统计月份", normalizedMonth],
+    ["失败总数", details.length],
+    ["用户数", Object.keys(byUser).length],
+    ["主要失败类型", selectedMonthly ? selectedMonthly.topFailureTypeLabel : "暂无"],
+    ["最近更新时间", new Date().toISOString()]
+  ];
+  Object.entries(byType)
+    .sort((left, right) => right[1] - left[1])
+    .forEach(([type, count]) => {
+      summaryRows.push([`失败类型：${formatAutoFaceFailureType(type)}`, count]);
+    });
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(summaryRows), "统计摘要");
+
+  const dailyRows = [["日期", "失败次数", "用户数", "主要失败类型", "最近失败时间"]];
+  daily.forEach((item) => {
+    dailyRows.push([
+      item.dateKey || "",
+      Number(item.total) || 0,
+      Number(item.userCount) || 0,
+      item.topFailureTypeLabel || "其他失败",
+      item.lastSeen || ""
+    ]);
+  });
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(dailyRows), "每日明细");
+
+  const userRows = [["脱敏用户编号", "失败次数"]];
+  Object.entries(byUser)
+    .sort((left, right) => right[1] - left[1])
+    .forEach(([userHash, count]) => userRows.push([userHash, count]));
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(userRows), "按用户");
+
+  const detailRows = [[
+    "日期",
+    "时间",
+    "脱敏用户编号",
+    "失败类型",
+    "错误码",
+    "HTTP 状态",
+    "错误原因",
+    "请求编号",
+    "阶段",
+    "耗时毫秒",
+    "小程序版本"
+  ]];
+  details.forEach((item) => {
+    const createdAt = item.createdAt ? new Date(item.createdAt) : null;
+    detailRows.push([
+      item.dateKey || "",
+      createdAt && !Number.isNaN(createdAt.getTime()) ? createdAt.toISOString() : "",
+      item.userHash || "anonymous",
+      item.failureTypeLabel || "其他失败",
+      item.errorCode || "",
+      Number(item.status) || 0,
+      item.message || "",
+      item.requestId || "",
+      item.stage || "",
+      Number(item.durationMs) || 0,
+      item.appVersion || ""
+    ]);
+  });
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(detailRows), "失败明细");
+  return XLSX.write(workbook, { bookType: "xlsx", type: "buffer" });
+}
+
+async function exportAutoFaceFailureStats(event, context) {
+  if (!isAdminContext(context)) return adminForbidden();
+  const stats = await getAutoFaceFailureStats({}, context);
+  if (!stats || stats.ok === false) return stats;
+  const monthKey = /^\d{4}-\d{2}$/.test(String(event && event.monthKey || ""))
+    ? String(event.monthKey)
+    : monthKeyFromDateKey(stats.todayKey || dateKeyForTimeZone(new Date(), AUTO_FACE_FAILURE_TIME_ZONE));
+  const buffer = buildAutoFaceFailureExportWorkbook(stats, monthKey);
+  const fileName = `自动贴脸失败统计-${monthKey}.xlsx`;
+  const uploaded = await cloud.uploadFile({
+    cloudPath: `exports/auto-face-failure/${Date.now()}-${crypto.randomBytes(4).toString("hex")}.xlsx`,
+    fileContent: buffer
+  });
+  return jsonResponse(true, {
+    fileID: uploaded && uploaded.fileID ? uploaded.fileID : "",
+    fileName,
+    sizeBytes: buffer.length,
+    monthKey,
+    message: "失败统计 Excel 已生成，可以下载。"
   });
 }
 
@@ -8807,6 +8925,9 @@ exports.main = async (event = {}, context) => {
       result = await reportAutoFaceFailure(requestEvent, context);
     }
     else if (action === "getAutoFaceFailureStats") result = await getAutoFaceFailureStats(requestEvent, context);
+    else if (action === "exportAutoFaceFailureStats") {
+      result = await exportAutoFaceFailureStats(requestEvent, context);
+    }
     else if (action === "registerPhotoToVideoTempAsset") {
       result = await registerPhotoToVideoTempAsset(requestEvent, context);
     }
@@ -9044,6 +9165,7 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     listDeploymentLogs
     ,
     exportModelUsageStats,
+    exportAutoFaceFailureStats,
     pointsSummary,
     reserveUsage,
     refundUsage,

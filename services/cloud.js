@@ -737,6 +737,13 @@ module.exports = {
       retryLimit: 0
     });
   },
+  exportAutoFaceFailureStats(monthKey = "") {
+    return callApi({
+      action: "exportAutoFaceFailureStats",
+      monthKey: String(monthKey || ""),
+      retryLimit: 0
+    });
+  },
   exportModelUsageStats(days = 30) {
     return callApi({
       action: "exportModelUsageStats",

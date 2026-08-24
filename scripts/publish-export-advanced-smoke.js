@@ -91,6 +91,24 @@ assert.strictEqual(output.length, input.length);
   "反向重采样",
   "可见标记淡化"
 ].forEach((marker) => assert.ok(pageWxml.includes(marker), `页面缺少：${marker}`));
+[
+  "让颜色看起来自然",
+  "减少图片上的小杂点",
+  "让图片看起来更清楚",
+  "加一点相机拍出的质感",
+  "轻微改变图片细节",
+  "重新处理图片，尺寸不变",
+  "让看得到的水印、文字或标记等信息变淡"
+].forEach((marker) => assert.ok(pageWxml.includes(marker), `页面缺少简短说明：${marker}`));
+[
+  "轻微提亮对比度和饱和度",
+  "尽量压住重新导出后的细碎噪点",
+  "轻微加强边缘对比，避免过度锐化",
+  "使用稳定的轻微颗粒，避免彩色噪点",
+  "轻微改变高频细节，尽量不影响整体画面",
+  "轻微扰动像素网格，保持输出尺寸不变",
+  "仅尝试淡化可见标记，不保证移除不可见溯源或AI来源标识"
+].forEach((marker) => assert.ok(!pageWxml.includes(marker), `页面仍保留过长说明：${marker}`));
 assert.ok(!pageJs.includes("SIZE_OPTIONS"), "页面仍保留尺寸选择数据。");
 assert.ok(!pageJs.includes("changeMaxEdge"), "页面仍保留尺寸切换逻辑。");
 assert.ok(!pageWxml.includes("最长边"), "页面仍显示最长边选项。");
@@ -120,9 +138,9 @@ assert.ok(
   "高级强度滑块没有复用顺滑拖动更新逻辑。"
 );
 [
-  "增加自然颗粒",
-  "改变细节频率",
-  "只把图片上肉眼能看到的水印、文字或标记变淡一点。"
+  "增加颗粒感",
+  "调整图片细节",
+  "水印文字变淡"
 ].forEach((marker) => {
   assert.ok(pageWxml.includes(marker), `页面缺少右侧说明：${marker}`);
 });

@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>局部修正 · 10 套排版方案</title>
+  <style>
+    :root {
+      --ink: #14213d;
+      --muted: #71809a;
+      --line: #dbe5f2;
+      --blue: #2473ea;
+      --blue-2: #5da0ff;
+      --blue-soft: #eaf3ff;
+      --canvas: #f3f7fc;
+      --card: #ffffff;
+      --green: #16a36b;
+      --orange: #f28b35;
+      --shadow: 0 18px 55px rgba(30, 62, 104, .14);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 0 0, rgba(72, 143, 255, .16), transparent 32rem),
+        radial-gradient(circle at 100% 0, rgba(140, 116, 255, .11), transparent 28rem),
+        var(--canvas);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+        "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    }
+    button { font: inherit; }
+    .page { max-width: 1500px; margin: 0 auto; padding: 34px 34px 56px; }
+    .top {
+      display: flex; align-items: flex-end; justify-content: space-between; gap: 28px;
+      margin-bottom: 24px;
+    }
+    .eyebrow { color: var(--blue); font-size: 13px; font-weight: 800; letter-spacing: .12em; }
+    h1 { margin: 8px 0 10px; font-size: clamp(28px, 4vw, 46px); letter-spacing: -.045em; }
+    .intro { max-width: 760px; color: var(--muted); line-height: 1.7; }
+    .rule {
+      padding: 15px 18px; min-width: 280px; border: 1px solid #cfe1fa;
+      border-radius: 16px; color: #285588; background: rgba(234, 243, 255, .82);
+      font-size: 14px; line-height: 1.6;
+    }
+    .rule strong { display: block; margin-bottom: 4px; color: var(--blue); }
+    .workspace {
+      display: grid; grid-template-columns: minmax(390px, 1fr) minmax(460px, 1.08fr);
+      gap: 28px; align-items: start;
+    }
+    .catalog {
+      display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px;
+    }
+    .scheme {
+      position: relative; min-height: 156px; padding: 18px; border: 1px solid var(--line);
+      border-radius: 20px; background: rgba(255, 255, 255, .88); cursor: pointer;
+      text-align: left; transition: .22s ease; box-shadow: 0 8px 20px rgba(38, 68, 105, .04);
+    }
+    .scheme:hover { transform: translateY(-3px); border-color: #99c4ff; box-shadow: var(--shadow); }
+    .scheme.selected { border: 2px solid var(--blue); box-shadow: 0 14px 34px rgba(36, 115, 234, .18); }
+    .scheme-number {
+      display: inline-flex; width: 30px; height: 30px; align-items: center; justify-content: center;
+      margin-bottom: 12px; border-radius: 10px; color: #fff; background: var(--ink); font-size: 13px; font-weight: 900;
+    }
+    .scheme.selected .scheme-number { background: var(--blue); }
+    .scheme h3 { margin: 0 0 7px; font-size: 16px; }
+    .scheme p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
+    .tag {
+      position: absolute; right: 14px; top: 16px; padding: 5px 8px; border-radius: 999px;
+      color: var(--blue); background: var(--blue-soft); font-size: 11px; font-weight: 800;
+    }
+    .preview-shell {
+      position: sticky; top: 20px; min-height: 760px; padding: 24px; border: 1px solid #d6e2f0;
+      border-radius: 28px; background: rgba(255, 255, 255, .7); box-shadow: var(--shadow);
+    }
+    .preview-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+    .preview-header strong { font-size: 16px; }
+    .preview-header span { color: var(--muted); font-size: 12px; }
+    .phone {
+      width: min(100%, 410px); min-height: 690px; margin: 0 auto; overflow: hidden;
+      border: 8px solid #17233e; border-radius: 34px; background: #f6f8fc;
+      box-shadow: 0 22px 52px rgba(16, 32, 60, .25);
+    }
+    .phone-bar { height: 22px; background: #17233e; }
+    .phone-content { position: relative; min-height: 668px; padding: 16px 14px 92px; overflow: hidden; }
+    .phone-title { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+    .phone-title strong { font-size: 18px; }
+    .phone-title small { color: var(--muted); font-size: 10px; }
+    .hero-image {
+      position: relative; display: flex; height: 178px; align-items: center; justify-content: center;
+      overflow: hidden; border-radius: 18px;
+      background:
+        linear-gradient(135deg, rgba(55, 90, 145, .38), transparent 55%),
+        radial-gradient(circle at 58% 35%, #f9d3b6 0 16%, transparent 17%),
+        radial-gradient(ellipse at 57% 74%, #4b668e 0 28%, transparent 29%),
+        linear-gradient(145deg, #b6c7dd, #e6edf6);
+    }
+    .hero-image:before {
+      content: "当前结果图"; padding: 7px 10px; border-radius: 999px; color: #fff;
+      background: rgba(18, 35, 62, .65); font-size: 11px;
+    }
+    .circle {
+      position: absolute; left: 46%; top: 35%; width: 92px; height: 70px;
+      border: 3px solid #ff4c63; border-radius: 50%; transform: rotate(-10deg);
+      box-shadow: 0 0 0 3px rgba(255, 76, 99, .18);
+    }
+    .circle-tip { position: absolute; right: 10px; bottom: 10px; padding: 5px 8px; border-radius: 8px; color: #fff; background: #ff4c63; font-size: 10px; }
+    .hint { margin: 10px 2px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+    .section {
+      margin-top: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 16px; background: #fff;
+    }
+    .section-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 9px; }
+    .section-head strong { font-size: 13px; }
+    .count { min-width: 23px; padding: 4px 7px; border-radius: 999px; color: var(--blue); background: var(--blue-soft); font-size: 10px; font-weight: 900; text-align: center; }
+    .checks { display: grid; grid-template-columns: 1fr 1fr; gap: 7px 8px; }
+    .check {
+      display: flex; gap: 6px; align-items: flex-start; padding: 7px 6px; border-radius: 9px;
+      color: #53627a; background: #f7f9fc; font-size: 10px; line-height: 1.35;
+    }
+    .check.on { color: #1b579f; background: var(--blue-soft); font-weight: 800; }
+    .box { flex: 0 0 auto; width: 13px; height: 13px; border: 1px solid #aab8ca; border-radius: 4px; background: #fff; }
+    .check.on .box { border-color: var(--blue); background: var(--blue); }
+    .check.on .box:after { content: "✓"; display: block; color: #fff; font-size: 10px; line-height: 12px; text-align: center; }
+    .prompt {
+      max-height: 65px; overflow: hidden; padding: 10px; border-radius: 11px; color: #66748b;
+      background: #f7f9fc; font-size: 10px; line-height: 1.55;
+    }
+    .bottom-action {
+      position: absolute; right: 14px; bottom: 12px; left: 14px; display: flex; gap: 8px;
+      padding: 10px; border: 1px solid rgba(215, 226, 242, .95); border-radius: 17px;
+      background: rgba(255, 255, 255, .93); box-shadow: 0 -9px 24px rgba(43, 65, 99, .1);
+    }
+    .btn { flex: 1; padding: 12px 8px; border: 0; border-radius: 11px; color: #fff; background: var(--blue); font-size: 12px; font-weight: 900; }
+    .btn.secondary { color: #37628f; background: var(--blue-soft); }
+    .preview-caption { margin: 16px 0 0; color: var(--muted); font-size: 13px; line-height: 1.6; text-align: center; }
+    .mini {
+      display: grid; grid-template-columns: 72px 1fr; gap: 10px; align-items: center;
+      margin-top: 12px; padding-top: 13px; border-top: 1px dashed var(--line);
+    }
+    .mini-bar { display: flex; gap: 4px; }
+    .mini-bar i { display: block; width: 11px; height: 5px; border-radius: 999px; background: #d6e0ec; }
+    .mini-bar i.on { background: var(--blue); }
+    .mini p { margin: 0; color: var(--muted); font-size: 11px; }
+
+    /* Variant-specific cues inside the same phone preview. */
+    .v2 .hero-image { height: 240px; border-radius: 22px; }
+    .v2 .section { margin-top: 8px; }
+    .v3 .phone-content { padding-top: 0; }
+    .v3 .phone-title { padding: 16px 0 0; }
+    .v3 .hero-image { border-radius: 0 0 20px 20px; }
+    .v3 .section { border-radius: 18px 18px 0 0; margin-top: -12px; position: relative; }
+    .v4 .section { border-radius: 12px; padding: 9px; }
+    .v4 .checks { grid-template-columns: 1fr; }
+    .v5 .section-head:before { content: "✓"; display: grid; width: 18px; height: 18px; margin-right: 5px; place-items: center; border-radius: 50%; color: #fff; background: var(--green); font-size: 10px; }
+    .v5 .section-head { justify-content: flex-start; gap: 3px; }
+    .v6 .check { min-height: 36px; align-items: center; border: 1px solid #d7e8ff; border-radius: 999px; }
+    .v6 .checks { gap: 7px; }
+    .v7 .hero-image { height: 136px; }
+    .v7 .hero-image:after { content: "原始主图  ↔  当前结果"; position: absolute; left: 10px; bottom: 10px; padding: 5px 7px; border-radius: 7px; color: #fff; background: rgba(18, 35, 62, .66); font-size: 9px; }
+    .v8 .section { display: none; }
+    .v8 .section:nth-of-type(2) { display: block; }
+    .v8 .checks { grid-template-columns: 1fr; }
+    .v9 .phone-content { display: grid; grid-template-columns: 86px 1fr; gap: 10px; padding: 14px 10px 84px; }
+    .v9 .phone-title, .v9 .hero-image, .v9 .hint { grid-column: 1 / -1; }
+    .v9 .hero-image { height: 142px; }
+    .v9 .section { margin-top: 0; }
+    .v9 .checks { grid-template-columns: 1fr; }
+    .v10 .phone-content { padding: 24px 18px 92px; }
+    .v10 .hero-image { height: 206px; border-radius: 24px; }
+    .v10 .section { border: 0; padding: 8px 0; background: transparent; }
+    .v10 .check { padding: 10px 8px; font-size: 11px; }
+    .v10 .checks { grid-template-columns: 1fr; }
+
+    @media (max-width: 980px) {
+      .page { padding: 24px 16px 42px; }
+      .top { display: block; }
+      .rule { margin-top: 18px; }
+      .workspace { grid-template-columns: 1fr; }
+      .preview-shell { position: relative; top: auto; }
+    }
+    @media (max-width: 520px) {
+      .catalog { grid-template-columns: 1fr; }
+      .preview-shell { padding: 13px; border-radius: 22px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="top">
+      <div>
+        <div class="eyebrow">LOCAL REPAIR / UI OPTIONS</div>
+        <h1>局部修正，10 套排版方案</h1>
+        <p class="intro">所有方案都使用同一套完整问题文案，区别只在排版和操作路径。目标很简单：用户一打开，就知道先圈哪里、再选什么、最后点哪里。</p>
+      </div>
+      <div class="rule"><strong>统一动作顺序</strong>先看当前结果图 → 重新画红圈 → 勾选问题 → 生成修正版</div>
+    </section>
+
+    <section class="workspace">
+      <div class="catalog" id="catalog"></div>
+      <div class="preview-shell">
+        <div class="preview-header">
+          <strong id="previewTitle">方案 1 · 清晰流程型</strong>
+          <span id="previewTag">推荐起点</span>
+        </div>
+        <div id="preview"></div>
+        <p class="preview-caption" id="previewCaption">最适合第一次使用：把“先做什么、后做什么”写在页面结构里。</p>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const face = [
+      "脸部身份不像原始主图人物", "脸部光影和原始主图不一致", "肤色和原始主图不一致",
+      "眼神方向不对", "面部角度不对", "面部融合边缘生硬", "五官比例变形", "头发被改了"
+    ];
+    const background = ["红圈外的内容被改动", "背景被改了", "构图被改了"];
+    const clothes = ["衣服被改了"];
+    const quality = ["妆容对不上", "皮肤质感太假", "过度美颜"];
+    const schemes = [
+      ["清晰流程型", "把页面拆成“看图 / 选问题 / 生成”三段，第一次用也不会迷路。", "推荐起点"],
+      ["大图优先型", "当前结果图占首屏最大面积，适合最重视圈选准确度的用户。", "看图最清楚"],
+      ["底部抽屉型", "图片固定在上面，问题从底部展开，边看图边选问题。", "操作顺手"],
+      ["分组卡片型", "人脸、背景、衣服、画质独立成卡片，每组显示已选数量。", "信息最完整"],
+      ["任务清单型", "每一步都有完成状态，用户知道还差哪一步才能生成。", "不容易漏"],
+      ["标签速选型", "把问题做成大号标签按钮，点击面积大，适合快速勾选。", "点击最快"],
+      ["前后对比型", "同时强调原始主图和当前结果图，重点解决“哪里变了”。", "对比明确"],
+      ["单问题聚焦型", "一次只显示一组问题，用下一组推进，页面最不拥挤。", "最少干扰"],
+      ["状态面板型", "左边看素材准备状态，右边选问题，适合熟练用户。", "状态最直观"],
+      ["极简大按钮型", "减少装饰和层级，只保留大图、大字、大按钮，学习成本最低。", "最容易动"],
+    ];
+
+    let selected = 0;
+    const check = (text, on = false) => `<div class="check ${on ? "on" : ""}"><span class="box"></span><span>${text}</span></div>`;
+    const group = (title, items, onIndex = 0) => `
+      <section class="section">
+        <div class="section-head"><strong>${title}</strong><span class="count">${onIndex >= 0 ? 1 : 0}</span></div>
+        <div class="checks">${items.map((item, i) => check(item, i === onIndex)).join("")}</div>
+      </section>`;
+
+    function phone(index) {
+      const common = `
+        <div class="phone-title"><div><strong>局部修正</strong><small>  原图保留，修正版追加保存</small></div><span class="count">第 1 次</span></div>
+        <div class="hero-image"><span class="circle"></span><span class="circle-tip">拖动重新圈选</span></div>
+        <p class="hint">请在当前结果图上重新画红圈，红圈外内容不会修改。</p>
+      `;
+      const sections = `
+        ${group("人脸问题", face, 0)}
+        ${group("背景问题", background, 0)}
+        ${group("衣服问题", clothes, 0)}
+        ${group("画质问题", quality, -1)}
+      `;
+      let body = "";
+      if (index === 0) body = `<div class="section"><div class="section-head"><strong>① 先圈出要修的位置</strong><span class="count">必做</span></div></div>${sections}<div class="section"><div class="section-head"><strong>③ 自动修正指令</strong></div><div class="prompt">只修正红圈内与所选问题有关的内容，红圈外所有内容保持不变。</div></div>`;
+      if (index === 1) body = `${sections}<div class="section"><div class="section-head"><strong>自动修正指令</strong></div><div class="prompt">以原始主图人物身份为准，只修改红圈内问题。</div></div>`;
+      if (index === 2) body = `<div class="section"><div class="section-head"><strong>选择要修正的问题</strong><span class="count">3</span></div><div class="checks">${face.slice(0, 4).map((item, i) => check(item, i === 0)).join("")}</div></div>${group("更多问题", background, 0)}`;
+      if (index === 3) body = sections;
+      if (index === 4) body = `<div class="section"><div class="section-head"><strong>① 当前结果图</strong><span class="count">已完成</span></div></div><div class="section"><div class="section-head"><strong>② 重新确认红圈</strong><span class="count">待完成</span></div></div>${group("③ 选择问题", face, 0)}`;
+      if (index === 5) body = `<div class="section"><div class="section-head"><strong>点选问题标签</strong><span class="count">已选 1</span></div><div class="checks">${face.concat(background, clothes, quality).map((item, i) => check(item, i === 0)).join("")}</div></div>`;
+      if (index === 6) body = `<div class="section"><div class="section-head"><strong>原始主图 / 当前结果</strong><span class="count">对比</span></div><div class="hero-image" style="height:78px"></div></div>${group("选择差异问题", face, 0)}`;
+      if (index === 7) body = `<div class="section"><div class="section-head"><strong>人脸问题（1 / 4）</strong><span class="count">下一组</span></div><div class="checks">${face.map((item, i) => check(item, i === 0)).join("")}</div></div>`;
+      if (index === 8) body = `<div class="section"><div class="section-head"><strong>素材状态</strong></div><div class="prompt">主图　✓ 已准备<br>红圈　! 必须重新确认<br>人脸参考　未使用<br>穿搭参考　未使用</div></div>${group("问题选择", face, 0)}`;
+      if (index === 9) body = `<div class="section"><div class="section-head"><strong>哪里需要修正？</strong><span class="count">1 项</span></div><div class="checks">${face.slice(0, 4).map((item, i) => check(item, i === 0)).join("")}</div></div><div class="section"><div class="section-head"><strong>更多问题</strong></div><div class="checks">${background.concat(clothes, quality).map((item, i) => check(item, false)).join("")}</div></div>`;
+      return `<div class="phone v${index + 1}"><div class="phone-bar"></div><div class="phone-content">${common}${body}<div class="bottom-action"><button class="btn secondary">复制指令</button><button class="btn">生成修正版</button></div></div></div>`;
+    }
+
+    function render() {
+      const catalog = document.getElementById("catalog");
+      catalog.innerHTML = schemes.map((item, i) => `
+        <button class="scheme ${i === selected ? "selected" : ""}" data-index="${i}">
+          <span class="scheme-number">${i + 1}</span><span class="tag">${item[2]}</span>
+          <h3>${item[0]}</h3><p>${item[1]}</p>
+          <div class="mini"><div class="mini-bar">${[0,1,2,3,4].map((n) => `<i class="${n <= i % 4 ? "on" : ""}"></i>`).join("")}</div><p>点击查看完整手机预览</p></div>
+        </button>`).join("");
+      catalog.querySelectorAll(".scheme").forEach((button) => button.addEventListener("click", () => {
+        selected = Number(button.dataset.index);
+        render();
+      }));
+      document.getElementById("previewTitle").textContent = `方案 ${selected + 1} · ${schemes[selected][0]}`;
+      document.getElementById("previewTag").textContent = schemes[selected][2];
+      document.getElementById("previewCaption").textContent = schemes[selected][1];
+      document.getElementById("preview").innerHTML = phone(selected);
+    }
+    render();
+  </script>
+</body>
+</html>

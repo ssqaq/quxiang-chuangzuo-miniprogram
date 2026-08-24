@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.24.4";
-const API_BUILD_MARKER = "API_BUILD_TAG_20260824_DB_INIT_IDEMPOTENCY_V244";
+const API_BUILD_VERSION = "0.25.0";
+const API_BUILD_MARKER = "API_BUILD_TAG_20260824_ADMIN_CONSOLE_OPTION09_V250";
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
 const cloud = require("wx-server-sdk");
@@ -2739,11 +2739,20 @@ function mergeRuntimeConfig(current, patch) {
 }
 
 function redactConfig(config, defaults) {
+  const face = config.face || {};
   const image = config.image || {};
   const video = config.video || {};
   const points = config.points || {};
   const costs = resolveCostConfig(config.costs || {});
   return {
+    face: {
+      provider: face.provider || "",
+      baseUrl: face.baseUrl || "",
+      endpoint: face.endpoint || "",
+      model: face.faceModel || face.model || "",
+      timeoutMs: Number(face.timeoutMs || 0),
+      apiKeyConfigured: Boolean(defaults.face && defaults.face.apiKey)
+    },
     image: {
       provider: image.provider || "",
       baseUrl: image.baseUrl || "",
@@ -2838,6 +2847,7 @@ async function resolveEffectiveConfigs() {
   const runtime = await loadAdminRuntimeConfig();
   return {
     runtime: runtime || { image: {}, video: {}, points: {}, costs: {} },
+    face: resolveVisionConfig(),
     image: resolveImageConfig(runtime && runtime.image),
     video: resolveVideoConfig(runtime && runtime.video),
     points: resolvePointsConfig(runtime && runtime.points),
@@ -2846,6 +2856,7 @@ async function resolveEffectiveConfigs() {
 }
 
 function adminConfigView(configs, runtime, metadata = {}) {
+  const faceDefaults = resolveVisionConfig();
   const imageDefaults = resolveImageConfig();
   const videoDefaults = resolveVideoConfig();
   const pointDefaults = resolvePointsConfig();
@@ -2853,28 +2864,33 @@ function adminConfigView(configs, runtime, metadata = {}) {
   const overrides = runtime || { image: {}, video: {}, points: {}, costs: {} };
   return {
     defaults: redactConfig({
+      face: faceDefaults,
       image: imageDefaults,
       video: videoDefaults,
       points: pointDefaults,
       costs: costDefaults
     }, {
+      face: faceDefaults,
       image: imageDefaults,
       video: videoDefaults,
       points: pointDefaults,
       costs: costDefaults
     }),
-    overrides: redactConfig(overrides, {
+    overrides: redactConfig(Object.assign({ face: {} }, overrides), {
+      face: faceDefaults,
       image: imageDefaults,
       video: videoDefaults,
       points: pointDefaults,
       costs: costDefaults
     }),
     effective: redactConfig({
+      face: configs.face,
       image: configs.image,
       video: configs.video,
       points: configs.points,
       costs: configs.costs
     }, {
+      face: configs.face,
       image: configs.image,
       video: configs.video,
       points: configs.points,

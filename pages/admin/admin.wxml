@@ -1,14 +1,11 @@
 <view class="admin-page">
-  <view class="admin-hero card">
-    <view class="admin-hero-top">
-      <view>
-        <view class="admin-kicker">ADMIN CONSOLE</view>
-        <view class="admin-title">管理员配置</view>
-        <view class="admin-subtitle">在线调整生图和视频模型，不改 API Key。</view>
-      </view>
-      <view class="admin-access-badge">{{isAdmin ? '管理员' : '未授权'}}</view>
+  <view class="console-header">
+    <view class="console-back" bindtap="backToWorkbench" hover-class="control-tap" role="button" aria-label="返回工作台">‹</view>
+    <view class="console-heading">
+      <view class="console-title">控制台</view>
+      <view class="console-subtitle">模型、积分与成本配置</view>
     </view>
-    <button class="admin-back-button" bindtap="backToWorkbench">返回工作台</button>
+    <view class="admin-access-badge">{{isAdmin ? '管理员' : '未授权'}}</view>
   </view>
 
   <view wx:if="{{loading}}" class="card admin-state-card">
@@ -18,468 +15,626 @@
   <view wx:if="{{!loading && isAdmin}}" class="admin-content">
     <view wx:if="{{message}}" class="admin-message">{{message}}</view>
 
-    <view class="card admin-section usage-section">
-      <view class="admin-section-head">
+    <view class="status-console status-{{dashboardStatus.tone}}">
+      <view class="status-console-top">
         <view>
-          <view class="admin-section-title">模型用量统计</view>
-          <view class="admin-section-help">按北京时间统计调用次数、Token、视频秒数和预计成本。</view>
+          <view class="status-console-label">线上运行状态</view>
+          <view class="status-console-title">{{dashboardStatus.title}}</view>
         </view>
-        <view class="usage-toolbar">
-          <button class="usage-refresh-button" bindtap="refreshModelUsage" loading="{{usageLoading}}" disabled="{{usageLoading}}">
-            {{usageLoading ? '刷新中' : '刷新统计'}}
-          </button>
-          <button class="usage-export-button" bindtap="exportModelUsage" loading="{{usageExporting}}" disabled="{{usageExporting}}">
-            {{usageExporting ? '生成中' : '导出 Excel'}}
-          </button>
+        <view class="status-console-dot"></view>
+      </view>
+      <view class="status-console-meta">
+        <text>v{{appVersion}}</text>
+        <text>探针 {{dashboardStatus.probeDurationText}}</text>
+        <text>今日 {{usageStats.today.failure}} 个失败</text>
+      </view>
+      <view
+        class="status-check-button {{checking ? 'is-disabled' : ''}}"
+        bindtap="checkDeployment"
+        hover-class="control-tap"
+        role="button"
+        aria-label="立即检查线上部署"
+      >
+        {{checking ? '正在检查线上部署' : '立即检查线上部署'}}
+      </view>
+    </view>
+
+    <view class="quick-launch-grid">
+      <view
+        class="quick-launch quick-image {{activeConfigSection === 'image' ? 'is-active' : ''}}"
+        data-section="image"
+        bindtap="toggleConfigSection"
+        hover-class="control-tap"
+        role="button"
+        aria-label="打开生图模型配置"
+      >
+        <view class="quick-launch-icon">图</view>
+        <view class="quick-launch-name">生图</view>
+      </view>
+      <view
+        class="quick-launch quick-video {{activeConfigSection === 'video' ? 'is-active' : ''}}"
+        data-section="video"
+        bindtap="toggleConfigSection"
+        hover-class="control-tap"
+        role="button"
+        aria-label="打开视频模型配置"
+      >
+        <view class="quick-launch-icon">视</view>
+        <view class="quick-launch-name">视频</view>
+      </view>
+      <view
+        class="quick-launch quick-points {{activeConfigSection === 'points' ? 'is-active' : ''}}"
+        data-section="points"
+        bindtap="toggleConfigSection"
+        hover-class="control-tap"
+        role="button"
+        aria-label="打开积分规则配置"
+      >
+        <view class="quick-launch-icon">积</view>
+        <view class="quick-launch-name">积分</view>
+      </view>
+      <view
+        class="quick-launch quick-costs {{activeConfigSection === 'costs' ? 'is-active' : ''}}"
+        data-section="costs"
+        bindtap="toggleConfigSection"
+        hover-class="control-tap"
+        role="button"
+        aria-label="打开模型成本配置"
+      >
+        <view class="quick-launch-icon">¥</view>
+        <view class="quick-launch-name">成本</view>
+      </view>
+    </view>
+
+    <view class="overview-section">
+      <view class="overview-heading">当前配置</view>
+      <view class="current-config-row current-config-static">
+        <view class="current-config-main">
+          <view class="current-config-title">人脸识别模型</view>
+          <view class="current-config-meta">
+            {{faceConfigSummary.provider}} / {{faceConfigSummary.model}}
+          </view>
+        </view>
+        <view class="current-config-side">
+          <view class="config-state {{faceConfigSummary.ready ? 'is-ready' : 'is-off'}}">
+            {{faceConfigSummary.ready ? '正常' : '未就绪'}}
+          </view>
+        </view>
+      </view>
+      <view
+        class="current-config-row"
+        data-section="image"
+        bindtap="toggleConfigSection"
+        hover-class="control-tap"
+        role="button"
+        aria-label="查看生图模型配置"
+      >
+        <view class="current-config-main">
+          <view class="current-config-title">生图模型</view>
+          <view class="current-config-meta">
+            {{form.image.provider || '未填写'}} / {{form.image.model || '未填写'}} · {{form.image.size || '未填写'}}
+          </view>
+        </view>
+        <view class="current-config-side">
+          <view class="config-state {{effective.image.apiKeyConfigured ? 'is-ready' : 'is-off'}}">
+            {{effective.image.apiKeyConfigured ? '正常' : '未就绪'}}
+          </view>
+          <text class="current-config-arrow">›</text>
+        </view>
+      </view>
+      <view
+        class="current-config-row"
+        data-section="video"
+        bindtap="toggleConfigSection"
+        hover-class="control-tap"
+        role="button"
+        aria-label="查看视频模型配置"
+      >
+        <view class="current-config-main">
+          <view class="current-config-title">视频模型</view>
+          <view class="current-config-meta">
+            {{form.video.provider || '未填写'}} / {{form.video.model || '未填写'}} · {{form.video.resolution || '未填写'}}
+          </view>
+        </view>
+        <view class="current-config-side">
+          <view class="config-state {{effective.video.apiKeyConfigured ? 'is-ready' : 'is-off'}}">
+            {{effective.video.apiKeyConfigured ? '正常' : '未就绪'}}
+          </view>
+          <text class="current-config-arrow">›</text>
+        </view>
+      </view>
+    </view>
+
+    <view class="overview-section today-section">
+      <view class="overview-heading">今天</view>
+      <view class="today-grid">
+        <view class="today-item">
+          <text class="today-value">{{usageStats.today.total}}</text>
+          <text class="today-label">调用</text>
+        </view>
+        <view class="today-item">
+          <text class="today-value {{usageStats.today.failure ? 'is-warn' : ''}}">{{usageStats.today.failure}}</text>
+          <text class="today-label">失败</text>
+        </view>
+        <view class="today-item">
+          <text class="today-value">¥{{usageStats.today.estimatedCost}}</text>
+          <text class="today-label">预计成本</text>
+        </view>
+      </view>
+    </view>
+
+    <view wx:if="{{activeConfigSection}}" id="config-editor" class="card config-editor">
+      <view class="config-editor-head">
+        <view>
+          <view class="config-editor-kicker">正在配置</view>
+          <view class="config-editor-title">{{activeConfigTitle}}</view>
+        </view>
+        <view class="config-close-button" bindtap="closeConfigSection" hover-class="control-tap" role="button" aria-label="收起配置">收起</view>
+      </view>
+
+      <view wx:if="{{activeConfigSection === 'image'}}" class="config-editor-body">
+        <view class="config-helper">API Key 继续从云函数环境变量读取，这里不会显示密钥。</view>
+        <view class="admin-grid">
+          <view class="admin-field"><text>Provider</text><input value="{{form.image.provider}}" data-section="image" data-key="provider" bindinput="onInput" /></view>
+          <view class="admin-field"><text>Model</text><input value="{{form.image.model}}" data-section="image" data-key="model" bindinput="onInput" /></view>
+          <view class="admin-field admin-field-wide"><text>Base URL</text><input value="{{form.image.baseUrl}}" data-section="image" data-key="baseUrl" bindinput="onInput" /></view>
+          <view class="admin-field admin-field-wide"><text>Endpoint（可空）</text><input value="{{form.image.endpoint}}" data-section="image" data-key="endpoint" bindinput="onInput" /></view>
+          <view class="admin-field"><text>模式</text><input value="{{form.image.mode}}" data-section="image" data-key="mode" placeholder="generations / edits" bindinput="onInput" /></view>
+          <view class="admin-field"><text>尺寸</text><input value="{{form.image.size}}" data-section="image" data-key="size" placeholder="1024x1024" bindinput="onInput" /></view>
+          <view class="admin-field"><text>超时毫秒</text><input type="number" value="{{form.image.timeoutMs}}" data-section="image" data-key="timeoutMs" bindinput="onInput" /></view>
+          <view class="admin-field"><text>最大重试</text><input type="number" value="{{form.image.maxRetries}}" data-section="image" data-key="maxRetries" bindinput="onInput" /></view>
+        </view>
+        <label class="admin-checkbox-row">
+          <checkbox value="enabled" checked="{{form.image.retryEnabled}}" bindchange="onRetryChange" color="#245fd4"></checkbox>
+          <text>允许生图上游请求自动重试</text>
+        </label>
+      </view>
+
+      <view wx:if="{{activeConfigSection === 'video'}}" class="config-editor-body">
+        <view class="config-helper">创建任务只发一次，查询任务按配置轮询。</view>
+        <view class="admin-grid">
+          <view class="admin-field"><text>Provider</text><input value="{{form.video.provider}}" data-section="video" data-key="provider" bindinput="onInput" /></view>
+          <view class="admin-field"><text>Model</text><input value="{{form.video.model}}" data-section="video" data-key="model" bindinput="onInput" /></view>
+          <view class="admin-field admin-field-wide"><text>Base URL</text><input value="{{form.video.baseUrl}}" data-section="video" data-key="baseUrl" bindinput="onInput" /></view>
+          <view class="admin-field admin-field-wide"><text>创建 Endpoint（可空）</text><input value="{{form.video.endpoint}}" data-section="video" data-key="endpoint" bindinput="onInput" /></view>
+          <view class="admin-field admin-field-wide"><text>查询 Endpoint（可空）</text><input value="{{form.video.queryEndpoint}}" data-section="video" data-key="queryEndpoint" bindinput="onInput" /></view>
+          <view class="admin-field admin-field-wide"><text>创建路径</text><input value="{{form.video.createPath}}" data-section="video" data-key="createPath" bindinput="onInput" /></view>
+          <view class="admin-field admin-field-wide"><text>查询路径</text><input value="{{form.video.queryPath}}" data-section="video" data-key="queryPath" bindinput="onInput" /></view>
+          <view class="admin-field"><text>清晰度</text><input value="{{form.video.resolution}}" data-section="video" data-key="resolution" bindinput="onInput" /></view>
+          <view class="admin-field"><text>宽高比（可空）</text><input value="{{form.video.aspectRatio}}" data-section="video" data-key="aspectRatio" bindinput="onInput" /></view>
+          <view class="admin-field"><text>超时毫秒</text><input type="number" value="{{form.video.timeoutMs}}" data-section="video" data-key="timeoutMs" bindinput="onInput" /></view>
         </view>
       </view>
 
-      <view wx:if="{{usageStats.message}}" class="usage-message {{usageStats.unavailable ? 'is-warn' : ''}}">
-        {{usageStats.message}}
-      </view>
-
-      <view class="usage-summary-grid">
-        <view class="usage-summary-item">
-          <text>今天</text>
-          <text>{{usageStats.today.total}}</text>
-          <text>成功 {{usageStats.today.success}} · 失败 {{usageStats.today.failure}}</text>
-        </view>
-        <view class="usage-summary-item">
-          <text>最近7天</text>
-          <text>{{usageStats.last7d.total}}</text>
-          <text>成功 {{usageStats.last7d.success}} · 失败 {{usageStats.last7d.failure}}</text>
-        </view>
-        <view class="usage-summary-item">
-          <text>最近30天</text>
-          <text>{{usageStats.last30d.total}}</text>
-          <text>成功 {{usageStats.last30d.success}} · 失败 {{usageStats.last30d.failure}}</text>
+      <view wx:if="{{activeConfigSection === 'points'}}" class="config-editor-body">
+        <view class="config-helper">活动日期按上海时间判断，积分在提交任务时扣除。</view>
+        <view class="admin-grid">
+          <view class="admin-field"><text>每日免费次数</text><input type="number" value="{{form.points.dailyFreeLimit}}" data-section="points" data-key="dailyFreeLimit" bindinput="onInput" /></view>
+          <view class="admin-field"><text>生图积分</text><input type="number" value="{{form.points.imageCost}}" data-section="points" data-key="imageCost" bindinput="onInput" /></view>
+          <view class="admin-field"><text>视频积分</text><input type="number" value="{{form.points.videoCost}}" data-section="points" data-key="videoCost" bindinput="onInput" /></view>
+          <view class="admin-field"><text>每日签到积分</text><input type="number" value="{{form.points.checkinPoints}}" data-section="points" data-key="checkinPoints" bindinput="onInput" /></view>
+          <view class="admin-field"><text>连续奖励积分</text><input type="number" value="{{form.points.streakBonus}}" data-section="points" data-key="streakBonus" bindinput="onInput" /></view>
+          <view class="admin-field"><text>连续奖励天数</text><input type="number" value="{{form.points.streakDays}}" data-section="points" data-key="streakDays" bindinput="onInput" /></view>
+          <view class="admin-field"><text>活动开始日期</text><input value="{{form.points.promoStartDate}}" data-section="points" data-key="promoStartDate" placeholder="2026-08-23" bindinput="onInput" /></view>
+          <view class="admin-field"><text>活动结束日期</text><input value="{{form.points.promoEndDate}}" data-section="points" data-key="promoEndDate" placeholder="2026-08-24" bindinput="onInput" /></view>
+          <view class="admin-field admin-field-wide"><text>时区</text><input value="{{form.points.timeZone}}" data-section="points" data-key="timeZone" placeholder="Asia/Shanghai" bindinput="onInput" /></view>
         </view>
       </view>
 
-      <view class="usage-cost-summary">
-        <view class="usage-cost-item">
-          <text>今日预计成本</text>
-          <text>¥{{usageStats.today.estimatedCost}}</text>
-          <text>已计算 {{usageStats.today.pricedCost}} 元 · 未计算 {{usageStats.today.unavailableCostCount}} 条</text>
-        </view>
-        <view class="usage-cost-item">
-          <text>最近7天预计成本</text>
-          <text>¥{{usageStats.last7d.estimatedCost}}</text>
-          <text>Token {{usageStats.last7d.totalTokens}} · 视频 {{usageStats.last7d.videoDurationSeconds}} 秒</text>
-        </view>
-        <view class="usage-cost-item">
-          <text>最近30天预计成本</text>
-          <text>¥{{usageStats.last30d.estimatedCost}}</text>
-          <text>Token {{usageStats.last30d.totalTokens}} · 视频 {{usageStats.last30d.videoDurationSeconds}} 秒</text>
+      <view wx:if="{{activeConfigSection === 'costs'}}" class="config-editor-body">
+        <view class="config-helper">模型成本配置（人民币）用于计算预计花费。</view>
+        <view class="admin-grid">
+          <view class="admin-field"><text>人脸输入 / 百万Token</text><input type="digit" value="{{form.costs.faceInputPerMillionTokens}}" data-section="costs" data-key="faceInputPerMillionTokens" bindinput="onInput" /></view>
+          <view class="admin-field"><text>人脸输出 / 百万Token</text><input type="digit" value="{{form.costs.faceOutputPerMillionTokens}}" data-section="costs" data-key="faceOutputPerMillionTokens" bindinput="onInput" /></view>
+          <view class="admin-field"><text>生图 1K / 张</text><input type="digit" value="{{form.costs.image1K}}" data-section="costs" data-key="image1K" bindinput="onInput" /></view>
+          <view class="admin-field"><text>生图 2K / 张</text><input type="digit" value="{{form.costs.image2K}}" data-section="costs" data-key="image2K" bindinput="onInput" /></view>
+          <view class="admin-field"><text>生图 4K / 张</text><input type="digit" value="{{form.costs.image4K}}" data-section="costs" data-key="image4K" bindinput="onInput" /></view>
+          <view class="admin-field"><text>视频 480p / 秒</text><input type="digit" value="{{form.costs.video480p}}" data-section="costs" data-key="video480p" bindinput="onInput" /></view>
+          <view class="admin-field"><text>视频 720p / 秒</text><input type="digit" value="{{form.costs.video720p}}" data-section="costs" data-key="video720p" bindinput="onInput" /></view>
+          <view class="admin-field"><text>视频 1080p / 秒</text><input type="digit" value="{{form.costs.video1080p}}" data-section="costs" data-key="video1080p" bindinput="onInput" /></view>
+          <view class="admin-field"><text>视频默认秒数</text><input type="digit" value="{{form.costs.videoDefaultDuration}}" data-section="costs" data-key="videoDefaultDuration" bindinput="onInput" /></view>
         </view>
       </view>
 
-      <view class="usage-type-grid">
-        <view wx:for="{{usageStats.cards}}" wx:key="key" class="usage-type-card usage-type-{{item.key}}">
-          <view class="usage-type-top">
-            <view class="usage-type-icon">{{item.icon}}</view>
-            <view class="usage-type-title">{{item.title}}</view>
+      <view class="admin-actions">
+        <view
+          class="admin-action-button primary-btn admin-save-button {{saving ? 'is-disabled' : ''}}"
+          bindtap="saveConfig"
+          hover-class="control-tap"
+          role="button"
+          aria-label="保存全部配置"
+        >
+          {{saving ? '保存中...' : '保存全部配置'}}
+        </view>
+        <view
+          class="admin-action-button secondary-btn admin-close-button"
+          bindtap="closeConfigSection"
+          hover-class="control-tap"
+          role="button"
+          aria-label="暂不修改并收起"
+        >暂不修改</view>
+      </view>
+    </view>
+
+    <view
+      class="monitor-toggle {{monitorExpanded ? 'is-open' : ''}}"
+      bindtap="toggleMonitor"
+      hover-class="control-tap"
+      role="button"
+      aria-label="{{monitorExpanded ? '收起运行监控' : '展开运行监控'}}"
+    >
+      <view>
+        <view class="monitor-toggle-title">更多监控与历史</view>
+        <view class="monitor-toggle-subtitle">探针、接口耗时、失败统计、用量和部署日志</view>
+      </view>
+      <text class="monitor-toggle-arrow">{{monitorExpanded ? '⌃' : '›'}}</text>
+    </view>
+
+    <view wx:if="{{monitorExpanded}}" class="monitor-content">
+      <view wx:if="{{deployment}}" class="card admin-section deployment-card">
+        <view class="admin-section-head">
+          <view>
+            <view class="admin-section-title">当前线上部署</view>
+            <view class="admin-section-help">当前云函数版本和动态配置状态。</view>
           </view>
-          <view class="usage-type-total">{{item.total}}</view>
-          <view class="usage-type-label">总调用次数</view>
-          <view class="usage-type-result">
-            <text>成功 {{item.success}}</text>
-            <text>失败 {{item.failure}}</text>
-          </view>
-          <view class="usage-model-text">{{item.modelText}}</view>
+          <text class="{{deployment.image.ready && deployment.video.ready ? 'log-ok' : 'log-warn'}}">
+            {{deployment.image.ready && deployment.video.ready ? '运行正常' : '需要处理'}}
+          </text>
+        </view>
+        <view class="deployment-grid">
+          <view><text>云函数版本</text><text>{{deployment.buildVersion}}</text></view>
+          <view><text>构建标记</text><text>{{deployment.buildMarker}}</text></view>
+          <view><text>生图状态</text><text>{{deployment.image.ready ? '可用' : '未就绪'}}</text></view>
+          <view><text>视频状态</text><text>{{deployment.video.ready ? '可用' : '未就绪'}}</text></view>
+          <view><text>动态配置版本</text><text>{{deployment.runtimeConfigVersion}}</text></view>
+          <view><text>检查时间</text><text>{{deployment.checkedAt}}</text></view>
         </view>
       </view>
 
-      <view class="usage-failure-panel">
-        <view class="usage-subsection-title usage-failure-heading">失败情况</view>
-        <view class="usage-failure-summary">
-          <view class="usage-failure-summary-item">
-            <text>失败次数</text>
-            <text>{{usageStats.failureStats.total}}</text>
+      <view wx:if="{{autoFaceProbe.available || autoFaceProbe.status === 'failed'}}" class="card admin-section auto-face-probe-card">
+        <view class="admin-section-head">
+          <view>
+            <view class="admin-section-title">自动贴脸探针</view>
+            <view class="admin-section-help">显示线上版本、接口耗时和视觉配置状态。</view>
           </view>
-          <view class="usage-failure-summary-item">
-            <text>失败率</text>
-            <text>{{usageStats.failureStats.failureRate}}%</text>
-          </view>
-          <view class="usage-failure-summary-item usage-failure-summary-model">
-            <text>失败最多的模型</text>
-            <text wx:if="{{usageStats.failureStats.failedModels.length}}">
-              {{usageStats.failureStats.failedModels[0].provider}} / {{usageStats.failureStats.failedModels[0].model}}
-            </text>
-            <text wx:else>暂无失败</text>
-          </view>
+          <text class="{{autoFaceProbe.status === 'ok' ? 'log-ok' : 'log-warn'}}">{{autoFaceProbe.statusText}}</text>
         </view>
-        <view wx:if="{{usageStats.failureStats.topFailureReasons.length}}" class="usage-failure-list">
-          <view class="usage-failure-list-title">失败原因前 5 名</view>
-          <view
-            wx:for="{{usageStats.failureStats.topFailureReasons}}"
-            wx:key="key"
-            class="usage-failure-row"
-          >
-            <view class="usage-failure-row-top">
-              <text class="usage-failure-label">{{index + 1}}. {{item.label}}</text>
-              <text class="usage-failure-count">{{item.count}} 次 · {{item.rate}}%</text>
+        <view class="deployment-grid">
+          <view><text>云函数版本</text><text>{{autoFaceProbe.buildVersion || '未知'}}</text></view>
+          <view><text>构建标记</text><text>{{autoFaceProbe.buildMarker || '未知'}}</text></view>
+          <view><text>视觉配置</text><text>{{autoFaceProbe.visionConfigured ? '已就绪' : '未就绪'}}</text></view>
+          <view><text>Provider / Model</text><text>{{autoFaceProbe.provider || '未知'}} / {{autoFaceProbe.model || '未知'}}</text></view>
+          <view><text>Node.js</text><text>{{autoFaceProbe.nodeVersion || '未知'}}</text></view>
+          <view><text>接口耗时</text><text>{{autoFaceProbe.durationText}}</text></view>
+          <view><text>云函数处理耗时</text><text>{{autoFaceProbe.serverDurationText}}</text></view>
+          <view><text>检查时间</text><text>{{autoFaceProbe.checkedAtText}}</text></view>
+        </view>
+        <view wx:if="{{autoFaceProbe.message}}" class="usage-message is-warn">{{autoFaceProbe.message}}</view>
+      </view>
+
+      <view class="card admin-section auto-face-probe-history-card">
+        <view class="admin-section-head">
+          <view>
+            <view class="admin-section-title">探针历史</view>
+            <view class="admin-section-help">最近 {{autoFaceProbeHistory.retentionDays}} 天，最多显示 20 条。</view>
+          </view>
+          <button class="usage-refresh-button" bindtap="refreshAutoFaceProbeHistory">刷新</button>
+        </view>
+        <view wx:if="{{autoFaceProbeHistory.message}}" class="usage-message {{autoFaceProbeHistory.unavailable ? 'is-warn' : ''}}">
+          {{autoFaceProbeHistory.message}}
+        </view>
+        <view wx:if="{{!autoFaceProbeHistory.history.length && !autoFaceProbeHistory.message}}" class="admin-empty">
+          还没有探针历史，点击“立即检查线上部署”生成第一条。
+        </view>
+        <view wx:for="{{autoFaceProbeHistory.history}}" wx:key="checkedAt" class="auto-face-probe-history-row">
+          <view class="auto-face-probe-history-top">
+            <view>
+              <text class="{{item.status === 'ok' ? 'log-ok' : 'log-warn'}}">{{item.statusText}}</text>
+              <text class="auto-face-probe-history-time">{{item.checkedAtText}}</text>
             </view>
-            <view class="usage-failure-row-detail">
-              <text>{{item.provider || '未知 Provider'}} / {{item.model || '未知模型'}}</text>
-              <text wx:if="{{item.status}}">HTTP {{item.status}}</text>
+            <text class="auto-face-probe-history-duration">{{item.durationText}}</text>
+          </view>
+          <view class="auto-face-probe-history-meta">
+            {{item.buildVersion}} · {{item.visionConfigured ? '视觉配置已就绪' : '视觉配置未就绪'}} · {{item.provider}} / {{item.model}}
+          </view>
+          <view class="auto-face-probe-history-meta">{{item.buildMarker}}</view>
+          <view wx:if="{{item.status === 'failed' && item.errorCode}}" class="auto-face-probe-history-error">
+            错误码：{{item.errorCode}}
+          </view>
+        </view>
+      </view>
+
+      <view class="card admin-section usage-section">
+        <view class="admin-section-head">
+          <view>
+            <view class="admin-section-title">模型用量统计</view>
+            <view class="admin-section-help">按北京时间统计调用次数、Token、视频秒数和预计成本。</view>
+          </view>
+          <view class="usage-toolbar">
+            <button class="usage-refresh-button" bindtap="refreshModelUsage" loading="{{usageLoading}}" disabled="{{usageLoading}}">
+              {{usageLoading ? '刷新中' : '刷新统计'}}
+            </button>
+            <button class="usage-export-button" bindtap="exportModelUsage" loading="{{usageExporting}}" disabled="{{usageExporting}}">
+              {{usageExporting ? '生成中' : '导出 Excel'}}
+            </button>
+          </view>
+        </view>
+
+        <view wx:if="{{usageStats.message}}" class="usage-message {{usageStats.unavailable ? 'is-warn' : ''}}">
+          {{usageStats.message}}
+        </view>
+
+        <view class="usage-summary-grid">
+          <view class="usage-summary-item">
+            <text>今天</text>
+            <text>{{usageStats.today.total}}</text>
+            <text>成功 {{usageStats.today.success}} · 失败 {{usageStats.today.failure}}</text>
+          </view>
+          <view class="usage-summary-item">
+            <text>最近7天</text>
+            <text>{{usageStats.last7d.total}}</text>
+            <text>成功 {{usageStats.last7d.success}} · 失败 {{usageStats.last7d.failure}}</text>
+          </view>
+          <view class="usage-summary-item">
+            <text>最近30天</text>
+            <text>{{usageStats.last30d.total}}</text>
+            <text>成功 {{usageStats.last30d.success}} · 失败 {{usageStats.last30d.failure}}</text>
+          </view>
+        </view>
+
+        <view class="usage-cost-summary">
+          <view class="usage-cost-item">
+            <text>今日预计成本</text>
+            <text>¥{{usageStats.today.estimatedCost}}</text>
+            <text>已计算 {{usageStats.today.pricedCost}} 元 · 未计算 {{usageStats.today.unavailableCostCount}} 条</text>
+          </view>
+          <view class="usage-cost-item">
+            <text>最近7天预计成本</text>
+            <text>¥{{usageStats.last7d.estimatedCost}}</text>
+            <text>Token {{usageStats.last7d.totalTokens}} · 视频 {{usageStats.last7d.videoDurationSeconds}} 秒</text>
+          </view>
+          <view class="usage-cost-item">
+            <text>最近30天预计成本</text>
+            <text>¥{{usageStats.last30d.estimatedCost}}</text>
+            <text>Token {{usageStats.last30d.totalTokens}} · 视频 {{usageStats.last30d.videoDurationSeconds}} 秒</text>
+          </view>
+        </view>
+
+        <view class="usage-type-grid">
+          <view wx:for="{{usageStats.cards}}" wx:key="key" class="usage-type-card usage-type-{{item.key}}">
+            <view class="usage-type-top">
+              <view class="usage-type-icon">{{item.icon}}</view>
+              <view class="usage-type-title">{{item.title}}</view>
+            </view>
+            <view class="usage-type-total">{{item.total}}</view>
+            <view class="usage-type-label">总调用次数</view>
+            <view class="usage-type-result">
+              <text>成功 {{item.success}}</text>
+              <text>失败 {{item.failure}}</text>
+            </view>
+            <view class="usage-model-text">{{item.modelText}}</view>
+          </view>
+        </view>
+
+        <view class="usage-failure-panel">
+          <view class="usage-subsection-title usage-failure-heading">失败情况</view>
+          <view class="usage-failure-summary">
+            <view class="usage-failure-summary-item">
+              <text>失败次数</text>
+              <text>{{usageStats.failureStats.total}}</text>
+            </view>
+            <view class="usage-failure-summary-item">
+              <text>失败率</text>
+              <text>{{usageStats.failureStats.failureRate}}%</text>
+            </view>
+            <view class="usage-failure-summary-item usage-failure-summary-model">
+              <text>失败最多的模型</text>
+              <text wx:if="{{usageStats.failureStats.failedModels.length}}">
+                {{usageStats.failureStats.failedModels[0].provider}} / {{usageStats.failureStats.failedModels[0].model}}
+              </text>
+              <text wx:else>暂无失败</text>
+            </view>
+          </view>
+          <view wx:if="{{usageStats.failureStats.topFailureReasons.length}}" class="usage-failure-list">
+            <view class="usage-failure-list-title">失败原因前 5 名</view>
+            <view wx:for="{{usageStats.failureStats.topFailureReasons}}" wx:key="key" class="usage-failure-row">
+              <view class="usage-failure-row-top">
+                <text class="usage-failure-label">{{index + 1}}. {{item.label}}</text>
+                <text class="usage-failure-count">{{item.count}} 次 · {{item.rate}}%</text>
+              </view>
+              <view class="usage-failure-row-detail">
+                <text>{{item.provider || '未知 Provider'}} / {{item.model || '未知模型'}}</text>
+                <text wx:if="{{item.status}}">HTTP {{item.status}}</text>
+                <text>{{item.retryable ? '可重试' : '不可重试'}}</text>
+              </view>
+            </view>
+          </view>
+          <view wx:else class="admin-empty usage-empty">最近统计范围内没有失败记录。</view>
+        </view>
+
+        <view class="usage-daily-title">最近{{usageStats.days}}天每日明细</view>
+        <scroll-view wx:if="{{usageStats.daily.length}}" class="usage-daily-list" scroll-y>
+          <view wx:for="{{usageStats.daily}}" wx:key="dateKey" class="usage-daily-row">
+            <view class="usage-daily-date">
+              <text>{{item.dateLabel}}</text>
+              <text>合计 {{item.total}} 次</text>
+            </view>
+            <view class="usage-daily-values">
+              <text>生图 {{item.image.total}}</text>
+              <text>人脸 {{item.face.total}}</text>
+              <text>视频 {{item.video.total}}</text>
+            </view>
+            <view class="usage-daily-result">成功 {{item.success}} · 失败 {{item.failure}}</view>
+          </view>
+        </scroll-view>
+        <view wx:else class="admin-empty usage-empty">还没有模型调用记录，部署后有调用就会自动统计。</view>
+
+        <view class="usage-subsection-title">按用户统计</view>
+        <view wx:if="{{usageStats.users.length}}" class="usage-user-list">
+          <view wx:for="{{usageStats.users}}" wx:key="userHash" class="usage-user-row">
+            <view class="usage-user-top">
+              <text>用户 {{item.userHash}}</text>
+              <text>¥{{item.estimatedCost}} · {{item.total}} 次</text>
+            </view>
+            <view class="usage-user-detail">
+              <text>生图 {{item.byType.image.total}}</text>
+              <text>人脸 {{item.byType.face.total}}</text>
+              <text>视频 {{item.byType.video.total}}</text>
+              <text>Token {{item.totalTokens}}</text>
+              <text>视频 {{item.videoDurationSeconds}} 秒</text>
+            </view>
+          </view>
+        </view>
+        <view wx:else class="admin-empty usage-empty">还没有按用户统计的数据。</view>
+
+        <view class="usage-subsection-title">按模型名称分组</view>
+        <view wx:if="{{usageStats.models.length}}" class="usage-model-list">
+          <view wx:for="{{usageStats.models}}" wx:key="model" class="usage-model-row">
+            <view class="usage-model-top">
+              <text>{{item.provider}} / {{item.model}}</text>
+              <text>¥{{item.estimatedCost}} · {{item.total}} 次</text>
+            </view>
+            <view class="usage-user-detail">
+              <text>{{item.usageType}}</text>
+              <text>成功 {{item.success}}</text>
+              <text>失败 {{item.failure}}</text>
+              <text>Token {{item.totalTokens}}</text>
+              <text>视频 {{item.videoDurationSeconds}} 秒</text>
+            </view>
+          </view>
+        </view>
+        <view wx:else class="admin-empty usage-empty">还没有按模型分组的数据。</view>
+
+        <view class="usage-subsection-title">按月份统计</view>
+        <scroll-view wx:if="{{usageStats.monthly.length}}" class="usage-monthly-list" scroll-y>
+          <view wx:for="{{usageStats.monthly}}" wx:key="monthKey" class="usage-monthly-row">
+            <view class="usage-daily-date">
+              <text>{{item.monthKey}}</text>
+              <text>预计 ¥{{item.estimatedCost}} · {{item.total}} 次</text>
+            </view>
+            <view class="usage-daily-values">
+              <text>人脸 ¥{{item.face.estimatedCost}}</text>
+              <text>生图 ¥{{item.image.estimatedCost}}</text>
+              <text>视频 ¥{{item.video.estimatedCost}}</text>
+            </view>
+            <view class="usage-daily-result">Token {{item.totalTokens}} · 视频 {{item.videoDurationSeconds}} 秒</view>
+          </view>
+        </scroll-view>
+        <view wx:else class="admin-empty usage-empty">还没有月度统计数据。</view>
+      </view>
+
+      <view class="card admin-section auto-face-failure-section">
+        <view class="admin-section-head">
+          <view>
+            <view class="admin-section-title">自动贴脸失败统计</view>
+            <view class="admin-section-help">最近 30 天的失败数量、探针结果和脱敏原因。</view>
+          </view>
+          <button
+            class="usage-refresh-button"
+            bindtap="refreshAutoFaceFailureStats"
+            loading="{{autoFaceFailureLoading}}"
+            disabled="{{autoFaceFailureLoading}}"
+          >
+            {{autoFaceFailureLoading ? '刷新中' : '刷新统计'}}
+          </button>
+        </view>
+
+        <view wx:if="{{autoFaceFailureStats.message}}" class="usage-message {{autoFaceFailureStats.unavailable ? 'is-warn' : ''}}">
+          {{autoFaceFailureStats.message}}
+        </view>
+
+        <view class="auto-face-failure-summary">
+          <view class="auto-face-failure-summary-item">
+            <text>今天</text>
+            <text>{{autoFaceFailureStats.today}}</text>
+            <text>失败次数</text>
+          </view>
+          <view class="auto-face-failure-summary-item">
+            <text>最近 7 天</text>
+            <text>{{autoFaceFailureStats.last7d}}</text>
+            <text>失败次数</text>
+          </view>
+          <view class="auto-face-failure-summary-item">
+            <text>最近 30 天</text>
+            <text>{{autoFaceFailureStats.total30d}}</text>
+            <text>失败次数</text>
+          </view>
+        </view>
+
+        <view class="auto-face-probe-summary">
+          <view class="auto-face-probe-summary-item">
+            <text>探针正常</text>
+            <text>{{autoFaceFailureStats.probeSummary.ok}}</text>
+          </view>
+          <view class="auto-face-probe-summary-item">
+            <text>探针失败</text>
+            <text>{{autoFaceFailureStats.probeSummary.failed}}</text>
+          </view>
+          <view class="auto-face-probe-summary-item">
+            <text>未返回</text>
+            <text>{{autoFaceFailureStats.probeSummary.notRun}}</text>
+          </view>
+          <view class="auto-face-probe-summary-item auto-face-probe-summary-wide">
+            <text>涉及线上版本</text>
+            <text>{{autoFaceFailureStats.probeSummary.versionText}}</text>
+          </view>
+        </view>
+
+        <view class="auto-face-failure-subtitle">探针汇总</view>
+        <view class="auto-face-probe-hint">
+          <text>视觉配置已就绪 {{autoFaceFailureStats.probeSummary.visionConfigured}} 次</text>
+          <text>未就绪 {{autoFaceFailureStats.probeSummary.visionUnavailable}} 次</text>
+        </view>
+
+        <view class="auto-face-failure-subtitle">失败类型</view>
+        <view wx:if="{{autoFaceFailureStats.byType.length}}" class="auto-face-failure-type-list">
+          <view wx:for="{{autoFaceFailureStats.byType}}" wx:key="type" class="auto-face-failure-type-row">
+            <view>
+              <text class="auto-face-failure-type-label">{{item.label}}</text>
+              <text class="auto-face-failure-type-last">最近 {{item.lastSeenText}}</text>
+            </view>
+            <text class="auto-face-failure-type-count">{{item.count}} 次</text>
+          </view>
+        </view>
+        <view wx:else class="admin-empty usage-empty">最近 30 天没有自动贴脸失败记录。</view>
+
+        <view class="auto-face-failure-subtitle">最近失败记录</view>
+        <view wx:if="{{autoFaceFailureStats.recent.length}}" class="auto-face-failure-recent-list">
+          <view wx:for="{{autoFaceFailureStats.recent}}" wx:key="createdAtText" class="auto-face-failure-recent-row">
+            <view class="auto-face-failure-recent-top">
+              <text>{{item.createdAtText}} · {{item.failureTypeLabel}}</text>
               <text>{{item.retryable ? '可重试' : '不可重试'}}</text>
             </view>
+            <view class="auto-face-failure-recent-meta">
+              <text>错误码 {{item.errorCode}}</text>
+              <text wx:if="{{item.status}}">HTTP {{item.status}}</text>
+              <text wx:if="{{item.durationMs}}">用时 {{item.durationMs}}ms</text>
+              <text wx:if="{{item.requestId}}">请求 {{item.requestId}}</text>
+            </view>
+            <view class="auto-face-failure-recent-probe">{{item.probeSummaryText}}</view>
+            <view class="auto-face-failure-recent-message">{{item.message}}</view>
           </view>
         </view>
-        <view wx:else class="admin-empty usage-empty">最近统计范围内没有失败记录。</view>
+        <view wx:else class="admin-empty usage-empty">还没有最近失败记录。</view>
       </view>
 
-      <view class="usage-daily-title">最近{{usageStats.days}}天每日明细</view>
-      <scroll-view wx:if="{{usageStats.daily.length}}" class="usage-daily-list" scroll-y>
-        <view wx:for="{{usageStats.daily}}" wx:key="dateKey" class="usage-daily-row">
-          <view class="usage-daily-date">
-            <text>{{item.dateLabel}}</text>
-            <text>合计 {{item.total}} 次</text>
-          </view>
-          <view class="usage-daily-values">
-            <text>生图 {{item.image.total}}</text>
-            <text>人脸 {{item.face.total}}</text>
-            <text>视频 {{item.video.total}}</text>
-          </view>
-          <view class="usage-daily-result">成功 {{item.success}} · 失败 {{item.failure}}</view>
-        </view>
-      </scroll-view>
-      <view wx:else class="admin-empty usage-empty">还没有模型调用记录，部署后有调用就会自动统计。</view>
-
-      <view class="usage-subsection-title">按用户统计</view>
-      <view wx:if="{{usageStats.users.length}}" class="usage-user-list">
-        <view wx:for="{{usageStats.users}}" wx:key="userHash" class="usage-user-row">
-          <view class="usage-user-top">
-            <text>用户 {{item.userHash}}</text>
-            <text>¥{{item.estimatedCost}} · {{item.total}} 次</text>
-          </view>
-          <view class="usage-user-detail">
-            <text>生图 {{item.byType.image.total}}</text>
-            <text>人脸 {{item.byType.face.total}}</text>
-            <text>视频 {{item.byType.video.total}}</text>
-            <text>Token {{item.totalTokens}}</text>
-            <text>视频 {{item.videoDurationSeconds}} 秒</text>
-          </view>
-        </view>
-      </view>
-      <view wx:else class="admin-empty usage-empty">还没有按用户统计的数据。</view>
-
-      <view class="usage-subsection-title">按模型名称分组</view>
-      <view wx:if="{{usageStats.models.length}}" class="usage-model-list">
-        <view wx:for="{{usageStats.models}}" wx:key="model" class="usage-model-row">
-          <view class="usage-model-top">
-            <text>{{item.provider}} / {{item.model}}</text>
-            <text>¥{{item.estimatedCost}} · {{item.total}} 次</text>
-          </view>
-          <view class="usage-user-detail">
-            <text>{{item.usageType}}</text>
-            <text>成功 {{item.success}}</text>
-            <text>失败 {{item.failure}}</text>
-            <text>Token {{item.totalTokens}}</text>
-            <text>视频 {{item.videoDurationSeconds}} 秒</text>
-          </view>
-        </view>
-      </view>
-      <view wx:else class="admin-empty usage-empty">还没有按模型分组的数据。</view>
-
-      <view class="usage-subsection-title">按月份统计</view>
-      <scroll-view wx:if="{{usageStats.monthly.length}}" class="usage-monthly-list" scroll-y>
-        <view wx:for="{{usageStats.monthly}}" wx:key="monthKey" class="usage-monthly-row">
-          <view class="usage-daily-date">
-            <text>{{item.monthKey}}</text>
-            <text>预计 ¥{{item.estimatedCost}} · {{item.total}} 次</text>
-          </view>
-          <view class="usage-daily-values">
-            <text>人脸 ¥{{item.face.estimatedCost}}</text>
-            <text>生图 ¥{{item.image.estimatedCost}}</text>
-            <text>视频 ¥{{item.video.estimatedCost}}</text>
-          </view>
-          <view class="usage-daily-result">Token {{item.totalTokens}} · 视频 {{item.videoDurationSeconds}} 秒</view>
-        </view>
-      </scroll-view>
-      <view wx:else class="admin-empty usage-empty">还没有月度统计数据。</view>
-    </view>
-
-    <view class="card admin-section auto-face-failure-section">
-      <view class="admin-section-head">
-        <view>
-          <view class="admin-section-title">自动贴脸失败统计</view>
-          <view class="admin-section-help">只看最近 30 天的失败数量和脱敏原因，不保存主图和用户身份。</view>
-        </view>
-        <button
-          class="usage-refresh-button"
-          bindtap="refreshAutoFaceFailureStats"
-          loading="{{autoFaceFailureLoading}}"
-          disabled="{{autoFaceFailureLoading}}"
-        >
-          {{autoFaceFailureLoading ? '刷新中' : '刷新统计'}}
-        </button>
-      </view>
-
-      <view wx:if="{{autoFaceFailureStats.message}}" class="usage-message {{autoFaceFailureStats.unavailable ? 'is-warn' : ''}}">
-        {{autoFaceFailureStats.message}}
-      </view>
-
-      <view class="auto-face-failure-summary">
-        <view class="auto-face-failure-summary-item">
-          <text>今天</text>
-          <text>{{autoFaceFailureStats.today}}</text>
-          <text>失败次数</text>
-        </view>
-        <view class="auto-face-failure-summary-item">
-          <text>最近 7 天</text>
-          <text>{{autoFaceFailureStats.last7d}}</text>
-          <text>失败次数</text>
-        </view>
-        <view class="auto-face-failure-summary-item">
-          <text>最近 30 天</text>
-          <text>{{autoFaceFailureStats.total30d}}</text>
-          <text>失败次数</text>
-        </view>
-      </view>
-
-      <view class="auto-face-probe-summary">
-        <view class="auto-face-probe-summary-item">
-          <text>探针正常</text>
-          <text>{{autoFaceFailureStats.probeSummary.ok}}</text>
-        </view>
-        <view class="auto-face-probe-summary-item">
-          <text>探针失败</text>
-          <text>{{autoFaceFailureStats.probeSummary.failed}}</text>
-        </view>
-        <view class="auto-face-probe-summary-item">
-          <text>未返回</text>
-          <text>{{autoFaceFailureStats.probeSummary.notRun}}</text>
-        </view>
-        <view class="auto-face-probe-summary-item auto-face-probe-summary-wide">
-          <text>涉及线上版本</text>
-          <text>{{autoFaceFailureStats.probeSummary.versionText}}</text>
-        </view>
-      </view>
-
-      <view class="auto-face-failure-subtitle">探针汇总</view>
-      <view class="auto-face-probe-hint">
-        <text>视觉配置已就绪 {{autoFaceFailureStats.probeSummary.visionConfigured}} 次</text>
-        <text>未就绪 {{autoFaceFailureStats.probeSummary.visionUnavailable}} 次</text>
-      </view>
-
-      <view class="auto-face-failure-subtitle">失败类型</view>
-      <view wx:if="{{autoFaceFailureStats.byType.length}}" class="auto-face-failure-type-list">
-        <view wx:for="{{autoFaceFailureStats.byType}}" wx:key="type" class="auto-face-failure-type-row">
+      <view class="card admin-section deployment-log-card">
+        <view class="admin-section-head">
           <view>
-            <text class="auto-face-failure-type-label">{{item.label}}</text>
-            <text class="auto-face-failure-type-last">最近 {{item.lastSeenText}}</text>
+            <view class="admin-section-title">部署检查日志</view>
+            <view class="admin-section-help">只记录版本、状态和配置完整性，不记录 Key 和素材。</view>
           </view>
-          <text class="auto-face-failure-type-count">{{item.count}} 次</text>
+          <text class="admin-log-count">{{logs.length}} 条</text>
         </view>
-      </view>
-      <view wx:else class="admin-empty usage-empty">最近 30 天没有自动贴脸失败记录。</view>
-
-      <view class="auto-face-failure-subtitle">最近失败记录</view>
-      <view wx:if="{{autoFaceFailureStats.recent.length}}" class="auto-face-failure-recent-list">
-        <view wx:for="{{autoFaceFailureStats.recent}}" wx:key="createdAtText" class="auto-face-failure-recent-row">
-          <view class="auto-face-failure-recent-top">
-            <text>{{item.createdAtText}} · {{item.failureTypeLabel}}</text>
-            <text>{{item.retryable ? '可重试' : '不可重试'}}</text>
+        <view wx:if="{{!logs.length}}" class="admin-empty">还没有检查记录，点击上面的按钮生成第一条。</view>
+        <view wx:for="{{logs}}" wx:key="checkedAt" class="admin-log-item">
+          <view class="admin-log-top">
+            <text>{{item.checkedAtText}}</text>
+            <text class="{{item.ok ? 'log-ok' : 'log-warn'}}">{{item.statusText}}</text>
           </view>
-          <view class="auto-face-failure-recent-meta">
-            <text>错误码 {{item.errorCode}}</text>
-            <text wx:if="{{item.status}}">HTTP {{item.status}}</text>
-            <text wx:if="{{item.durationMs}}">用时 {{item.durationMs}}ms</text>
-            <text wx:if="{{item.requestId}}">请求 {{item.requestId}}</text>
-          </view>
-          <view class="auto-face-failure-recent-probe">{{item.probeSummaryText}}</view>
-          <view class="auto-face-failure-recent-message">{{item.message}}</view>
+          <view class="admin-log-meta">{{item.buildVersion}} · {{item.buildMarker}}</view>
+          <view class="admin-log-meta">{{item.imageText}} · {{item.videoText}}</view>
         </view>
-      </view>
-      <view wx:else class="admin-empty usage-empty">还没有最近失败记录。</view>
-    </view>
-
-    <view class="card admin-section">
-      <view class="admin-section-head">
-        <view>
-          <view class="admin-section-title">生图模型</view>
-          <view class="admin-section-help">API Key 继续从云函数环境变量读取。</view>
-        </view>
-        <view class="admin-config-state {{effective.image.apiKeyConfigured ? 'is-ready' : 'is-off'}}">
-          {{effective.image.apiKeyConfigured ? 'Key 已配置' : 'Key 未配置'}}
-        </view>
-      </view>
-      <view class="admin-grid">
-        <view class="admin-field"><text>Provider</text><input value="{{form.image.provider}}" data-section="image" data-key="provider" bindinput="onInput" /></view>
-        <view class="admin-field"><text>Model</text><input value="{{form.image.model}}" data-section="image" data-key="model" bindinput="onInput" /></view>
-        <view class="admin-field admin-field-wide"><text>Base URL</text><input value="{{form.image.baseUrl}}" data-section="image" data-key="baseUrl" bindinput="onInput" /></view>
-        <view class="admin-field admin-field-wide"><text>Endpoint（可空）</text><input value="{{form.image.endpoint}}" data-section="image" data-key="endpoint" bindinput="onInput" /></view>
-        <view class="admin-field"><text>模式</text><input value="{{form.image.mode}}" data-section="image" data-key="mode" placeholder="generations / edits" bindinput="onInput" /></view>
-        <view class="admin-field"><text>尺寸</text><input value="{{form.image.size}}" data-section="image" data-key="size" placeholder="1024x1024" bindinput="onInput" /></view>
-        <view class="admin-field"><text>超时毫秒</text><input type="number" value="{{form.image.timeoutMs}}" data-section="image" data-key="timeoutMs" bindinput="onInput" /></view>
-        <view class="admin-field"><text>最大重试</text><input type="number" value="{{form.image.maxRetries}}" data-section="image" data-key="maxRetries" bindinput="onInput" /></view>
-      </view>
-      <label class="admin-checkbox-row">
-        <checkbox value="enabled" checked="{{form.image.retryEnabled}}" bindchange="onRetryChange" color="#1f6feb"></checkbox>
-        <text>允许生图上游请求自动重试</text>
-      </label>
-    </view>
-
-    <view class="card admin-section">
-      <view class="admin-section-head">
-        <view>
-          <view class="admin-section-title">视频模型</view>
-          <view class="admin-section-help">创建任务只发一次，查询任务按配置轮询。</view>
-        </view>
-        <view class="admin-config-state {{effective.video.apiKeyConfigured ? 'is-ready' : 'is-off'}}">
-          {{effective.video.apiKeyConfigured ? 'Key 已配置' : 'Key 未配置'}}
-        </view>
-      </view>
-      <view class="admin-grid">
-        <view class="admin-field"><text>Provider</text><input value="{{form.video.provider}}" data-section="video" data-key="provider" bindinput="onInput" /></view>
-        <view class="admin-field"><text>Model</text><input value="{{form.video.model}}" data-section="video" data-key="model" bindinput="onInput" /></view>
-        <view class="admin-field admin-field-wide"><text>Base URL</text><input value="{{form.video.baseUrl}}" data-section="video" data-key="baseUrl" bindinput="onInput" /></view>
-        <view class="admin-field admin-field-wide"><text>创建 Endpoint（可空）</text><input value="{{form.video.endpoint}}" data-section="video" data-key="endpoint" bindinput="onInput" /></view>
-        <view class="admin-field admin-field-wide"><text>查询 Endpoint（可空）</text><input value="{{form.video.queryEndpoint}}" data-section="video" data-key="queryEndpoint" bindinput="onInput" /></view>
-        <view class="admin-field admin-field-wide"><text>创建路径</text><input value="{{form.video.createPath}}" data-section="video" data-key="createPath" bindinput="onInput" /></view>
-        <view class="admin-field admin-field-wide"><text>查询路径</text><input value="{{form.video.queryPath}}" data-section="video" data-key="queryPath" bindinput="onInput" /></view>
-        <view class="admin-field"><text>清晰度</text><input value="{{form.video.resolution}}" data-section="video" data-key="resolution" bindinput="onInput" /></view>
-        <view class="admin-field"><text>宽高比（可空）</text><input value="{{form.video.aspectRatio}}" data-section="video" data-key="aspectRatio" bindinput="onInput" /></view>
-        <view class="admin-field"><text>超时毫秒</text><input type="number" value="{{form.video.timeoutMs}}" data-section="video" data-key="timeoutMs" bindinput="onInput" /></view>
-      </view>
-    </view>
-
-    <view class="card admin-section">
-      <view class="admin-section-head">
-        <view>
-          <view class="admin-section-title">模型成本配置（人民币）</view>
-          <view class="admin-section-help">用于计算预计成本；供应商没有返回真实用量时会标记为估算。</view>
-        </view>
-        <view class="admin-config-state is-ready">CNY</view>
-      </view>
-      <view class="admin-grid">
-        <view class="admin-field"><text>人脸输入 / 百万Token</text><input type="digit" value="{{form.costs.faceInputPerMillionTokens}}" data-section="costs" data-key="faceInputPerMillionTokens" bindinput="onInput" /></view>
-        <view class="admin-field"><text>人脸输出 / 百万Token</text><input type="digit" value="{{form.costs.faceOutputPerMillionTokens}}" data-section="costs" data-key="faceOutputPerMillionTokens" bindinput="onInput" /></view>
-        <view class="admin-field"><text>生图 1K / 张</text><input type="digit" value="{{form.costs.image1K}}" data-section="costs" data-key="image1K" bindinput="onInput" /></view>
-        <view class="admin-field"><text>生图 2K / 张</text><input type="digit" value="{{form.costs.image2K}}" data-section="costs" data-key="image2K" bindinput="onInput" /></view>
-        <view class="admin-field"><text>生图 4K / 张</text><input type="digit" value="{{form.costs.image4K}}" data-section="costs" data-key="image4K" bindinput="onInput" /></view>
-        <view class="admin-field"><text>视频 480p / 秒</text><input type="digit" value="{{form.costs.video480p}}" data-section="costs" data-key="video480p" bindinput="onInput" /></view>
-        <view class="admin-field"><text>视频 720p / 秒</text><input type="digit" value="{{form.costs.video720p}}" data-section="costs" data-key="video720p" bindinput="onInput" /></view>
-        <view class="admin-field"><text>视频 1080p / 秒</text><input type="digit" value="{{form.costs.video1080p}}" data-section="costs" data-key="video1080p" bindinput="onInput" /></view>
-        <view class="admin-field"><text>视频默认秒数</text><input type="digit" value="{{form.costs.videoDefaultDuration}}" data-section="costs" data-key="videoDefaultDuration" bindinput="onInput" /></view>
-      </view>
-    </view>
-
-    <view class="card admin-section">
-      <view class="admin-section-head">
-        <view>
-          <view class="admin-section-title">签到与积分规则</view>
-          <view class="admin-section-help">活动日期按上海时间判断；积分扣除在提交时执行。</view>
-        </view>
-        <view class="admin-config-state is-ready">已启用</view>
-      </view>
-      <view class="admin-grid">
-        <view class="admin-field"><text>每日免费次数</text><input type="number" value="{{form.points.dailyFreeLimit}}" data-section="points" data-key="dailyFreeLimit" bindinput="onInput" /></view>
-        <view class="admin-field"><text>生图积分</text><input type="number" value="{{form.points.imageCost}}" data-section="points" data-key="imageCost" bindinput="onInput" /></view>
-        <view class="admin-field"><text>视频积分</text><input type="number" value="{{form.points.videoCost}}" data-section="points" data-key="videoCost" bindinput="onInput" /></view>
-        <view class="admin-field"><text>每日签到积分</text><input type="number" value="{{form.points.checkinPoints}}" data-section="points" data-key="checkinPoints" bindinput="onInput" /></view>
-        <view class="admin-field"><text>连续奖励积分</text><input type="number" value="{{form.points.streakBonus}}" data-section="points" data-key="streakBonus" bindinput="onInput" /></view>
-        <view class="admin-field"><text>连续奖励天数</text><input type="number" value="{{form.points.streakDays}}" data-section="points" data-key="streakDays" bindinput="onInput" /></view>
-        <view class="admin-field"><text>活动开始日期</text><input value="{{form.points.promoStartDate}}" data-section="points" data-key="promoStartDate" placeholder="2026-08-23" bindinput="onInput" /></view>
-        <view class="admin-field"><text>活动结束日期</text><input value="{{form.points.promoEndDate}}" data-section="points" data-key="promoEndDate" placeholder="2026-08-24" bindinput="onInput" /></view>
-        <view class="admin-field admin-field-wide"><text>时区</text><input value="{{form.points.timeZone}}" data-section="points" data-key="timeZone" placeholder="Asia/Shanghai" bindinput="onInput" /></view>
-      </view>
-    </view>
-
-    <view class="admin-actions">
-      <button class="primary-btn admin-save-button" bindtap="saveConfig" loading="{{saving}}" disabled="{{saving}}">
-        {{saving ? '保存中...' : '保存模型配置'}}
-      </button>
-      <button class="secondary-btn admin-check-button" bindtap="checkDeployment" loading="{{checking}}" disabled="{{checking}}">
-        {{checking ? '检查中...' : '立即检查线上部署'}}
-      </button>
-    </view>
-
-    <view wx:if="{{deployment}}" class="card admin-section deployment-card">
-      <view class="admin-section-title">当前线上部署</view>
-      <view class="deployment-grid">
-        <view><text>云函数版本</text><text>{{deployment.buildVersion}}</text></view>
-        <view><text>构建标记</text><text>{{deployment.buildMarker}}</text></view>
-        <view><text>生图状态</text><text>{{deployment.image.ready ? '可用' : '未就绪'}}</text></view>
-        <view><text>视频状态</text><text>{{deployment.video.ready ? '可用' : '未就绪'}}</text></view>
-        <view><text>动态配置版本</text><text>{{deployment.runtimeConfigVersion}}</text></view>
-        <view><text>检查时间</text><text>{{deployment.checkedAt}}</text></view>
-      </view>
-    </view>
-
-    <view wx:if="{{autoFaceProbe.available || autoFaceProbe.status === 'failed'}}" class="card admin-section auto-face-probe-card">
-      <view class="admin-section-head">
-        <view>
-          <view class="admin-section-title">自动贴脸探针</view>
-          <view class="admin-section-help">只显示版本、运行时和视觉配置状态，不显示密钥或图片。</view>
-        </view>
-        <text class="{{autoFaceProbe.status === 'ok' ? 'log-ok' : 'log-warn'}}">{{autoFaceProbe.statusText}}</text>
-      </view>
-      <view class="deployment-grid">
-        <view><text>云函数版本</text><text>{{autoFaceProbe.buildVersion || '未知'}}</text></view>
-        <view><text>构建标记</text><text>{{autoFaceProbe.buildMarker || '未知'}}</text></view>
-        <view><text>视觉配置</text><text>{{autoFaceProbe.visionConfigured ? '已就绪' : '未就绪'}}</text></view>
-        <view><text>Provider / Model</text><text>{{autoFaceProbe.provider || '未知'}} / {{autoFaceProbe.model || '未知'}}</text></view>
-        <view><text>Node.js</text><text>{{autoFaceProbe.nodeVersion || '未知'}}</text></view>
-        <view><text>接口耗时</text><text>{{autoFaceProbe.durationText}}</text></view>
-        <view><text>云函数处理耗时</text><text>{{autoFaceProbe.serverDurationText}}</text></view>
-        <view><text>检查时间</text><text>{{autoFaceProbe.checkedAtText}}</text></view>
-      </view>
-      <view wx:if="{{autoFaceProbe.message}}" class="usage-message is-warn">{{autoFaceProbe.message}}</view>
-    </view>
-
-    <view class="card admin-section auto-face-probe-history-card">
-      <view class="admin-section-head">
-        <view>
-          <view class="admin-section-title">探针历史</view>
-          <view class="admin-section-help">
-            保存最近 {{autoFaceProbeHistory.retentionDays}} 天的管理员主动检查，最多显示 20 条。
-          </view>
-        </view>
-        <button class="usage-refresh-button" bindtap="refreshAutoFaceProbeHistory">刷新</button>
-      </view>
-      <view wx:if="{{autoFaceProbeHistory.message}}" class="usage-message {{autoFaceProbeHistory.unavailable ? 'is-warn' : ''}}">
-        {{autoFaceProbeHistory.message}}
-      </view>
-      <view wx:if="{{!autoFaceProbeHistory.history.length && !autoFaceProbeHistory.message}}" class="admin-empty">
-        还没有探针历史，点击上面的“立即检查线上部署”生成第一条。
-      </view>
-      <view wx:for="{{autoFaceProbeHistory.history}}" wx:key="checkedAt" class="auto-face-probe-history-row">
-        <view class="auto-face-probe-history-top">
-          <view>
-            <text class="{{item.status === 'ok' ? 'log-ok' : 'log-warn'}}">{{item.statusText}}</text>
-            <text class="auto-face-probe-history-time">{{item.checkedAtText}}</text>
-          </view>
-          <text class="auto-face-probe-history-duration">{{item.durationText}}</text>
-        </view>
-        <view class="auto-face-probe-history-meta">
-          {{item.buildVersion}} · {{item.visionConfigured ? '视觉配置已就绪' : '视觉配置未就绪'}} · {{item.provider}} / {{item.model}}
-        </view>
-        <view class="auto-face-probe-history-meta">{{item.buildMarker}}</view>
-        <view wx:if="{{item.status === 'failed' && item.errorCode}}" class="auto-face-probe-history-error">
-          错误码：{{item.errorCode}}
-        </view>
-      </view>
-    </view>
-
-    <view class="card admin-section">
-      <view class="admin-section-head">
-        <view>
-          <view class="admin-section-title">部署检查日志</view>
-          <view class="admin-section-help">只记录版本、状态和配置完整性，不记录 Key 和素材。</view>
-        </view>
-        <text class="admin-log-count">{{logs.length}} 条</text>
-      </view>
-      <view wx:if="{{!logs.length}}" class="admin-empty">还没有检查记录，点击上面的按钮生成第一条。</view>
-      <view wx:for="{{logs}}" wx:key="checkedAt" class="admin-log-item">
-        <view class="admin-log-top">
-          <text>{{item.checkedAtText}}</text>
-          <text class="{{item.ok ? 'log-ok' : 'log-warn'}}">{{item.statusText}}</text>
-        </view>
-        <view class="admin-log-meta">{{item.buildVersion}} · {{item.buildMarker}}</view>
-        <view class="admin-log-meta">{{item.imageText}} · {{item.videoText}}</view>
       </view>
     </view>
   </view>

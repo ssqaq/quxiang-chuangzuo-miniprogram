@@ -16,7 +16,7 @@ module.exports = {
     quality: 82,
     minBytes: 262144
   },
-  appVersion: "0.24.4",
+  appVersion: "0.25.0",
   points: {
     dailyFreeLimit: 3,
     imageCost: 10,

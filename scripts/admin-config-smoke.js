@@ -74,8 +74,13 @@ api.main({
 }).then((result) => {
   assert.strictEqual(result.ok, true);
   assert.strictEqual(result.admin, true);
+  assert.ok(result.effective.face.model);
   assert.ok(result.effective.image.model);
   assert.ok(result.effective.video.model);
+  assert.strictEqual(
+    Object.prototype.hasOwnProperty.call(result.effective.face, "apiKey"),
+    false
+  );
   assert.strictEqual(
     Object.prototype.hasOwnProperty.call(result.effective.image, "apiKey"),
     false

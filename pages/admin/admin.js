@@ -53,10 +53,33 @@ function emptyForm() {
 }
 
 const USAGE_TYPE_META = [
-  { key: "image", title: "生图模型", icon: "✦" },
-  { key: "face", title: "人脸识别", icon: "◎" },
-  { key: "video", title: "视频模型", icon: "▶" }
+  { key: "image", title: "生图模型", icon: "图" },
+  { key: "face", title: "人脸识别", icon: "脸" },
+  { key: "video", title: "视频模型", icon: "视" }
 ];
+
+const CONFIG_SECTION_TITLES = Object.freeze({
+  image: "生图模型",
+  video: "视频模型",
+  points: "签到与积分规则",
+  costs: "模型成本配置"
+});
+
+function emptyDashboardStatus() {
+  return {
+    tone: "neutral",
+    title: "等待检查",
+    probeDurationText: "未检查"
+  };
+}
+
+function emptyFaceConfigSummary() {
+  return {
+    provider: "未读取",
+    model: "未读取",
+    ready: false
+  };
+}
 
 function emptyUsageCounter() {
   return {
@@ -330,6 +353,102 @@ function formatAutoFaceProbeHistory(result) {
   });
 }
 
+function buildDashboardStatus(
+  effective,
+  usageStats,
+  autoFaceProbe,
+  autoFaceProbeHistory
+) {
+  const image = effective && effective.image || {};
+  const video = effective && effective.video || {};
+  const configReady = Boolean(
+    image.apiKeyConfigured
+    && image.provider
+    && image.model
+    && video.apiKeyConfigured
+    && video.provider
+    && video.model
+  );
+  const currentProbe = autoFaceProbe || emptyAutoFaceProbe();
+  const history = autoFaceProbeHistory && Array.isArray(autoFaceProbeHistory.history)
+    ? autoFaceProbeHistory.history
+    : [];
+  const latestHistory = history[0] || null;
+  const probeStatus = currentProbe.status && currentProbe.status !== "not-run"
+    ? currentProbe.status
+    : latestHistory
+      ? latestHistory.status
+      : "not-run";
+  const probeDurationText = currentProbe.status && currentProbe.status !== "not-run"
+    && currentProbe.durationText
+    && currentProbe.durationText !== "未知"
+    ? currentProbe.durationText
+    : latestHistory && latestHistory.durationText
+      ? latestHistory.durationText.replace(/^云函数\s*/, "")
+      : "未检查";
+  const todayFailure = Number(
+    usageStats && usageStats.today && usageStats.today.failure
+  ) || 0;
+
+  if (!configReady) {
+    return {
+      tone: "warn",
+      title: "配置未完成",
+      probeDurationText
+    };
+  }
+  if (probeStatus === "failed") {
+    return {
+      tone: "warn",
+      title: "探针异常",
+      probeDurationText
+    };
+  }
+  if (probeStatus === "ok") {
+    return {
+      tone: todayFailure > 0 ? "warn" : "ok",
+      title: todayFailure > 0 ? "运行正常，有失败" : "全部正常",
+      probeDurationText
+    };
+  }
+  return {
+    tone: "neutral",
+    title: "配置已就绪",
+    probeDurationText
+  };
+}
+
+function buildFaceConfigSummary(
+  effective,
+  autoFaceProbe,
+  autoFaceProbeHistory
+) {
+  const face = effective && effective.face || {};
+  const currentProbe = autoFaceProbe || {};
+  const history = autoFaceProbeHistory && Array.isArray(autoFaceProbeHistory.history)
+    ? autoFaceProbeHistory.history
+    : [];
+  const latestHistory = history[0] || {};
+  const provider = face.provider
+    || currentProbe.provider
+    || latestHistory.provider
+    || "未读取";
+  const model = face.model
+    || currentProbe.model
+    || latestHistory.model
+    || "未读取";
+  const ready = Boolean(
+    face.apiKeyConfigured
+    || currentProbe.visionConfigured
+    || latestHistory.visionConfigured
+  );
+  return {
+    provider,
+    model,
+    ready
+  };
+}
+
 function formatUsageStats(result) {
   const source = result || {};
   const summary = source.summary || {};
@@ -593,7 +712,12 @@ Page({
     autoFaceFailureLoading: false,
     autoFaceFailureStats: emptyAutoFaceFailureStats(),
     autoFaceProbe: emptyAutoFaceProbe(),
-    autoFaceProbeHistory: emptyAutoFaceProbeHistory()
+    autoFaceProbeHistory: emptyAutoFaceProbeHistory(),
+    dashboardStatus: emptyDashboardStatus(),
+    faceConfigSummary: emptyFaceConfigSummary(),
+    activeConfigSection: "",
+    activeConfigTitle: "",
+    monitorExpanded: false
   },
 
   onLoad() {
@@ -667,16 +791,28 @@ Page({
           error
         });
       }
+      const effective = result.effective || null;
       this.setData({
         loading: false,
         isAdmin: true,
         form: formFromConfig(result),
         defaults: result.defaults || null,
-        effective: result.effective || null,
+        effective,
         logs: (logs.logs || []).map(displayLog),
         usageStats,
         autoFaceFailureStats,
         autoFaceProbeHistory,
+        dashboardStatus: buildDashboardStatus(
+          effective,
+          usageStats,
+          this.data.autoFaceProbe,
+          autoFaceProbeHistory
+        ),
+        faceConfigSummary: buildFaceConfigSummary(
+          effective,
+          this.data.autoFaceProbe,
+          autoFaceProbeHistory
+        ),
         message: ""
       });
       diagnosticLog.info("admin", "config-loaded", "管理员配置读取完成", {
@@ -693,9 +829,16 @@ Page({
     this.setData({ usageLoading: true });
     try {
       const result = await cloud.getModelUsageStats(30);
+      const usageStats = formatUsageStats(result);
       this.setData({
         usageLoading: false,
-        usageStats: formatUsageStats(result)
+        usageStats,
+        dashboardStatus: buildDashboardStatus(
+          this.data.effective,
+          usageStats,
+          this.data.autoFaceProbe,
+          this.data.autoFaceProbeHistory
+        )
       });
       wx.showToast({ title: "统计已刷新", icon: "success" });
     } catch (error) {
@@ -738,8 +881,20 @@ Page({
   async refreshAutoFaceProbeHistory() {
     try {
       const result = await cloud.getAutoFaceProbeHistory();
+      const autoFaceProbeHistory = formatAutoFaceProbeHistory(result);
       this.setData({
-        autoFaceProbeHistory: formatAutoFaceProbeHistory(result)
+        autoFaceProbeHistory,
+        dashboardStatus: buildDashboardStatus(
+          this.data.effective,
+          this.data.usageStats,
+          this.data.autoFaceProbe,
+          autoFaceProbeHistory
+        ),
+        faceConfigSummary: buildFaceConfigSummary(
+          this.data.effective,
+          this.data.autoFaceProbe,
+          autoFaceProbeHistory
+        )
       });
       wx.showToast({ title: "探针历史已刷新", icon: "success" });
     } catch (error) {
@@ -798,15 +953,57 @@ Page({
     });
   },
 
+  toggleConfigSection(event) {
+    const section = event.currentTarget.dataset.section;
+    if (!CONFIG_SECTION_TITLES[section]) return;
+    const nextSection = this.data.activeConfigSection === section ? "" : section;
+    this.setData({
+      activeConfigSection: nextSection,
+      activeConfigTitle: nextSection ? CONFIG_SECTION_TITLES[nextSection] : ""
+    }, () => {
+      if (nextSection && typeof wx.pageScrollTo === "function") {
+        wx.pageScrollTo({
+          selector: "#config-editor",
+          duration: 220
+        });
+      }
+    });
+  },
+
+  closeConfigSection() {
+    this.setData({
+      activeConfigSection: "",
+      activeConfigTitle: ""
+    });
+  },
+
+  toggleMonitor() {
+    this.setData({
+      monitorExpanded: !this.data.monitorExpanded
+    });
+  },
+
   async saveConfig() {
     if (this.data.saving) return;
     this.setData({ saving: true, message: "" });
     try {
       const result = await cloud.saveAdminConfig(formToConfig(this.data.form));
+      const effective = result.effective || null;
       this.setData({
         form: formFromConfig(result),
-        effective: result.effective || null,
+        effective,
         saving: false,
+        dashboardStatus: buildDashboardStatus(
+          effective,
+          this.data.usageStats,
+          this.data.autoFaceProbe,
+          this.data.autoFaceProbeHistory
+        ),
+        faceConfigSummary: buildFaceConfigSummary(
+          effective,
+          this.data.autoFaceProbe,
+          this.data.autoFaceProbeHistory
+        ),
         message: `配置已保存，第 ${result.version || 0} 版`
       });
       diagnosticLog.info("admin", "config-saved", "管理员配置保存完成", {
@@ -842,19 +1039,33 @@ Page({
         historyError
         || (probeResult && !probeError && probeResult.historyWritten === false)
       );
+      const autoFaceProbe = formatAutoFaceProbe(
+        probeError ? null : probeResult,
+        probeError || null
+      );
+      const autoFaceProbeHistory = historyError
+        ? Object.assign(emptyAutoFaceProbeHistory(), {
+          unavailable: true,
+          message: "探针结果已返回，但历史读取失败。"
+        })
+        : formatAutoFaceProbeHistory(probeHistoryResult);
       this.setData({
         deployment: result,
         logs: (logs.logs || []).map(displayLog),
-        autoFaceProbe: formatAutoFaceProbe(
-          probeError ? null : probeResult,
-          probeError || null
+        autoFaceProbe,
+        autoFaceProbeHistory,
+        dashboardStatus: buildDashboardStatus(
+          this.data.effective,
+          this.data.usageStats,
+          autoFaceProbe,
+          autoFaceProbeHistory
         ),
-        autoFaceProbeHistory: historyError
-          ? Object.assign(emptyAutoFaceProbeHistory(), {
-            unavailable: true,
-            message: "探针结果已返回，但历史读取失败。"
-          })
-          : formatAutoFaceProbeHistory(probeHistoryResult),
+        faceConfigSummary: buildFaceConfigSummary(
+          this.data.effective,
+          autoFaceProbe,
+          autoFaceProbeHistory
+        ),
+        monitorExpanded: true,
         checking: false,
         message: result.logWritten
           ? (

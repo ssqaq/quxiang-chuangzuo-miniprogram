@@ -339,6 +339,7 @@ if (
   || !cloudJs.includes("getAutoFaceProbeHistory")
   || !cloudJs.includes("autoFaceProbeHistoryCutoff")
   || !adminWxml.includes("生图模型")
+  || !adminWxml.includes("人脸识别模型")
   || !adminWxml.includes("视频模型")
   || !adminWxml.includes("立即检查线上部署")
   || !adminWxml.includes("部署检查日志")
@@ -351,6 +352,51 @@ if (
   || !adminWxss.includes(".auto-face-probe-history-row")
 ) {
   throw new Error("管理员配置页或部署检查日志入口不完整。");
+}
+const adminQuickLaunchStyle = adminWxss.match(/\.quick-launch\s*\{([^}]*)\}/);
+const adminConfigRowStyle = adminWxss.match(/\.current-config-row\s*\{([^}]*)\}/);
+const adminCloseButtonStyle = adminWxss.match(/\.config-close-button\s*\{([^}]*)\}/);
+const adminStatusCheckStyle = adminWxss.match(/\.status-check-button\s*\{([^}]*)\}/);
+const adminMonitorToggleStyle = adminWxss.match(/\.monitor-toggle\s*\{([^}]*)\}/);
+const adminUsageCostItemStyle = adminWxss.match(/\.usage-cost-item\s*\{([^}]*)\}/);
+const adminUsageTypeCardStyle = adminWxss.match(/\.usage-type-card\s*\{([^}]*)\}/);
+const adminUsageFailureSummaryStyle = adminWxss.match(/\.usage-failure-summary-item\s*\{([^}]*)\}/);
+const adminFaceProbeSummaryStyle = adminWxss.match(/\.auto-face-probe-summary-item\s*\{([^}]*)\}/);
+if (
+  !adminWxml.includes("线上运行状态")
+  || !adminWxml.includes("模型、积分与成本配置")
+  || !adminWxml.includes("更多监控与历史")
+  || (adminWxml.match(/class="quick-launch /g) || []).length !== 4
+  || adminWxml.includes('class="console-back"') && adminWxml.includes("<button class=\"console-back\"")
+  || !adminQuickLaunchStyle
+  || !/width:\s*0/.test(adminQuickLaunchStyle[1])
+  || !/flex:\s*1/.test(adminQuickLaunchStyle[1])
+  || !adminConfigRowStyle
+  || !/width:\s*100%/.test(adminConfigRowStyle[1])
+  || !adminCloseButtonStyle
+  || !/display:\s*flex/.test(adminCloseButtonStyle[1])
+  || !/align-items:\s*center/.test(adminCloseButtonStyle[1])
+  || !/justify-content:\s*center/.test(adminCloseButtonStyle[1])
+  || !adminStatusCheckStyle
+  || !/display:\s*flex/.test(adminStatusCheckStyle[1])
+  || !/align-items:\s*center/.test(adminStatusCheckStyle[1])
+  || !/justify-content:\s*center/.test(adminStatusCheckStyle[1])
+  || !adminMonitorToggleStyle
+  || !/width:\s*100%/.test(adminMonitorToggleStyle[1])
+  || !adminUsageCostItemStyle
+  || !/align-items:\s*center/.test(adminUsageCostItemStyle[1])
+  || !/justify-content:\s*center/.test(adminUsageCostItemStyle[1])
+  || !adminUsageTypeCardStyle
+  || !/align-items:\s*center/.test(adminUsageTypeCardStyle[1])
+  || !/justify-content:\s*center/.test(adminUsageTypeCardStyle[1])
+  || !adminUsageFailureSummaryStyle
+  || !/align-items:\s*center/.test(adminUsageFailureSummaryStyle[1])
+  || !/justify-content:\s*center/.test(adminUsageFailureSummaryStyle[1])
+  || !adminFaceProbeSummaryStyle
+  || !/align-items:\s*center/.test(adminFaceProbeSummaryStyle[1])
+  || !/justify-content:\s*center/.test(adminFaceProbeSummaryStyle[1])
+) {
+  throw new Error("方案9管理页入口均分、全宽卡片或统计内容居中样式不完整。");
 }
 if (
   !clientCloudJs.includes('action: "getModelUsageStats"')

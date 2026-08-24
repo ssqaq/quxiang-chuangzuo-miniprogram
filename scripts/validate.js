@@ -69,6 +69,7 @@ const jsFiles = [
   "scripts/video-provider-smoke.js",
   "scripts/admin-config-smoke.js",
   "scripts/analysis-model-smoke.js",
+  "scripts/analysis-cost-probe-smoke.js",
   "scripts/user-profile-smoke.js",
   "scripts/database-init-smoke.js",
   "scripts/points-checkin-smoke.js",
@@ -191,6 +192,7 @@ const required = [
   "scripts/init-cloud-database.ps1",
   "scripts/points-checkin-smoke.js",
   "scripts/model-cost-stats-smoke.js",
+  "scripts/analysis-cost-probe-smoke.js",
   "scripts/auto-face-failure-stats-smoke.js",
   "cloudfunctions/api/index.js",
   "cloudfunctions/api/config.json",
@@ -480,8 +482,17 @@ if (
   || !adminWxss.includes(".admin-user-list")
   || !adminWxss.includes(".quick-launch.is-abnormal")
   || !adminWxss.includes(".copy-error-button")
+  || !adminJs.includes("copyFaceConfigToAnalysis")
+  || !adminJs.includes("cloud.probeModels()")
+  || !adminJs.includes("analysisInputPerMillionTokens")
+  || !adminWxml.includes("复制人脸配置")
+  || !adminWxml.includes("探测四套模型")
+  || !adminWxml.includes("图片分析输入 / 百万Token")
+  || !adminWxml.includes("usageTypeLabel")
+  || !adminWxss.includes(".config-tool-button")
+  || !adminWxss.includes(".model-probe-row")
 ) {
-  throw new Error("人脸配置、用户统计、成本趋势、异常变红、一键刷新或复制错误不完整。");
+  throw new Error("模型配置、图片分析价格、接口探测、失败类型或复制配置功能不完整。");
 }
 if (
   !clientCloudJs.includes('action: "getModelUsageStats"')
@@ -524,6 +535,12 @@ if (
   || !cloudJs.includes("shiftMonthKey")
   || !cloudJs.includes("MODEL_COST_CONFIG_VERSION")
   || !cloudJs.includes("analysis.estimatedCost")
+  || !cloudJs.includes("costs.analysis")
+  || !cloudJs.includes("modelErrorMessage")
+  || !cloudJs.includes("probeOneModel")
+  || !cloudJs.includes('action === "probeModels"')
+  || !clientCloudJs.includes('action: "probeModels"')
+  || !fs.existsSync(path.join(root, "scripts/analysis-cost-probe-smoke.js"))
 ) {
   throw new Error("模型成本、按用户/模型、月度统计或 Excel 导出功能不完整。");
 }

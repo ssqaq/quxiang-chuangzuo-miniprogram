@@ -55,6 +55,8 @@ function emptyForm() {
     costs: {
       faceInputPerMillionTokens: "0.15",
       faceOutputPerMillionTokens: "1.5",
+      analysisInputPerMillionTokens: "0.15",
+      analysisOutputPerMillionTokens: "1.5",
       image1K: "0.015",
       image2K: "0.025",
       image4K: "0.035",
@@ -72,6 +74,11 @@ const USAGE_TYPE_META = [
   { key: "image", title: "生图模型", icon: "生" },
   { key: "video", title: "视频模型", icon: "视" }
 ];
+
+function usageTypeLabel(type) {
+  const item = USAGE_TYPE_META.find((entry) => entry.key === type);
+  return item ? item.title : "模型";
+}
 
 // 控制台首页只展示到小数点后 4 位，底层统计金额仍保留原值。
 function formatCostDisplay(value) {
@@ -220,6 +227,21 @@ function emptyAutoFaceProbe() {
     serverDurationText: "未知",
     checkedAtText: "未知时间",
     errorCode: "",
+    message: ""
+  };
+}
+
+function emptyModelProbes() {
+  return {
+    available: false,
+    status: "not-run",
+    statusText: "尚未探测",
+    buildVersion: "",
+    buildMarker: "",
+    checkedAtText: "未知时间",
+    readyCount: 0,
+    total: 4,
+    results: [],
     message: ""
   };
 }
@@ -465,6 +487,46 @@ function formatAutoFaceProbe(result, error = null) {
   return probe;
 }
 
+function formatModelProbes(result, error = null) {
+  const source = result || {};
+  const failed = Boolean(error) || source.ok === false && !Array.isArray(source.results);
+  const results = (Array.isArray(source.results) ? source.results : []).map((item) => ({
+    type: item.type || "",
+    typeLabel: item.typeLabel || usageTypeLabel(item.type),
+    provider: item.provider || "未填写",
+    model: item.model || "未填写",
+    configured: Boolean(item.configured),
+    ready: Boolean(item.ready),
+    reachable: Boolean(item.reachable),
+    status: item.status || "network-error",
+    statusText: item.statusText || (item.ready ? "正常" : "需要处理"),
+    httpStatus: Number(item.httpStatus) || 0,
+    durationMs: Number(item.durationMs) || 0,
+    durationText: `${Number(item.durationMs) || 0} 毫秒`,
+    endpoint: item.endpoint || "",
+    message: item.message || ""
+  }));
+  const readyCount = Number(source.readyCount);
+  const total = Number(source.total) || 4;
+  const normalizedReadyCount = Number.isFinite(readyCount)
+    ? readyCount
+    : results.filter((item) => item.ready).length;
+  return Object.assign(emptyModelProbes(), {
+    available: !failed,
+    status: failed ? "failed" : normalizedReadyCount === total ? "ok" : "warn",
+    statusText: failed
+      ? `探测失败${error && error.code ? `：${error.code}` : ""}`
+      : `${normalizedReadyCount}/${total} 套正常`,
+    buildVersion: source.buildVersion || "",
+    buildMarker: source.buildMarker || "",
+    checkedAtText: source.checkedAt ? formatAdminDate(source.checkedAt) : formatAdminDate(new Date()),
+    readyCount: normalizedReadyCount,
+    total,
+    results,
+    message: error && error.message || source.message || ""
+  });
+}
+
 function formatAutoFaceProbeHistory(result) {
   const source = result || {};
   const history = Array.isArray(source.history) ? source.history : [];
@@ -697,6 +759,7 @@ function formatUsageStats(result) {
       rate: Number(item.rate) || 0,
       lastSeen: item.lastSeen || "",
       usageType: item.usageType || "",
+      usageTypeLabel: item.usageTypeLabel || usageTypeLabel(item.usageType),
       provider: item.provider || "",
       model: item.model || "",
       status: Number(item.status) || 0,
@@ -707,6 +770,7 @@ function formatUsageStats(result) {
       : []
     ).map((item) => ({
       usageType: item.usageType || "",
+      usageTypeLabel: item.usageTypeLabel || usageTypeLabel(item.usageType),
       provider: item.provider || "未知 Provider",
       model: item.model || "未知模型",
       total: Number(item.total) || 0,
@@ -719,6 +783,7 @@ function formatUsageStats(result) {
     ).map((item) => ({
       createdAtText: formatAdminDate(item.createdAt || item.dateKey),
       usageType: item.usageType || "unknown",
+      usageTypeLabel: item.usageTypeLabel || usageTypeLabel(item.usageType),
       provider: item.provider || "未知 Provider",
       model: item.model || "未知模型",
       requestId: item.requestId || "",
@@ -943,8 +1008,16 @@ function formFromConfig(result) {
     costs: {
       faceInputPerMillionTokens: String(faceCosts.inputPerMillionTokens || 0.15),
       faceOutputPerMillionTokens: String(faceCosts.outputPerMillionTokens || 1.5),
-      analysisInputPerMillionTokens: String(analysisCosts.inputPerMillionTokens || faceCosts.inputPerMillionTokens || 0.15),
-      analysisOutputPerMillionTokens: String(analysisCosts.outputPerMillionTokens || faceCosts.outputPerMillionTokens || 1.5),
+      analysisInputPerMillionTokens: String(
+        analysisCosts.inputPerMillionTokens !== undefined
+          ? analysisCosts.inputPerMillionTokens
+          : faceCosts.inputPerMillionTokens || 0.15
+      ),
+      analysisOutputPerMillionTokens: String(
+        analysisCosts.outputPerMillionTokens !== undefined
+          ? analysisCosts.outputPerMillionTokens
+          : faceCosts.outputPerMillionTokens || 1.5
+      ),
       image1K: String(imageCosts.perImage && imageCosts.perImage["1K"] || 0.015),
       image2K: String(imageCosts.perImage && imageCosts.perImage["2K"] || 0.025),
       image4K: String(imageCosts.perImage && imageCosts.perImage["4K"] || 0.035),
@@ -1068,6 +1141,7 @@ function safeCopyValue(value, fallback = "无") {
 function modelFailureCopyText(item = {}) {
   return [
     `发生时间：${safeCopyValue(item.createdAtText, "未知时间")}`,
+    `功能类型：${safeCopyValue(item.usageTypeLabel || usageTypeLabel(item.usageType))}`,
     `模型和服务商：${safeCopyValue(item.provider)} / ${safeCopyValue(item.model)}`,
     `错误码：${safeCopyValue(item.errorCode)}`,
     `接口状态：${item.errorStatus ? `HTTP ${item.errorStatus}` : "无"}`,
@@ -1096,6 +1170,7 @@ Page({
     canRetry: false,
     saving: false,
     checking: false,
+    modelProbing: false,
     refreshingAll: false,
     isAdmin: false,
     form: emptyForm(),
@@ -1115,6 +1190,7 @@ Page({
     autoFaceFailureStats: emptyAutoFaceFailureStats(),
     autoFaceProbe: emptyAutoFaceProbe(),
     autoFaceProbeHistory: emptyAutoFaceProbeHistory(),
+    modelProbes: emptyModelProbes(),
     moduleStates: emptyAdminModuleStates(),
     todayFailureText: "读取中",
     probeHistoryLoading: false,
@@ -1734,6 +1810,21 @@ Page({
     });
   },
 
+  copyFaceConfigToAnalysis() {
+    const face = this.data.form && this.data.form.face
+      ? this.data.form.face
+      : emptyForm().face;
+    this.setData({
+      "form.analysis.provider": face.provider || "",
+      "form.analysis.baseUrl": face.baseUrl || "",
+      "form.analysis.endpoint": face.endpoint || "",
+      "form.analysis.model": face.model || "",
+      "form.analysis.timeoutMs": String(face.timeoutMs || "30000"),
+      message: "已复制人脸配置到图片分析；点击“保存全部配置”后才会生效。"
+    });
+    wx.showToast({ title: "已复制，记得保存", icon: "none" });
+  },
+
   toggleConfigSection(event) {
     const section = event.currentTarget.dataset.section;
     if (!CONFIG_SECTION_TITLES[section]) return;
@@ -1878,15 +1969,58 @@ Page({
     }
   },
 
+  async probeModels() {
+    if (this.data.modelProbing) return;
+    this.setData({
+      modelProbing: true,
+      message: "正在探测四套模型接口..."
+    });
+    try {
+      const result = await cloud.probeModels();
+      const modelProbes = formatModelProbes(result);
+      this.setData({
+        modelProbing: false,
+        modelProbes,
+        monitorExpanded: true,
+        message: `模型接口探测完成：${modelProbes.readyCount}/${modelProbes.total} 套正常。`
+      });
+      wx.showToast({
+        title: modelProbes.readyCount === modelProbes.total
+          ? "四套模型均正常"
+          : `${modelProbes.readyCount}/${modelProbes.total} 套正常`,
+        icon: modelProbes.readyCount === modelProbes.total ? "success" : "none"
+      });
+    } catch (error) {
+      const modelProbes = formatModelProbes(error && error.payload, error);
+      this.setData({
+        modelProbing: false,
+        modelProbes,
+        monitorExpanded: true,
+        message: "四套模型接口探测失败，请查看结果说明。"
+      });
+      diagnosticLog.error("admin", "model-probe-failed", "四套模型接口探测失败", {
+        error
+      });
+      this.showError("探测失败", error);
+    }
+  },
+
   backToWorkbench() {
     wx.reLaunch({ url: "/pages/workbench/workbench" });
   },
 
   showError(title, error) {
     const payload = error && error.payload;
-    const message = (payload && (payload.message || payload.error))
+    const originalMessage = (payload && (payload.message || payload.error))
       || (error && error.message)
       || "请稍后重试";
+    const modelTypeLabel = payload && payload.modelTypeLabel
+      ? String(payload.modelTypeLabel)
+      : "";
+    const message = modelTypeLabel
+      && !String(originalMessage).startsWith(`${modelTypeLabel}模型：`)
+      ? `${modelTypeLabel}模型：${originalMessage}`
+      : originalMessage;
     wx.showModal({
       title,
       content: String(message),

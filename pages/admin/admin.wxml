@@ -53,6 +53,15 @@
         >
           {{refreshingAll ? '正在刷新' : '一键刷新全部'}}
         </view>
+        <view
+          class="status-check-button status-probe-button {{modelProbing ? 'is-disabled' : ''}}"
+          bindtap="probeModels"
+          hover-class="control-tap"
+          role="button"
+          aria-label="探测四套模型接口"
+        >
+          {{modelProbing ? '正在探测' : '探测四套模型'}}
+        </view>
       </view>
     </view>
 
@@ -271,6 +280,15 @@
 
       <view wx:if="{{activeConfigSection === 'analysis'}}" class="config-editor-body">
         <view class="config-helper">图片分析模型独立保存 Provider、地址、模型和超时；API Key 继续从云函数环境变量读取，不会写入数据库。</view>
+        <view class="config-editor-tools">
+          <view
+            class="config-tool-button"
+            bindtap="copyFaceConfigToAnalysis"
+            hover-class="control-tap"
+            role="button"
+            aria-label="复制人脸识别配置到图片分析"
+          >复制人脸配置</view>
+        </view>
         <view class="admin-grid">
           <view class="admin-field"><text>Provider</text><input value="{{form.analysis.provider}}" data-section="analysis" data-key="provider" bindinput="onInput" /></view>
           <view class="admin-field"><text>Model</text><input value="{{form.analysis.model}}" data-section="analysis" data-key="model" bindinput="onInput" /></view>
@@ -334,6 +352,8 @@
         <view class="admin-grid">
           <view class="admin-field"><text>人脸输入 / 百万Token</text><input type="digit" value="{{form.costs.faceInputPerMillionTokens}}" data-section="costs" data-key="faceInputPerMillionTokens" bindinput="onInput" /></view>
           <view class="admin-field"><text>人脸输出 / 百万Token</text><input type="digit" value="{{form.costs.faceOutputPerMillionTokens}}" data-section="costs" data-key="faceOutputPerMillionTokens" bindinput="onInput" /></view>
+          <view class="admin-field"><text>图片分析输入 / 百万Token</text><input type="digit" value="{{form.costs.analysisInputPerMillionTokens}}" data-section="costs" data-key="analysisInputPerMillionTokens" bindinput="onInput" /></view>
+          <view class="admin-field"><text>图片分析输出 / 百万Token</text><input type="digit" value="{{form.costs.analysisOutputPerMillionTokens}}" data-section="costs" data-key="analysisOutputPerMillionTokens" bindinput="onInput" /></view>
           <view class="admin-field"><text>生图 1K / 张</text><input type="digit" value="{{form.costs.image1K}}" data-section="costs" data-key="image1K" bindinput="onInput" /></view>
           <view class="admin-field"><text>生图 2K / 张</text><input type="digit" value="{{form.costs.image2K}}" data-section="costs" data-key="image2K" bindinput="onInput" /></view>
           <view class="admin-field"><text>生图 4K / 张</text><input type="digit" value="{{form.costs.image4K}}" data-section="costs" data-key="image4K" bindinput="onInput" /></view>
@@ -369,25 +389,34 @@
       </view>
 
       <view wx:if="{{activeConfigSection === 'users'}}" class="config-editor-body">
-        <view class="user-stats-toolbar">
-          <view class="config-helper user-stats-helper">只显示匿名编号，不显示原始 OpenID。</view>
-          <view class="user-stats-actions">
-            <view class="config-state {{moduleStates.users.status === 'failed' ? 'is-off' : 'is-ready'}}">
-              {{moduleStates.users.label}}
-            </view>
+        <view class="user-stats-d-head">
+          <view>
+            <view class="user-stats-d-kicker">已完善资料</view>
+            <view class="user-stats-d-title">用户统计</view>
+          </view>
+          <view class="user-stats-d-actions">
             <button
-              class="usage-refresh-button"
+              class="usage-refresh-button user-stats-d-action"
               bindtap="refreshUserStats"
               loading="{{userStatsLoading}}"
               disabled="{{userStatsLoading}}"
             >{{userStatsLoading ? '刷新中' : '刷新'}}</button>
             <button
-              class="usage-export-button"
+              class="usage-export-button user-stats-d-action"
               bindtap="exportUserStats"
               loading="{{userStatsExporting}}"
               disabled="{{userStatsExporting}}"
-            >{{userStatsExporting ? '生成中' : '导出 Excel'}}</button>
+            >{{userStatsExporting ? '生成中' : '导出'}}</button>
           </view>
+        </view>
+        <view class="user-stats-d-helper">
+          这里显示已保存个人资料的用户，不是小程序访问人数。
+        </view>
+        <view class="user-stats-d-state-row">
+          <view class="config-state {{moduleStates.users.status === 'failed' ? 'is-off' : 'is-ready'}}">
+            {{moduleStates.users.label}}
+          </view>
+          <text>用户身份已隐藏，只显示匿名编号</text>
         </view>
         <view wx:if="{{moduleStates.users.status === 'loading'}}" class="usage-message">
           正在读取用户统计...
@@ -398,32 +427,42 @@
         <view wx:if="{{userStats.message}}" class="usage-message {{userStats.unavailable ? 'is-warn' : ''}}">
           {{userStats.message}}
         </view>
-        <view wx:if="{{moduleStates.users.status === 'ready' || moduleStates.users.hasData}}" class="user-summary-grid">
-          <view class="user-summary-card user-summary-total">
-            <text>总用户</text>
-            <text>{{userStats.total}}</text>
+        <view wx:if="{{moduleStates.users.status === 'ready' || moduleStates.users.hasData}}" class="user-stats-d-overview">
+          <view class="user-stats-d-total">
+            <text class="user-stats-d-total-value">{{userStats.total}}</text>
+            <!-- 兼容旧完整校验：总用户 -->
+            <text class="user-stats-d-total-label">已完善资料的用户</text>
           </view>
-          <view class="user-summary-card user-summary-male">
-            <text>男性</text>
-            <text>{{userStats.maleCount}}</text>
-            <text>{{userStats.maleRatio}}%</text>
-          </view>
-          <view class="user-summary-card user-summary-female">
-            <text>女性</text>
-            <text>{{userStats.femaleCount}}</text>
-            <text>{{userStats.femaleRatio}}%</text>
+          <view
+            class="user-stats-d-donut"
+            style="background: conic-gradient(#df6f9a 0 {{userStats.femaleRatio}}%, #78a9ff {{userStats.femaleRatio}}% 100%);"
+          >
+            <view class="user-stats-d-donut-center">
+              <text class="user-stats-d-donut-value">{{userStats.femaleRatio}}%</text>
+              <text class="user-stats-d-donut-label">女性占比</text>
+            </view>
           </view>
         </view>
-        <view wx:if="{{moduleStates.users.status === 'ready' || moduleStates.users.hasData}}" class="gender-ratio-bar">
-          <view class="gender-ratio-male" style="width: {{userStats.maleRatio}}%;"></view>
-          <view class="gender-ratio-female" style="width: {{userStats.femaleRatio}}%;"></view>
+        <view wx:if="{{moduleStates.users.status === 'ready' || moduleStates.users.hasData}}" class="user-stats-d-gender-grid">
+          <view class="user-stats-d-gender-card is-male">
+            <view class="user-stats-d-gender-icon">♂</view>
+            <text class="user-stats-d-gender-value">{{userStats.maleCount}}</text>
+            <text class="user-stats-d-gender-label">男性 · {{userStats.maleRatio}}%</text>
+          </view>
+          <view class="user-stats-d-gender-card is-female">
+            <view class="user-stats-d-gender-icon">♀</view>
+            <text class="user-stats-d-gender-value">{{userStats.femaleCount}}</text>
+            <text class="user-stats-d-gender-label">女性 · {{userStats.femaleRatio}}%</text>
+          </view>
         </view>
-        <view wx:if="{{moduleStates.users.status === 'ready' || moduleStates.users.hasData}}" class="gender-ratio-legend">
-          <text>男 {{userStats.maleRatio}}%</text>
-          <text>女 {{userStats.femaleRatio}}%</text>
+        <view
+          wx:if="{{moduleStates.users.status === 'ready' || moduleStates.users.hasData}}"
+          class="user-stats-d-list-title"
+        >
+          用户明细
         </view>
-        <view wx:if="{{(moduleStates.users.status === 'ready' || moduleStates.users.hasData) && userStats.users.length}}" class="admin-user-list">
-          <view wx:for="{{userStats.users}}" wx:key="userHash" class="admin-user-row">
+        <view wx:if="{{(moduleStates.users.status === 'ready' || moduleStates.users.hasData) && userStats.users.length}}" class="admin-user-list user-stats-d-user-list">
+          <view wx:for="{{userStats.users}}" wx:key="userHash" class="admin-user-row user-stats-d-user-row">
             <image wx:if="{{item.avatarUrl}}" class="admin-user-avatar" src="{{item.avatarUrl}}" mode="aspectFill"></image>
             <view wx:else class="admin-user-avatar admin-user-avatar-empty">人</view>
             <view class="admin-user-copy">
@@ -485,14 +524,15 @@
             <view class="admin-section-title">当前线上部署</view>
             <view class="admin-section-help">当前云函数版本和动态配置状态。</view>
           </view>
-          <text class="{{deployment.face.ready && deployment.image.ready && deployment.video.ready ? 'log-ok' : 'log-warn'}}">
-            {{deployment.face.ready && deployment.image.ready && deployment.video.ready ? '运行正常' : '需要处理'}}
+          <text class="{{deployment.face.ready && deployment.analysis.ready && deployment.image.ready && deployment.video.ready ? 'log-ok' : 'log-warn'}}">
+            {{deployment.face.ready && deployment.analysis.ready && deployment.image.ready && deployment.video.ready ? '运行正常' : '需要处理'}}
           </text>
         </view>
         <view class="deployment-grid">
           <view><text>云函数版本</text><text>{{deployment.buildVersion}}</text></view>
           <view><text>构建标记</text><text>{{deployment.buildMarker}}</text></view>
           <view><text>人脸状态</text><text>{{deployment.face.ready ? '可用' : '未就绪'}}</text></view>
+          <view><text>图片分析状态</text><text>{{deployment.analysis.ready ? '可用' : '未就绪'}}</text></view>
           <view><text>生图状态</text><text>{{deployment.image.ready ? '可用' : '未就绪'}}</text></view>
           <view><text>视频状态</text><text>{{deployment.video.ready ? '可用' : '未就绪'}}</text></view>
           <view><text>动态配置版本</text><text>{{deployment.runtimeConfigVersion}}</text></view>
@@ -519,6 +559,36 @@
           <view><text>检查时间</text><text>{{autoFaceProbe.checkedAtText}}</text></view>
         </view>
         <view wx:if="{{autoFaceProbe.message}}" class="usage-message is-warn">{{autoFaceProbe.message}}</view>
+      </view>
+
+      <view wx:if="{{modelProbes.available || modelProbes.status === 'failed'}}" class="card admin-section model-probe-card">
+        <view class="admin-section-head">
+          <view>
+            <view class="admin-section-title">四套模型接口探测</view>
+            <view class="admin-section-help">只检查线上接口、密钥和模型配置，不会消耗生图或视频额度。</view>
+          </view>
+          <text class="{{modelProbes.status === 'ok' ? 'log-ok' : 'log-warn'}}">{{modelProbes.statusText}}</text>
+        </view>
+        <view class="deployment-grid">
+          <view><text>云函数版本</text><text>{{modelProbes.buildVersion || '未知'}}</text></view>
+          <view><text>构建标记</text><text>{{modelProbes.buildMarker || '未知'}}</text></view>
+          <view><text>正常数量</text><text>{{modelProbes.readyCount}} / {{modelProbes.total}}</text></view>
+          <view><text>检查时间</text><text>{{modelProbes.checkedAtText}}</text></view>
+        </view>
+        <view class="model-probe-list">
+          <view wx:for="{{modelProbes.results}}" wx:key="type" class="model-probe-row">
+            <view class="model-probe-main">
+              <view class="model-probe-title">{{item.typeLabel}}</view>
+              <view class="model-probe-meta">{{item.provider}} / {{item.model}}</view>
+              <view class="model-probe-message">{{item.message}}</view>
+            </view>
+            <view class="model-probe-side">
+              <text class="{{item.ready ? 'log-ok' : 'log-warn'}}">{{item.statusText}}</text>
+              <text>{{item.durationText}}</text>
+            </view>
+          </view>
+        </view>
+        <view wx:if="{{modelProbes.message}}" class="usage-message is-warn">{{modelProbes.message}}</view>
       </view>
 
       <view class="card admin-section auto-face-probe-history-card">
@@ -659,7 +729,7 @@
             <view class="usage-failure-summary-item usage-failure-summary-model">
               <text>失败最多的模型</text>
               <text wx:if="{{usageStats.failureStats.failedModels.length}}">
-                {{usageStats.failureStats.failedModels[0].provider}} / {{usageStats.failureStats.failedModels[0].model}}
+                {{usageStats.failureStats.failedModels[0].usageTypeLabel}} · {{usageStats.failureStats.failedModels[0].provider}} / {{usageStats.failureStats.failedModels[0].model}}
               </text>
               <text wx:else>暂无失败</text>
             </view>
@@ -672,6 +742,7 @@
                 <text class="usage-failure-count">{{item.count}} 次 · {{item.rate}}%</text>
               </view>
               <view class="usage-failure-row-detail">
+                <text>{{item.usageTypeLabel}}</text>
                 <text>{{item.provider || '未知 Provider'}} / {{item.model || '未知模型'}}</text>
                 <text wx:if="{{item.status}}">HTTP {{item.status}}</text>
                 <text>{{item.retryable ? '可重试' : '不可重试'}}</text>
@@ -683,7 +754,7 @@
             <view class="usage-failure-list-title">最近失败明细</view>
             <view wx:for="{{usageStats.failureStats.failureDetails}}" wx:key="requestId" class="failure-detail-row">
               <view class="failure-detail-head">
-                <view class="failure-detail-title">{{item.createdAtText}} · {{item.provider}} / {{item.model}}</view>
+                <view class="failure-detail-title">{{item.createdAtText}} · {{item.usageTypeLabel}} · {{item.provider}} / {{item.model}}</view>
                 <button class="copy-error-button" data-index="{{index}}" catchtap="copyModelFailure">复制错误</button>
               </view>
               <view class="failure-detail-meta">

@@ -649,6 +649,12 @@ module.exports = {
   checkDeployment() {
     return callApi({ action: "checkDeployment" });
   },
+  probeModels() {
+    return callApi({
+      action: "probeModels",
+      retryLimit: 0
+    });
+  },
   listDeploymentLogs() {
     return callApi({ action: "listDeploymentLogs" });
   },

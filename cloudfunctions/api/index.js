@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.28.6";
-const API_BUILD_MARKER = "API_BUILD_TAG_20260824_ANALYSIS_MODEL_V284";
+const API_BUILD_VERSION = "0.29.0";
+const API_BUILD_MARKER = "API_BUILD_TAG_20260824_ANALYSIS_ADMIN_V290";
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
 const cloud = require("wx-server-sdk");
@@ -22,6 +22,12 @@ const ADMIN_DEPLOYMENT_LOG_COLLECTION = "admin_deployment_logs";
 const MODEL_USAGE_EVENT_COLLECTION = "model_usage_events";
 const MODEL_USAGE_TIME_ZONE = "Asia/Shanghai";
 const MODEL_USAGE_TYPES = ["image", "analysis", "face", "video"];
+const MODEL_USAGE_TYPE_LABELS = {
+  image: "生图",
+  analysis: "图片分析",
+  face: "人脸识别",
+  video: "视频"
+};
 const AUTO_FACE_FAILURE_LOG_COLLECTION = "auto_face_failure_logs";
 const AUTO_FACE_FAILURE_TIME_ZONE = "Asia/Shanghai";
 const AUTO_FACE_PROBE_LOG_COLLECTION = "auto_face_probe_logs";
@@ -307,7 +313,7 @@ function resolveVideoConfig(overrides = {}) {
         ) || 90000
       )
     ),
-    configured: Boolean(provider && (baseUrl || endpoint) && apiKey && model)
+    configured: Boolean(provider && (baseUrl || endpointValue) && apiKey && model)
   };
 }
 
@@ -379,6 +385,7 @@ function resolvePointsConfig(overrides = {}) {
 function resolveCostConfig(overrides = {}) {
   const costs = overrides && overrides.costs ? overrides.costs : overrides;
   const face = costs && costs.face ? costs.face : {};
+  const analysis = costs && costs.analysis ? costs.analysis : {};
   const image = costs && costs.image ? costs.image : {};
   const video = costs && costs.video ? costs.video : {};
   const imagePrices = image.perImage && typeof image.perImage === "object"
@@ -387,19 +394,35 @@ function resolveCostConfig(overrides = {}) {
   const videoPrices = video.perSecond && typeof video.perSecond === "object"
     ? video.perSecond
     : {};
+  const faceInputPerMillionTokens = clampNumber(
+    face.inputPerMillionTokens,
+    0.15,
+    0,
+    100000
+  );
+  const faceOutputPerMillionTokens = clampNumber(
+    face.outputPerMillionTokens,
+    1.5,
+    0,
+    100000
+  );
   return {
     currency: "CNY",
     version: MODEL_COST_CONFIG_VERSION,
     face: {
+      inputPerMillionTokens: faceInputPerMillionTokens,
+      outputPerMillionTokens: faceOutputPerMillionTokens
+    },
+    analysis: {
       inputPerMillionTokens: clampNumber(
-        face.inputPerMillionTokens,
-        0.15,
+        analysis.inputPerMillionTokens,
+        faceInputPerMillionTokens,
         0,
         100000
       ),
       outputPerMillionTokens: clampNumber(
-        face.outputPerMillionTokens,
-        1.5,
+        analysis.outputPerMillionTokens,
+        faceOutputPerMillionTokens,
         0,
         100000
       )
@@ -547,11 +570,12 @@ function buildUsageBilling(meta = {}, response = {}, costs = resolveCostConfig()
   if (usageType === "face" || usageType === "analysis") {
     const usage = extractModelUsage(payload);
     if (usage.inputTokens === null || usage.outputTokens === null) return base;
+    const tokenCosts = usageType === "analysis" ? costs.analysis : costs.face;
     const inputCost = roundCost(
-      usage.inputTokens / 1000000 * costs.face.inputPerMillionTokens
+      usage.inputTokens / 1000000 * tokenCosts.inputPerMillionTokens
     );
     const outputCost = roundCost(
-      usage.outputTokens / 1000000 * costs.face.outputPerMillionTokens
+      usage.outputTokens / 1000000 * tokenCosts.outputPerMillionTokens
     );
     return Object.assign(base, {
       billingSource: "actual",
@@ -852,6 +876,46 @@ function modelUsageTypeForAction(action) {
   if (action === "detectFaceCircle") return "face";
   if (action === "video.create") return "video";
   return "";
+}
+
+function modelUsageTypeLabel(usageType) {
+  return MODEL_USAGE_TYPE_LABELS[usageType] || "模型";
+}
+
+function modelErrorMessage(usageType, message) {
+  const originalMessage = String(message || "模型请求失败");
+  if (!usageType) return originalMessage;
+  const label = modelUsageTypeLabel(usageType);
+  return originalMessage.startsWith(`${label}模型：`)
+    ? originalMessage
+    : `${label}模型：${originalMessage}`;
+}
+
+function modelErrorTypeForAction(action) {
+  const usageType = modelUsageTypeForAction(action);
+  if (usageType) return usageType;
+  if (action === "probeAutoFace") return "face";
+  if (action === "repairImage") return "image";
+  if (["videoProviderStatus", "createVideoTask", "queryVideoTask"].includes(action)) {
+    return "video";
+  }
+  return "";
+}
+
+function addModelErrorContext(action, result) {
+  if (!result || result.ok !== false) return result;
+  const usageType = modelErrorTypeForAction(action);
+  if (!usageType) return result;
+  const label = modelUsageTypeLabel(usageType);
+  const message = modelErrorMessage(
+    usageType,
+    result.message || result.error || "模型请求失败"
+  );
+  return Object.assign({}, result, {
+    message,
+    modelType: usageType,
+    modelTypeLabel: label
+  });
 }
 
 function compactUsageText(value, maxLength = 120) {
@@ -1816,6 +1880,7 @@ function failureDetailFromEvent(event = {}) {
       ? event.createdAt.toISOString()
       : String(event.createdAt || ""),
     usageType: event.usageType || "",
+    usageTypeLabel: modelUsageTypeLabel(event.usageType),
     provider: event.provider || "",
     model: event.model || "",
     requestId: event.requestId || "",
@@ -1943,6 +2008,7 @@ function aggregateModelUsageEvents(events = [], days = 30, now = new Date()) {
       if (!modelMap[modelKey]) {
         modelMap[modelKey] = Object.assign(emptyUsageCounters(), {
           usageType: event.usageType,
+          usageTypeLabel: modelUsageTypeLabel(event.usageType),
           provider: event.provider || "",
           model: event.model || ""
         });
@@ -1967,6 +2033,7 @@ function aggregateModelUsageEvents(events = [], days = 30, now = new Date()) {
             count: 0,
             lastSeen: "",
             usageType: event.usageType || "",
+            usageTypeLabel: modelUsageTypeLabel(event.usageType),
             provider: event.provider || "",
             model: event.model || "",
             status: Number(event.errorStatus) || 0,
@@ -2540,6 +2607,9 @@ function normalizeRuntimePatch(input = {}) {
   const faceCostSource = costsSource.face && typeof costsSource.face === "object"
     ? costsSource.face
     : {};
+  const analysisCostSource = costsSource.analysis && typeof costsSource.analysis === "object"
+    ? costsSource.analysis
+    : {};
   const imageCostSource = costsSource.image && typeof costsSource.image === "object"
     ? costsSource.image
     : {};
@@ -2608,6 +2678,7 @@ function normalizeRuntimePatch(input = {}) {
   const points = {};
   const costs = {};
   const face = {};
+  const analysisPricing = {};
   const imagePricing = {};
   const videoPricing = {};
   faceKeys.forEach((key) => {
@@ -2631,6 +2702,9 @@ function normalizeRuntimePatch(input = {}) {
   faceCostKeys.forEach((key) => {
     if (hasOwn(faceCostSource, key)) face[key] = faceCostSource[key];
   });
+  faceCostKeys.forEach((key) => {
+    if (hasOwn(analysisCostSource, key)) analysisPricing[key] = analysisCostSource[key];
+  });
   imageCostKeys.forEach((key) => {
     if (hasOwn(imageCostSource, key)) imagePricing[key] = imageCostSource[key];
   });
@@ -2652,6 +2726,7 @@ function normalizeRuntimePatch(input = {}) {
     }
   });
   if (Object.keys(face).length) costs.face = face;
+  if (Object.keys(analysisPricing).length) costs.analysis = analysisPricing;
   if (Object.keys(imagePricing).length) costs.image = imagePricing;
   if (Object.keys(videoPricing).length) costs.video = videoPricing;
   return { face: faceConfig, analysis, image, video, points, costs };
@@ -2682,6 +2757,7 @@ function validateRuntimePatch(patch) {
   const points = patch.points || {};
   const costs = patch.costs || {};
   const faceCosts = costs.face || {};
+  const analysisCosts = costs.analysis || {};
   const imageCosts = costs.image || {};
   const videoCosts = costs.video || {};
   [
@@ -2783,6 +2859,8 @@ function validateRuntimePatch(patch) {
   [
     ["costs.face.inputPerMillionTokens", faceCosts.inputPerMillionTokens],
     ["costs.face.outputPerMillionTokens", faceCosts.outputPerMillionTokens],
+    ["costs.analysis.inputPerMillionTokens", analysisCosts.inputPerMillionTokens],
+    ["costs.analysis.outputPerMillionTokens", analysisCosts.outputPerMillionTokens],
     ["costs.image.perImage.1K", imageCosts.perImage && imageCosts.perImage["1K"]],
     ["costs.image.perImage.2K", imageCosts.perImage && imageCosts.perImage["2K"]],
     ["costs.image.perImage.4K", imageCosts.perImage && imageCosts.perImage["4K"]],
@@ -2831,6 +2909,7 @@ function mergeRuntimeConfig(current, patch) {
     points: Object.assign({}, existing.points || {}, patch.points || {}),
     costs: Object.assign({}, existingCosts, patchCosts, {
       face: Object.assign({}, existingCosts.face || {}, patchCosts.face || {}),
+      analysis: Object.assign({}, existingCosts.analysis || {}, patchCosts.analysis || {}),
       image: Object.assign({}, existingCosts.image || {}, patchCosts.image || {}, {
         perImage: Object.assign(
           {},
@@ -2913,6 +2992,7 @@ function redactConfig(config, defaults) {
       currency: costs.currency,
       version: costs.version,
       face: Object.assign({}, costs.face),
+      analysis: Object.assign({}, costs.analysis),
       image: {
         defaultResolution: costs.image.defaultResolution,
         perImage: Object.assign({}, costs.image.perImage)
@@ -3319,6 +3399,197 @@ async function checkDeployment(event, context) {
     ok: true,
     logWritten
   }));
+}
+
+function modelProbeStatusText(status) {
+  return {
+    ok: "正常",
+    "not-configured": "未配置",
+    "auth-failed": "密钥异常",
+    "model-not-listed": "模型未列出",
+    "endpoint-not-supported": "接口需确认",
+    "upstream-error": "上游异常",
+    "network-error": "网络异常"
+  }[status] || "需要处理";
+}
+
+function modelProbeUrl(modelConfig) {
+  if (modelConfig && modelConfig.baseUrl) {
+    return endpoint(modelConfig.baseUrl, "models");
+  }
+  const configuredEndpoint = modelConfig && (
+    modelConfig.endpoint
+    || modelConfig.queryEndpoint
+  );
+  if (!configuredEndpoint) return "";
+  try {
+    const parsed = new URL(configuredEndpoint);
+    const versionIndex = parsed.pathname.toLowerCase().lastIndexOf("/v1/");
+    if (versionIndex >= 0) {
+      parsed.pathname = `${parsed.pathname.slice(0, versionIndex + 3)}/models`;
+    } else if (!/\/models\/?$/i.test(parsed.pathname)) {
+      parsed.pathname = "/v1/models";
+    }
+    parsed.search = "";
+    parsed.hash = "";
+    return parsed.toString();
+  } catch (_) {
+    return configuredEndpoint;
+  }
+}
+
+function listedModelIds(payload) {
+  const data = payload && Array.isArray(payload.data)
+    ? payload.data
+    : payload && Array.isArray(payload.models)
+      ? payload.models
+      : payload && payload.result && Array.isArray(payload.result.data)
+        ? payload.result.data
+        : null;
+  if (!data) return null;
+  return data
+    .map((item) => item && (item.id || item.model || item.name))
+    .filter(Boolean)
+    .map((item) => String(item));
+}
+
+async function probeOneModel(type, modelConfig) {
+  const startedAt = Date.now();
+  const label = modelUsageTypeLabel(type);
+  const config = modelConfig || {};
+  const provider = config.provider || "";
+  const model = config.model || "";
+  const configured = Boolean(
+    config.apiKey
+    && provider
+    && (config.baseUrl || config.endpoint)
+    && model
+  );
+  const base = {
+    type,
+    typeLabel: label,
+    provider,
+    model,
+    configured,
+    ready: false,
+    reachable: false,
+    status: configured ? "network-error" : "not-configured",
+    statusText: configured ? "检查中" : modelProbeStatusText("not-configured"),
+    httpStatus: 0,
+    durationMs: 0,
+    checkedAt: new Date().toISOString(),
+    endpoint: "",
+    message: configured ? "" : "请先填写 Provider、地址、模型，并确认云函数环境变量里有 API Key。"
+  };
+  if (!configured) return base;
+
+  const url = modelProbeUrl(config);
+  base.endpoint = safeUrl(url);
+  if (!url) {
+    return Object.assign(base, {
+      status: "not-configured",
+      statusText: modelProbeStatusText("not-configured"),
+      message: "没有可探测的接口地址。"
+    });
+  }
+  try {
+    const response = await requestOnce(url, {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${config.apiKey}`
+      },
+      timeoutMs: Math.min(
+        15000,
+        Math.max(3000, Number(config.timeoutMs) || 10000)
+      )
+    });
+    const durationMs = Math.max(0, Date.now() - startedAt);
+    const status = Number(response.status) || 0;
+    const reachable = status > 0;
+    if (status >= 200 && status < 300) {
+      const ids = listedModelIds(response.json);
+      if (!ids) {
+        return Object.assign(base, {
+          reachable: true,
+          status: "endpoint-not-supported",
+          statusText: modelProbeStatusText("endpoint-not-supported"),
+          httpStatus: status,
+          durationMs,
+          message: "接口可以访问，但返回内容不是标准模型列表，请人工确认兼容方式。"
+        });
+      }
+      const normalizedModel = String(model).trim().toLowerCase();
+      const modelListed = ids.some((item) => (
+        String(item).trim().toLowerCase() === normalizedModel
+      ));
+      return Object.assign(base, {
+        ready: modelListed,
+        reachable: true,
+        status: modelListed ? "ok" : "model-not-listed",
+        statusText: modelProbeStatusText(modelListed ? "ok" : "model-not-listed"),
+        httpStatus: status,
+        durationMs,
+        message: modelListed
+          ? "接口可访问，当前模型配置正常。"
+          : `接口可访问，但模型列表里没有 ${model}。`
+      });
+    }
+    if (status === 401 || status === 403) {
+      return Object.assign(base, {
+        reachable,
+        status: "auth-failed",
+        statusText: modelProbeStatusText("auth-failed"),
+        httpStatus: status,
+        durationMs,
+        message: "接口地址可访问，但 API Key 无效或没有权限。"
+      });
+    }
+    if (status === 404 || status === 405) {
+      return Object.assign(base, {
+        reachable,
+        status: "endpoint-not-supported",
+        statusText: modelProbeStatusText("endpoint-not-supported"),
+        httpStatus: status,
+        durationMs,
+        message: "服务地址可访问，但没有提供 GET /models；请确认地址是否为兼容接口根地址。"
+      });
+    }
+    return Object.assign(base, {
+      reachable,
+      status: "upstream-error",
+      statusText: modelProbeStatusText("upstream-error"),
+      httpStatus: status,
+      durationMs,
+      message: `接口返回 HTTP ${status}，请检查服务状态。`
+    });
+  } catch (error) {
+    return Object.assign(base, {
+      status: "network-error",
+      statusText: modelProbeStatusText("network-error"),
+      durationMs: Math.max(0, Date.now() - startedAt),
+      message: sanitizeFailureMessage(error && error.message) || "接口连接失败。"
+    });
+  }
+}
+
+async function probeModels(event, context) {
+  if (!isAdminContext(context)) return adminForbidden();
+  const configs = await resolveEffectiveConfigs();
+  const types = ["face", "analysis", "image", "video"];
+  const results = await Promise.all(types.map((type) => (
+    probeOneModel(type, configs[type])
+  )));
+  const readyCount = results.filter((item) => item.ready).length;
+  return jsonResponse(true, {
+    buildVersion: API_BUILD_VERSION,
+    buildMarker: API_BUILD_MARKER,
+    checkedAt: new Date().toISOString(),
+    allReady: readyCount === results.length,
+    readyCount,
+    total: results.length,
+    results
+  });
 }
 
 async function listDeploymentLogs(context) {
@@ -6648,6 +6919,7 @@ exports.main = async (event = {}, context) => {
     else if (action === "initializeDatabase") result = await initializeDatabase(context);
     else if (action === "saveAdminConfig") result = await saveAdminConfig(requestEvent, context);
     else if (action === "checkDeployment") result = await checkDeployment(requestEvent, context);
+    else if (action === "probeModels") result = await probeModels(requestEvent, context);
     else if (action === "listDeploymentLogs") result = await listDeploymentLogs(context);
     else if (action === "getModelUsageStats") result = await getModelUsageStats(requestEvent, context);
     else if (action === "exportModelUsageStats") result = await exportModelUsageStats(requestEvent, context);
@@ -6663,6 +6935,7 @@ exports.main = async (event = {}, context) => {
       result = await updatePhotoToVideoSession(requestEvent, context, "close");
     }
     else result = fail(`不支持的操作：${action || "空"}`, "unsupported-action");
+    result = addModelErrorContext(action, result);
     log("info", "function.finish", {
       requestId,
       action,
@@ -6699,10 +6972,14 @@ exports.main = async (event = {}, context) => {
       message,
       attempts: error && error.attempts
     });
-    return fail(message, errorCode, {
+    const modelType = modelErrorTypeForAction(action);
+    const modelTypeLabel = modelType ? modelUsageTypeLabel(modelType) : "";
+    const contextualMessage = modelErrorMessage(modelType, message);
+    return fail(contextualMessage, errorCode, {
       requestId,
       status,
-      retryable: ["timeout", "rate-limited", "upstream-unavailable", "retry-exhausted"].includes(errorCode)
+      retryable: ["timeout", "rate-limited", "upstream-unavailable", "retry-exhausted"].includes(errorCode),
+      ...(modelType ? { modelType, modelTypeLabel } : {})
     });
   }
 };
@@ -6764,6 +7041,10 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     shiftDateKey,
     shiftMonthKey,
     modelUsageTypeForAction,
+    modelUsageTypeLabel,
+    modelErrorTypeForAction,
+    modelErrorMessage,
+    addModelErrorContext,
     normalizeModelUsageEvent,
     aggregateModelUsageEvents,
     buildModelUsageExportWorkbook,
@@ -6822,6 +7103,10 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     requiredDatabaseCollections: REQUIRED_DATABASE_COLLECTIONS.slice(),
     saveAdminConfig,
     checkDeployment,
+    modelProbeUrl,
+    listedModelIds,
+    probeOneModel,
+    probeModels,
     listDeploymentLogs
     ,
     exportModelUsageStats,

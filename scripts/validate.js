@@ -13,6 +13,7 @@ const jsonFiles = [
   "pages/workbench/workbench.json",
   "pages/publish-export/publish-export.json",
   "pages/photo-to-video/photo-to-video.json",
+  "pages/photo-guide/photo-guide.json",
   "pages/points/points.json",
   "pages/admin/admin.json",
   "pages/repair/repair.json",
@@ -44,6 +45,7 @@ const jsFiles = [
   "pages/workbench/workbench.js",
   "pages/publish-export/publish-export.js",
   "pages/photo-to-video/photo-to-video.js",
+  "pages/photo-guide/photo-guide.js",
   "pages/points/points.js",
   "pages/admin/admin.js",
   "scripts/admin-loading-smoke.js",
@@ -626,6 +628,25 @@ if (
   || !fs.existsSync(path.join(root, "scripts/analysis-cost-probe-smoke.js"))
 ) {
   throw new Error("模型成本、按用户/模型、月度统计或 Excel 导出功能不完整。");
+}
+const todaySectionIndex = adminWxml.indexOf('<view class="overview-section today-section">');
+const usageSectionIndex = adminWxml.indexOf('<view id="usage-section"');
+const configEditorIndex = adminWxml.indexOf('<view wx:if="{{activeConfigSection}}" id="config-editor"');
+const monitorToggleIndex = adminWxml.indexOf('class="monitor-toggle ');
+const usageBeforeMonitor = usageSectionIndex >= 0
+  && monitorToggleIndex >= 0
+  && usageSectionIndex < monitorToggleIndex;
+if (
+  todaySectionIndex < 0
+  || usageSectionIndex <= todaySectionIndex
+  || configEditorIndex <= usageSectionIndex
+  || !usageBeforeMonitor
+  || adminWxml.includes("monitor-section-usage")
+  || adminWxml.includes("monitorSections.usage")
+  || !adminWxml.includes('catchtap="toggleUsageCard"')
+  || !adminWxml.includes('catchtap="setAllUsageSections"')
+) {
+  throw new Error("模型用量统计没有正确放在“今天”下面，或仍被运行监控旧状态控制。");
 }
 if (
   !adminWxml.includes("失败情况")

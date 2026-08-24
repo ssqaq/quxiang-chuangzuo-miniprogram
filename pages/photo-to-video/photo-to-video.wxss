@@ -68,6 +68,29 @@ page {
   line-height: 1.5;
 }
 
+.apple-import-guide-footer {
+  display: flex;
+  margin-top: 14rpx;
+  justify-content: flex-end;
+}
+
+.photo-guide-entry {
+  display: inline-flex;
+  min-width: 176rpx;
+  height: 64rpx;
+  margin: 0;
+  padding: 0 24rpx;
+  align-items: center;
+  justify-content: center;
+  border: 1rpx solid #c5dcff;
+  border-radius: 14rpx;
+  background: #edf4ff;
+  color: #1f6feb;
+  font-size: 23rpx;
+  line-height: 64rpx;
+  white-space: nowrap;
+}
+
 .provider-status {
   display: flex;
   margin-top: 16rpx;

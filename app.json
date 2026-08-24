@@ -8,6 +8,7 @@
     "pages/repair/repair",
     "pages/publish-export/publish-export",
     "pages/photo-to-video/photo-to-video",
+    "pages/photo-guide/photo-guide",
     "pages/points/points",
     "pages/admin/admin"
   ],

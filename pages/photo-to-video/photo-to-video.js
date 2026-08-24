@@ -1630,6 +1630,15 @@ Page({
     wx.navigateTo({ url: "/pages/index/index?new=1" });
   },
 
+  openPhotoGuide() {
+    wx.navigateTo({
+      url: "/pages/photo-guide/photo-guide",
+      fail: () => {
+        wx.showToast({ title: "图文教程打开失败", icon: "none" });
+      }
+    });
+  },
+
   backToWorkbench() {
     wx.navigateBack({
       delta: 1,

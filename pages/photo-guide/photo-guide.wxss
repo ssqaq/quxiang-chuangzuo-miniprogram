@@ -1,0 +1,398 @@
+page {
+  background: #edf2f8;
+}
+
+.photo-guide-page {
+  min-height: 100vh;
+  padding: 28rpx 28rpx calc(72rpx + env(safe-area-inset-bottom));
+  color: #172238;
+}
+
+.guide-hero,
+.guide-step-card,
+.guide-finish {
+  border: 1rpx solid #dce5f0;
+  border-radius: 28rpx;
+  background: #ffffff;
+  box-shadow: 0 14rpx 36rpx rgba(31, 52, 86, 0.08);
+}
+
+.guide-hero {
+  margin-bottom: 24rpx;
+  padding: 30rpx;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(35, 105, 232, 0.16), transparent 240rpx),
+    #ffffff;
+}
+
+.guide-eyebrow,
+.guide-step-count {
+  color: #2369e8;
+  font-size: 20rpx;
+  font-weight: 800;
+  letter-spacing: 3rpx;
+}
+
+.guide-title {
+  margin-top: 16rpx;
+  color: #172238;
+  font-size: 46rpx;
+  font-weight: 900;
+  line-height: 1.12;
+}
+
+.guide-subtitle {
+  margin-top: 16rpx;
+  color: #718097;
+  font-size: 24rpx;
+  line-height: 1.6;
+}
+
+.guide-route {
+  display: flex;
+  margin-top: 22rpx;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10rpx;
+}
+
+.guide-route text {
+  padding: 10rpx 16rpx;
+  border: 1rpx solid #d5e0ee;
+  border-radius: 999rpx;
+  background: #f8fbff;
+  color: #49617e;
+  font-size: 21rpx;
+  font-weight: 700;
+}
+
+.guide-route .guide-route-arrow {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #98a7bb;
+}
+
+.guide-step-card {
+  margin-bottom: 24rpx;
+  padding: 26rpx;
+}
+
+.guide-step-head {
+  display: flex;
+  align-items: center;
+}
+
+.guide-step-number {
+  display: flex;
+  width: 58rpx;
+  height: 58rpx;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 18rpx;
+  background: #2369e8;
+  color: #ffffff;
+  font-size: 28rpx;
+  font-weight: 900;
+}
+
+.guide-step-meta {
+  margin-left: 16rpx;
+}
+
+.guide-step-title {
+  margin-top: 5rpx;
+  color: #172238;
+  font-size: 32rpx;
+  font-weight: 900;
+}
+
+.guide-step-description {
+  margin-top: 18rpx;
+  color: #718097;
+  font-size: 24rpx;
+  line-height: 1.65;
+}
+
+.guide-action {
+  margin-top: 18rpx;
+  padding: 16rpx 18rpx;
+  border-radius: 16rpx;
+  background: #eaf2ff;
+  color: #2369e8;
+  font-size: 23rpx;
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.guide-device {
+  margin-top: 22rpx;
+  overflow: hidden;
+  border: 1rpx solid #d8e1ee;
+  border-radius: 24rpx;
+  background: #f8fbff;
+}
+
+.guide-device-status,
+.guide-device-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.guide-device-status {
+  padding: 16rpx 20rpx 8rpx;
+  color: #60718a;
+  font-size: 19rpx;
+  font-weight: 700;
+}
+
+.guide-device-head {
+  padding: 12rpx 20rpx 16rpx;
+  border-bottom: 1rpx solid #e3eaf4;
+  color: #172238;
+  font-size: 22rpx;
+  font-weight: 800;
+}
+
+.guide-device-body {
+  padding: 20rpx;
+}
+
+.guide-device-hero {
+  padding: 22rpx;
+  border-radius: 20rpx;
+  background: #eaf2ff;
+}
+
+.guide-device-hero text {
+  display: block;
+}
+
+.guide-device-hero text:first-child {
+  color: #2369e8;
+  font-size: 18rpx;
+  font-weight: 900;
+  letter-spacing: 2rpx;
+}
+
+.guide-device-hero text:nth-child(2) {
+  margin-top: 10rpx;
+  color: #172238;
+  font-size: 28rpx;
+  font-weight: 900;
+}
+
+.guide-device-hero text:last-child {
+  margin-top: 8rpx;
+  color: #718097;
+  font-size: 21rpx;
+}
+
+.guide-app-grid {
+  display: flex;
+  margin-top: 18rpx;
+  justify-content: space-between;
+  gap: 10rpx;
+}
+
+.guide-app {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  flex-direction: column;
+  color: #49617e;
+  font-size: 20rpx;
+}
+
+.guide-app-icon {
+  display: flex;
+  width: 76rpx;
+  height: 76rpx;
+  margin-bottom: 8rpx;
+  align-items: center;
+  justify-content: center;
+  border-radius: 20rpx;
+  color: #ffffff;
+  font-size: 20rpx;
+  font-weight: 900;
+}
+
+.guide-app-icon-blue {
+  background: #2e6fe4;
+}
+
+.guide-app-icon-green {
+  background: #35bc72;
+}
+
+.guide-app-icon-photo {
+  background: linear-gradient(135deg, #f4a83d, #e56d8f);
+}
+
+.guide-device-button {
+  display: flex;
+  min-height: 70rpx;
+  margin-top: 18rpx;
+  align-items: center;
+  justify-content: center;
+  border-radius: 16rpx;
+  background: #2369e8;
+  color: #ffffff;
+  font-size: 24rpx;
+  font-weight: 900;
+}
+
+.guide-file-card {
+  padding: 20rpx;
+  border: 1rpx solid #dce5f0;
+  border-radius: 18rpx;
+  background: #ffffff;
+}
+
+.guide-file-card text {
+  display: block;
+}
+
+.guide-file-card text:first-child {
+  color: #718097;
+  font-size: 19rpx;
+}
+
+.guide-file-card text:nth-child(2) {
+  margin-top: 8rpx;
+  color: #172238;
+  font-size: 25rpx;
+  font-weight: 900;
+}
+
+.guide-file-card text:nth-child(3) {
+  margin-top: 8rpx;
+  color: #718097;
+  font-size: 21rpx;
+  line-height: 1.5;
+}
+
+.guide-file-card-muted {
+  margin-top: 14rpx;
+  background: #f4f8fe;
+}
+
+.guide-menu {
+  margin-top: 16rpx;
+  overflow: hidden;
+  border: 1rpx solid #dce5f0;
+  border-radius: 18rpx;
+  background: #ffffff;
+}
+
+.guide-menu-row {
+  display: flex;
+  min-height: 68rpx;
+  padding: 0 18rpx;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1rpx solid #edf1f6;
+  color: #49617e;
+  font-size: 22rpx;
+}
+
+.guide-menu-row:last-child {
+  border-bottom: 0;
+}
+
+.guide-menu-row-active {
+  background: #eaf2ff;
+  color: #2369e8;
+  font-weight: 900;
+}
+
+.guide-download-file {
+  display: flex;
+  margin-top: 16rpx;
+  padding: 16rpx;
+  align-items: center;
+  border: 1rpx solid #dce5f0;
+  border-radius: 18rpx;
+  background: #ffffff;
+}
+
+.guide-download-thumb {
+  width: 76rpx;
+  height: 76rpx;
+  border-radius: 16rpx;
+  background: linear-gradient(135deg, #4c8af2, #9cc2ff);
+}
+
+.guide-download-copy {
+  display: flex;
+  min-width: 0;
+  margin-left: 14rpx;
+  flex: 1;
+  flex-direction: column;
+}
+
+.guide-download-copy text:first-child {
+  overflow: hidden;
+  color: #172238;
+  font-size: 22rpx;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.guide-download-copy text:last-child {
+  margin-top: 6rpx;
+  color: #718097;
+  font-size: 19rpx;
+}
+
+.guide-download-icon {
+  display: flex;
+  width: 48rpx;
+  height: 48rpx;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: #2369e8;
+  color: #ffffff;
+  font-size: 28rpx;
+  font-weight: 900;
+}
+
+.guide-finish {
+  display: flex;
+  margin-top: 6rpx;
+  padding: 24rpx;
+  align-items: center;
+  border-color: #c7ecd8;
+  background: #f3fff8;
+}
+
+.guide-finish-mark {
+  display: flex;
+  width: 58rpx;
+  height: 58rpx;
+  margin-right: 16rpx;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: #2caa68;
+  color: #ffffff;
+  font-size: 32rpx;
+  font-weight: 900;
+}
+
+.guide-finish-title {
+  color: #167243;
+  font-size: 28rpx;
+  font-weight: 900;
+}
+
+.guide-finish-copy {
+  margin-top: 5rpx;
+  color: #4d8063;
+  font-size: 21rpx;
+  line-height: 1.5;
+}

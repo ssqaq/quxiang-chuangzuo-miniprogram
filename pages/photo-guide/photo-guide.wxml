@@ -1,0 +1,131 @@
+<view class="photo-guide-page">
+  <view class="guide-hero">
+    <view class="guide-eyebrow">IPHONE GUIDE · 5 STEPS</view>
+    <view class="guide-title">5 步把实况图保存到相册</view>
+    <view class="guide-subtitle">每个页面只做一件事，照着往下点就行。</view>
+    <view class="guide-route">
+      <text>微信</text>
+      <text class="guide-route-arrow">→</text>
+      <text>百度网盘</text>
+      <text class="guide-route-arrow">→</text>
+      <text>iPhone 相册</text>
+    </view>
+  </view>
+
+  <view
+    wx:for="{{steps}}"
+    wx:key="title"
+    class="guide-step-card"
+  >
+    <view class="guide-step-head">
+      <view class="guide-step-number">{{index + 1}}</view>
+      <view class="guide-step-meta">
+        <view class="guide-step-count">STEP {{index + 1}} / 05</view>
+        <view class="guide-step-title">{{item.title}}</view>
+      </view>
+    </view>
+    <view class="guide-step-description">{{item.description}}</view>
+    <view class="guide-action">{{item.action}}</view>
+
+    <view class="guide-device">
+      <view class="guide-device-status">
+        <text>20:50</text>
+        <text>5G　▮▮▮</text>
+      </view>
+      <view class="guide-device-head">
+        <text>{{item.appTitle}}</text>
+        <text>{{index + 1}} / 5</text>
+      </view>
+
+      <view wx:if="{{item.kind === 'app'}}" class="guide-device-body">
+        <view class="guide-device-hero">
+          <text>STEP 01</text>
+          <text>先装好百度网盘</text>
+          <text>后面要把实况图保存进去。</text>
+        </view>
+        <view class="guide-app-grid">
+          <view class="guide-app">
+            <text class="guide-app-icon guide-app-icon-blue">网盘</text>
+            <text>百度网盘</text>
+          </view>
+          <view class="guide-app">
+            <text class="guide-app-icon guide-app-icon-green">微信</text>
+            <text>微信</text>
+          </view>
+          <view class="guide-app">
+            <text class="guide-app-icon guide-app-icon-photo">相册</text>
+            <text>相册</text>
+          </view>
+        </view>
+        <view class="guide-device-button">打开 App Store 安装</view>
+      </view>
+
+      <view wx:elif="{{item.kind === 'send'}}" class="guide-device-body">
+        <view class="guide-file-card">
+          <text>实况图文件</text>
+          <text>2026-03-03 112858.livp</text>
+          <text>文件已经生成，下一步发给文件传输助手。</text>
+          <view class="guide-device-button">发送到文件传输助手</view>
+        </view>
+        <view class="guide-file-card guide-file-card-muted">
+          <text>发送对象</text>
+          <text>文件传输助手</text>
+          <text>发完后回到聊天里打开刚刚的文件。</text>
+        </view>
+      </view>
+
+      <view wx:elif="{{item.kind === 'menu'}}" class="guide-device-body">
+        <view class="guide-file-card">
+          <text>文件预览</text>
+          <text>实况图已打开</text>
+          <text>先点右上角“…”打开更多操作。</text>
+        </view>
+        <view class="guide-menu">
+          <view class="guide-menu-row"><text>转发</text><text>›</text></view>
+          <view class="guide-menu-row"><text>收藏</text><text>›</text></view>
+          <view class="guide-menu-row guide-menu-row-active"><text>用其他应用打开</text><text>›</text></view>
+          <view class="guide-menu-row"><text>保存到文件</text><text>›</text></view>
+        </view>
+      </view>
+
+      <view wx:elif="{{item.kind === 'save'}}" class="guide-device-body">
+        <view class="guide-file-card">
+          <text>选择保存位置</text>
+          <text>把文件存进百度网盘</text>
+          <text>在菜单里找到这一行，点进去确认。</text>
+        </view>
+        <view class="guide-menu">
+          <view class="guide-menu-row"><text>在 QQ 邮箱中打开</text><text>›</text></view>
+          <view class="guide-menu-row"><text>保存到酷狗音乐</text><text>›</text></view>
+          <view class="guide-menu-row guide-menu-row-active"><text>保存到百度网盘</text><text>›</text></view>
+          <view class="guide-menu-row"><text>保存到网盘同步空间</text><text>›</text></view>
+        </view>
+      </view>
+
+      <view wx:else class="guide-device-body">
+        <view class="guide-file-card">
+          <text>百度网盘 · 文件</text>
+          <text>找到刚刚保存的实况图</text>
+          <text>点文件右侧的下载按钮，保存到手机相册。</text>
+        </view>
+        <view class="guide-download-file">
+          <view class="guide-download-thumb"></view>
+          <view class="guide-download-copy">
+            <text>2026-03-03 112858.mov</text>
+            <text>7.9M · 视频 03:03</text>
+          </view>
+          <text class="guide-download-icon">↓</text>
+        </view>
+        <view class="guide-device-button">下载到相册</view>
+      </view>
+    </view>
+  </view>
+
+  <view class="guide-finish">
+    <view class="guide-finish-mark">✓</view>
+    <view>
+      <view class="guide-finish-title">完成</view>
+      <view class="guide-finish-copy">现在去 iPhone 相册查看刚刚保存的实况图。</view>
+    </view>
+  </view>
+</view>

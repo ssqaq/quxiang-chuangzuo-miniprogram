@@ -12,6 +12,9 @@
       <view class="apple-import-step">1. 生成后分享到微信文件传输助手</view>
       <view class="apple-import-step">2. 用百度网盘打开 .livp 文件</view>
       <view class="apple-import-step">3. 在百度网盘中保存到 iPhone 相册</view>
+      <view class="apple-import-guide-footer">
+        <button class="photo-guide-entry" bindtap="openPhotoGuide">图文教程</button>
+      </view>
     </view>
     <view class="provider-status {{providerReady ? 'provider-status-ready' : 'provider-status-pending'}}">
       <view class="provider-status-dot"></view>

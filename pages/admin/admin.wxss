@@ -781,7 +781,7 @@ page {
   display: flex;
   min-width: 0;
   min-height: 92rpx;
-  padding: 18rpx 22rpx;
+  padding: 18rpx 24rpx;
   align-items: center;
   justify-content: space-between;
   gap: 18rpx;
@@ -886,6 +886,10 @@ page {
   margin-bottom: 0;
 }
 
+.monitor-deployment-body .admin-section-tools .monitor-section-toggle-button {
+  margin-right: -18rpx;
+}
+
 .monitor-fold-card.is-collapsed {
   padding-bottom: 0;
 }
@@ -929,7 +933,7 @@ page {
   }
 
   .monitor-section-head {
-    padding: 16rpx;
+    padding: 16rpx 24rpx;
   }
 
   .monitor-deployment-body {
@@ -1472,8 +1476,8 @@ page {
 }
 
 .model-failure-export-button {
-  flex: 1 1 auto;
-  width: 150rpx;
+  flex: 0 0 176rpx;
+  width: 176rpx;
   min-width: 0;
   max-width: 176rpx;
   font-size: 20rpx;

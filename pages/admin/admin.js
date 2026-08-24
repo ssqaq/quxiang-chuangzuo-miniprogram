@@ -98,7 +98,6 @@ const CONFIG_SECTION_TITLES = Object.freeze({
 });
 
 const MONITOR_SECTION_KEYS = Object.freeze([
-  "usage",
   "autoFaceFailure",
   "diagnosticLogs",
   "deployment"
@@ -1903,8 +1902,8 @@ Page({
     activeConfigSection: "",
     activeConfigTitle: "",
     monitorExpanded: true,
+    usageExpanded: true,
     monitorSections: {
-      usage: true,
       autoFaceFailure: false,
       diagnosticLogs: false,
       deployment: false
@@ -2044,7 +2043,9 @@ Page({
       }
       if (options.loadingKey) patch[options.loadingKey] = false;
       patch.moduleStates = nextStates;
-      if (unavailable && MONITOR_SECTION_KEYS.includes(key)) {
+      if (unavailable && key === "usage") {
+        patch.usageExpanded = true;
+      } else if (unavailable && MONITOR_SECTION_KEYS.includes(key)) {
         patch.monitorExpanded = true;
         patch[`monitorSections.${key}`] = true;
       }
@@ -2079,7 +2080,9 @@ Page({
         moduleStates: nextStates
       };
       if (options.loadingKey) patch[options.loadingKey] = false;
-      if (MONITOR_SECTION_KEYS.includes(key)) {
+      if (key === "usage") {
+        patch.usageExpanded = true;
+      } else if (MONITOR_SECTION_KEYS.includes(key)) {
         patch.monitorExpanded = true;
         patch[`monitorSections.${key}`] = true;
       }
@@ -3032,14 +3035,26 @@ Page({
     MONITOR_SECTION_KEYS.forEach((section) => {
       patch[`monitorSections.${section}`] = expanded;
     });
-    USAGE_SECTION_KEYS.forEach((section) => {
-      patch[`usageSections.${section}`] = expanded;
-    });
     AUTO_FACE_FAILURE_SECTION_KEYS.forEach((section) => {
       patch[`autoFaceFailureSections.${section}`] = expanded;
     });
     DEPLOYMENT_SECTION_KEYS.forEach((section) => {
       patch[`deploymentSections.${section}`] = expanded;
+    });
+    this.setData(patch, () => this.persistMonitorLayout());
+  },
+
+  setAllUsageSections(event) {
+    const expanded = Number(
+      event && event.currentTarget && event.currentTarget.dataset
+        ? event.currentTarget.dataset.expanded
+        : 0
+    ) === 1;
+    const patch = {
+      usageExpanded: expanded
+    };
+    USAGE_SECTION_KEYS.forEach((section) => {
+      patch[`usageSections.${section}`] = expanded;
     });
     this.setData(patch, () => this.persistMonitorLayout());
   },
@@ -3055,6 +3070,11 @@ Page({
     const storedUsageSections = stored.usageSections || {};
     const storedAutoFaceFailureSections = stored.autoFaceFailureSections || {};
     const storedDeploymentSections = stored.deploymentSections || {};
+    const usageExpanded = typeof stored.usageExpanded === "boolean"
+      ? stored.usageExpanded
+      : typeof storedMonitorSections.usage === "boolean"
+        ? storedMonitorSections.usage
+        : Boolean(this.data.usageExpanded);
     const monitorSections = {};
     MONITOR_SECTION_KEYS.forEach((section) => {
       monitorSections[section] = typeof storedMonitorSections[section] === "boolean"
@@ -3085,6 +3105,7 @@ Page({
       monitorExpanded: typeof stored.monitorExpanded === "boolean"
         ? stored.monitorExpanded
         : this.data.monitorExpanded,
+      usageExpanded,
       monitorSections,
       usageSections,
       autoFaceFailureSections,
@@ -3129,8 +3150,9 @@ Page({
   persistMonitorLayout() {
     try {
       wx.setStorageSync(MONITOR_LAYOUT_STORAGE_KEY, {
-        version: 4,
+        version: 5,
         monitorExpanded: Boolean(this.data.monitorExpanded),
+        usageExpanded: Boolean(this.data.usageExpanded),
         monitorSections: Object.assign({}, this.data.monitorSections),
         usageSections: Object.assign({}, this.data.usageSections),
         autoFaceFailureSections: Object.assign({}, this.data.autoFaceFailureSections),
@@ -3166,6 +3188,12 @@ Page({
     }, () => this.persistMonitorLayout());
   },
 
+  toggleUsageCard() {
+    this.setData({
+      usageExpanded: !this.data.usageExpanded
+    }, () => this.persistMonitorLayout());
+  },
+
   toggleDeploymentSection(event) {
     const section = String(
       event && event.currentTarget && event.currentTarget.dataset
@@ -3176,6 +3204,20 @@ Page({
     this.setData({
       [`deploymentSections.${section}`]: !this.data.deploymentSections[section]
     }, () => this.persistMonitorLayout());
+  },
+
+  jumpToUsageSection() {
+    this.setData({
+      usageExpanded: true
+    }, () => {
+      this.persistMonitorLayout();
+      if (typeof wx.pageScrollTo === "function") {
+        wx.pageScrollTo({
+          selector: "#usage-section",
+          duration: 220
+        });
+      }
+    });
   },
 
   jumpToMonitorSection(event) {
@@ -3204,7 +3246,7 @@ Page({
       monitorOnlyAbnormal: !this.data.monitorOnlyAbnormal,
       monitorExpanded: true,
       "monitorSections.diagnosticLogs": true,
-      "monitorSections.usage": true,
+      usageExpanded: true,
       "usageSections.failure": true
     }, () => {
       this.persistMonitorLayout();

@@ -26,7 +26,6 @@ const workerJs = fs.readFileSync(
 const options = core.normalizeOptions({
   format: "PNG",
   quality: 101,
-  maxLongEdge: 4096,
   cameraNoiseStrength: 9,
   frequencyStrength: 0,
   watermarkStrength: 4
@@ -34,15 +33,11 @@ const options = core.normalizeOptions({
 
 assert.strictEqual(options.format, "png");
 assert.strictEqual(options.quality, 100);
-assert.strictEqual(options.maxLongEdge, 4096);
+assert.strictEqual(options.maxLongEdge, 2048);
 assert.strictEqual(options.cameraNoiseStrength, 5);
 assert.strictEqual(options.frequencyStrength, 1);
 assert.strictEqual(options.watermarkStrength, 4);
 
-assert.strictEqual(
-  core.chooseLocalMode(1200, 800, { maxLongEdge: 4096 }).mode,
-  "cloud"
-);
 assert.strictEqual(
   core.chooseLocalMode(1200, 800, { maxLongEdge: 2048 }).mode,
   "local-worker"
@@ -88,9 +83,13 @@ assert.strictEqual(output.length, input.length);
   "反向重采样",
   "可见标记淡化"
 ].forEach((marker) => assert.ok(pageWxml.includes(marker), `页面缺少：${marker}`));
-["1536px", "2048px", "4096px"].forEach((marker) => {
-  assert.ok(pageJs.includes(marker), `页面尺寸选项缺少：${marker}`);
-});
+assert.ok(!pageJs.includes("SIZE_OPTIONS"), "页面仍保留尺寸选择数据。");
+assert.ok(!pageJs.includes("changeMaxEdge"), "页面仍保留尺寸切换逻辑。");
+assert.ok(!pageWxml.includes("最长边"), "页面仍显示最长边选项。");
+assert.ok(
+  !pageWxml.includes("小图优先在手机处理，大图或失败时经你确认后使用云端"),
+  "页面仍显示已删除的处理说明。"
+);
 
 assert.ok(pageWxss.includes(".publish-export-canvas"), "导出画布样式缺失。");
 assert.ok(workerJs.includes("publish-export-core"), "Worker 没有复用统一算法。");

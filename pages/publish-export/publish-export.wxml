@@ -1,9 +1,6 @@
 <view class="page publish-export-page">
   <view class="card publish-export-intro">
     <view class="section-title">高级处理后再导出照片</view>
-    <view class="section-subtitle">
-      小图优先在手机处理，大图或失败时经你确认后使用云端
-    </view>
   </view>
 
   <view class="card source-upload-card">
@@ -96,21 +93,6 @@
           class="choice-button {{format === item.value ? 'choice-button-active' : ''}}"
           data-format="{{item.value}}"
           bindtap="changeFormat"
-        >
-          {{item.label}}
-        </button>
-      </view>
-    </view>
-
-    <view class="option-line">
-      <view class="option-label">最长边</view>
-      <view class="choice-list">
-        <button
-          wx:for="{{sizeOptions}}"
-          wx:key="value"
-          class="choice-button {{maxEdge === item.value ? 'choice-button-active' : ''}}"
-          data-max-edge="{{item.value}}"
-          bindtap="changeMaxEdge"
         >
           {{item.label}}
         </button>

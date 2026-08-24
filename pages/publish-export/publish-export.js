@@ -14,12 +14,6 @@ const FORMAT_OPTIONS = [
   { value: "png", label: "PNG" }
 ];
 
-const SIZE_OPTIONS = [
-  { value: 1536, label: "1536px" },
-  { value: 2048, label: "2048px" },
-  { value: 4096, label: "4096px" }
-];
-
 function normalizeRecord(record, index) {
   const item = record && typeof record === "object" ? record : {};
   return {
@@ -62,11 +56,9 @@ Page({
   data: {
     scopeOptions: SCOPE_OPTIONS,
     formatOptions: FORMAT_OPTIONS,
-    sizeOptions: SIZE_OPTIONS,
     scope: "latest",
     usingDevicePhotos: false,
     format: "jpg",
-    maxEdge: publishExport.DEFAULT_MAX_EDGE,
     quality: publishExport.DEFAULT_QUALITY,
     colorCorrect: true,
     denoise: false,
@@ -156,16 +148,6 @@ Page({
       && event.currentTarget.dataset.format;
     if (format !== "jpg" && format !== "png") return;
     this.setData({ format });
-  },
-
-  changeMaxEdge(event = {}) {
-    const value = Number(
-      event.currentTarget
-      && event.currentTarget.dataset
-      && event.currentTarget.dataset.maxEdge
-    );
-    if (![1536, 2048, 4096].includes(value)) return;
-    this.setData({ maxEdge: value });
   },
 
   changeQuality(event = {}) {
@@ -303,7 +285,6 @@ Page({
     return publishExportCore.normalizeOptions({
       format: this.data.format,
       quality: this.data.quality,
-      maxLongEdge: this.data.maxEdge,
       colorOptimize: this.data.colorCorrect,
       gentleSoften: this.data.denoise,
       gentleSharpen: this.data.sharpen,

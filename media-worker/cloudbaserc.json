@@ -1,0 +1,6 @@
+{
+  "envId": "cloud1-d4g05zdxc94d17112",
+  "cloudrun": {
+    "name": "apple-live-photo-worker"
+  }
+}

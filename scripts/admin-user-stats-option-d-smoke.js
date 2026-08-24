@@ -99,5 +99,17 @@ assert.ok(
   /\.user-stats-d-action\s*\{[^}]*flex:\s*1;[^}]*min-width:\s*0;/s.test(narrowScreenStyles),
   "窄屏时刷新、导出按钮没有安全平分宽度。"
 );
+assert.ok(
+  /\.user-stats-d-head\s*\{[^}]*flex-direction:\s*column;/s.test(wxss),
+  "用户统计标题区没有固定为上下排列，可能再次被按钮挤成竖排。"
+);
+assert.ok(
+  /\.user-stats-d-head\s*>\s*view:first-child\s*\{[^}]*width:\s*100%;/s.test(wxss),
+  "用户统计标题内容没有占满整行。"
+);
+assert.ok(
+  /\.user-stats-d-actions\s*\{[^}]*width:\s*100%;/s.test(wxss),
+  "用户统计按钮区域没有占满整行。"
+);
 
 console.log("admin user stats option D smoke: OK");

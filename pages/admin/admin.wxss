@@ -1270,10 +1270,16 @@ page {
 
 .user-stats-d-head {
   display: flex;
+  align-items: stretch;
   min-width: 0;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18rpx;
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: 12rpx;
+}
+
+.user-stats-d-head > view:first-child {
+  width: 100%;
+  min-width: 0;
 }
 
 .user-stats-d-kicker {
@@ -1294,12 +1300,15 @@ page {
 .user-stats-d-actions {
   display: flex;
   flex: none;
+  width: 100%;
   align-items: center;
   gap: 10rpx;
 }
 
 .user-stats-d-action {
-  width: 104rpx;
+  flex: 1 1 0;
+  width: auto;
+  min-width: 0;
 }
 
 .user-stats-d-helper {

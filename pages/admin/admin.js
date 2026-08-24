@@ -97,6 +97,13 @@ const CONFIG_SECTION_TITLES = Object.freeze({
   users: "用户统计"
 });
 
+const MONITOR_SECTION_KEYS = Object.freeze([
+  "usage",
+  "autoFaceFailure",
+  "diagnosticLogs",
+  "deployment"
+]);
+
 function emptyDashboardStatus() {
   return {
     tone: "neutral",
@@ -1476,7 +1483,13 @@ Page({
     entryHealth: buildEntryHealth(),
     activeConfigSection: "",
     activeConfigTitle: "",
-    monitorExpanded: false
+    monitorExpanded: true,
+    monitorSections: {
+      usage: true,
+      autoFaceFailure: false,
+      diagnosticLogs: false,
+      deployment: false
+    }
   },
 
   onLoad() {
@@ -2390,6 +2403,31 @@ Page({
     this.setData({
       monitorExpanded: !this.data.monitorExpanded
     });
+  },
+
+  toggleMonitorSection(event) {
+    const section = String(
+      event && event.currentTarget && event.currentTarget.dataset
+        ? event.currentTarget.dataset.section
+        : ""
+    );
+    if (!MONITOR_SECTION_KEYS.includes(section)) return;
+    this.setData({
+      [`monitorSections.${section}`]: !this.data.monitorSections[section]
+    });
+  },
+
+  setAllMonitorSections(event) {
+    const expanded = Number(
+      event && event.currentTarget && event.currentTarget.dataset
+        ? event.currentTarget.dataset.expanded
+        : 0
+    ) === 1;
+    const patch = {};
+    MONITOR_SECTION_KEYS.forEach((section) => {
+      patch[`monitorSections.${section}`] = expanded;
+    });
+    this.setData(patch);
   },
 
   async saveConfig() {

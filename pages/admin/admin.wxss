@@ -4406,3 +4406,215 @@ page {
     height: 148rpx;
   }
 }
+
+/* 所有展开按钮统一按“用户端日志”的右侧基准线对齐。 */
+.monitor-section-toggle-button,
+.usage-subsection-toggle {
+  box-sizing: border-box;
+  width: 116rpx;
+  min-width: 116rpx;
+  height: 60rpx;
+  min-height: 60rpx;
+  padding: 0 14rpx;
+  gap: 8rpx;
+  font-size: 20rpx;
+}
+
+.monitor-section-chevron,
+.usage-subsection-chevron {
+  display: inline-flex;
+  min-width: 20rpx;
+  min-height: 20rpx;
+  align-items: center;
+  justify-content: center;
+  font-size: 26rpx;
+  line-height: 1;
+}
+
+.usage-subsection-head,
+.usage-collapsed-statistics-card > .usage-subsection-head {
+  min-height: 92rpx;
+  padding-top: 16rpx;
+  padding-bottom: 16rpx;
+  align-items: center;
+}
+
+.usage-collapsed-statistics-card > .usage-subsection-head {
+  margin-right: -12rpx;
+}
+
+.admin-section-head,
+.monitor-section-head {
+  box-sizing: border-box;
+  align-items: center;
+}
+
+.admin-section-head > view:first-child,
+.monitor-section-head-main,
+.usage-subsection-head > .usage-subsection-title {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.admin-section-head > .admin-section-tools,
+.admin-section-head > .usage-toolbar,
+.usage-subsection-head > .usage-failure-actions,
+.monitor-section-head > .monitor-section-toggle-button {
+  margin-left: auto;
+}
+
+.monitor-deployment-body .admin-section-tools .monitor-section-toggle-button,
+.monitor-deployment-group > .monitor-section-head .monitor-section-toggle-button {
+  margin-right: 0;
+}
+
+@media (max-width: 560px) {
+  .admin-section-head,
+  .monitor-section-head {
+    align-items: center;
+  }
+
+  .admin-section-tools {
+    flex-wrap: nowrap;
+  }
+
+  .admin-section-tools > .config-state {
+    flex: 0 0 auto;
+    width: auto;
+  }
+
+  .admin-section-tools > .usage-refresh-button {
+    flex: 0 0 142rpx;
+    width: 142rpx;
+  }
+
+  .admin-section-tools > .monitor-section-toggle-button {
+    flex: 0 0 116rpx;
+    width: 116rpx;
+  }
+
+  .usage-primary-actions > .usage-refresh-button,
+  .usage-primary-actions > .usage-export-button {
+    flex: 1 1 0;
+    width: auto;
+    min-width: 0;
+  }
+
+  .usage-primary-actions > .monitor-section-toggle-button {
+    flex: 0 0 116rpx;
+    width: 116rpx;
+    min-width: 116rpx;
+  }
+}
+
+/* 模型用量统计与失败情况的三项操作按同一组基准线对齐。 */
+.usage-primary-actions,
+.usage-failure-actions {
+  align-items: center;
+  gap: 6rpx;
+}
+
+.usage-primary-actions > .usage-refresh-button,
+.usage-failure-actions > picker {
+  box-sizing: border-box;
+  flex: 0 0 126rpx;
+  width: 126rpx;
+  min-width: 126rpx;
+  height: 54rpx;
+  min-height: 54rpx;
+}
+
+.usage-primary-actions > .usage-export-button,
+.usage-failure-actions > .model-failure-export-button {
+  box-sizing: border-box;
+  flex: 0 0 176rpx;
+  width: 176rpx;
+  min-width: 176rpx;
+  height: 54rpx;
+  min-height: 54rpx;
+}
+
+.usage-primary-actions > .monitor-section-toggle-button,
+.usage-failure-actions > .usage-subsection-toggle {
+  box-sizing: border-box;
+  flex: 0 0 96rpx;
+  width: 96rpx;
+  min-width: 96rpx;
+  height: 54rpx;
+  min-height: 54rpx;
+  padding: 0 12rpx;
+  gap: 5rpx;
+  font-size: 20rpx;
+  font-weight: 800;
+}
+
+.usage-primary-actions > .usage-refresh-button,
+.usage-primary-actions > .usage-export-button,
+.usage-primary-actions > .monitor-section-toggle-button,
+.usage-failure-actions > picker,
+.usage-failure-actions > .model-failure-export-button,
+.usage-failure-actions > .usage-subsection-toggle {
+  margin: 0;
+  border-radius: 14rpx;
+  font-size: 20rpx;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.usage-primary-actions > .usage-refresh-button,
+.usage-primary-actions > .usage-export-button,
+.usage-primary-actions > .monitor-section-toggle-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 8rpx;
+}
+
+.usage-failure-actions > picker {
+  display: flex;
+}
+
+.usage-failure-actions > .model-failure-export-button {
+  padding: 0 8rpx;
+  line-height: 1;
+}
+
+.model-failure-month-picker {
+  box-sizing: border-box;
+  height: 54rpx;
+  min-height: 54rpx;
+  padding: 0 8rpx;
+  align-items: center;
+  border-radius: 14rpx;
+  font-size: 20rpx;
+  font-weight: 800;
+  line-height: 1;
+}
+
+@media (max-width: 560px) {
+  .usage-primary-actions {
+    width: 100%;
+    min-width: 0;
+    justify-content: flex-end;
+    gap: 6rpx;
+  }
+
+  .usage-primary-actions > .usage-refresh-button {
+    flex: 0 0 126rpx;
+    width: 126rpx;
+    min-width: 126rpx;
+  }
+
+  .usage-primary-actions > .usage-export-button {
+    flex: 0 0 176rpx;
+    width: 176rpx;
+    min-width: 176rpx;
+  }
+
+  .usage-primary-actions > .monitor-section-toggle-button {
+    flex: 0 0 96rpx;
+    width: 96rpx;
+    min-width: 96rpx;
+  }
+}

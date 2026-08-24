@@ -22,6 +22,25 @@ assert.ok(wxss.includes("border-radius: var(--admin-radius-control)"), "操作�
 assert.ok(wxml.includes("class=\"quick-launch-grid\""), "快捷入口结构缺失");
 assert.ok(wxml.includes("class=\"monitor-section-toggle-button\""), "展开按钮结构缺失");
 
+const usageAlignmentStart = wxss.indexOf("/* 模型用量统计与失败情况的三项操作按同一组基准线对齐。 */");
+assert.notStrictEqual(usageAlignmentStart, -1, "缺少模型用量与失败情况的统一对齐规则");
+const usageAlignmentBlock = wxss.slice(usageAlignmentStart);
+[
+  ".usage-primary-actions,\n.usage-failure-actions",
+  "gap: 6rpx",
+  ".usage-primary-actions > .usage-refresh-button,\n.usage-failure-actions > picker",
+  "flex: 0 0 126rpx",
+  ".usage-primary-actions > .usage-export-button,\n.usage-failure-actions > .model-failure-export-button",
+  "flex: 0 0 176rpx",
+  ".usage-primary-actions > .monitor-section-toggle-button,\n.usage-failure-actions > .usage-subsection-toggle",
+  "flex: 0 0 96rpx",
+  "height: 54rpx",
+  "font-size: 20rpx",
+  "border-radius: 14rpx"
+].forEach((marker) => {
+  assert.ok(usageAlignmentBlock.includes(marker), `用量/失败情况对齐规则缺少：${marker}`);
+});
+
 const widthCases = [
   {
     width: 375,

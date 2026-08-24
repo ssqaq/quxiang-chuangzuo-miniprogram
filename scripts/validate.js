@@ -262,6 +262,9 @@ const photoToVideoWxss = fs.readFileSync(
 const indexJs = fs.readFileSync(path.join(root, "pages/index/index.js"), "utf8");
 const indexWxss = fs.readFileSync(path.join(root, "pages/index/index.wxss"), "utf8");
 const promptJs = fs.readFileSync(path.join(root, "utils/prompt.js"), "utf8");
+const repairJs = fs.readFileSync(path.join(root, "pages/repair/repair.js"), "utf8");
+const repairWxml = fs.readFileSync(path.join(root, "pages/repair/repair.wxml"), "utf8");
+const repairWxss = fs.readFileSync(path.join(root, "pages/repair/repair.wxss"), "utf8");
 const canvasGestureJs = fs.readFileSync(
   path.join(root, "utils/canvas-gesture.js"),
   "utf8"
@@ -1322,6 +1325,17 @@ if (
   || !cloudJs.includes('kind: "background"')
 ) {
   throw new Error("背景参考上传、背景描述、提示词或云端素材链路不完整。");
+}
+if (
+  !repairJs.includes("backgroundRefs")
+  || !repairJs.includes("backgroundFileIDs")
+  || !repairJs.includes("chooseBackgroundImages")
+  || !repairWxml.includes("背景参考")
+  || !repairWxml.includes("补选背景参考")
+  || !repairWxml.includes("legacyBackgroundPending")
+  || !repairWxss.includes("flex-wrap: wrap")
+) {
+  throw new Error("局部修正页没有完整继承背景参考，或窄屏按钮没有换行。");
 }
 const compactAreaStyle = indexWxss.match(/\.compact-area\s*\{([^}]*)\}/);
 if (

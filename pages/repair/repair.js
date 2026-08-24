@@ -513,7 +513,6 @@ Page({
       wardrobeRefs: [],
       backgroundRefs: [],
       legacyBackgroundPending: false,
-      backgroundRefs: [],
       selectedIssueKeys: normalizeIssueKeys(this.data.selectedIssueKeys, false),
       issueGroups: createSelectableIssueOptions(false, this.data.selectedIssueKeys),
       statusText: "已确认不沿用旧参考，请重新拖动确认红圈"

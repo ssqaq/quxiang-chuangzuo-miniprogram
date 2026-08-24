@@ -284,13 +284,15 @@
 
 .reference-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 16rpx;
   margin-top: 18rpx;
 }
 
 .reference-actions button {
-  flex: 1;
+  flex: 1 1 calc(50% - 8rpx);
   min-width: 0;
+  box-sizing: border-box;
 }
 
 .reference-line {

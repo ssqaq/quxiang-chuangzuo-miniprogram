@@ -302,6 +302,42 @@ user_quotas
 `auto_face_probe_logs` 只保存管理员主动检查的探针状态、版本、视觉配置、Provider、Model
 和耗时，保留最近 30 天，管理页最多显示 20 条；不保存 API Key、图片、提示词或完整用户身份。
 
+### 7. 检查数据库索引
+
+集合已经创建，不代表查询需要的索引也已经存在。先在当前 PowerShell
+终端临时设置腾讯云管理凭据，再执行只读检查：
+
+```powershell
+$env:TENCENTCLOUD_SECRET_ID = "当前终端临时SecretId"
+$env:TENCENTCLOUD_SECRET_KEY = "当前终端临时SecretKey"
+PowerShell -NoProfile -ExecutionPolicy Bypass -File .\scripts\check-cloud-database-indexes.ps1 -CheckOnly
+```
+
+确认只读检查结果没有问题后，再运行逐项确认模式：
+
+```powershell
+PowerShell -NoProfile -ExecutionPolicy Bypass -File .\scripts\check-cloud-database-indexes.ps1
+```
+
+使用规则：
+
+- `-CheckOnly` 只读取云端索引，不修改云端；
+- 默认直接回车等于跳过当前索引；
+- 输入 `A` 只对后续缺失索引执行创建，不会回头修改已经跳过的项目；
+- 同名但字段配置错误的索引，必须输入完整索引名才会进入重建确认；
+- 项目清单之外的多余索引只报告，不自动删除；
+- 检查报告保存在 `_tmp_database-index-reports`；
+- 如果提示集合缺失，先运行 `scripts/init-cloud-database.ps1` 创建集合；
+- 完成后清掉当前终端里的临时凭据：
+
+```powershell
+Remove-Item Env:TENCENTCLOUD_SECRET_ID -ErrorAction SilentlyContinue
+Remove-Item Env:TENCENTCLOUD_SECRET_KEY -ErrorAction SilentlyContinue
+Remove-Item Env:TENCENTCLOUD_SESSION_TOKEN -ErrorAction SilentlyContinue
+```
+
+密钥只能通过当前进程环境变量提供，不能写进 `config.js`、`.env`、源码或发布包。
+
 ## 调试顺序
 
 1. 确认 `config.js` 已填写 CloudBase 环境 ID；

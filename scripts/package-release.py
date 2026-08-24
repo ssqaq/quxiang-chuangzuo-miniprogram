@@ -44,6 +44,8 @@ def should_include(path: Path) -> bool:
         or "__pycache__" in relative.parts
     ):
         return False
+    if relative.as_posix() == "project.private.config.json":
+        return False
     if path.suffix.lower() in {".zip", ".tgz", ".pyc"}:
         return False
     if any(part.startswith("_tmp_") for part in relative.parts):
@@ -100,6 +102,7 @@ def main() -> None:
             "云函数依赖：部署时可选择云端安装依赖",
             "CloudBase 环境 ID：需在 config.js 中填写后再部署",
             "数据库初始化：部署 api 后执行 scripts/init-cloud-database.ps1，自动补齐 17 个集合（含 user_profiles、user_diagnostic_logs、publish_export_jobs）",
+            "数据库索引：执行 scripts/check-cloud-database-indexes.ps1，先检查再逐项确认创建 11 组必需索引",
             "用户资料：仅在首次签到时要求选择头像、填写昵称并选择男/女，保存后自动签到",
             "自动贴脸策略：直接调用云端 detectFaceCircle；云端失败保留手动圈选",
             "模型用量统计：部署前请创建 CloudBase 集合 model_usage_events，并设置为仅云函数读写",
@@ -178,6 +181,13 @@ def main() -> None:
         "scripts/diagnostic-admin-logs-smoke.js",
         "scripts/user-profile-smoke.js",
         "scripts/init-cloud-database.ps1",
+        "scripts/database-indexes.json",
+        "scripts/database-index-core.js",
+        "scripts/database-index-smoke.js",
+        "scripts/check-cloud-database-indexes.ps1",
+        "scripts/cloud-database-index-manager/package.json",
+        "scripts/cloud-database-index-manager/package-lock.json",
+        "scripts/cloud-database-index-manager/index.js",
         "scripts/auto-face-probe-history-smoke.js",
         "scripts/analysis-cost-probe-smoke.js",
         "scripts/admin-user-stats-option-d-smoke.js",
@@ -190,7 +200,13 @@ def main() -> None:
             raise RuntimeError("ZIP 完整性校验失败。")
         names = set(archive.namelist())
     missing = sorted(required - names)
-    forbidden = sorted(name for name in names if "node_modules" in name)
+    forbidden = sorted(
+        name
+        for name in names
+        if "node_modules" in name
+        or "project.private.config.json" in name
+        or any(part.startswith("_tmp_") for part in Path(name).parts)
+    )
     if missing:
         raise RuntimeError(f"发布包缺少文件：{', '.join(missing)}")
     if forbidden:

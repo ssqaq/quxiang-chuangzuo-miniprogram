@@ -17,7 +17,9 @@ const jsonFiles = [
   "pages/admin/admin.json",
   "pages/repair/repair.json",
   "cloudfunctions/api/package.json",
-  "cloudfunctions/api/config.json"
+  "cloudfunctions/api/config.json",
+  "scripts/database-indexes.json",
+  "scripts/cloud-database-index-manager/package.json"
 ];
 const optionalJsonFiles = ["project.private.config.json"];
 const jsFiles = [
@@ -54,6 +56,9 @@ const jsFiles = [
   "cloudfunctions/api/lib/multipart.js",
   "cloudfunctions/api/lib/web-pose.js",
   "cloudfunctions/api/lib/publish-export-core.js",
+  "scripts/database-index-core.js",
+  "scripts/database-index-smoke.js",
+  "scripts/cloud-database-index-manager/index.js",
   "scripts/check-deployment.js",
   "scripts/compat-smoke.js",
   "scripts/ai-provider-smoke.js",
@@ -93,7 +98,8 @@ const pythonFiles = ["scripts/package-release.py"];
 const powerShellFiles = [
   "scripts/check-devtools.ps1",
   "scripts/init-cloud-database.ps1",
-  "scripts/refresh-preview.ps1"
+  "scripts/refresh-preview.ps1",
+  "scripts/check-cloud-database-indexes.ps1"
 ];
 
 for (const relative of jsonFiles) {
@@ -209,12 +215,39 @@ const required = [
   "scripts/photo-to-video-session-smoke.js",
   "scripts/auto-face-probe-history-smoke.js",
   "scripts/publish-export-advanced-smoke.js",
-  "scripts/publish-export-cloud-smoke.js"
+  "scripts/publish-export-cloud-smoke.js",
+  "scripts/database-indexes.json",
+  "scripts/database-index-core.js",
+  "scripts/database-index-smoke.js",
+  "scripts/check-cloud-database-indexes.ps1",
+  "scripts/cloud-database-index-manager/package.json",
+  "scripts/cloud-database-index-manager/package-lock.json",
+  "scripts/cloud-database-index-manager/index.js"
 ];
 for (const relative of required) {
   if (!fs.existsSync(path.join(root, relative))) {
     throw new Error(`缺少必要文件：${relative}`);
   }
+}
+
+const databaseIndexes = JSON.parse(
+  fs.readFileSync(path.join(root, "scripts/database-indexes.json"), "utf8")
+);
+const databaseIndexPs1 = fs.readFileSync(
+  path.join(root, "scripts/check-cloud-database-indexes.ps1"),
+  "utf8"
+);
+if (
+  databaseIndexes.version !== 1
+  || !Array.isArray(databaseIndexes.indexes)
+  || databaseIndexes.indexes.length !== 11
+  || !databaseIndexPs1.includes("TENCENTCLOUD_SECRET_ID")
+  || !databaseIndexPs1.includes("TENCENTCLOUD_SECRET_KEY")
+  || !databaseIndexPs1.includes("Create this index? [Y/N/A/Q]")
+  || !databaseIndexPs1.includes("Type the full index name to rebuild")
+  || !databaseIndexPs1.includes("DATABASE_INDEX_CHECK_INCOMPLETE")
+) {
+  throw new Error("云数据库索引检查和逐项确认工具不完整。");
 }
 
 const indexWxml = fs.readFileSync(path.join(root, "pages/index/index.wxml"), "utf8");
@@ -606,8 +639,14 @@ if (
 if (
   !clientCloudJs.includes('action: "reportAutoFaceFailure"')
   || !clientCloudJs.includes('action: "getAutoFaceFailureStats"')
+  || !clientCloudJs.includes('action: "exportAutoFaceFailureStats"')
   || !adminJs.includes("cloud.getAutoFaceFailureStats()")
   || !adminJs.includes("refreshAutoFaceFailureStats")
+  || !adminJs.includes("startAutoFaceFailureAutoRefresh")
+  || !adminJs.includes("selectAutoFaceFailureMonth")
+  || !adminJs.includes("openAutoFaceFailureUserDetail")
+  || !adminJs.includes("exportAutoFaceFailureStats")
+  || !adminJs.includes("AUTO_FACE_FAILURE_AUTO_REFRESH_MS")
   || !adminWxml.includes("自动贴脸失败统计")
   || !adminWxml.includes("最近 30 天")
   || !adminWxml.includes("最近30天每日明细")
@@ -616,15 +655,24 @@ if (
   || !adminJs.includes("toggleAutoFaceFailureSection")
   || !adminJs.includes("autoFaceFailureSections")
   || !adminWxml.includes("最近失败记录")
+  || !adminWxml.includes("导出失败统计")
+  || !adminWxml.includes("查看详情")
+  || !adminWxml.includes("autoFaceFailureView")
   || !adminWxss.includes(".auto-face-failure-summary")
   || !adminWxss.includes(".auto-face-failure-type-list")
   || !adminWxss.includes(".auto-face-failure-recent-list")
   || !adminWxss.includes(".auto-face-failure-daily-list")
   || !adminWxss.includes(".auto-face-failure-user-list")
   || !adminWxss.includes(".auto-face-failure-monthly-list")
+  || !adminWxss.includes(".failure-type-tag")
+  || !adminWxss.includes(".auto-face-detail-dialog")
+  || !adminWxss.includes(".auto-face-month-picker")
   || !cloudJs.includes("AUTO_FACE_FAILURE_LOG_COLLECTION")
   || !cloudJs.includes("normalizeAutoFaceFailureReport")
   || !cloudJs.includes("buildAutoFaceFailureStats")
+  || !cloudJs.includes("buildAutoFaceFailureExportWorkbook")
+  || !cloudJs.includes("exportAutoFaceFailureStats")
+  || !cloudJs.includes("details")
   || !cloudJs.includes("userHash")
   || !cloudJs.includes("ADMIN_FORBIDDEN")
   || !fs.existsSync(path.join(root, "scripts/auto-face-failure-stats-smoke.js"))

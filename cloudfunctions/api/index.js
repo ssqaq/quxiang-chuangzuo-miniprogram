@@ -5692,6 +5692,15 @@ exports.main = async (event = {}, context) => {
       else if (/超时|timeout/i.test(message)) errorCode = "timeout";
       else if (/额度|次数已用完|quota/i.test(message)) errorCode = "quota-exceeded";
     }
+    if (action === "probeAutoFace" && isAdminContext(context)) {
+      await writeAutoFaceProbeHistory({
+        status: "failed",
+        requestId,
+        errorCode,
+        durationMs: Date.now() - functionStartedAt,
+        checkedAt: new Date()
+      });
+    }
     log("error", "function.error", {
       requestId,
       action,

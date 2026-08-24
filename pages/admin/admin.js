@@ -838,6 +838,10 @@ Page({
         cloud.getAutoFaceProbeHistory().catch((error) => ({ __historyError: error }))
       ]);
       const historyError = probeHistoryResult && probeHistoryResult.__historyError;
+      const historyUnavailable = Boolean(
+        historyError
+        || (probeResult && !probeError && probeResult.historyWritten === false)
+      );
       this.setData({
         deployment: result,
         logs: (logs.logs || []).map(displayLog),
@@ -853,7 +857,13 @@ Page({
           : formatAutoFaceProbeHistory(probeHistoryResult),
         checking: false,
         message: result.logWritten
-          ? (probeError ? "线上部署完成，但自动贴脸探针失败。" : "线上部署检查完成，日志已写入。")
+          ? (
+            probeError
+              ? "线上部署完成，但自动贴脸探针失败。"
+              : historyUnavailable
+                ? "线上部署检查完成，但探针历史暂时没有写入。"
+                : "线上部署检查完成，日志已写入。"
+          )
           : "检查完成，但日志写入失败。"
       });
       diagnosticLog.info("admin", "deployment-checked", "线上部署检查完成", {

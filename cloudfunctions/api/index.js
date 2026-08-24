@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.32.3";
-const API_BUILD_MARKER = "API_BUILD_TAG_20260824_ADMIN_USER_FILTER_DETAIL_V323";
+const API_BUILD_VERSION = "0.32.4";
+const API_BUILD_MARKER = "API_BUILD_TAG_20260824_ADMIN_USER_FILTER_DETAIL_V324";
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
 const cloud = require("wx-server-sdk");
@@ -5681,6 +5681,23 @@ async function deleteCloudFileQuiet(fileID, requestId, reason) {
   }
 }
 
+async function deleteTemporaryPublishExportAsset(openid, fileID, requestId) {
+  if (!openid || !fileID) return;
+  try {
+    const ref = db.collection(USER_ASSET_COLLECTION).doc(userAssetId(openid, fileID));
+    const asset = await readDocument(ref);
+    if (asset && asset.openid === openid && asset.fileID === fileID && asset.temporary) {
+      await ref.remove();
+    }
+  } catch (error) {
+    log("warn", "publish-export.asset-cleanup-failed", {
+      requestId,
+      fileID,
+      message: error && error.message ? error.message : String(error)
+    });
+  }
+}
+
 async function publishExport(event, context) {
   const source = await resolvePublishExportSource(event, context);
   const options = publishExportCore.normalizeOptions(event && event.options);
@@ -5779,6 +5796,7 @@ async function publishExport(event, context) {
     });
     if (source.temporaryInput) {
       await deleteCloudFileQuiet(source.fileID, requestId, "temporary-input-success");
+      await deleteTemporaryPublishExportAsset(source.openid, source.fileID, requestId);
     }
     log("info", "publish-export.finish", {
       requestId,
@@ -5816,6 +5834,7 @@ async function publishExport(event, context) {
     }
     if (source.temporaryInput) {
       await deleteCloudFileQuiet(source.fileID, requestId, "temporary-input-failed");
+      await deleteTemporaryPublishExportAsset(source.openid, source.fileID, requestId);
     }
     throw error;
   }
@@ -5838,6 +5857,7 @@ async function cleanupPublishExportJobs(baseDate = new Date()) {
         }
         if (row.temporaryInput && row.inputFileID) {
           await deleteCloudFileQuiet(row.inputFileID, "", "publish-export-input-expired");
+          await deleteTemporaryPublishExportAsset(row.openid, row.inputFileID, "");
         }
         if (row._id) {
           await db.collection(PUBLISH_EXPORT_JOB_COLLECTION).doc(row._id).remove();

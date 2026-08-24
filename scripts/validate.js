@@ -1097,6 +1097,41 @@ if (
 ) {
   throw new Error("降低AI识别率再导出照片页面或 Canvas 保存链路不完整。");
 }
+if (
+  !publishExportJs.includes("publishExportCore.normalizeOptions")
+  || !publishExportJs.includes("confirmCloudExport")
+  || !publishExportJs.includes("本地处理失败，可以改用云端继续")
+  || !publishExportJs.includes("cloud.publishExport")
+  || !publishExportJs.includes("cloud.deleteFile(result.fileID)")
+  || !publishExportJs.includes("1536px")
+  || !publishExportJs.includes("2048px")
+  || !publishExportJs.includes("4096px")
+  || !publishExportWxml.includes("基础色彩校正")
+  || !publishExportWxml.includes("轻度降噪")
+  || !publishExportWxml.includes("清晰补偿")
+  || !publishExportWxml.includes("固定相机颗粒")
+  || !publishExportWxml.includes("频域扰动")
+  || !publishExportWxml.includes("反向重采样")
+  || !publishExportWxml.includes("可见标记淡化")
+  || !publishExportJs.includes("cameraNoiseStrength: 3")
+  || !publishExportJs.includes("frequencyStrength: 3")
+  || !publishExportJs.includes("watermarkStrength: 1")
+  || !publishExportJs.includes("removeVisibleMarks: false")
+  || !publishExportCoreJs.includes("function processRgba")
+  || !publishExportCoreJs.includes("function applyFrequencyPerturb")
+  || !publishExportCoreJs.includes("function applyVisibleMarkFade")
+  || !publishExportCoreJs.includes("function resizeRgba")
+  || !publishExportWorkerJs.includes("publish-export-core")
+  || !cloudPublishExportCoreJs.includes("function processRgba")
+  || !cloudJs.includes('action === "publishExport"')
+  || !cloudJs.includes("PUBLISH_EXPORT_JOB_COLLECTION")
+  || !cloudJs.includes("jpeg-js")
+  || !cloudJs.includes("PNG.sync.read")
+  || !clientCloudJs.includes('action: "publishExport"')
+  || !clientCloudJs.includes("temporaryInput")
+) {
+  throw new Error("高级导出参数、本地/Worker/云端共用算法、云端兜底或临时文件清理链路不完整。");
+}
 const publishExportButtonRule = getCssRule(publishExportWxss, ".export-button");
 const photoToVideoButtonRule = getCssRule(photoToVideoWxss, ".export-button");
 const publishBackButtonRule = getCssRule(publishExportWxss, ".back-button");

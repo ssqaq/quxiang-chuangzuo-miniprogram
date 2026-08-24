@@ -335,12 +335,18 @@ page {
 }
 
 .checkin-button {
+  display: flex;
   width: 100%;
   height: 78rpx;
   margin-top: 22rpx;
+  padding: 0;
+  align-items: center;
+  justify-content: center;
   border-radius: 16rpx;
   font-size: 27rpx;
-  line-height: 78rpx;
+  line-height: 1.2;
+  text-align: center;
+  box-sizing: border-box;
 }
 
 .checkin-button[disabled] {
@@ -625,12 +631,18 @@ page {
 }
 
 .back-button {
+  display: flex;
   width: 100%;
-  height: 72rpx;
-  margin-top: 4rpx;
-  border-radius: 14rpx;
-  font-size: 26rpx;
-  line-height: 72rpx;
+  height: 78rpx;
+  margin-top: 18rpx;
+  padding: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 16rpx;
+  font-size: 27rpx;
+  line-height: 1.2;
+  text-align: center;
+  box-sizing: border-box;
 }
 
 .primary-btn {

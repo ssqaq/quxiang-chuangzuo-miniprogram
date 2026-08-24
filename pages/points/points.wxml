@@ -189,5 +189,5 @@
   </view>
 
   <view wx:if="{{message}}" class="points-message">{{message}}</view>
-  <button class="plain-btn back-button" bindtap="backToWorkbench">{{pointsCopy.backToWorkbench}}</button>
+  <button class="primary-btn back-button" bindtap="backToWorkbench">{{pointsCopy.backToWorkbench}}</button>
 </view>

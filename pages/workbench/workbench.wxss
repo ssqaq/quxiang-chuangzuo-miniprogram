@@ -1211,6 +1211,7 @@ button.diagnostic-copy-button.button-hover {
   display: flex;
   flex: none;
   align-items: center;
+  gap: 0;
   color: #2f70d4;
   font-size: 21rpx;
   line-height: 32rpx;

@@ -318,12 +318,20 @@
       <view wx:if="{{activeConfigSection === 'users'}}" class="config-editor-body">
         <view class="user-stats-toolbar">
           <view class="config-helper user-stats-helper">只显示匿名编号，不显示原始 OpenID。</view>
-          <button
-            class="usage-refresh-button"
-            bindtap="refreshUserStats"
-            loading="{{userStatsLoading}}"
-            disabled="{{userStatsLoading}}"
-          >{{userStatsLoading ? '刷新中' : '刷新'}}</button>
+          <view class="user-stats-actions">
+            <button
+              class="usage-refresh-button"
+              bindtap="refreshUserStats"
+              loading="{{userStatsLoading}}"
+              disabled="{{userStatsLoading}}"
+            >{{userStatsLoading ? '刷新中' : '刷新'}}</button>
+            <button
+              class="usage-export-button"
+              bindtap="exportUserStats"
+              loading="{{userStatsExporting}}"
+              disabled="{{userStatsExporting}}"
+            >{{userStatsExporting ? '生成中' : '导出 Excel'}}</button>
+          </view>
         </view>
         <view wx:if="{{userStats.message}}" class="usage-message {{userStats.unavailable ? 'is-warn' : ''}}">
           {{userStats.message}}

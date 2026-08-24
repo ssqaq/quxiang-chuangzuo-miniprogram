@@ -604,12 +604,6 @@ module.exports = {
       silent: Boolean(options.silent)
     });
   },
-  resetMyPoints() {
-    return callApi({
-      action: "resetMyPoints",
-      retryLimit: 0
-    });
-  },
   checkIn() {
     return callApi({ action: "checkIn", retryLimit: 0 });
   },
@@ -638,6 +632,9 @@ module.exports = {
       offset: Math.max(0, Number(offset) || 0),
       limit: Math.max(1, Math.min(50, Number(limit) || 20))
     });
+  },
+  exportAdminUserStats() {
+    return callApi({ action: "exportAdminUserStats" });
   },
   saveAdminConfig(config) {
     return callApi({

@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.26.2";
-const API_BUILD_MARKER = "API_BUILD_TAG_20260824_POINTS_RESET_V262";
+const API_BUILD_VERSION = "0.27.0";
+const API_BUILD_MARKER = "API_BUILD_TAG_20260824_VIDEO_USER_EXPORT_V270";
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
 const cloud = require("wx-server-sdk");
@@ -3310,6 +3310,30 @@ function formatExportNumber(value, digits = 6) {
   return Number(number.toFixed(digits));
 }
 
+function safeExportText(value, maxLength = 200) {
+  const text = String(value === undefined || value === null ? "" : value)
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLength);
+  return /^[=+\-@]/.test(text) ? `'${text}` : text;
+}
+
+function formatExportDateTime(value) {
+  const date = value instanceof Date ? value : new Date(value || 0);
+  if (!Number.isFinite(date.getTime())) return "";
+  return new Intl.DateTimeFormat("zh-CN", {
+    timeZone: MODEL_USAGE_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false
+  }).format(date);
+}
+
 function buildModelUsageExportWorkbook(stats = {}) {
   const workbook = XLSX.utils.book_new();
   const dailyRows = [[
@@ -4537,6 +4561,125 @@ async function getAdminUserStats(event, context) {
   });
 }
 
+function normalizeAdminUserProfileRows(rows = []) {
+  return (Array.isArray(rows) ? rows : [])
+    .map((item) => Object.assign({}, item, {
+      gender: normalizeUserGender(item && item.gender),
+      nickname: normalizeUserNickname(item && item.nickname)
+    }))
+    .filter((item) => item.gender && item.nickname)
+    .sort((left, right) => (
+      new Date(right.createdAt || 0).getTime()
+      - new Date(left.createdAt || 0).getTime()
+    ));
+}
+
+function buildAdminUserExportWorkbook(rows = [], exportedAt = new Date()) {
+  const users = normalizeAdminUserProfileRows(rows);
+  const maleCount = users.filter((item) => item.gender === "male").length;
+  const femaleCount = users.filter((item) => item.gender === "female").length;
+  const total = maleCount + femaleCount;
+  const maleRatio = total ? Math.round(maleCount / total * 1000) / 10 : 0;
+  const femaleRatio = total ? Math.round((100 - maleRatio) * 10) / 10 : 0;
+  const workbook = XLSX.utils.book_new();
+  const summarySheet = XLSX.utils.aoa_to_sheet([
+    ["统计项目", "数值"],
+    ["总用户数", total],
+    ["男性数量", maleCount],
+    ["男性比例", `${maleRatio}%`],
+    ["女性数量", femaleCount],
+    ["女性比例", `${femaleRatio}%`],
+    ["导出时间", formatExportDateTime(exportedAt)]
+  ]);
+  summarySheet["!cols"] = [{ wch: 18 }, { wch: 26 }];
+  XLSX.utils.book_append_sheet(workbook, summarySheet, "统计摘要");
+
+  const detailRows = [[
+    "匿名用户编号",
+    "昵称",
+    "性别",
+    "首次使用时间",
+    "最近修改时间"
+  ]];
+  users.forEach((item) => {
+    detailRows.push([
+      safeExportText(item.userHash || usageUserHash(item.openid), 40),
+      safeExportText(item.nickname, 32),
+      item.gender === "male" ? "男" : "女",
+      formatExportDateTime(item.createdAt),
+      formatExportDateTime(item.updatedAt)
+    ]);
+  });
+  const detailSheet = XLSX.utils.aoa_to_sheet(detailRows);
+  detailSheet["!cols"] = [
+    { wch: 18 },
+    { wch: 24 },
+    { wch: 10 },
+    { wch: 24 },
+    { wch: 24 }
+  ];
+  XLSX.utils.book_append_sheet(workbook, detailSheet, "用户明细");
+  return XLSX.write(workbook, {
+    bookType: "xlsx",
+    type: "buffer"
+  });
+}
+
+async function loadAllAdminUserProfiles() {
+  if (process.env.WECHAT_MINIAPP_TEST === "1") {
+    return {
+      rows: userProfileTestRows.slice(),
+      total: userProfileTestRows.length,
+      truncated: false
+    };
+  }
+  const collection = db.collection(USER_PROFILE_COLLECTION);
+  const countResult = await collection.count();
+  const total = Math.max(0, Number(countResult && countResult.total) || 0);
+  const maxRows = 10000;
+  const targetCount = Math.min(total, maxRows);
+  const batchSize = 100;
+  const rows = [];
+  while (rows.length < targetCount) {
+    const result = await collection
+      .orderBy("createdAt", "desc")
+      .skip(rows.length)
+      .limit(Math.min(batchSize, targetCount - rows.length))
+      .get();
+    const batch = result && Array.isArray(result.data) ? result.data : [];
+    rows.push(...batch);
+    if (batch.length < batchSize) break;
+  }
+  return {
+    rows,
+    total,
+    truncated: total > maxRows
+  };
+}
+
+async function exportAdminUserStats(event, context) {
+  if (!isAdminContext(context)) return adminForbidden();
+  const loaded = await loadAllAdminUserProfiles();
+  const buffer = buildAdminUserExportWorkbook(loaded.rows);
+  const dateKey = dateKeyForTimeZone(new Date(), MODEL_USAGE_TIME_ZONE);
+  const fileName = `用户统计-${dateKey}.xlsx`;
+  const uploaded = await cloud.uploadFile({
+    cloudPath: `exports/user-stats/${Date.now()}-${crypto.randomBytes(4).toString("hex")}.xlsx`,
+    fileContent: buffer
+  });
+  return jsonResponse(true, {
+    fileID: uploaded && uploaded.fileID ? uploaded.fileID : "",
+    fileName,
+    sizeBytes: buffer.length,
+    exportedCount: normalizeAdminUserProfileRows(loaded.rows).length,
+    total: loaded.total,
+    truncated: loaded.truncated,
+    message: loaded.truncated
+      ? "Excel 已生成；用户超过 10000 人，本次导出前 10000 人。"
+      : "用户统计 Excel 已生成，可以下载。"
+  });
+}
+
 async function retainUserAssets(openid, fileIDs, kind, store = db) {
   const ids = Array.from(new Set((Array.isArray(fileIDs) ? fileIDs : []).filter(Boolean)));
   for (const fileID of ids) {
@@ -5123,82 +5266,6 @@ async function getUserPoints(context) {
     boundMessage: account ? "已绑定当前微信" : "点击签到后绑定微信身份"
   }, pointsSummary(
     account || defaultPointsAccount("anonymous"),
-    quota,
-    configs.points,
-    dateKey
-  )));
-}
-
-async function resetMyPoints(context) {
-  const openid = getOpenId(context);
-  if (openid === "anonymous") {
-    return fail("请先完成微信授权后再重置积分。", "wechat-binding-required");
-  }
-
-  const accountRef = db
-    .collection(POINTS_ACCOUNT_COLLECTION)
-    .doc(pointsAccountId(openid));
-  const existing = await readDocument(accountRef);
-  const previousAccount = existing ? Object.assign({}, existing) : null;
-  const now = new Date();
-  const nextAccount = Object.assign(
-    defaultPointsAccount(openid),
-    existing || {},
-    {
-      _id: pointsAccountId(openid),
-      openid,
-      pointsBalance: 0,
-      totalEarned: 0,
-      totalSpent: 0,
-      currentStreak: 0,
-      lastCheckinDate: "",
-      updatedAt: now,
-      pointsResetAt: now,
-      pointsResetSource: "self-test"
-    }
-  );
-
-  await accountRef.set({ data: stripDocumentId(nextAccount) });
-  let removedLedgerRecords = 0;
-  try {
-    removedLedgerRecords = await removePointLedgerForUser(openid);
-  } catch (error) {
-    if (previousAccount) {
-      try {
-        await accountRef.set({ data: stripDocumentId(previousAccount) });
-      } catch (restoreError) {
-        log("error", "points.reset-restore-failed", {
-          userHash: usageUserHash(openid),
-          message: restoreError && restoreError.message
-        });
-      }
-    } else {
-      try {
-        await accountRef.remove();
-      } catch (removeError) {
-        log("error", "points.reset-account-cleanup-failed", {
-          userHash: usageUserHash(openid),
-          message: removeError && removeError.message
-        });
-      }
-    }
-    throw error;
-  }
-
-  const configs = await resolveEffectiveConfigs();
-  const dateKey = dateKeyForTimeZone(new Date(), configs.points.timeZone);
-  const quota = await readDailyQuota(
-    openid,
-    dateKey,
-    configs.points.dailyFreeLimit
-  );
-  return jsonResponse(true, Object.assign({
-    accountBound: true,
-    reset: true,
-    removedLedgerRecords,
-    message: "当前微信账号的积分和签到状态已清除，可以重新签到。"
-  }, pointsSummary(
-    nextAccount,
     quota,
     configs.points,
     dateKey
@@ -6416,7 +6483,6 @@ exports.main = async (event = {}, context) => {
     else if (action === "getMyUserProfile") result = await getMyUserProfile(context);
     else if (action === "saveMyUserProfile") result = await saveMyUserProfile(requestEvent, context);
     else if (action === "getUserPoints") result = await getUserPoints(context);
-    else if (action === "resetMyPoints") result = await resetMyPoints(context);
     else if (action === "checkIn") result = await checkIn(context);
     else if (action === "getPointLedger") result = await getPointLedger(context);
     else if (action === "listRecords") result = await listRecords(context);
@@ -6427,6 +6493,7 @@ exports.main = async (event = {}, context) => {
     else if (action === "getAdminStatus") result = await getAdminStatus(context);
     else if (action === "getAdminConfig") result = await getAdminConfig(context);
     else if (action === "getAdminUserStats") result = await getAdminUserStats(requestEvent, context);
+    else if (action === "exportAdminUserStats") result = await exportAdminUserStats(requestEvent, context);
     else if (action === "initializeDatabase") result = await initializeDatabase(context);
     else if (action === "saveAdminConfig") result = await saveAdminConfig(requestEvent, context);
     else if (action === "checkDeployment") result = await checkDeployment(requestEvent, context);
@@ -6587,6 +6654,10 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     getMyUserProfile,
     saveMyUserProfile,
     getAdminUserStats,
+    normalizeAdminUserProfileRows,
+    buildAdminUserExportWorkbook,
+    loadAllAdminUserProfiles,
+    exportAdminUserStats,
     getUserProfileTestRows: () => userProfileTestRows.slice(),
     resetUserProfileTestRows: () => {
       userProfileTestRows.splice(0, userProfileTestRows.length);
@@ -6607,7 +6678,6 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     claimGenerationOperation,
     completeGenerationOperation,
     failGenerationOperation,
-    resetMyPoints,
     checkIn,
     getTestDatabase: () => db,
     getAdminRuntimeCache: () => adminRuntimeCache

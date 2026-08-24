@@ -1188,6 +1188,13 @@ page {
   flex: 1;
 }
 
+.user-stats-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8rpx;
+}
+
 .user-summary-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1956,5 +1963,14 @@ page {
     flex: 1;
     width: auto;
     font-size: 18rpx;
+  }
+
+  .user-stats-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .user-stats-actions {
+    width: 100%;
   }
 }

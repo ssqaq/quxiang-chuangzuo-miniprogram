@@ -133,6 +133,7 @@
         activeColor="#1f6feb"
         backgroundColor="#dfe7f3"
         block-size="22"
+        bindchanging="changeQuality"
         bindchange="changeQuality"
       ></slider>
     </view>

@@ -100,7 +100,6 @@ Page({
     pointsCopy: config.points.copy,
     loading: true,
     checkingIn: false,
-    resettingPoints: false,
     message: "",
     points: normalizePoints(),
     ledger: [],
@@ -359,64 +358,6 @@ Page({
         content: String(message),
         showCancel: false
       });
-    }
-  },
-
-  resetMyPoints() {
-    if (this._resetPointsPromise || this.data.resettingPoints) {
-      return this._resetPointsPromise || Promise.resolve();
-    }
-    wx.showModal({
-      title: "清除当前账号积分",
-      content: "只清除你当前登录微信账号的积分和签到记录，不会影响其他用户。清除后可以重新签到。",
-      confirmText: "确认清除",
-      confirmColor: "#d95c64",
-      success: (result) => {
-        if (!result.confirm) return;
-        const request = this.performResetMyPoints();
-        this._resetPointsPromise = request;
-        const clearResetLock = () => {
-          if (this._resetPointsPromise === request) {
-            this._resetPointsPromise = null;
-          }
-        };
-        request.then(clearResetLock, clearResetLock);
-      }
-    });
-  },
-
-  async performResetMyPoints() {
-    if (!cloud.isCloudReady()) {
-      wx.showToast({ title: config.points.copy.cloudRequired, icon: "none" });
-      return;
-    }
-    this.setData({ resettingPoints: true, message: "" });
-    try {
-      const result = await cloud.resetMyPoints();
-      const points = normalizePoints(result);
-      this.setData({
-        resettingPoints: false,
-        points,
-        ledger: [],
-        visibleLedger: [],
-        message: result.message || "积分已清除，现在可以重新签到。"
-      });
-      this.animateDashboardNumbers(points);
-      wx.showToast({ title: "已清除，可重新签到", icon: "success" });
-      await this.loadPoints();
-    } catch (error) {
-      this.setData({ resettingPoints: false });
-      const payload = error && error.payload;
-      wx.showModal({
-        title: "清除失败",
-        content: String(
-          payload && payload.message
-            || error && error.message
-            || "请稍后重试。"
-        ),
-        showCancel: false
-      });
-      diagnosticLog.error("points", "reset-failed", "清除当前账号积分失败", { error });
     }
   },
 

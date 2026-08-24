@@ -176,23 +176,6 @@ async function main() {
     assert.strictEqual(checkinLedger.length, 1);
     assert.strictEqual(checkinLedger[0].amount, 5);
     assert.strictEqual(checkinLedger[0].balanceAfter, 5);
-
-    const reset = await helpers.resetMyPoints(user);
-    assert.strictEqual(reset.ok, true);
-    assert.strictEqual(reset.reset, true);
-    assert.strictEqual(reset.removedLedgerRecords, 1);
-    assert.strictEqual(reset.pointsBalance, 0);
-    assert.strictEqual(reset.totalEarned, 0);
-    assert.strictEqual(reset.totalSpent, 0);
-    assert.strictEqual(reset.currentStreak, 0);
-    assert.strictEqual(reset.checkedInToday, false);
-    assert.strictEqual(valuesFor(store, "point_ledger").length, 0);
-
-    const afterResetCheckIn = await helpers.checkIn(user);
-    assert.strictEqual(afterResetCheckIn.ok, true);
-    assert.strictEqual(afterResetCheckIn.duplicate, false);
-    assert.strictEqual(afterResetCheckIn.earnedToday, 5);
-    assert.strictEqual(afterResetCheckIn.pointsBalance, 5);
   } finally {
     db.collection = originalCollection;
     db.runTransaction = originalRunTransaction;

@@ -937,6 +937,7 @@ Page({
     usageStats: emptyUsageStats(),
     costTrend: emptyCostTrend(),
     userStatsLoading: false,
+    userStatsExporting: false,
     userStats: emptyUserStats(),
     autoFaceFailureLoading: false,
     autoFaceFailureStats: emptyAutoFaceFailureStats(),
@@ -1233,6 +1234,36 @@ Page({
 
   loadMoreUsers() {
     this.refreshUserStats(false);
+  },
+
+  async exportUserStats() {
+    if (this.data.userStatsExporting) return;
+    this.setData({ userStatsExporting: true });
+    try {
+      const result = await cloud.exportAdminUserStats();
+      if (!result || !result.fileID) throw new Error("用户统计 Excel 生成失败。");
+      const filePath = await cloud.downloadFile(result.fileID);
+      if (!filePath || typeof wx.openDocument !== "function") {
+        throw new Error("文件已生成，但当前微信版本无法打开 Excel 文件。");
+      }
+      await new Promise((resolve, reject) => {
+        wx.openDocument({
+          filePath,
+          fileType: "xlsx",
+          showMenu: true,
+          success: resolve,
+          fail: reject
+        });
+      });
+      this.setData({ userStatsExporting: false });
+      wx.showToast({ title: "用户表已导出", icon: "success" });
+    } catch (error) {
+      this.setData({ userStatsExporting: false });
+      diagnosticLog.error("admin", "user-stats-export-failed", "用户统计 Excel 导出失败", {
+        error
+      });
+      this.showError("导出失败", error);
+    }
   },
 
   async refreshAll() {

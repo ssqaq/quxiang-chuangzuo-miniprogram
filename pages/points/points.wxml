@@ -190,13 +190,4 @@
 
   <view wx:if="{{message}}" class="points-message">{{message}}</view>
   <button class="primary-btn back-button" bindtap="backToWorkbench">{{pointsCopy.backToWorkbench}}</button>
-  <button
-    class="plain-btn test-reset-button"
-    bindtap="resetMyPoints"
-    loading="{{resettingPoints}}"
-    disabled="{{resettingPoints}}"
-  >
-    清除我的积分（测试签到）
-  </button>
-  <view class="test-reset-hint">只清当前登录账号，清除后可重新签到；测试完成后可删除此按钮。</view>
 </view>

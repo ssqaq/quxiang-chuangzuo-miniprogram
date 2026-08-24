@@ -269,6 +269,7 @@ PowerShell -ExecutionPolicy Bypass -File .\scripts\check-devtools.ps1
 generation_records
 user_quotas
 auto_face_failure_logs
+photo_to_video_temp_assets
 ```
 
 以上集合权限统一设置为“仅云函数可读写”。前端不直接读写数据库，统一通过 `api`
@@ -299,7 +300,14 @@ auto_face_failure_logs
 - 生成成功后，小程序内支持按住预览视频、松开回到静态图；
 - 单张任务独立记录，失败项可以单独重试。
 - 上传到视频服务的源图和返回结果会进入本地待清理队列，默认保留 24 小时，
-  到期后再次打开本页面时自动清理；清理失败会保留并在后续重试，不影响已保存到相册的文件。
+  默认保留 3×24 小时；本地队列会在再次打开本页面时兜底清理，云端定时器每天自动清理，
+  清理失败会保留并在下一次任务重试，不影响已保存到相册的文件。
+- `photo_to_video_temp_assets` 只登记照片转动态视频上传的源照片和临时结果视频，定时任务不会
+  删除用户相册文件、正式制作记录或正式结果图。
+
+`cloudfunctions/api/config.json` 已配置每天凌晨 3 点触发照片转视频临时文件清理。部署 `api`
+云函数后，还要在 CloudBase 数据库创建 `photo_to_video_temp_assets` 集合，并设置为“仅云函数可读写”；
+只通过本地静态检查不能代表线上定时任务已经生效。
 
 当前已接入凌云中转站的 Grok 异步视频适配：创建任务使用
 `POST /v1/videos/generations`，随后使用 `GET /v1/videos/{taskId}` 轮询，

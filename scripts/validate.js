@@ -16,7 +16,8 @@ const jsonFiles = [
   "pages/points/points.json",
   "pages/admin/admin.json",
   "pages/repair/repair.json",
-  "cloudfunctions/api/package.json"
+  "cloudfunctions/api/package.json",
+  "cloudfunctions/api/config.json"
 ];
 const jsFiles = [
   "app.js",
@@ -71,7 +72,8 @@ const jsFiles = [
   "scripts/model-usage-stats-smoke.js",
   "scripts/model-cost-stats-smoke.js",
   "scripts/model-failure-stats-smoke.js",
-  "scripts/auto-face-failure-stats-smoke.js"
+  "scripts/auto-face-failure-stats-smoke.js",
+  "scripts/photo-to-video-cleanup-smoke.js"
 ];
 const pythonFiles = ["scripts/package-release.py"];
 const powerShellFiles = [
@@ -164,7 +166,9 @@ const required = [
   "scripts/points-checkin-smoke.js",
   "scripts/model-cost-stats-smoke.js",
   "scripts/auto-face-failure-stats-smoke.js",
-  "cloudfunctions/api/index.js"
+  "cloudfunctions/api/index.js",
+  "cloudfunctions/api/config.json",
+  "scripts/photo-to-video-cleanup-smoke.js"
 ];
 for (const relative of required) {
   if (!fs.existsSync(path.join(root, relative))) {
@@ -179,6 +183,16 @@ const indexPageJson = JSON.parse(
 );
 const projectConfig = JSON.parse(
   fs.readFileSync(path.join(root, "project.config.json"), "utf8")
+);
+const appConfig = require(path.join(root, "config.js"));
+const apiPackage = JSON.parse(
+  fs.readFileSync(path.join(root, "cloudfunctions/api/package.json"), "utf8")
+);
+const apiLock = JSON.parse(
+  fs.readFileSync(path.join(root, "cloudfunctions/api/package-lock.json"), "utf8")
+);
+const cloudTriggerConfig = JSON.parse(
+  fs.readFileSync(path.join(root, "cloudfunctions/api/config.json"), "utf8")
 );
 const configJs = fs.readFileSync(path.join(root, "config.js"), "utf8");
 const appWxss = fs.readFileSync(path.join(root, "app.wxss"), "utf8");
@@ -244,6 +258,31 @@ const refreshPreviewPs1 = fs.readFileSync(
   path.join(root, "scripts/refresh-preview.ps1"),
   "utf8"
 );
+const cleanupSmokeJs = fs.readFileSync(
+  path.join(root, "scripts/photo-to-video-cleanup-smoke.js"),
+  "utf8"
+);
+if (
+  !appConfig.appVersion
+  || apiPackage.version !== appConfig.appVersion
+  || apiLock.version !== appConfig.appVersion
+  || !appConfig.photoToVideo
+  || !appConfig.photoToVideo.cleanup
+  || appConfig.photoToVideo.cleanup.gracePeriodMs !== 3 * 24 * 60 * 60 * 1000
+) {
+  throw new Error("小程序、云函数和锁文件版本不一致，或照片转视频清理保留期不是 3×24 小时。");
+}
+if (
+  !Array.isArray(cloudTriggerConfig.triggers)
+  || !cloudTriggerConfig.triggers.some((item) => (
+    item
+    && item.name === "photo-to-video-temp-cleanup"
+    && item.type === "timer"
+    && item.config === "0 0 3 * * * *"
+  ))
+) {
+  throw new Error("照片转视频临时文件没有配置每天自动清理的 CloudBase 定时触发器。");
+}
 if (!projectConfig.setting || projectConfig.setting.minified !== true) {
   throw new Error("微信开发者工具 JS 压缩没有开启，请确认 project.config.json 的 setting.minified 为 true。");
 }
@@ -825,9 +864,16 @@ if (
   || !photoToVideoJs.includes("resultFileID")
   || !photoToVideoJs.includes("flushPhotoToVideoCleanup")
   || !photoToVideoJs.includes("enqueuePhotoToVideoCleanup")
+  || !photoToVideoJs.includes("resultPath")
+  || !photoToVideoJs.includes("displayURL")
   || !storageJs.includes("loadPhotoToVideoCleanup")
   || !storageJs.includes("savePhotoToVideoCleanup")
   || !clientCloudJs.includes("function deleteFile")
+  || !clientCloudJs.includes("registerPhotoToVideoTempAsset")
+  || !cloudJs.includes("PHOTO_TO_VIDEO_TEMP_ASSET_COLLECTION")
+  || !cloudJs.includes("cleanupPhotoToVideoTempAssets")
+  || !cloudJs.includes("isPhotoToVideoCleanupTrigger")
+  || !cleanupSmokeJs.includes("3 * 24 * 60 * 60 * 1000")
 ) {
   throw new Error("照片转动态视频入口、长按预览或云函数接口骨架不完整。");
 }

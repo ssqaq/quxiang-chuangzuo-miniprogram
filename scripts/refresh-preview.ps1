@@ -18,6 +18,37 @@ $infoPath = Join-Path $outputRoot "wechat-miniapp-preview-v$version-info.json"
 $latestQrPath = Join-Path $outputRoot "wechat-miniapp-preview-latest-qr.png"
 $latestInfoPath = Join-Path $outputRoot "wechat-miniapp-preview-latest-info.json"
 
+function Get-GitCommit {
+  try {
+    $commit = (& git -C $projectRoot rev-parse HEAD 2>$null).Trim()
+    if ($LASTEXITCODE -eq 0) {
+      return $commit
+    }
+  } catch {
+  }
+  return ""
+}
+
+function Write-PreviewMetadata(
+  [string]$TargetPath,
+  [string]$TargetQrPath,
+  [string]$TargetInfoPath,
+  [object]$DevToolsInfo,
+  [string]$SourceInfoPath
+) {
+  $metadata = [ordered]@{
+    previewGenerated = $true
+    appVersion = $version
+    gitCommit = Get-GitCommit
+    generatedAt = (Get-Date).ToUniversalTime().ToString("o")
+    qrPath = $TargetQrPath
+    infoPath = $TargetInfoPath
+    sourceInfoPath = $SourceInfoPath
+    devtoolsInfo = $DevToolsInfo
+  }
+  $metadata | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $TargetPath -Encoding UTF8
+}
+
 if ([string]::IsNullOrWhiteSpace($CliPath)) {
   $CliPath = $env:WECHAT_DEVTOOLS_CLI
 }
@@ -35,7 +66,9 @@ if ([string]::IsNullOrWhiteSpace($CliPath)) {
 }
 
 if (-not (Test-Path -LiteralPath $CliPath)) {
-  throw "WeChat DevTools CLI not found: $CliPath"
+  Write-Host "预览未生成：没有找到微信开发者工具 CLI。"
+  Write-Host "如需生成二维码，请先打开微信开发者工具并设置 WECHAT_DEVTOOLS_CLI。"
+  exit 2
 }
 
 Push-Location $projectRoot
@@ -73,6 +106,16 @@ if (-not (Test-Path -LiteralPath $infoPath)) {
   throw "Preview returned success but info file is missing: $infoPath"
 }
 
+$devToolsInfo = $null
+try {
+  $devToolsInfo = Get-Content -LiteralPath $infoPath -Raw -Encoding UTF8 | ConvertFrom-Json
+} catch {
+  $devToolsInfo = @{
+    rawText = Get-Content -LiteralPath $infoPath -Raw -Encoding UTF8
+  }
+}
+Write-PreviewMetadata $infoPath $qrPath $infoPath $devToolsInfo $infoPath
+
 $qr = Get-Item -LiteralPath $qrPath
 Write-Host "Preview complete: $qrPath"
 Write-Host "QR bytes: $($qr.Length)"
@@ -83,7 +126,7 @@ $latestInfoTempPath = "$latestInfoPath.tmp"
 try {
   Copy-Item -LiteralPath $qrPath -Destination $latestQrTempPath -Force
   Move-Item -LiteralPath $latestQrTempPath -Destination $latestQrPath -Force
-  Copy-Item -LiteralPath $infoPath -Destination $latestInfoTempPath -Force
+  Write-PreviewMetadata $latestInfoTempPath $latestQrPath $latestInfoPath $devToolsInfo $infoPath
   Move-Item -LiteralPath $latestInfoTempPath -Destination $latestInfoPath -Force
 }
 finally {

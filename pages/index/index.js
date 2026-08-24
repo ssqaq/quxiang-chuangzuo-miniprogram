@@ -2406,6 +2406,7 @@ Page({
         revisionNumber: 0,
         repairContext: Object.assign({
           sourceFileID: result.fileID || "",
+          originalMainFileID: project.mainImage && project.mainImage.fileID || "",
           mainInputFileID: project.mainImage && project.mainImage.fileID || "",
           maskFileID: project.maskFileID || "",
           maskGeometry: project.maskCircle || {},

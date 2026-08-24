@@ -1,6 +1,7 @@
 /* eslint-disable no-console */
 
 const assert = require("assert");
+const childProcess = require("child_process");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
@@ -1201,11 +1202,489 @@ async function runManagerTests() {
   }
 }
 
+function makePowerShellResult(name, status, collection = "smoke_records") {
+  const result = {
+    collection,
+    name,
+    keys: [{ name: "createdAt", direction: -1 }],
+    unique: false,
+    reason: "PowerShell smoke",
+    status
+  };
+  if (status === "mismatched") {
+    result.actual = {
+      name,
+      keys: [{ name: "createdAt", direction: 1 }],
+      unique: false
+    };
+  }
+  return result;
+}
+
+function makePowerShellCheck(results, extras = []) {
+  const count = (status) => (
+    results.filter((item) => item.status === status).length
+  );
+  return {
+    ok: count("collection-missing") === 0 && count("check-failed") === 0,
+    results,
+    extras,
+    summary: {
+      total: results.length,
+      existing: count("existing"),
+      equivalent: count("equivalent"),
+      missing: count("missing"),
+      mismatched: count("mismatched"),
+      collectionMissing: count("collection-missing"),
+      failed: count("check-failed"),
+      extra: extras.length
+    }
+  };
+}
+
+function runPowerShellCase(root, name, scenario, input = "", checkOnly = false) {
+  const caseRoot = path.join(root, name);
+  const scriptsRoot = path.join(caseRoot, "scripts");
+  const managerRoot = path.join(
+    scriptsRoot,
+    "cloud-database-index-manager"
+  );
+  const packageRoot = path.join(
+    managerRoot,
+    "node_modules",
+    "@cloudbase",
+    "manager-node"
+  );
+  fs.mkdirSync(packageRoot, { recursive: true });
+  fs.writeFileSync(
+    path.join(caseRoot, "config.js"),
+    "module.exports = { cloudEnvId: \"env-from-config\" };\n",
+    "utf8"
+  );
+  fs.writeFileSync(
+    path.join(scriptsRoot, "database-indexes.json"),
+    JSON.stringify(manifest),
+    "utf8"
+  );
+  fs.writeFileSync(
+    path.join(managerRoot, "package-lock.json"),
+    JSON.stringify({
+      name: "fake-cloud-database-index-manager",
+      lockfileVersion: 3
+    }),
+    "utf8"
+  );
+
+  const scenarioPath = path.join(caseRoot, "scenario.json");
+  const statePath = path.join(caseRoot, "state.json");
+  const logPath = path.join(caseRoot, "calls.json");
+  fs.writeFileSync(scenarioPath, JSON.stringify(scenario), "utf8");
+  fs.writeFileSync(
+    path.join(managerRoot, "index.js"),
+    [
+      "\"use strict\";",
+      "const fs = require(\"fs\");",
+      "const scenario = JSON.parse(fs.readFileSync(",
+      "  process.env.FAKE_INDEX_SCENARIO_PATH, \"utf8\"",
+      "));",
+      "const statePath = process.env.FAKE_INDEX_STATE_PATH;",
+      "const logPath = process.env.FAKE_INDEX_LOG_PATH;",
+      "const state = fs.existsSync(statePath)",
+      "  ? JSON.parse(fs.readFileSync(statePath, \"utf8\"))",
+      "  : { checkCount: 0 };",
+      "const calls = fs.existsSync(logPath)",
+      "  ? JSON.parse(fs.readFileSync(logPath, \"utf8\"))",
+      "  : [];",
+      "const args = process.argv.slice(2);",
+      "const command = args[0];",
+      "calls.push({ command, args });",
+      "fs.writeFileSync(logPath, JSON.stringify(calls));",
+      "if (command === \"check\") {",
+      "  const checks = scenario.checks || [];",
+      "  const index = Math.min(state.checkCount, checks.length - 1);",
+      "  const payload = checks[index];",
+      "  state.checkCount += 1;",
+      "  fs.writeFileSync(statePath, JSON.stringify(state));",
+      "  process.stdout.write(JSON.stringify(payload));",
+      "} else if (command === \"apply\") {",
+      "  const indexPosition = args.indexOf(\"--index\");",
+      "  const indexName = indexPosition >= 0 ? args[indexPosition + 1] : \"\";",
+      "  if ((scenario.failIndexes || []).includes(indexName)) {",
+      "    process.stderr.write(JSON.stringify({",
+      "      ok: false,",
+      "      error: { code: \"FAKE_APPLY_FAILED\", message: \"FAKE_APPLY_FAILED\" }",
+      "    }));",
+      "    process.exitCode = 1;",
+      "  } else {",
+      "    process.stdout.write(JSON.stringify({",
+      "      ok: true,",
+      "      status: args.includes(\"--allow-rebuild\") ? \"rebuilt\" : \"created\",",
+      "      collection: \"smoke_records\",",
+      "      indexName",
+      "    }));",
+      "  }",
+      "} else {",
+      "  process.stderr.write(JSON.stringify({",
+      "    ok: false,",
+      "    error: { code: \"FAKE_COMMAND_INVALID\", message: \"FAKE_COMMAND_INVALID\" }",
+      "  }));",
+      "  process.exitCode = 1;",
+      "}"
+    ].join("\n"),
+    "utf8"
+  );
+
+  const scriptPath = path.join(__dirname, "check-cloud-database-indexes.ps1");
+  const args = [
+    "-NoProfile",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-File",
+    scriptPath,
+    "-ProjectPath",
+    caseRoot
+  ];
+  if (checkOnly) {
+    args.push("-CheckOnly");
+  }
+  const secretValues = [
+    `secret-id-${name}`,
+    `secret-key-${name}`,
+    `session-token-${name}`
+  ];
+  const result = childProcess.spawnSync("powershell.exe", args, {
+    cwd: caseRoot,
+    encoding: "utf8",
+    input,
+    maxBuffer: 4 * 1024 * 1024,
+    env: {
+      ...process.env,
+      TENCENTCLOUD_SECRET_ID: secretValues[0],
+      TENCENTCLOUD_SECRET_KEY: secretValues[1],
+      TENCENTCLOUD_SESSION_TOKEN: secretValues[2],
+      FAKE_INDEX_SCENARIO_PATH: scenarioPath,
+      FAKE_INDEX_STATE_PATH: statePath,
+      FAKE_INDEX_LOG_PATH: logPath
+    }
+  });
+  if (result.error) {
+    throw result.error;
+  }
+
+  const calls = fs.existsSync(logPath)
+    ? JSON.parse(fs.readFileSync(logPath, "utf8"))
+    : [];
+  const reportRoot = path.join(
+    caseRoot,
+    "_tmp_database-index-reports"
+  );
+  const reportFiles = fs.existsSync(reportRoot)
+    ? fs.readdirSync(reportRoot)
+      .filter((file) => file.endsWith(".json"))
+      .map((file) => path.join(reportRoot, file))
+    : [];
+  const reports = reportFiles.map((file) => (
+    JSON.parse(fs.readFileSync(file, "utf8"))
+  ));
+  const combinedOutput = `${result.stdout}\n${result.stderr}\n${JSON.stringify(reports)}`;
+  secretValues.forEach((secret) => {
+    assert.strictEqual(
+      combinedOutput.includes(secret),
+      false,
+      `${name} 不得输出或写入凭据`
+    );
+  });
+
+  return {
+    ...result,
+    calls,
+    reports
+  };
+}
+
+function assertApplyCalls(result) {
+  return result.calls.filter((call) => call.command === "apply");
+}
+
+function assertCheckCalls(result) {
+  return result.calls.filter((call) => call.command === "check");
+}
+
+function runPowerShellTests() {
+  const scriptPath = path.join(__dirname, "check-cloud-database-indexes.ps1");
+  assert.ok(
+    fs.existsSync(scriptPath),
+    "PowerShell database index entry must exist"
+  );
+
+  const script = fs.readFileSync(scriptPath, "utf8");
+  [
+    "[switch]$CheckOnly",
+    "TENCENTCLOUD_SECRET_ID",
+    "TENCENTCLOUD_SECRET_KEY",
+    "Create this index? [Y/N/A/Q]",
+    "Type the full index name to rebuild",
+    "DATABASE_INDEX_CHECK_INCOMPLETE",
+    "Invoke-IndexManager",
+    "verification"
+  ].forEach((requiredText) => {
+    assert.ok(
+      script.includes(requiredText),
+      `PowerShell entry must contain ${requiredText}`
+    );
+  });
+  assert.strictEqual(
+    script.includes("DropIndexes = @("),
+    false,
+    "PowerShell entry must not construct DropIndexes directly"
+  );
+
+  const tempRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), "database-index-powershell-smoke-")
+  );
+  try {
+    const missingOne = makePowerShellResult("idx_missing_one", "missing");
+    const missingTwo = makePowerShellResult("idx_missing_two", "missing");
+    const mismatch = makePowerShellResult(
+      "idx_rebuild_exact_name",
+      "mismatched"
+    );
+    const allReady = makePowerShellCheck([
+      makePowerShellResult("idx_missing_one", "existing"),
+      makePowerShellResult("idx_missing_two", "existing"),
+      makePowerShellResult("idx_rebuild_exact_name", "existing")
+    ]);
+
+    const checkOnly = runPowerShellCase(
+      tempRoot,
+      "check-only",
+      { checks: [makePowerShellCheck([missingOne])] },
+      "",
+      true
+    );
+    assert.strictEqual(checkOnly.status, 2);
+    assert.strictEqual(assertCheckCalls(checkOnly).length, 1);
+    assert.strictEqual(assertApplyCalls(checkOnly).length, 0);
+    assert.ok(checkOnly.stdout.includes("DATABASE_INDEX_CHECK_INCOMPLETE"));
+    assert.strictEqual(
+      checkOnly.stdout.includes("Create this index? [Y/N/A/Q]"),
+      false
+    );
+    assert.ok(checkOnly.stdout.includes("results:"));
+    assert.ok(checkOnly.stdout.includes("extras:"));
+    assert.ok(checkOnly.stdout.includes("summary:"));
+    assert.strictEqual(
+      assertCheckCalls(checkOnly)[0].args.includes("env-from-config"),
+      true
+    );
+
+    const extraOnly = runPowerShellCase(
+      tempRoot,
+      "extra-only",
+      {
+        checks: [makePowerShellCheck(
+          [makePowerShellResult("idx_ready", "existing")],
+          [{
+            collection: "smoke_records",
+            name: "idx_extra",
+            keys: [{ name: "extra", direction: 1 }],
+            unique: false,
+            status: "extra"
+          }]
+        )]
+      },
+      "",
+      true
+    );
+    assert.strictEqual(extraOnly.status, 0);
+    assert.strictEqual(assertCheckCalls(extraOnly).length, 1);
+    assert.strictEqual(assertApplyCalls(extraOnly).length, 0);
+
+    const missingCollection = runPowerShellCase(
+      tempRoot,
+      "collection-missing",
+      {
+        checks: [makePowerShellCheck([
+          makePowerShellResult(
+            "idx_collection_missing",
+            "collection-missing"
+          )
+        ])]
+      }
+    );
+    assert.strictEqual(missingCollection.status, 2);
+    assert.strictEqual(assertCheckCalls(missingCollection).length, 1);
+    assert.strictEqual(assertApplyCalls(missingCollection).length, 0);
+    assert.ok(
+      missingCollection.stdout.includes(
+        "scripts\\init-cloud-database.ps1"
+      )
+    );
+
+    const skipped = runPowerShellCase(
+      tempRoot,
+      "skip-missing",
+      {
+        checks: [
+          makePowerShellCheck([missingOne, missingTwo]),
+          makePowerShellCheck([missingOne, missingTwo])
+        ]
+      },
+      "N\r\n\r\n"
+    );
+    assert.strictEqual(skipped.status, 2);
+    assert.strictEqual(assertApplyCalls(skipped).length, 0);
+    assert.strictEqual(assertCheckCalls(skipped).length, 2);
+    assert.deepStrictEqual(
+      skipped.reports[0].operations.map((item) => item.status),
+      ["skipped", "skipped"]
+    );
+
+    const quit = runPowerShellCase(
+      tempRoot,
+      "quit-missing",
+      {
+        checks: [
+          makePowerShellCheck([missingOne, missingTwo]),
+          makePowerShellCheck([missingOne, missingTwo])
+        ]
+      },
+      "Q\r\n"
+    );
+    assert.strictEqual(quit.status, 2);
+    assert.strictEqual(assertApplyCalls(quit).length, 0);
+    assert.strictEqual(assertCheckCalls(quit).length, 2);
+    assert.deepStrictEqual(
+      quit.reports[0].operations.map((item) => item.reason),
+      ["quit", "quit"]
+    );
+
+    const createdSuccessfully = runPowerShellCase(
+      tempRoot,
+      "create-success",
+      {
+        checks: [
+          makePowerShellCheck([missingOne]),
+          makePowerShellCheck([
+            makePowerShellResult(missingOne.name, "existing")
+          ])
+        ]
+      },
+      "Y\r\n"
+    );
+    assert.strictEqual(createdSuccessfully.status, 0);
+    assert.strictEqual(assertCheckCalls(createdSuccessfully).length, 2);
+    assert.strictEqual(assertApplyCalls(createdSuccessfully).length, 1);
+    assert.strictEqual(
+      createdSuccessfully.reports[0].operations[0].status,
+      "created"
+    );
+
+    const allMissingOnly = runPowerShellCase(
+      tempRoot,
+      "all-missing-only",
+      {
+        checks: [
+          makePowerShellCheck([missingOne, missingTwo, mismatch]),
+          makePowerShellCheck([mismatch])
+        ]
+      },
+      "A\r\nwrong-name\r\n"
+    );
+    assert.strictEqual(
+      allMissingOnly.status,
+      2,
+      `${allMissingOnly.stdout}\n${allMissingOnly.stderr}`
+    );
+    assert.strictEqual(assertCheckCalls(allMissingOnly).length, 2);
+    const allMissingApplyCalls = assertApplyCalls(allMissingOnly);
+    assert.strictEqual(allMissingApplyCalls.length, 2);
+    allMissingApplyCalls.forEach((call) => {
+      assert.strictEqual(call.args.includes("--allow-rebuild"), false);
+    });
+    assert.strictEqual(
+      allMissingApplyCalls.some(
+        (call) => call.args.includes(mismatch.name)
+      ),
+      false
+    );
+
+    const wrongRebuildName = runPowerShellCase(
+      tempRoot,
+      "wrong-rebuild-name",
+      {
+        checks: [
+          makePowerShellCheck([mismatch]),
+          makePowerShellCheck([mismatch])
+        ]
+      },
+      `${mismatch.name.toUpperCase()}\r\n`
+    );
+    assert.strictEqual(wrongRebuildName.status, 2);
+    assert.strictEqual(assertApplyCalls(wrongRebuildName).length, 0);
+    assert.strictEqual(assertCheckCalls(wrongRebuildName).length, 2);
+
+    const exactRebuildName = runPowerShellCase(
+      tempRoot,
+      "exact-rebuild-name",
+      {
+        checks: [
+          makePowerShellCheck([mismatch]),
+          allReady
+        ]
+      },
+      `${mismatch.name}\r\n`
+    );
+    assert.strictEqual(exactRebuildName.status, 0);
+    assert.strictEqual(assertCheckCalls(exactRebuildName).length, 2);
+    const rebuildApplyCalls = assertApplyCalls(exactRebuildName);
+    assert.strictEqual(rebuildApplyCalls.length, 1);
+    assert.strictEqual(
+      rebuildApplyCalls[0].args.includes("--allow-rebuild"),
+      true
+    );
+
+    const continueAfterFailure = runPowerShellCase(
+      tempRoot,
+      "continue-after-failure",
+      {
+        checks: [
+          makePowerShellCheck([missingOne, missingTwo]),
+          allReady
+        ],
+        failIndexes: [missingOne.name]
+      },
+      "Y\r\nY\r\n"
+    );
+    assert.strictEqual(continueAfterFailure.status, 2);
+    assert.strictEqual(assertCheckCalls(continueAfterFailure).length, 2);
+    assert.strictEqual(assertApplyCalls(continueAfterFailure).length, 2);
+    assert.deepStrictEqual(
+      continueAfterFailure.reports[0].operations.map(
+        (item) => item.status
+      ),
+      ["failed", "created"]
+    );
+    assert.ok(
+      continueAfterFailure.stdout.includes(
+        "DATABASE_INDEX_CHECK_INCOMPLETE"
+      )
+    );
+  } finally {
+    fs.rmSync(tempRoot, {
+      recursive: true,
+      force: true
+    });
+  }
+}
+
 runCoreTests().then(() => {
   console.log("database index core smoke: OK");
   return runManagerTests();
 }).then(() => {
   console.log("database index manager smoke: OK");
+  runPowerShellTests();
+  console.log("database index PowerShell smoke: OK");
 }).catch((error) => {
   console.error(error);
   process.exitCode = 1;

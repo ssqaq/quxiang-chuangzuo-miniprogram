@@ -21,6 +21,7 @@ assert.ok(wxss.includes("border-radius: var(--admin-radius-card)"), "主卡片�
 assert.ok(wxss.includes("border-radius: var(--admin-radius-control)"), "操作按钮没有使用统一圆角变量");
 assert.ok(wxml.includes("class=\"quick-launch-grid\""), "快捷入口结构缺失");
 assert.ok(wxml.includes("class=\"monitor-section-toggle-button\""), "展开按钮结构缺失");
+assert.ok(!wxml.includes("class=\"usage-secondary-actions\""), "模型用量顶部仍然存在多余辅助按钮组");
 
 const usageAlignmentStart = wxss.indexOf("/* 模型用量统计与失败情况的三项操作按同一组基准线对齐。 */");
 assert.notStrictEqual(usageAlignmentStart, -1, "缺少模型用量与失败情况的统一对齐规则");

@@ -648,7 +648,6 @@ if (
   || adminWxml.includes("monitor-section-usage")
   || adminWxml.includes("monitorSections.usage")
   || !adminWxml.includes('catchtap="toggleUsageCard"')
-  || !adminWxml.includes('catchtap="setAllUsageSections"')
 ) {
   throw new Error("模型用量统计没有正确放在“今天”下面，或仍被运行监控旧状态控制。");
 }

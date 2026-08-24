@@ -1120,8 +1120,7 @@ page {
   gap: 8rpx;
 }
 
-.usage-primary-actions,
-.usage-secondary-actions {
+.usage-primary-actions {
   display: flex;
   flex: none;
   align-items: center;
@@ -4349,11 +4348,6 @@ page {
     font-size: 23rpx;
   }
 
-  .usage-secondary-actions {
-    width: 100%;
-    justify-content: flex-end;
-  }
-
   .usage-refresh-button {
     flex: none;
   }
@@ -4463,7 +4457,10 @@ page {
   margin-left: auto;
 }
 
-.monitor-deployment-body .admin-section-tools .monitor-section-toggle-button,
+.monitor-deployment-body .admin-section-tools .monitor-section-toggle-button {
+  margin-right: -12rpx;
+}
+
 .monitor-deployment-group > .monitor-section-head .monitor-section-toggle-button {
   margin-right: 0;
 }

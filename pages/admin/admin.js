@@ -126,7 +126,7 @@ const MODEL_FAILURE_AUTO_REFRESH_MS = 10 * 60 * 1000;
 
 function defaultUsageSections() {
   return {
-    failure: true,
+    failure: false,
     daily: false,
     users: false,
     models: false,
@@ -3063,7 +3063,9 @@ Page({
     });
     const usageSections = {};
     USAGE_SECTION_KEYS.forEach((section) => {
-      usageSections[section] = typeof storedUsageSections[section] === "boolean"
+      usageSections[section] = section === "failure"
+        ? false
+        : typeof storedUsageSections[section] === "boolean"
         ? storedUsageSections[section]
         : Boolean(this.data.usageSections[section]);
     });

@@ -1088,6 +1088,10 @@ if (
   || !adminWxml.includes("diagnostic-admin-filter-chip")
   || !adminWxss.includes(".diagnostic-admin-summary")
   || !adminWxss.includes(".diagnostic-admin-log")
+  || !adminWxml.includes("diagnostic-log-action-button")
+  || !adminWxss.includes(".diagnostic-log-action-button.is-split")
+  || !adminWxss.includes(".diagnostic-log-action-button.is-single")
+  || !adminWxss.includes("text-overflow: ellipsis")
 ) {
   throw new Error("管理员用户端日志、分类筛选、脱敏上报或72小时自动清理功能不完整。");
 }

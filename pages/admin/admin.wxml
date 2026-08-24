@@ -1517,13 +1517,13 @@
             </view>
             <view class="diagnostic-admin-log-actions">
               <button
-                class="copy-error-button"
+                class="copy-error-button diagnostic-log-action-button {{item.hasDetails ? 'is-split' : 'is-single'}}"
                 data-index="{{index}}"
                 catchtap="copyDiagnosticLog"
               >复制日志</button>
               <button
                 wx:if="{{item.hasDetails}}"
-                class="copy-error-button diagnostic-detail-button"
+                class="copy-error-button diagnostic-detail-button diagnostic-log-action-button is-split"
                 data-index="{{index}}"
                 catchtap="toggleDiagnosticLogDetail"
               >{{item.expanded ? '收起详情' : '查看详情'}}</button>

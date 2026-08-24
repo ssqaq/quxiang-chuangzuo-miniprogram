@@ -1481,8 +1481,8 @@ page {
 }
 
 .usage-failure-actions .usage-subsection-toggle {
-  min-width: 80rpx;
-  padding: 0 8rpx;
+  min-width: 96rpx;
+  padding: 0 12rpx;
   font-size: 18rpx;
 }
 
@@ -3852,7 +3852,30 @@ page {
 }
 
 .diagnostic-admin-log-actions {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   margin-top: 14rpx;
+  overflow: hidden;
+}
+
+.diagnostic-log-action-button {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diagnostic-log-action-button.is-split {
+  width: 0;
+  flex: 1 1 0;
+}
+
+.diagnostic-log-action-button.is-single {
+  flex: 0 1 112rpx;
+  width: 112rpx;
 }
 
 .diagnostic-detail-button {

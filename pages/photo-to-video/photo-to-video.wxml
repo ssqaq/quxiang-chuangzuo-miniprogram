@@ -1,11 +1,17 @@
 <view class="page photo-to-video-page">
   <view class="card photo-to-video-intro">
-    <view class="section-title">照片转动态视频</view>
+    <view class="section-title">照片转实况照片</view>
     <view class="section-subtitle">
-      生成约 2–3 秒的无声普通视频，并在小程序内长按预览动态效果。
+      先生成约 2–3 秒无声动态，再按手机系统封装和保存。
     </view>
     <view class="photo-to-video-notice">
-      说明：保存到相册的是一张照片和一个普通视频，二者独立，不会自动变成系统实况照片。
+      {{platformNotice}}
+    </view>
+    <view wx:if="{{isIOSDevice}}" class="apple-import-guide">
+      <view class="apple-import-title">苹果导入方法</view>
+      <view class="apple-import-step">1. 生成后分享到微信文件传输助手</view>
+      <view class="apple-import-step">2. 用百度网盘打开 .livp 文件</view>
+      <view class="apple-import-step">3. 在百度网盘中保存到 iPhone 相册</view>
     </view>
     <view class="provider-status {{providerReady ? 'provider-status-ready' : 'provider-status-pending'}}">
       <view class="provider-status-dot"></view>
@@ -131,6 +137,22 @@
       </view>
     </view>
     <view class="preview-title">{{preview.title}}</view>
+    <button
+      wx:if="{{preview.videoPath}}"
+      class="small-btn plain-btn"
+      bindtap="savePreviewVideo"
+      disabled="{{processing}}"
+    >
+      保存普通视频
+    </button>
+    <button
+      wx:if="{{isIOSDevice && (preview.livePhotoPath || preview.livePhotoTempURL)}}"
+      class="small-btn apple-share-button"
+      bindtap="sharePreviewLivePhoto"
+      disabled="{{processing}}"
+    >
+      再次分享苹果实况文件
+    </button>
   </view>
 
   <view wx:if="{{records.length}}" class="card convert-action-card">
@@ -141,7 +163,7 @@
       disabled="{{processing || !selectedCount}}"
       bindtap="startConvert"
     >
-      {{processing ? '正在生成动态视频...' : '开始生成并保存照片和视频'}}
+      {{processing ? '正在生成并保存...' : convertButtonText}}
     </button>
     <button class="plain-btn back-button" bindtap="backToWorkbench">返回工作台</button>
   </view>

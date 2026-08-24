@@ -31,6 +31,8 @@ function normalizeRecord(record, index) {
   const displayURL = isCloudFileId(displayCandidate) ? "" : displayCandidate;
   const resultPath = firstRecordValue(item.resultPath, item.videoPath);
   const resultFileID = firstRecordValue(item.resultFileID, item.videoFileID);
+  const livePhotoPath = firstRecordValue(item.livePhotoPath);
+  const livePhotoFileID = firstRecordValue(item.livePhotoFileID);
   return {
     id: item.id || item._id || `record-${index}-${Date.now()}`,
     fileID: sourceFileID,
@@ -46,7 +48,11 @@ function normalizeRecord(record, index) {
     status: item.status || "idle",
     statusText: item.statusText || "待处理",
     resultPath,
-    videoPath: resultPath
+    videoPath: resultPath,
+    livePhotoPath,
+    livePhotoFileID,
+    livePhotoFileName: firstRecordValue(item.livePhotoFileName),
+    livePhotoTempURL: firstRecordValue(item.livePhotoTempURL)
   };
 }
 
@@ -133,6 +139,35 @@ function saveVideoToAlbum(filePath) {
   });
 }
 
+function shareFileMessage(filePath, fileName) {
+  return new Promise((resolve, reject) => {
+    if (!filePath || typeof wx.shareFileMessage !== "function") {
+      reject(new Error("当前微信版本不支持分享苹果实况文件。"));
+      return;
+    }
+    wx.shareFileMessage({
+      filePath,
+      fileName: String(fileName || "Apple-Live-Photo.livp"),
+      success: resolve,
+      fail: reject
+    });
+  });
+}
+
+function copyText(value) {
+  return new Promise((resolve, reject) => {
+    if (!value || typeof wx.setClipboardData !== "function") {
+      reject(new Error("当前环境不支持复制临时下载链接。"));
+      return;
+    }
+    wx.setClipboardData({
+      data: String(value),
+      success: resolve,
+      fail: reject
+    });
+  });
+}
+
 function downloadUrl(url) {
   return new Promise((resolve, reject) => {
     if (!url || typeof wx.downloadFile !== "function") {
@@ -157,6 +192,37 @@ function downloadUrl(url) {
   });
 }
 
+function getDevicePlatform() {
+  let info = {};
+  try {
+    if (typeof wx.getDeviceInfo === "function") {
+      info = wx.getDeviceInfo() || {};
+    } else if (typeof wx.getSystemInfoSync === "function") {
+      info = wx.getSystemInfoSync() || {};
+    }
+  } catch (_) {
+    info = {};
+  }
+  const platform = String(info.platform || "").toLowerCase();
+  const system = String(info.system || "").toLowerCase();
+  const model = String(info.model || "").toLowerCase();
+  if (
+    platform === "android"
+    || /android|harmonyos|openharmony/.test(system)
+    || /harmony/.test(model)
+  ) {
+    return "android";
+  }
+  if (
+    platform === "ios"
+    || /ios|iphone|ipad/.test(system)
+    || /iphone|ipad/.test(model)
+  ) {
+    return "ios";
+  }
+  return platform === "devtools" ? "devtools" : "unknown";
+}
+
 Page({
   data: {
     scopeOptions: SCOPE_OPTIONS,
@@ -175,9 +241,17 @@ Page({
     preview: {
       imagePath: "",
       videoPath: "",
-      title: ""
+      title: "",
+      livePhotoPath: "",
+      livePhotoFileName: "",
+      livePhotoTempURL: ""
     },
-    isPressed: false
+    isPressed: false,
+    devicePlatform: "unknown",
+    isAndroidDevice: false,
+    isIOSDevice: false,
+    platformNotice: "安卓手机可保存系统实况照片；其他设备会保留普通视频。",
+    convertButtonText: "生成并保存实况照片"
   },
 
   onShow() {
@@ -192,6 +266,7 @@ Page({
       });
     }
     diagnosticLog.info("video", "page-show", "打开照片转动态视频页面");
+    this.refreshDevicePlatform();
     this.flushPhotoToVideoCleanup();
     this.loadLocalRecords();
     this.refreshCloudRecords();
@@ -217,6 +292,27 @@ Page({
 
   isPageActive() {
     return !this._destroyed && this._pageVisible !== false;
+  },
+
+  refreshDevicePlatform() {
+    const devicePlatform = getDevicePlatform();
+    const isAndroidDevice = devicePlatform === "android";
+    const isIOSDevice = devicePlatform === "ios";
+    this.setDataIfActive({
+      devicePlatform,
+      isAndroidDevice,
+      isIOSDevice,
+      platformNotice: isAndroidDevice
+        ? "安卓手机会生成 Motion Photo，并直接保存到系统相册。"
+        : isIOSDevice
+          ? "苹果手机会生成真实 LIVP 文件；先分享到文件传输助手，再用百度网盘保存到相册。"
+          : "当前环境无法确认手机系统；生成后会保存普通视频作为兜底。",
+      convertButtonText: isAndroidDevice
+        ? "生成并保存安卓实况照片"
+        : isIOSDevice
+          ? "生成并分享苹果实况文件"
+          : "生成并保存动态视频"
+    });
   },
 
   isRunActive(run) {
@@ -897,6 +993,17 @@ Page({
     if (this.data.isPressed) this.setDataIfActive({ isPressed: false });
   },
 
+  async savePreviewVideo() {
+    const videoPath = this.data.preview && this.data.preview.videoPath;
+    if (!videoPath || this.data.processing) return;
+    try {
+      await saveVideoToAlbum(videoPath);
+      wx.showToast({ title: "普通视频已保存", icon: "success" });
+    } catch (error) {
+      wx.showToast({ title: this.formatError(error), icon: "none" });
+    }
+  },
+
   waitForPoll(ms, run) {
     this.assertRunActive(run);
     return new Promise((resolve, reject) => {
@@ -985,6 +1092,112 @@ Page({
     throw new Error("视频服务没有返回可下载的视频。");
   },
 
+  async buildAndSaveAndroidMotionPhoto(taskId, requestId, resultPath, run) {
+    this.assertRunActive(run);
+    const built = await cloud.buildAndroidMotionPhoto(taskId, { requestId });
+    this.assertRunActive(run);
+    const motionPhotoFileID = String(
+      built && built.motionPhotoFileID || ""
+    ).trim();
+    if (!motionPhotoFileID) {
+      throw new Error("云端没有返回安卓实况照片文件。");
+    }
+    this.enqueuePhotoToVideoCleanup(motionPhotoFileID, "result");
+    const motionPhotoPath = await cloud.downloadFile(motionPhotoFileID);
+    this.enqueuePhotoToVideoCleanup(motionPhotoFileID, "result", {
+      localPaths: [motionPhotoPath]
+    });
+    this.assertRunActive(run);
+    await saveImageToAlbum(motionPhotoPath);
+    this.assertRunActive(run);
+    diagnosticLog.info("video", "motion-photo-save-success", "安卓实况照片已保存到系统相册", {
+      taskId,
+      requestId,
+      motionPhotoFileID,
+      sizeBytes: built && built.sizeBytes,
+      videoLengthBytes: built && built.videoLengthBytes
+    });
+    return {
+      deliveryMode: "android-motion-photo",
+      motionPhotoFileID,
+      motionPhotoPath,
+      resultPath
+    };
+  },
+
+  async buildAndShareAppleLivePhoto(taskId, requestId, resultPath, run) {
+    this.assertRunActive(run);
+    const built = await cloud.buildAppleLivePhoto(taskId, { requestId });
+    this.assertRunActive(run);
+    const livePhotoFileID = String(
+      built && built.livePhotoFileID || ""
+    ).trim();
+    const fileName = String(
+      built && built.fileName || "Apple-Live-Photo.livp"
+    ).trim();
+    const tempFileURL = String(built && built.tempFileURL || "").trim();
+    if (!livePhotoFileID) {
+      throw new Error("云端没有返回苹果实况文件。");
+    }
+    this.enqueuePhotoToVideoCleanup(livePhotoFileID, "result");
+    const livePhotoPath = await cloud.downloadFile(livePhotoFileID);
+    this.enqueuePhotoToVideoCleanup(livePhotoFileID, "result", {
+      localPaths: [livePhotoPath]
+    });
+    this.assertRunActive(run);
+    try {
+      await shareFileMessage(livePhotoPath, fileName);
+      diagnosticLog.info("video", "apple-live-photo-share-success", "苹果实况文件已发起分享", {
+        taskId,
+        requestId,
+        livePhotoFileID,
+        fileName,
+        sizeBytes: built && built.sizeBytes
+      });
+      return {
+        deliveryMode: "apple-livp-shared",
+        livePhotoFileID,
+        livePhotoPath,
+        livePhotoFileName: fileName,
+        livePhotoTempURL: tempFileURL,
+        resultPath
+      };
+    } catch (shareError) {
+      if (!tempFileURL) throw shareError;
+      await copyText(tempFileURL);
+      diagnosticLog.warn("video", "apple-live-photo-link-fallback", "文件分享不可用，已复制苹果实况临时下载链接", {
+        taskId,
+        requestId,
+        livePhotoFileID,
+        fileName,
+        error: shareError
+      });
+      return {
+        deliveryMode: "apple-livp-link",
+        livePhotoFileID,
+        livePhotoPath,
+        livePhotoFileName: fileName,
+        livePhotoTempURL: tempFileURL,
+        resultPath,
+        linkFallback: true
+      };
+    }
+  },
+
+  async saveOrdinaryVideoFallback(resultPath, details = {}) {
+    await saveVideoToAlbum(resultPath);
+    diagnosticLog.warn("video", "motion-photo-fallback-video", "实况照片未能保存，已自动保存普通视频", {
+      taskId: details.taskId || "",
+      requestId: details.requestId || "",
+      reason: this.formatError(details.error)
+    });
+    return {
+      deliveryMode: "ordinary-video-fallback",
+      fallback: true,
+      fallbackMessage: this.formatError(details.error)
+    };
+  },
+
   async convertOne(record, run) {
     this.assertRunActive(run);
     const startedAt = Date.now();
@@ -1035,6 +1248,9 @@ Page({
     if (!created || !created.taskId) {
       throw new Error("视频服务没有返回任务编号。");
     }
+    if (created.sourceImageFileID) {
+      this.enqueuePhotoToVideoCleanup(created.sourceImageFileID, "source");
+    }
     diagnosticLog.info("video", "task-created", "视频任务已创建", {
       recordId: record.id,
       taskId: created.taskId,
@@ -1064,43 +1280,113 @@ Page({
       });
     }
     this.assertRunActive(run);
-    await saveImageToAlbum(sourcePath);
+    let delivery = null;
+    if (this.data.isAndroidDevice) {
+      try {
+        delivery = await this.buildAndSaveAndroidMotionPhoto(
+          created.taskId,
+          result && result.requestId || created.requestId || requestId,
+          resultPath,
+          run
+        );
+      } catch (error) {
+        if (isCancelledError(error)) throw error;
+        diagnosticLog.warn("video", "motion-photo-save-failed", "安卓实况照片封装或保存失败，准备保存普通视频", {
+          taskId: created.taskId,
+          requestId: result && result.requestId || created.requestId || requestId,
+          error
+        });
+        this.assertRunActive(run);
+        delivery = await this.saveOrdinaryVideoFallback(resultPath, {
+          taskId: created.taskId,
+          requestId: result && result.requestId || created.requestId || requestId,
+          error
+        });
+      }
+    } else if (this.data.isIOSDevice) {
+      try {
+        delivery = await this.buildAndShareAppleLivePhoto(
+          created.taskId,
+          result && result.requestId || created.requestId || requestId,
+          resultPath,
+          run
+        );
+      } catch (error) {
+        if (isCancelledError(error)) throw error;
+        diagnosticLog.warn("video", "apple-live-photo-failed", "苹果实况生成或分享失败，准备保存普通视频", {
+          taskId: created.taskId,
+          requestId: result && result.requestId || created.requestId || requestId,
+          error
+        });
+        this.assertRunActive(run);
+        delivery = await this.saveOrdinaryVideoFallback(resultPath, {
+          taskId: created.taskId,
+          requestId: result && result.requestId || created.requestId || requestId,
+          error
+        });
+      }
+    } else {
+      await saveVideoToAlbum(resultPath);
+      delivery = { deliveryMode: "ordinary-video" };
+    }
     this.assertRunActive(run);
-    await saveVideoToAlbum(resultPath);
-    this.assertRunActive(run);
+    const statusText = delivery.deliveryMode === "android-motion-photo"
+      ? "已保存安卓实况照片"
+      : delivery.deliveryMode === "ordinary-video-fallback"
+        ? "实况失败，已保存普通视频"
+        : delivery.deliveryMode === "apple-livp-shared"
+          ? "苹果实况文件已发起分享"
+          : delivery.deliveryMode === "apple-livp-link"
+            ? "苹果实况已生成，临时链接已复制"
+          : "已保存普通视频";
     this.updateRecord(record.id, {
       status: "success",
-      statusText: "已保存照片和视频",
+      statusText,
       resultPath,
       videoPath: resultPath,
       sourcePath,
       sourceFileID: upload.fileID,
-      resultFileID
+      resultFileID,
+      motionPhotoFileID: delivery.motionPhotoFileID || "",
+      livePhotoFileID: delivery.livePhotoFileID || "",
+      livePhotoPath: delivery.livePhotoPath || "",
+      livePhotoFileName: delivery.livePhotoFileName || "",
+      livePhotoTempURL: delivery.livePhotoTempURL || "",
+      deliveryMode: delivery.deliveryMode
     }, run);
     this.setDataIfActive({
       preview: {
         imagePath: sourcePath,
         videoPath: resultPath,
-        title: record.projectName
+        title: record.projectName,
+        livePhotoPath: delivery.livePhotoPath || "",
+        livePhotoFileName: delivery.livePhotoFileName || "",
+        livePhotoTempURL: delivery.livePhotoTempURL || ""
       }
     });
     diagnosticLog.info("video", "convert-success", "照片转动态视频完成", {
       recordId: record.id,
       taskId: created.taskId,
       requestId: result && result.requestId || created.requestId || requestId,
-      durationMs: Date.now() - startedAt
+      durationMs: Date.now() - startedAt,
+      deliveryMode: delivery.deliveryMode,
+      fallback: Boolean(delivery.fallback)
     });
-    return { resultPath };
+    return Object.assign({ resultPath }, delivery);
   },
 
   async runBatch(records, run) {
     let successCount = 0;
+    let fallbackCount = 0;
     const failures = [];
     let nextIndex = 0;
     let completedCount = 0;
     const concurrency = Math.max(
       1,
-      Math.min(Number(config.photoToVideo.maxConcurrent) || 1, records.length)
+      Math.min(
+        this.data.isIOSDevice ? 1 : Number(config.photoToVideo.maxConcurrent) || 1,
+        records.length
+      )
     );
     const worker = async () => {
       while (true) {
@@ -1118,8 +1404,9 @@ Page({
           progressText: `正在处理：${record.projectName}（已完成 ${completedCount} / ${records.length}）`
         });
         try {
-          await this.convertOne(record, run);
+          const converted = await this.convertOne(record, run);
           successCount += 1;
+          if (converted && converted.fallback) fallbackCount += 1;
         } catch (error) {
           if (isCancelledError(error)) throw error;
           diagnosticLog.error("video", "convert-failed", "单张照片转动态视频失败", {
@@ -1148,7 +1435,7 @@ Page({
     };
     await Promise.all(Array.from({ length: concurrency }, () => worker()));
     this.setDataIfActive({ failures });
-    return { successCount, failures };
+    return { successCount, fallbackCount, failures };
   },
 
   async startConvert() {
@@ -1173,11 +1460,12 @@ Page({
       if (!this.isRunActive(run)) return;
       this.setDataIfActive({
         progressValue: 100,
-        progressText: `处理完成：成功 ${result.successCount} 张${result.failures.length ? `，失败 ${result.failures.length} 张` : ""}`
+        progressText: `处理完成：成功 ${result.successCount} 张${result.fallbackCount ? `，其中 ${result.fallbackCount} 张已保存普通视频` : ""}${result.failures.length ? `，失败 ${result.failures.length} 张` : ""}`
       });
-      this.showBatchResult(result.successCount, result.failures);
+      this.showBatchResult(result.successCount, result.failures, result.fallbackCount);
       diagnosticLog.info("video", "batch-finish", "批量动态视频处理完成", {
         successCount: result.successCount,
+        fallbackCount: result.fallbackCount,
         failureCount: result.failures.length
       });
     } catch (error) {
@@ -1221,7 +1509,7 @@ Page({
     try {
       const result = await this.runBatch([record], run);
       if (!this.isRunActive(run)) return;
-      this.showBatchResult(result.successCount, result.failures);
+      this.showBatchResult(result.successCount, result.failures, result.fallbackCount);
     } catch (error) {
       if (!isCancelledError(error) && this.isRunActive(run)) {
         wx.showToast({ title: this.formatError(error), icon: "none" });
@@ -1257,10 +1545,65 @@ Page({
     return message.length > 54 ? `${message.slice(0, 54)}…` : message;
   },
 
-  showBatchResult(successCount, failures) {
+  async sharePreviewLivePhoto() {
+    const preview = this.data.preview || {};
+    const filePath = String(preview.livePhotoPath || "").trim();
+    const fileName = String(
+      preview.livePhotoFileName || "Apple-Live-Photo.livp"
+    ).trim();
+    const tempFileURL = String(preview.livePhotoTempURL || "").trim();
+    try {
+      if (filePath) {
+        await shareFileMessage(filePath, fileName);
+        return;
+      }
+      if (!tempFileURL) {
+        throw new Error("当前没有可分享的苹果实况文件。");
+      }
+      await copyText(tempFileURL);
+      wx.showModal({
+        title: "临时链接已复制",
+        content: "把链接粘贴到浏览器下载 .livp，再分享到微信文件传输助手。",
+        showCancel: false
+      });
+    } catch (error) {
+      if (tempFileURL) {
+        try {
+          await copyText(tempFileURL);
+          wx.showModal({
+            title: "临时链接已复制",
+            content: "文件分享没有打开，已改为复制临时下载链接。",
+            showCancel: false
+          });
+          return;
+        } catch (_) {}
+      }
+      wx.showToast({ title: this.formatError(error), icon: "none" });
+    }
+  },
+
+  showBatchResult(successCount, failures, fallbackCount = 0) {
     if (successCount && !failures.length) {
+      if (fallbackCount) {
+        wx.showModal({
+          title: "普通视频已保存",
+          content: `${fallbackCount} 张实况封装或保存失败，已自动改存普通视频，可以稍后单独重试。`,
+          showCancel: false
+        });
+        return;
+      }
+      if (this.data.isIOSDevice) {
+        wx.showModal({
+          title: "苹果实况文件已生成",
+          content: "先分享到微信文件传输助手，再用百度网盘打开 .livp，选择保存到 iPhone 相册。",
+          showCancel: false
+        });
+        return;
+      }
       wx.showToast({
-        title: `已保存 ${successCount} 组`,
+        title: this.data.isAndroidDevice
+          ? `已保存 ${successCount} 张实况`
+          : `已保存 ${successCount} 组`,
         icon: "success"
       });
       return;

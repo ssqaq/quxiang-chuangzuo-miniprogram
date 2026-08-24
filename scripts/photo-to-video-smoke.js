@@ -37,8 +37,32 @@ const required = [
   ["视频触摸事件由覆盖层独占", pageWxml.includes('class="live-preview-touch-layer"')
     && !pageWxml.includes('bindtouchstart="onPreviewTouchStart"')
     && !pageWxml.includes('bindtouchend="onPreviewTouchEnd"')],
-  ["入口明确普通动态视频", workbenchWxml.includes("照片转实况图")
-    && workbenchWxml.includes("生成动态视频，照片也会保留")]
+  ["入口明确安卓实况和视频兜底", workbenchWxml.includes("照片转实况图")
+    && workbenchWxml.includes("安卓直接保存实况")
+    && workbenchWxml.includes("失败自动保留视频")]
+  ,["安卓 Motion Photo 云接口已接入", cloudJs.includes("buildAndroidMotionPhoto")
+    && cloudApiJs.includes('action === "buildAndroidMotionPhoto"')
+    && cloudApiJs.includes("requireOwnedVideoOperation")]
+  ,["安卓成功只保存实况照片", pageJs.includes("buildAndSaveAndroidMotionPhoto")
+    && pageJs.includes('deliveryMode: "android-motion-photo"')
+    && pageJs.includes("saveImageToAlbum(motionPhotoPath)")]
+  ,["安卓失败自动保存普通视频", pageJs.includes("saveOrdinaryVideoFallback")
+    && pageJs.includes('deliveryMode: "ordinary-video-fallback"')
+    && pageJs.includes("await saveVideoToAlbum(resultPath)")]
+  ,["苹果 LIVP 独立接口已接入", cloudJs.includes("buildAppleLivePhoto")
+    && cloudApiJs.includes('action === "buildAppleLivePhoto"')
+    && cloudApiJs.includes("APPLE_LIVE_PHOTO_WORKER_URL")
+    && cloudApiJs.includes("appleLivePhotoCloudPath")]
+  ,["苹果不误走安卓接口", pageJs.includes("this.data.isAndroidDevice")
+    && pageJs.includes("this.data.isIOSDevice")
+    && pageJs.includes("buildAndShareAppleLivePhoto")
+    && pageJs.includes('deliveryMode: "apple-livp-shared"')]
+  ,["苹果分享和临时链接兜底已接入", pageJs.includes("wx.shareFileMessage")
+    && pageJs.includes("wx.setClipboardData")
+    && pageWxml.includes("苹果导入方法")
+    && pageWxml.includes("百度网盘")]
+  ,["预览区保留普通视频兜底按钮", pageWxml.includes('bindtap="savePreviewVideo"')
+    && pageWxml.includes("保存普通视频")]
   ,["临时云文件进入延迟清理队列", pageJs.includes("enqueuePhotoToVideoCleanup")
     && pageJs.includes("flushPhotoToVideoCleanup")
     && configJs.includes("idlePeriodMs")

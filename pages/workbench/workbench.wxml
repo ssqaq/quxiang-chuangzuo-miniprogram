@@ -163,7 +163,7 @@
         <view class="photo-to-video-icon">动</view>
         <view class="photo-to-video-copy">
           <view class="photo-to-video-title">照片转实况图</view>
-          <view class="photo-to-video-description">生成动态视频，照片也会保留</view>
+          <view class="photo-to-video-description">安卓直接保存实况，失败自动保留视频</view>
         </view>
         <view class="common-feature-action">制作</view>
         <view class="home-feature-arrow photo-to-video-arrow">›</view>

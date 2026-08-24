@@ -4,6 +4,7 @@
   "private": true,
   "main": "index.js",
   "dependencies": {
+    "jpeg-js": "^0.4.4",
     "pngjs": "^7.0.0",
     "wx-server-sdk": "latest",
     "xlsx": "^0.18.5"

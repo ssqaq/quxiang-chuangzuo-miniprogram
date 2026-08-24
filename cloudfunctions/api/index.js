@@ -13,6 +13,10 @@ const http = require("http");
 const crypto = require("crypto");
 const { PNG } = require("pngjs");
 const XLSX = require("xlsx");
+const {
+  buildAndroidMotionPhoto: buildAndroidMotionPhotoBuffer,
+  normalizeSourceToJpeg
+} = require("./lib/android-motion-photo");
 
 // CloudBase 某些部署实例会丢失自定义相对模块，入口必须可以单文件启动。
 const DEFAULT_RETRY_STATUSES = new Set([408, 409, 425, 429, 500, 502, 503, 504]);
@@ -905,7 +909,13 @@ function modelErrorTypeForAction(action) {
   if (usageType) return usageType;
   if (action === "probeAutoFace") return "face";
   if (action === "repairImage") return "image";
-  if (["videoProviderStatus", "createVideoTask", "queryVideoTask"].includes(action)) {
+  if ([
+    "videoProviderStatus",
+    "createVideoTask",
+    "queryVideoTask",
+    "buildAndroidMotionPhoto",
+    "buildAppleLivePhoto"
+  ].includes(action)) {
     return "video";
   }
   return "";
@@ -2139,6 +2149,10 @@ function requestOnce(url, options = {}, body = null) {
       1000,
       Number(options.timeoutMs || env("AI_TIMEOUT_MS", "90000")) || 90000
     );
+    const maxResponseBytes = Math.max(
+      1024,
+      Number(options.maxResponseBytes) || 20 * 1024 * 1024
+    );
     const requestOptions = Object.assign({
       method: "POST",
       hostname: parsed.hostname,
@@ -2147,15 +2161,35 @@ function requestOnce(url, options = {}, body = null) {
       headers: {}
     }, options);
     delete requestOptions.timeoutMs;
+    delete requestOptions.maxResponseBytes;
     const chunks = [];
     const req = transport.request(requestOptions, (res) => {
       let size = 0;
+      let responseTooLarge = false;
       res.on("data", (chunk) => {
         size += chunk.length;
-        if (size <= 20 * 1024 * 1024) chunks.push(chunk);
+        if (size <= maxResponseBytes) {
+          chunks.push(chunk);
+        } else {
+          responseTooLarge = true;
+        }
       });
       res.on("end", () => {
-        const raw = Buffer.concat(chunks).toString("utf8");
+        if (responseTooLarge) {
+          const error = new Error("上游接口响应超过大小限制");
+          error.code = "UPSTREAM_RESPONSE_TOO_LARGE";
+          error.retryable = false;
+          reject(error);
+          return;
+        }
+        const buffer = Buffer.concat(chunks);
+        const contentType = String(res.headers && res.headers["content-type"] || "");
+        const raw = (
+          /json|text|xml|javascript/i.test(contentType)
+          || buffer.length <= 2 * 1024 * 1024
+        )
+          ? buffer.toString("utf8")
+          : "";
         let json = null;
         try {
           json = raw ? JSON.parse(raw) : null;
@@ -2165,7 +2199,7 @@ function requestOnce(url, options = {}, body = null) {
         resolve({
           status: res.statusCode || 0,
           headers: res.headers || {},
-          buffer: Buffer.concat(chunks),
+          buffer,
           raw,
           json
         });
@@ -6790,6 +6824,223 @@ async function videoProviderStatus() {
   });
 }
 
+function motionPhotoArtifactHash(...parts) {
+  return crypto
+    .createHash("sha256")
+    .update(parts.map((part) => String(part || "")).join(":"))
+    .digest("hex")
+    .slice(0, 32);
+}
+
+function motionPhotoOwnerHash(openid) {
+  return crypto
+    .createHash("sha256")
+    .update(String(openid || "anonymous"))
+    .digest("hex")
+    .slice(0, 24);
+}
+
+function normalizedVideoSourceCloudPath(openid, requestId) {
+  return [
+    "photo-to-video-sources",
+    motionPhotoOwnerHash(openid),
+    `${motionPhotoArtifactHash(openid, requestId, "source")}.jpg`
+  ].join("/");
+}
+
+function androidMotionPhotoFileName(requestId, taskId) {
+  return `${motionPhotoArtifactHash(requestId, taskId, "android-motion-photo")}-MP.jpg`;
+}
+
+function androidMotionPhotoCloudPath(openid, requestId, taskId) {
+  return [
+    "photo-to-video-motion-photos",
+    motionPhotoOwnerHash(openid),
+    androidMotionPhotoFileName(requestId, taskId)
+  ].join("/");
+}
+
+function appleLivePhotoFileName(requestId, taskId) {
+  return `${motionPhotoArtifactHash(requestId, taskId, "apple-live-photo")}.livp`;
+}
+
+function appleLivePhotoCloudPath(openid, requestId, taskId) {
+  return [
+    "photo-to-video-live-photos",
+    motionPhotoOwnerHash(openid),
+    appleLivePhotoFileName(requestId, taskId)
+  ].join("/");
+}
+
+function deterministicAppleContentIdentifier(openid, requestId, taskId) {
+  const bytes = crypto
+    .createHash("sha256")
+    .update(`${openid}:${requestId}:${taskId}:apple-live-photo`)
+    .digest()
+    .subarray(0, 16);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = bytes.toString("hex").toUpperCase();
+  return [
+    hex.slice(0, 8),
+    hex.slice(8, 12),
+    hex.slice(12, 16),
+    hex.slice(16, 20),
+    hex.slice(20)
+  ].join("-");
+}
+
+function resolveAppleLivePhotoWorkerConfig() {
+  const url = env("APPLE_LIVE_PHOTO_WORKER_URL").trim();
+  const token = env("APPLE_LIVE_PHOTO_WORKER_TOKEN").trim();
+  return {
+    url,
+    token,
+    configured: Boolean(url && token),
+    timeoutMs: Math.max(
+      30000,
+      Math.min(
+        300000,
+        Number(env("APPLE_LIVE_PHOTO_WORKER_TIMEOUT_MS", "180000")) || 180000
+      )
+    ),
+    maxResponseBytes: Math.max(
+      20 * 1024 * 1024,
+      Math.min(
+        110 * 1024 * 1024,
+        Number(env("APPLE_LIVE_PHOTO_MAX_BYTES", String(110 * 1024 * 1024)))
+          || 110 * 1024 * 1024
+      )
+    )
+  };
+}
+
+async function cloudTempFileUrl(fileID) {
+  if (!fileID) return "";
+  const result = await cloud.getTempFileURL({ fileList: [fileID] });
+  const item = result && Array.isArray(result.fileList)
+    ? result.fileList[0]
+    : null;
+  if (
+    item
+    && item.status !== undefined
+    && item.status !== null
+    && Number(item.status) !== 0
+  ) {
+    const error = new Error(item.errMsg || "获取云文件临时地址失败。");
+    error.code = "CLOUD_TEMP_URL_FAILED";
+    error.retryable = true;
+    throw error;
+  }
+  return String(item && item.tempFileURL || "").trim();
+}
+
+function appleLivePhotoResultView(value = {}) {
+  return {
+    livePhotoFileID: String(value.livePhotoFileID || value.fileID || ""),
+    tempFileURL: String(value.tempFileURL || ""),
+    fileName: String(value.fileName || ""),
+    sizeBytes: Math.max(0, Number(value.sizeBytes) || 0),
+    contentIdentifier: String(value.contentIdentifier || ""),
+    photoSha256: String(value.photoSha256 || ""),
+    videoSha256: String(value.videoSha256 || ""),
+    livpSha256: String(value.livpSha256 || ""),
+    validation: value.validation && typeof value.validation === "object"
+      ? value.validation
+      : {},
+    format: "apple-livp"
+  };
+}
+
+async function callAppleLivePhotoWorker(payload, config, meta = {}) {
+  const body = JSON.stringify(payload || {});
+  const response = await requestWithRetry(config.url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${config.token}`,
+      "Content-Type": "application/json",
+      "Content-Length": Buffer.byteLength(body),
+      Accept: "application/octet-stream"
+    },
+    maxResponseBytes: config.maxResponseBytes
+  }, body, {
+    requestId: meta.requestId,
+    action: "motion-photo.apple.worker",
+    provider: "apple-live-photo-worker",
+    allowRetry: true,
+    maxAttempts: 2,
+    retryStatuses: [408, 425, 429, 500, 502, 503, 504],
+    timeoutMs: config.timeoutMs
+  });
+  if (response.status < 200 || response.status >= 300) {
+    throw upstreamError(response, "Apple Live Photo 媒体服务失败");
+  }
+  if (
+    !response.buffer
+    || response.buffer.length < 64
+    || response.buffer.subarray(0, 4).toString("binary") !== "PK\u0003\u0004"
+    || !response.buffer.includes(Buffer.from("1000LIVP", "ascii"))
+  ) {
+    const error = new Error("Apple Live Photo 媒体服务返回的 LIVP 无效。");
+    error.code = "APPLE_LIVE_PHOTO_WORKER_RESULT_INVALID";
+    error.retryable = false;
+    throw error;
+  }
+  const headers = response.headers || {};
+  if (String(headers["x-live-photo-validation"] || "") !== "ok") {
+    const error = new Error("Apple Live Photo 媒体服务未通过结构校验。");
+    error.code = "APPLE_LIVE_PHOTO_WORKER_VALIDATION_FAILED";
+    error.retryable = false;
+    throw error;
+  }
+  return {
+    buffer: response.buffer,
+    contentIdentifier: String(
+      headers["x-live-photo-content-identifier"]
+      || payload.contentIdentifier
+      || ""
+    ),
+    photoSha256: String(headers["x-live-photo-photo-sha256"] || ""),
+    videoSha256: String(headers["x-live-photo-video-sha256"] || ""),
+    livpSha256: String(headers["x-live-photo-livp-sha256"] || ""),
+    validation: {
+      zipStored: true,
+      matchingContentIdentifier: true,
+      movHasMebx: true,
+      movHasStillImageTime: true,
+      worker: "ok"
+    }
+  };
+}
+
+async function uploadCloudBuffer(cloudPath, fileContent) {
+  const uploaded = await cloud.uploadFile({
+    cloudPath,
+    fileContent
+  });
+  const fileID = uploaded && uploaded.fileID;
+  if (!fileID) {
+    const error = new Error("云文件上传完成，但没有返回 fileID。");
+    error.code = "MOTION_PHOTO_UPLOAD_RESULT_INVALID";
+    error.retryable = true;
+    throw error;
+  }
+  return fileID;
+}
+
+async function downloadRemoteVideo(url, meta = {}) {
+  const response = await requestWithRetry(url, {
+    method: "GET",
+    headers: {
+      Accept: "video/mp4,video/*;q=0.9,application/octet-stream;q=0.8"
+    }
+  }, null, Object.assign({}, meta, { allowRetry: true }));
+  if (response.status < 200 || response.status >= 300) {
+    throw upstreamError(response, "动态视频下载失败");
+  }
+  return response.buffer;
+}
+
 async function createVideoTask(event, context) {
   const configs = await resolveEffectiveConfigs();
   const video = configs.video;
@@ -6809,12 +7060,6 @@ async function createVideoTask(event, context) {
   let claimed = false;
   let providerAccepted = false;
   try {
-    const imageBuffer = await downloadCloudFile(payload.imageFileID, {
-      requestId,
-      action: "video.create",
-      fileType: "video-source"
-    });
-    const requestPayload = buildVideoGenerationPayload(payload, Buffer.from(imageBuffer), video);
     billing = await reserveUsage(openid, requestId, "video");
     const claim = billing.untracked
       ? { claimed: true, operation: null, completed: false }
@@ -6841,13 +7086,46 @@ async function createVideoTask(event, context) {
       throw operationStateError(claim.operation);
     }
     claimed = true;
+    const originalImageBuffer = await downloadCloudFile(payload.imageFileID, {
+      requestId,
+      action: "video.create",
+      fileType: "video-source"
+    });
+    const standardized = normalizeSourceToJpeg(Buffer.from(originalImageBuffer), {
+      maxEdge: 1280,
+      quality: 95
+    });
+    const sourceCloudPath = normalizedVideoSourceCloudPath(openid, requestId);
+    const sourceImageFileID = await uploadCloudBuffer(
+      sourceCloudPath,
+      standardized.buffer
+    );
+    const requestPayload = buildVideoGenerationPayload(
+      payload,
+      standardized.buffer,
+      video
+    );
+    if (!billing.untracked) {
+      await updateGenerationOperation(openid, requestId, {
+        sourceOriginalFileID: String(payload.imageFileID),
+        sourceImageFileID,
+        sourceCloudPath,
+        sourceImageWidth: standardized.width,
+        sourceImageHeight: standardized.height,
+        sourceImageBytes: standardized.buffer.length
+      }, {
+        allowedStatuses: ["processing"]
+      });
+    }
     log("info", "video.create.start", {
       requestId,
       provider: video.provider,
       model: requestPayload.model,
       resolution: requestPayload.resolution || "",
       duration: requestPayload.duration || null,
-      imageBytes: Buffer.from(imageBuffer).length,
+      imageBytes: standardized.buffer.length,
+      imageWidth: standardized.width,
+      imageHeight: standardized.height,
       prompt: requestPayload.prompt,
       billingSource: billing.source,
       pointsCharged: billing.pointsCharged
@@ -6879,6 +7157,10 @@ async function createVideoTask(event, context) {
       provider: video.provider,
       model: requestPayload.model,
       resolution: requestPayload.resolution || "",
+      sourceImageFileID,
+      sourceImageWidth: standardized.width,
+      sourceImageHeight: standardized.height,
+      sourceImageBytes: standardized.buffer.length,
       billing
     });
     if (!billing.untracked) {
@@ -6982,6 +7264,322 @@ async function queryVideoTask(event, context) {
   }));
 }
 
+function requireOwnedVideoOperation(operation, openid, requestId, taskId) {
+  if (!operation || operation.openid !== openid || operation.requestId !== requestId) {
+    const error = new Error("找不到当前用户的这次视频生成任务。");
+    error.code = "VIDEO_OPERATION_NOT_FOUND";
+    error.retryable = false;
+    throw error;
+  }
+  if (String(operation.kind || "") !== "video") {
+    const error = new Error("这次请求不是照片转视频任务。");
+    error.code = "VIDEO_OPERATION_KIND_MISMATCH";
+    error.retryable = false;
+    throw error;
+  }
+  if (
+    !operation.providerTaskId
+    || String(operation.providerTaskId) !== String(taskId)
+  ) {
+    const error = new Error("视频任务编号与当前用户的原请求不匹配。");
+    error.code = "VIDEO_TASK_OWNERSHIP_MISMATCH";
+    error.retryable = false;
+    throw error;
+  }
+  if (String(operation.status || "") !== "succeeded") {
+    const error = new Error("动态视频还没有生成完成，暂时不能封装实况照片。");
+    error.code = "VIDEO_TASK_NOT_SUCCEEDED";
+    error.retryable = true;
+    throw error;
+  }
+  return operation;
+}
+
+function androidMotionPhotoResultView(value = {}) {
+  return {
+    motionPhotoFileID: String(value.motionPhotoFileID || value.fileID || ""),
+    fileName: String(value.fileName || ""),
+    sizeBytes: Math.max(0, Number(value.sizeBytes) || 0),
+    jpegLengthBytes: Math.max(0, Number(value.jpegLengthBytes) || 0),
+    sourceJpegLengthBytes: Math.max(0, Number(value.sourceJpegLengthBytes) || 0),
+    videoLengthBytes: Math.max(0, Number(value.videoLengthBytes) || 0),
+    presentationTimestampUs: Math.max(
+      0,
+      Number(value.presentationTimestampUs) || 0
+    ),
+    format: "android-motion-photo"
+  };
+}
+
+async function buildAndroidMotionPhoto(event, context) {
+  const openid = getOpenId(context);
+  if (openid === "anonymous") {
+    return fail(
+      "无法确认当前微信用户，不能封装安卓实况照片。",
+      "MOTION_PHOTO_IDENTITY_MISSING"
+    );
+  }
+  const requestId = String(event.requestId || "").trim();
+  const taskId = String(event.taskId || "").trim();
+  if (!requestId || !taskId) {
+    return fail(
+      "缺少视频请求编号或任务编号。",
+      "MOTION_PHOTO_TASK_ARGUMENTS_MISSING"
+    );
+  }
+  const operation = requireOwnedVideoOperation(
+    await findGenerationOperation(openid, requestId),
+    openid,
+    requestId,
+    taskId
+  );
+  if (
+    operation.androidMotionPhoto
+    && operation.androidMotionPhoto.motionPhotoFileID
+  ) {
+    return jsonResponse(true, Object.assign(
+      androidMotionPhotoResultView(operation.androidMotionPhoto),
+      { deduplicated: true, taskId, requestId }
+    ));
+  }
+  const result = operation.result && typeof operation.result === "object"
+    ? operation.result
+    : {};
+  const sourceImageFileID = String(
+    operation.sourceImageFileID || result.sourceImageFileID || ""
+  ).trim();
+  if (!sourceImageFileID) {
+    return fail(
+      "视频任务没有保存标准 JPG 封面，请重新生成视频。",
+      "MOTION_PHOTO_SOURCE_NOT_RECORDED"
+    );
+  }
+  const videoFileID = String(
+    operation.videoFileID
+    || result.resultFileID
+    || result.videoFileID
+    || ""
+  ).trim();
+  const videoURL = String(
+    operation.videoURL
+    || result.videoURL
+    || result.resultURL
+    || ""
+  ).trim();
+  if (!videoFileID && !videoURL) {
+    return fail(
+      "视频任务没有可下载的 MP4 结果。",
+      "MOTION_PHOTO_VIDEO_NOT_RECORDED"
+    );
+  }
+  log("info", "motion-photo.android.build-start", {
+    requestId,
+    taskId,
+    hasVideoFileID: Boolean(videoFileID),
+    hasVideoURL: Boolean(videoURL)
+  });
+  const [sourceBuffer, videoBuffer] = await Promise.all([
+    downloadCloudFile(sourceImageFileID, {
+      requestId,
+      action: "motion-photo.android",
+      fileType: "motion-photo-source"
+    }),
+    videoFileID
+      ? downloadCloudFile(videoFileID, {
+        requestId,
+        action: "motion-photo.android",
+        fileType: "motion-photo-video"
+      })
+      : downloadRemoteVideo(videoURL, {
+        requestId,
+        action: "motion-photo.android.video",
+        retryStatuses: [408, 425, 429, 500, 502, 503, 504],
+        timeoutMs: Math.max(30000, Number(env("AI_VIDEO_TIMEOUT_MS", "120000")) || 120000)
+      })
+  ]);
+  const built = buildAndroidMotionPhotoBuffer(
+    Buffer.from(sourceBuffer),
+    Buffer.from(videoBuffer),
+    { presentationTimestampUs: 33333 }
+  );
+  const fileName = androidMotionPhotoFileName(requestId, taskId);
+  const cloudPath = androidMotionPhotoCloudPath(
+    openid,
+    requestId,
+    taskId
+  );
+  const motionPhotoFileID = await uploadCloudBuffer(cloudPath, built.buffer);
+  const artifact = androidMotionPhotoResultView({
+    motionPhotoFileID,
+    fileName,
+    sizeBytes: built.buffer.length,
+    jpegLengthBytes: built.jpegLengthBytes,
+    sourceJpegLengthBytes: built.sourceJpegLengthBytes,
+    videoLengthBytes: built.videoLengthBytes,
+    presentationTimestampUs: built.presentationTimestampUs
+  });
+  await updateGenerationOperation(openid, requestId, {
+    androidMotionPhoto: Object.assign({}, artifact, {
+      cloudPath,
+      createdAt: new Date()
+    })
+  }, {
+    allowedStatuses: ["succeeded"]
+  });
+  log("info", "motion-photo.android.build-finish", {
+    requestId,
+    taskId,
+    motionPhotoFileID,
+    sizeBytes: artifact.sizeBytes,
+    videoLengthBytes: artifact.videoLengthBytes
+  });
+  return jsonResponse(true, Object.assign({}, artifact, {
+    requestId,
+    taskId,
+    sourceImageFileID
+  }));
+}
+
+async function buildAppleLivePhoto(event, context) {
+  const openid = getOpenId(context);
+  if (openid === "anonymous") {
+    return fail(
+      "无法确认当前微信用户，不能生成苹果实况文件。",
+      "APPLE_LIVE_PHOTO_IDENTITY_MISSING"
+    );
+  }
+  const requestId = String(event.requestId || "").trim();
+  const taskId = String(event.taskId || "").trim();
+  if (!requestId || !taskId) {
+    return fail(
+      "缺少视频请求编号或任务编号。",
+      "APPLE_LIVE_PHOTO_TASK_ARGUMENTS_MISSING"
+    );
+  }
+  const operation = requireOwnedVideoOperation(
+    await findGenerationOperation(openid, requestId),
+    openid,
+    requestId,
+    taskId
+  );
+  if (operation.appleLivePhoto && operation.appleLivePhoto.livePhotoFileID) {
+    const cached = appleLivePhotoResultView(operation.appleLivePhoto);
+    try {
+      cached.tempFileURL = await cloudTempFileUrl(cached.livePhotoFileID);
+    } catch (_) {
+      // 临时地址刷新失败时仍返回原文件 ID，让客户端继续走云文件下载。
+    }
+    return jsonResponse(true, Object.assign(
+      cached,
+      { deduplicated: true, taskId, requestId }
+    ));
+  }
+  const worker = resolveAppleLivePhotoWorkerConfig();
+  if (!worker.configured) {
+    return fail(
+      "苹果实况媒体服务尚未配置，请配置 APPLE_LIVE_PHOTO_WORKER_URL 和 APPLE_LIVE_PHOTO_WORKER_TOKEN。",
+      "APPLE_LIVE_PHOTO_WORKER_NOT_CONFIGURED"
+    );
+  }
+  const result = operation.result && typeof operation.result === "object"
+    ? operation.result
+    : {};
+  const sourceImageFileID = String(
+    operation.sourceImageFileID || result.sourceImageFileID || ""
+  ).trim();
+  if (!sourceImageFileID) {
+    return fail(
+      "视频任务没有保存标准 JPG 封面，请重新生成视频。",
+      "APPLE_LIVE_PHOTO_SOURCE_NOT_RECORDED"
+    );
+  }
+  const videoFileID = String(
+    operation.videoFileID
+    || result.resultFileID
+    || result.videoFileID
+    || ""
+  ).trim();
+  const providerVideoURL = String(
+    operation.videoURL
+    || result.videoURL
+    || result.resultURL
+    || ""
+  ).trim();
+  if (!videoFileID && !providerVideoURL) {
+    return fail(
+      "视频任务没有可下载的 MP4 结果。",
+      "APPLE_LIVE_PHOTO_VIDEO_NOT_RECORDED"
+    );
+  }
+  const [imageUrl, cloudVideoUrl] = await Promise.all([
+    cloudTempFileUrl(sourceImageFileID),
+    videoFileID ? cloudTempFileUrl(videoFileID) : Promise.resolve("")
+  ]);
+  const videoUrl = cloudVideoUrl || providerVideoURL;
+  if (!imageUrl || !videoUrl) {
+    return fail(
+      "无法取得生成苹果实况所需的临时媒体地址。",
+      "APPLE_LIVE_PHOTO_MEDIA_URL_MISSING",
+      { retryable: true }
+    );
+  }
+  const contentIdentifier = deterministicAppleContentIdentifier(
+    openid,
+    requestId,
+    taskId
+  );
+  const fileName = appleLivePhotoFileName(requestId, taskId);
+  const baseName = fileName.replace(/\.livp$/i, "");
+  log("info", "motion-photo.apple.build-start", {
+    requestId,
+    taskId,
+    hasVideoFileID: Boolean(videoFileID),
+    contentIdentifier
+  });
+  const built = await callAppleLivePhotoWorker({
+    requestId,
+    taskId,
+    imageUrl,
+    videoUrl,
+    contentIdentifier,
+    baseName
+  }, worker, { requestId });
+  const cloudPath = appleLivePhotoCloudPath(openid, requestId, taskId);
+  const livePhotoFileID = await uploadCloudBuffer(cloudPath, built.buffer);
+  const tempFileURL = await cloudTempFileUrl(livePhotoFileID);
+  const artifact = appleLivePhotoResultView({
+    livePhotoFileID,
+    tempFileURL,
+    fileName,
+    sizeBytes: built.buffer.length,
+    contentIdentifier: built.contentIdentifier,
+    photoSha256: built.photoSha256,
+    videoSha256: built.videoSha256,
+    livpSha256: built.livpSha256,
+    validation: built.validation
+  });
+  await updateGenerationOperation(openid, requestId, {
+    appleLivePhoto: Object.assign({}, artifact, {
+      cloudPath,
+      createdAt: new Date()
+    })
+  }, {
+    allowedStatuses: ["succeeded"]
+  });
+  log("info", "motion-photo.apple.build-finish", {
+    requestId,
+    taskId,
+    livePhotoFileID,
+    sizeBytes: artifact.sizeBytes,
+    contentIdentifier: artifact.contentIdentifier
+  });
+  return jsonResponse(true, Object.assign({}, artifact, {
+    requestId,
+    taskId,
+    sourceImageFileID
+  }));
+}
+
 exports.main = async (event = {}, context) => {
   const requestId = event.requestId
     || (event.payload && event.payload.requestId)
@@ -7018,6 +7616,12 @@ exports.main = async (event = {}, context) => {
     else if (action === "videoProviderStatus") result = await videoProviderStatus();
     else if (action === "createVideoTask") result = await createVideoTask(requestEvent, context);
     else if (action === "queryVideoTask") result = await queryVideoTask(requestEvent, context);
+    else if (action === "buildAndroidMotionPhoto") {
+      result = await buildAndroidMotionPhoto(requestEvent, context);
+    }
+    else if (action === "buildAppleLivePhoto") {
+      result = await buildAppleLivePhoto(requestEvent, context);
+    }
     else if (action === "getAdminStatus") result = await getAdminStatus(context);
     else if (action === "getAdminConfig") result = await getAdminConfig(context);
     else if (action === "getAdminUserStats") result = await getAdminUserStats(requestEvent, context);
@@ -7177,6 +7781,23 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     normalizeVideoQueryResponse,
     videoCreateUrl,
     videoQueryUrl,
+    motionPhotoArtifactHash,
+    normalizedVideoSourceCloudPath,
+    androidMotionPhotoFileName,
+    androidMotionPhotoCloudPath,
+    appleLivePhotoFileName,
+    appleLivePhotoCloudPath,
+    deterministicAppleContentIdentifier,
+    resolveAppleLivePhotoWorkerConfig,
+    cloudTempFileUrl,
+    appleLivePhotoResultView,
+    callAppleLivePhotoWorker,
+    requireOwnedVideoOperation,
+    androidMotionPhotoResultView,
+    buildAndroidMotionPhoto,
+    buildAppleLivePhoto,
+    normalizeSourceToJpeg,
+    buildAndroidMotionPhotoBuffer,
     buildAutoFaceProbe
     ,
     adminOpenIds,

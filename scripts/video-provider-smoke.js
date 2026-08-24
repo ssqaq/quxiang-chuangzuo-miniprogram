@@ -2,6 +2,7 @@
 
 const assert = require("assert");
 const http = require("http");
+const { PNG } = require("../cloudfunctions/api/node_modules/pngjs");
 
 const fakeKey = "video-smoke-key-not-a-real-secret";
 const requestId = "video-smoke-request-001";
@@ -55,7 +56,7 @@ async function main() {
       assert.strictEqual(body.model, "grok-smoke-model");
       assert.strictEqual(body.resolution, "720p");
       assert.ok(body.prompt.includes("本地协议测试"));
-      assert.ok(/^data:image\/png;base64,/.test(body.image));
+      assert.ok(/^data:image\/jpeg;base64,/.test(body.image));
       sendJson(response, 200, { request_id: "provider-task-001" });
       return;
     }
@@ -82,6 +83,7 @@ async function main() {
   });
 
   const originalDownloadFile = cloud.downloadFile;
+  const originalUploadFile = cloud.uploadFile;
   const originalConsole = {
     info: console.info,
     warn: console.warn,
@@ -96,8 +98,13 @@ async function main() {
     await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
     const address = server.address();
     process.env.AI_VIDEO_BASE_URL = `http://127.0.0.1:${address.port}`;
+    const png = new PNG({ width: 2, height: 2 });
+    png.data.fill(255);
     cloud.downloadFile = async () => ({
-      fileContent: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+      fileContent: PNG.sync.write(png)
+    });
+    cloud.uploadFile = async ({ cloudPath }) => ({
+      fileID: `cloud://smoke/${cloudPath}`
     });
 
     const created = await api.main({
@@ -113,6 +120,7 @@ async function main() {
     assert.strictEqual(created.ok, true);
     assert.strictEqual(created.requestId, requestId);
     assert.strictEqual(created.taskId, "provider-task-001");
+    assert.ok(created.sourceImageFileID.includes("photo-to-video-sources"));
     assert.strictEqual(createAttempts, 1, "创建接口不允许自动重试");
 
     const queried = await api.main({
@@ -161,6 +169,7 @@ async function main() {
     console.warn = originalConsole.warn;
     console.error = originalConsole.error;
     cloud.downloadFile = originalDownloadFile;
+    cloud.uploadFile = originalUploadFile;
     await new Promise((resolve) => server.close(resolve));
   }
 }

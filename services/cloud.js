@@ -704,5 +704,19 @@ module.exports = {
       taskId,
       requestId: options.requestId || ""
     });
+  },
+  buildAndroidMotionPhoto(taskId, options = {}) {
+    return callApi({
+      action: "buildAndroidMotionPhoto",
+      taskId,
+      requestId: options.requestId || ""
+    });
+  },
+  buildAppleLivePhoto(taskId, options = {}) {
+    return callApi({
+      action: "buildAppleLivePhoto",
+      taskId,
+      requestId: options.requestId || ""
+    });
   }
 };

@@ -1,0 +1,14 @@
+{
+  "name": "aips-apple-live-photo-worker",
+  "version": "0.32.0",
+  "private": true,
+  "description": "圈像创作 Apple LIVP 媒体处理服务",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js && node --check lib/apple-live-photo.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

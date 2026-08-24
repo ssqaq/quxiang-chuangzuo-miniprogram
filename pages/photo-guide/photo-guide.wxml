@@ -1,5 +1,6 @@
 <view class="photo-guide-page">
   <view class="guide-hero">
+    <view class="guide-page-name">图文教程</view>
     <view class="guide-eyebrow">IPHONE GUIDE · 5 STEPS</view>
     <view class="guide-title">5 步把实况图保存到相册</view>
     <view class="guide-subtitle">每个页面只做一件事，照着往下点就行。</view>

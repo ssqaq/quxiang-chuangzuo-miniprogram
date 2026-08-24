@@ -33,6 +33,13 @@ page {
   letter-spacing: 3rpx;
 }
 
+.guide-page-name {
+  color: #718097;
+  font-size: 22rpx;
+  font-weight: 800;
+  letter-spacing: 2rpx;
+}
+
 .guide-title {
   margin-top: 16rpx;
   color: #172238;

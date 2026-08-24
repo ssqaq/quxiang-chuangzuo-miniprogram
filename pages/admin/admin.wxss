@@ -402,6 +402,7 @@ page {
 
 .today-section {
   margin-top: 20rpx;
+  margin-bottom: 16rpx;
 }
 
 .today-grid {
@@ -887,7 +888,7 @@ page {
 }
 
 .monitor-deployment-body .admin-section-tools .monitor-section-toggle-button {
-  margin-right: -18rpx;
+  margin-right: -12rpx;
 }
 
 .monitor-fold-card.is-collapsed {

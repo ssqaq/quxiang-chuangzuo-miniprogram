@@ -1,0 +1,78 @@
+<view class="profile-page">
+  <view class="profile-header">
+    <image class="profile-brand" src="/assets/brand/brand-icon.png" mode="aspectFit"></image>
+    <view class="profile-title">先完善用户资料</view>
+    <view class="profile-subtitle">只用于显示头像昵称和统计男女数量，填完才能进入创作工作台。</view>
+  </view>
+
+  <view wx:if="{{loading}}" class="profile-loading">正在读取资料...</view>
+
+  <view wx:else class="profile-card">
+    <button
+      class="avatar-button"
+      open-type="chooseAvatar"
+      bindchooseavatar="onChooseAvatar"
+      aria-label="选择微信头像"
+    >
+      <image wx:if="{{avatarPath}}" class="avatar-image" src="{{avatarPath}}" mode="aspectFill"></image>
+      <view wx:else class="avatar-placeholder">头像</view>
+      <view class="avatar-action">{{avatarPath ? '更换头像' : '选择微信头像'}}</view>
+    </button>
+
+    <view class="profile-field">
+      <view class="profile-label">微信昵称</view>
+      <input
+        class="profile-input"
+        type="nickname"
+        maxlength="32"
+        value="{{nickname}}"
+        placeholder="点击填写微信昵称"
+        bindinput="onNicknameInput"
+      />
+    </view>
+
+    <view class="profile-field">
+      <view class="profile-label">性别</view>
+      <view class="gender-grid">
+        <view
+          class="gender-option {{gender === 'male' ? 'is-selected gender-male' : ''}}"
+          data-gender="male"
+          bindtap="chooseGender"
+          role="button"
+          aria-label="选择男性"
+        >
+          <view class="gender-icon">男</view>
+          <view>男性</view>
+        </view>
+        <view
+          class="gender-option {{gender === 'female' ? 'is-selected gender-female' : ''}}"
+          data-gender="female"
+          bindtap="chooseGender"
+          role="button"
+          aria-label="选择女性"
+        >
+          <view class="gender-icon">女</view>
+          <view>女性</view>
+        </view>
+      </view>
+    </view>
+
+    <view class="privacy-note">
+      保存代表你同意小程序按隐私保护指引收集头像、昵称和性别。原始微信身份不会显示在管理页。
+    </view>
+
+    <view wx:if="{{errorMessage}}" class="profile-error">{{errorMessage}}</view>
+
+    <button
+      class="profile-save-button"
+      bindtap="saveProfile"
+      loading="{{saving}}"
+      disabled="{{saving}}"
+    >
+      {{saving ? '正在保存...' : '保存并进入工作台'}}
+    </button>
+    <button wx:if="{{errorMessage && !saving}}" class="profile-retry-button" bindtap="loadProfile">
+      重新读取
+    </button>
+  </view>
+</view>

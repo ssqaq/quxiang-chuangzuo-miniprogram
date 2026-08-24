@@ -583,6 +583,20 @@ module.exports = {
   listRecords() {
     return callApi({ action: "listRecords" });
   },
+  getMyUserProfile(options = {}) {
+    return callApi({
+      action: "getMyUserProfile",
+      retryLimit: options.retryLimit === undefined ? 1 : options.retryLimit,
+      silent: Boolean(options.silent)
+    });
+  },
+  saveMyUserProfile(profile) {
+    return callApi({
+      action: "saveMyUserProfile",
+      profile: profile && typeof profile === "object" ? profile : {},
+      retryLimit: 0
+    });
+  },
   getUserPoints(options = {}) {
     return callApi({
       action: "getUserPoints",
@@ -611,6 +625,13 @@ module.exports = {
   },
   getAdminConfig() {
     return callApi({ action: "getAdminConfig" });
+  },
+  getAdminUserStats(offset = 0, limit = 20) {
+    return callApi({
+      action: "getAdminUserStats",
+      offset: Math.max(0, Number(offset) || 0),
+      limit: Math.max(1, Math.min(50, Number(limit) || 20))
+    });
   },
   saveAdminConfig(config) {
     return callApi({

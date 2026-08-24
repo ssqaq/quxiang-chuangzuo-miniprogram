@@ -34,8 +34,8 @@ function emptyForm() {
       checkinPoints: "5",
       streakBonus: "20",
       streakDays: "7",
-      promoStartDate: "2026-08-23",
-      promoEndDate: "2026-08-24",
+      promoStartDate: "2026-08-24",
+      promoEndDate: "2026-08-25",
       timeZone: "Asia/Shanghai"
     },
     costs: {

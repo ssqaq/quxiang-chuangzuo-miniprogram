@@ -132,6 +132,36 @@ page {
   letter-spacing: 1rpx;
 }
 
+.splash-error {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  flex-direction: column;
+}
+
+.splash-error-text {
+  color: #a04d4d;
+  font-size: 22rpx;
+  line-height: 34rpx;
+  text-align: center;
+}
+
+.splash-retry-button {
+  display: flex;
+  width: 220rpx;
+  height: 68rpx;
+  margin: 18rpx 0 0;
+  padding: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 18rpx;
+  color: #ffffff;
+  background: #1f6feb;
+  font-size: 24rpx;
+  font-weight: 700;
+  line-height: 1;
+}
+
 @keyframes content-in {
   from {
     opacity: 0;

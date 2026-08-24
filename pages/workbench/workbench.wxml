@@ -47,7 +47,7 @@
       </view>
       <view class="points-entry-foot">
         <text>{{pointsCopy.streakStatusPrefix}} {{points.currentStreak}} {{pointsCopy.dayUnit}} · {{points.checkedInToday ? pointsCopy.checkedIn : pointsCopy.notCheckedIn}}</text>
-        <text class="points-entry-promo {{points.promoActive ? 'points-entry-promo-active' : ''}}">{{points.promoActive ? pointsCopy.promoActive : pointsCopy.freePrefix + ' ' + points.freeRemaining + ' ' + pointsCopy.freeSuffix}}</text>
+        <text class="points-entry-promo {{points.promoActive ? 'points-entry-promo-active' : ''}}">{{points.promoActive ? points.promoLabel : pointsCopy.freePrefix + ' ' + points.freeRemaining + ' ' + pointsCopy.freeSuffix}}</text>
       </view>
     </view>
     <button
@@ -305,22 +305,6 @@
     </view>
   </view>
 
-  <view
-    wx:if="{{adminVisible}}"
-    class="card admin-entry-card home-feature-card workbench-link-card"
-    bindtap="openAdmin"
-    hover-class="workbench-link-card-hover"
-    hover-start-time="0"
-    hover-stay-time="70"
-  >
-    <view class="admin-entry-icon">管</view>
-    <view class="admin-entry-copy">
-      <view class="admin-entry-title">管理员配置</view>
-      <view class="admin-entry-description">调整生图、视频模型和检查线上部署</view>
-    </view>
-    <view class="home-feature-arrow admin-entry-arrow">›</view>
-  </view>
-
   <view class="card contact-author-card">
     <view
       class="contact-author-heading"
@@ -329,7 +313,7 @@
     >
       <view class="contact-author-icon">联</view>
       <view class="contact-author-copy">
-        <view class="section-kicker">作者微信</view>
+        <view class="section-kicker">联系作者</view>
         <view class="contact-author-title">添加微信咨询</view>
         <view wx:if="{{contactAuthorExpanded}}" class="contact-author-description">
           点击二维码可放大，长按识别添加好友
@@ -363,7 +347,23 @@
     </view>
   </view>
 
+  <view
+    wx:if="{{adminVisible}}"
+    class="card admin-entry-card home-feature-card workbench-link-card"
+    bindtap="openAdmin"
+    hover-class="workbench-link-card-hover"
+    hover-start-time="0"
+    hover-stay-time="70"
+  >
+    <view class="admin-entry-icon">管</view>
+    <view class="admin-entry-copy">
+      <view class="admin-entry-title">管理员页面</view>
+      <view class="admin-entry-description">调整生图、视频模型和检查线上部署</view>
+    </view>
+    <view class="home-feature-arrow admin-entry-arrow">›</view>
   </view>
+
+</view>
 
   <view
     wx:if="{{authorQrPreviewVisible}}"

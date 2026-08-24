@@ -16,7 +16,7 @@ module.exports = {
     quality: 82,
     minBytes: 262144
   },
-  appVersion: "0.25.0",
+  appVersion: "0.25.1",
   points: {
     dailyFreeLimit: 3,
     imageCost: 10,
@@ -24,8 +24,8 @@ module.exports = {
     checkinPoints: 5,
     streakBonus: 20,
     streakDays: 7,
-    promoStartDate: "2026-08-23",
-    promoEndDate: "2026-08-24",
+    promoStartDate: "2026-08-24",
+    promoEndDate: "2026-08-25",
     copy: {
       cardTitle: "每日签到",
       streakPrefix: "连续签到",
@@ -34,7 +34,7 @@ module.exports = {
       checkedIn: "今天已签到",
       freePrefix: "今天还可免费用",
       freeSuffix: "次",
-      promoActive: "活动期间免费",
+      promoActive: "活动期间限时全功能不扣积分",
       checkIn: "签到",
       checkedInButton: "已签到",
       checkInWithRewardPrefix: "今日签到 +",
@@ -46,7 +46,7 @@ module.exports = {
       pointsKicker: "POINTS CENTER",
       pointsTitle: "连续签到，攒积分",
       pointsSectionTitle: "连续签到进度",
-      pointsPromo: "活动期间生图和视频不限次数免费，不扣积分。",
+      pointsPromo: "活动期间限时全功能不扣积分",
       checkInHintPrefix: "每日签到",
       checkInHintSuffix: "积分；积分永久有效。",
       pointsUnit: "积分",

@@ -480,9 +480,9 @@ if (
   || !configJs.includes('notCheckedIn: "今天还没签到"')
   || !configJs.includes('checkedIn: "今天已签到"')
   || !configJs.includes('freePrefix: "今天还可免费用"')
-  || !configJs.includes('promoActive: "活动期间免费"')
+  || !configJs.includes('promoActive: "活动期间限时全功能不扣积分"')
   || !workbenchWxml.includes("pointsCopy.cardTitle")
-  || !workbenchWxml.includes("pointsCopy.promoActive")
+  || !workbenchWxml.includes("points.promoLabel")
   || !workbenchWxml.includes("pointsCopy.pointsUnit")
   || !workbenchWxml.includes('bindtap="openPoints"')
   || !workbenchWxml.includes('catchtap="checkIn"')
@@ -506,7 +506,7 @@ if (
   || !pointsWxml.includes("pointsCopy.pointsSectionTitle")
   || !pointsWxml.includes("pointsCopy.ledgerTitle")
   || !pointsWxml.includes("pointsCopy.bindAndCheckIn")
-  || !pointsWxml.includes("pointsCopy.pointsPromo")
+  || !pointsWxml.includes("points.promoLabel")
   || !pointsWxml.includes("pointsCopy.usageNote")
   || !pointsWxml.includes("pointsCopy.emptyLedger")
   || !pointsWxss.includes(".streak-progress-fill")
@@ -618,17 +618,26 @@ for (const [sourceName, source] of cloudOnlySources) {
 }
 if (
   appJson.pages[0] !== "pages/splash/splash"
-  || appJson.pages[1] !== "pages/workbench/workbench"
+  || (
+    appJson.pages[1] !== "pages/workbench/workbench"
+    && appJson.pages[1] !== "pages/profile/profile"
+  )
   || !splashJs.includes("setTimeout")
   || !splashJs.includes("REDIRECT_DELAY = 888")
-  || !splashJs.includes("openWorkbench()")
+  || !(
+    splashJs.includes("openWorkbench()")
+    || splashJs.includes("checkUserProfile()")
+  )
   || !splashJs.includes("wx.redirectTo")
   || !splashJs.includes('wx.reLaunch')
   || !splashJs.includes('WORKBENCH_URL = "/pages/workbench/workbench"')
   || !splashWxml.includes('src="/assets/brand/brand-icon.png"')
   || !splashWxml.includes("圈定想改的，创作想要的。")
   || !splashWxml.includes("局部创作，整体可控")
-  || !splashWxml.includes("正在进入创作空间")
+  || !(
+    splashWxml.includes("正在进入创作空间")
+    || splashWxml.includes("正在检查用户资料")
+  )
   || !splashWxss.includes("background: #ffffff")
 ) {
   throw new Error("启动页没有完整配置图标、品牌文案或自动进入首页逻辑。");
@@ -815,8 +824,9 @@ if (
   || !workbenchWxml.includes("作品记录、图片优化和问题反馈")
   || !workbenchWxml.includes("服务记录")
   || !workbenchWxml.includes("查看问题报告")
-  || !workbenchWxml.includes("作者微信")
+  || !workbenchWxml.includes("联系作者")
   || !workbenchWxml.includes("添加微信咨询")
+  || workbenchWxml.indexOf('class="card admin-entry-card') < workbenchWxml.indexOf('class="card contact-author-card"')
   || !workbenchWxml.includes("diagnosticStats.eventCount")
   || !workbenchWxml.includes('catchtap="toggleDiagnosticPanel"')
   || !workbenchWxml.includes("diagnosticExpanded ? '收起' : '展开'")

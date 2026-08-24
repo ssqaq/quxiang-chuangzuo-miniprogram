@@ -50,23 +50,32 @@ function valuesFor(store, collectionName) {
 
 const points = helpers.resolvePointsConfig({});
 assert.strictEqual(config.points.copy.cardTitle, "每日签到");
-assert.strictEqual(config.points.copy.promoActive, "活动期间免费");
+assert.strictEqual(config.points.copy.promoActive, "活动期间限时全功能不扣积分");
 assert.strictEqual(config.points.copy.checkInDuplicate, "今天已经签到过了");
 assert.strictEqual(config.points.copy.usageTitle, "使用说明");
 assert.strictEqual(config.points.copy.backToWorkbench, "返回工作台");
-const promoEndAt = pointsUi.promoEndAtMs("2026-08-24");
-assert.strictEqual(promoEndAt, Date.parse("2026-08-25T00:00:00.000+08:00"));
-assert.strictEqual(pointsUi.getPromoRefreshDelay("2026-08-24", promoEndAt - 1500), 1500);
-assert.strictEqual(pointsUi.getPromoRefreshDelay("2026-08-24", promoEndAt), 0);
+assert.strictEqual(pointsUi.formatPromoDate("2026-08-24"), "8月24日");
+assert.strictEqual(
+  pointsUi.formatPromoRange("2026-08-24", "2026-08-25"),
+  "8月24日-8月25日"
+);
+assert.strictEqual(
+  pointsUi.buildPromoLabel("2026-08-24", "2026-08-25"),
+  "8月24日-8月25日活动期间限时全功能不扣积分"
+);
+const promoEndAt = pointsUi.promoEndAtMs("2026-08-25");
+assert.strictEqual(promoEndAt, Date.parse("2026-08-26T00:00:00.000+08:00"));
+assert.strictEqual(pointsUi.getPromoRefreshDelay("2026-08-25", promoEndAt - 1500), 1500);
+assert.strictEqual(pointsUi.getPromoRefreshDelay("2026-08-25", promoEndAt), 0);
 assert.strictEqual(points.dailyFreeLimit, 3);
 assert.strictEqual(points.imageCost, 10);
 assert.strictEqual(points.videoCost, 10);
 assert.strictEqual(points.checkinPoints, 5);
 assert.strictEqual(points.streakBonus, 20);
 assert.strictEqual(points.streakDays, 7);
-assert.strictEqual(helpers.isPromoDate("2026-08-23", points), true);
 assert.strictEqual(helpers.isPromoDate("2026-08-24", points), true);
-assert.strictEqual(helpers.isPromoDate("2026-08-25", points), false);
+assert.strictEqual(helpers.isPromoDate("2026-08-25", points), true);
+assert.strictEqual(helpers.isPromoDate("2026-08-26", points), false);
 assert.strictEqual(helpers.shiftDateKey("2026-08-23", -1), "2026-08-22");
 assert.strictEqual(helpers.calculateNextStreak("", 0, "2026-08-23"), 1);
 assert.strictEqual(helpers.calculateNextStreak("2026-08-22", 1, "2026-08-23"), 2);

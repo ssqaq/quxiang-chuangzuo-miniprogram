@@ -1,0 +1,135 @@
+const cloud = require("../../services/cloud");
+const diagnosticLog = require("../../utils/diagnostic-log");
+
+const WORKBENCH_URL = "/pages/workbench/workbench";
+
+function privacyAuthorization() {
+  return new Promise((resolve, reject) => {
+    if (typeof wx.requirePrivacyAuthorize !== "function") {
+      resolve();
+      return;
+    }
+    wx.requirePrivacyAuthorize({
+      success: resolve,
+      fail: reject
+    });
+  });
+}
+
+Page({
+  data: {
+    loading: true,
+    saving: false,
+    nickname: "",
+    gender: "",
+    avatarPath: "",
+    avatarFileID: "",
+    errorMessage: ""
+  },
+
+  onLoad() {
+    this.loadProfile();
+  },
+
+  async loadProfile() {
+    if (!cloud.isCloudReady()) {
+      this.setData({
+        loading: false,
+        errorMessage: "云端没有连接，请检查网络后重试。"
+      });
+      return;
+    }
+    this.setData({ loading: true, errorMessage: "" });
+    try {
+      const result = await cloud.getMyUserProfile({ retryLimit: 1 });
+      const profile = result && result.profile || {};
+      this.setData({
+        loading: false,
+        nickname: profile.nickname || "",
+        gender: profile.gender || "",
+        avatarPath: profile.avatarUrl || profile.avatarFileID || "",
+        avatarFileID: profile.avatarFileID || ""
+      });
+    } catch (error) {
+      this.setData({
+        loading: false,
+        errorMessage: (error && error.message) || "用户资料读取失败，请重试。"
+      });
+      diagnosticLog.error("profile", "load-failed", "用户资料读取失败", { error });
+    }
+  },
+
+  onChooseAvatar(event) {
+    const avatarPath = event && event.detail && event.detail.avatarUrl || "";
+    if (!avatarPath) return;
+    this.setData({
+      avatarPath,
+      avatarFileID: /^cloud:\/\//i.test(avatarPath) ? avatarPath : "",
+      errorMessage: ""
+    });
+  },
+
+  onNicknameInput(event) {
+    this.setData({
+      nickname: String(event && event.detail && event.detail.value || "").slice(0, 32),
+      errorMessage: ""
+    });
+  },
+
+  chooseGender(event) {
+    const gender = event.currentTarget.dataset.gender;
+    if (gender !== "male" && gender !== "female") return;
+    this.setData({ gender, errorMessage: "" });
+  },
+
+  validateProfile() {
+    if (!this.data.avatarPath) return "请先选择微信头像。";
+    if (!String(this.data.nickname || "").trim()) return "请填写微信昵称。";
+    if (!["male", "female"].includes(this.data.gender)) return "请选择男性或女性。";
+    return "";
+  },
+
+  async saveProfile() {
+    if (this.data.saving) return;
+    const validationMessage = this.validateProfile();
+    if (validationMessage) {
+      this.setData({ errorMessage: validationMessage });
+      wx.showToast({ title: validationMessage, icon: "none" });
+      return;
+    }
+    this.setData({ saving: true, errorMessage: "" });
+    try {
+      await privacyAuthorization();
+      let avatarFileID = this.data.avatarFileID;
+      if (!avatarFileID) {
+        const uploaded = await cloud.uploadAsset(this.data.avatarPath, "avatar", {
+          contentType: "image/jpeg"
+        });
+        avatarFileID = uploaded && uploaded.fileID || "";
+      }
+      if (!avatarFileID) throw new Error("头像上传失败，请重新选择头像。");
+      const result = await cloud.saveMyUserProfile({
+        nickname: String(this.data.nickname || "").trim(),
+        avatarFileID,
+        gender: this.data.gender
+      });
+      if (!result || !result.completed) throw new Error("资料没有保存完整，请重试。");
+      this.setData({
+        saving: false,
+        avatarFileID,
+        avatarPath: result.profile && result.profile.avatarUrl || avatarFileID
+      });
+      wx.showToast({ title: "资料已保存", icon: "success" });
+      setTimeout(() => wx.reLaunch({ url: WORKBENCH_URL }), 350);
+    } catch (error) {
+      const message = (error && error.message) || "资料保存失败，请重试。";
+      this.setData({ saving: false, errorMessage: message });
+      diagnosticLog.error("profile", "save-failed", "用户资料保存失败", { error });
+      wx.showModal({
+        title: "保存失败",
+        content: message,
+        showCancel: false
+      });
+    }
+  }
+});

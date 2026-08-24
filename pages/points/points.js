@@ -50,6 +50,10 @@ function normalizePoints(result = {}) {
     promoActive: Boolean(source.promoActive),
     promoStartDate: source.promoStartDate || config.points.promoStartDate,
     promoEndDate: source.promoEndDate || config.points.promoEndDate,
+    promoLabel: pointsUi.buildPromoLabel(
+      source.promoStartDate || config.points.promoStartDate,
+      source.promoEndDate || config.points.promoEndDate
+    ),
     checkinPoints: Number(source.checkinPoints) || config.points.checkinPoints,
     streakBonus: Number(source.streakBonus) || config.points.streakBonus,
     streakDays,

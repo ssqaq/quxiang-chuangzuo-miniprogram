@@ -60,6 +60,7 @@ const PHOTO_TO_VIDEO_TEMP_ASSET_CLEANUP_BATCH_SIZE = 100;
 const MODEL_COST_CONFIG_VERSION = "2026-08-23-v1";
 const ADMIN_RUNTIME_CACHE_TTL_MS = 15000;
 const POINTS_ACCOUNT_COLLECTION = "user_accounts";
+const USER_PROFILE_COLLECTION = "user_profiles";
 const POINTS_LEDGER_COLLECTION = "point_ledger";
 const USER_QUOTA_COLLECTION = "user_quotas";
 const GENERATION_OPERATION_COLLECTION = "generation_operations";
@@ -70,7 +71,7 @@ const USER_ASSET_COLLECTION = "user_assets";
 const REPAIR_CHAIN_COLLECTION = "repair_chains";
 const REPAIR_MAX_REVISIONS = 10;
 const ASSET_TICKET_TTL_MS = 10 * 60 * 1000;
-const REPAIR_ASSET_KINDS = new Set(["main", "mask", "face", "wardrobe"]);
+const REPAIR_ASSET_KINDS = new Set(["main", "mask", "face", "wardrobe", "avatar"]);
 const REQUIRED_DATABASE_COLLECTIONS = Object.freeze([
   ADMIN_DEPLOYMENT_LOG_COLLECTION,
   ADMIN_RUNTIME_CONFIG_COLLECTION,
@@ -84,6 +85,7 @@ const REQUIRED_DATABASE_COLLECTIONS = Object.freeze([
   POINTS_LEDGER_COLLECTION,
   REPAIR_CHAIN_COLLECTION,
   POINTS_ACCOUNT_COLLECTION,
+  USER_PROFILE_COLLECTION,
   USER_ASSET_COLLECTION,
   USER_QUOTA_COLLECTION
 ].sort());
@@ -138,8 +140,33 @@ function resolveVisionConfig() {
   };
 }
 
-function buildAutoFaceProbe() {
+function resolveFaceConfig(overrides = {}) {
+  const source = overrides && overrides.face ? overrides.face : overrides;
   const vision = resolveVisionConfig();
+  const model = overrideString(
+    source,
+    "model",
+    vision.faceModel || vision.model || "qwen3-vl-flash"
+  );
+  return {
+    provider: overrideString(source, "provider", vision.provider),
+    baseUrl: overrideString(source, "baseUrl", vision.baseUrl),
+    endpoint: overrideString(source, "endpoint", vision.endpoint),
+    apiKey: vision.apiKey,
+    model,
+    faceModel: model,
+    timeoutMs: clampNumber(
+      hasOwn(source, "timeoutMs") ? source.timeoutMs : vision.timeoutMs,
+      vision.timeoutMs,
+      5000,
+      60000
+    ),
+    maxImageBytes: vision.maxImageBytes
+  };
+}
+
+function buildAutoFaceProbe(faceConfig) {
+  const vision = faceConfig || resolveFaceConfig();
   return {
     buildVersion: API_BUILD_VERSION,
     buildMarker: API_BUILD_MARKER,
@@ -151,12 +178,12 @@ function buildAutoFaceProbe() {
       configured: Boolean(
         vision.apiKey &&
         (vision.endpoint || vision.baseUrl) &&
-        (vision.faceModel || vision.model)
+        vision.model
       ),
       apiKeyConfigured: Boolean(vision.apiKey),
       endpointConfigured: Boolean(vision.endpoint || vision.baseUrl),
       provider: vision.provider || "",
-      model: vision.faceModel || vision.model || ""
+      model: vision.model || ""
     },
     checkedAt: new Date().toISOString()
   };
@@ -308,12 +335,12 @@ function resolvePointsConfig(overrides = {}) {
     promoStartDate: overrideString(
       points,
       "promoStartDate",
-      env("PROMO_START_DATE", "2026-08-23")
+      env("PROMO_START_DATE", "2026-08-24")
     ),
     promoEndDate: overrideString(
       points,
       "promoEndDate",
-      env("PROMO_END_DATE", "2026-08-24")
+      env("PROMO_END_DATE", "2026-08-25")
     ),
     timeZone: overrideString(points, "timeZone", POINTS_TIME_ZONE)
   };
@@ -785,6 +812,7 @@ const db = cloud.database();
 const modelUsageTestEvents = [];
 const autoFaceFailureTestEvents = [];
 const autoFaceProbeTestEvents = [];
+const userProfileTestRows = [];
 let autoFaceFailureCleanupLastRunAt = 0;
 let autoFaceFailureCleanupPromise = null;
 
@@ -2465,6 +2493,7 @@ function hasOwn(object, key) {
 
 function normalizeRuntimePatch(input = {}) {
   const source = input && typeof input === "object" ? input : {};
+  const faceSource = source.face && typeof source.face === "object" ? source.face : {};
   const imageSource = source.image && typeof source.image === "object" ? source.image : {};
   const videoSource = source.video && typeof source.video === "object" ? source.video : {};
   const pointsSource = source.points && typeof source.points === "object" ? source.points : {};
@@ -2478,6 +2507,13 @@ function normalizeRuntimePatch(input = {}) {
   const videoCostSource = costsSource.video && typeof costsSource.video === "object"
     ? costsSource.video
     : {};
+  const faceKeys = [
+    "provider",
+    "baseUrl",
+    "endpoint",
+    "model",
+    "timeoutMs"
+  ];
   const imageKeys = [
     "provider",
     "baseUrl",
@@ -2526,6 +2562,7 @@ function normalizeRuntimePatch(input = {}) {
     "defaultResolution",
     "defaultDurationSeconds"
   ];
+  const faceConfig = {};
   const image = {};
   const video = {};
   const points = {};
@@ -2533,6 +2570,9 @@ function normalizeRuntimePatch(input = {}) {
   const face = {};
   const imagePricing = {};
   const videoPricing = {};
+  faceKeys.forEach((key) => {
+    if (hasOwn(faceSource, key)) faceConfig[key] = faceSource[key];
+  });
   imageKeys.forEach((key) => {
     if (hasOwn(imageSource, key)) image[key] = imageSource[key];
   });
@@ -2571,7 +2611,7 @@ function normalizeRuntimePatch(input = {}) {
   if (Object.keys(face).length) costs.face = face;
   if (Object.keys(imagePricing).length) costs.image = imagePricing;
   if (Object.keys(videoPricing).length) costs.video = videoPricing;
-  return { image, video, points, costs };
+  return { face: faceConfig, image, video, points, costs };
 }
 
 function isValidHttpUrl(value) {
@@ -2592,6 +2632,7 @@ function isValidEndpointOrPath(value) {
 
 function validateRuntimePatch(patch) {
   const errors = [];
+  const face = patch.face || {};
   const image = patch.image || {};
   const video = patch.video || {};
   const points = patch.points || {};
@@ -2600,6 +2641,8 @@ function validateRuntimePatch(patch) {
   const imageCosts = costs.image || {};
   const videoCosts = costs.video || {};
   [
+    ["face.baseUrl", face.baseUrl],
+    ["face.endpoint", face.endpoint],
     ["image.baseUrl", image.baseUrl],
     ["image.endpoint", image.endpoint],
     ["video.baseUrl", video.baseUrl],
@@ -2619,6 +2662,14 @@ function validateRuntimePatch(patch) {
   if (image.mode !== undefined && image.mode !== "" && !["generations", "edits"].includes(String(image.mode).toLowerCase())) {
     errors.push("image.mode 只能是 generations 或 edits");
   }
+  if (
+    face.timeoutMs !== undefined
+    && (!Number.isFinite(Number(face.timeoutMs))
+      || Number(face.timeoutMs) < 5000
+      || Number(face.timeoutMs) > 60000)
+  ) {
+    errors.push("face.timeoutMs 必须在 5000～60000 之间");
+  }
   if (image.timeoutMs !== undefined && (!Number.isFinite(Number(image.timeoutMs)) || Number(image.timeoutMs) < 5000 || Number(image.timeoutMs) > 120000)) {
     errors.push("image.timeoutMs 必须在 5000～120000 之间");
   }
@@ -2629,6 +2680,8 @@ function validateRuntimePatch(patch) {
     errors.push("video.timeoutMs 必须在 10000～900000 之间");
   }
   [
+    ["face.provider", face.provider],
+    ["face.model", face.model],
     ["image.provider", image.provider],
     ["image.model", image.model],
     ["image.size", image.size],
@@ -2715,6 +2768,7 @@ function mergeRuntimeConfig(current, patch) {
   const existingCosts = existing.costs || {};
   const patchCosts = patch.costs || {};
   return {
+    face: Object.assign({}, existing.face || {}, patch.face || {}),
     image: Object.assign({}, existing.image || {}, patch.image || {}),
     video: Object.assign({}, existing.video || {}, patch.video || {}),
     points: Object.assign({}, existing.points || {}, patch.points || {}),
@@ -2846,8 +2900,8 @@ async function loadAdminRuntimeConfig(force = false) {
 async function resolveEffectiveConfigs() {
   const runtime = await loadAdminRuntimeConfig();
   return {
-    runtime: runtime || { image: {}, video: {}, points: {}, costs: {} },
-    face: resolveVisionConfig(),
+    runtime: runtime || { face: {}, image: {}, video: {}, points: {}, costs: {} },
+    face: resolveFaceConfig(runtime && runtime.face),
     image: resolveImageConfig(runtime && runtime.image),
     video: resolveVideoConfig(runtime && runtime.video),
     points: resolvePointsConfig(runtime && runtime.points),
@@ -2856,12 +2910,12 @@ async function resolveEffectiveConfigs() {
 }
 
 function adminConfigView(configs, runtime, metadata = {}) {
-  const faceDefaults = resolveVisionConfig();
+  const faceDefaults = resolveFaceConfig();
   const imageDefaults = resolveImageConfig();
   const videoDefaults = resolveVideoConfig();
   const pointDefaults = resolvePointsConfig();
   const costDefaults = resolveCostConfig();
-  const overrides = runtime || { image: {}, video: {}, points: {}, costs: {} };
+  const overrides = runtime || { face: {}, image: {}, video: {}, points: {}, costs: {} };
   return {
     defaults: redactConfig({
       face: faceDefaults,
@@ -2876,7 +2930,7 @@ function adminConfigView(configs, runtime, metadata = {}) {
       points: pointDefaults,
       costs: costDefaults
     }),
-    overrides: redactConfig(Object.assign({ face: {} }, overrides), {
+    overrides: redactConfig(overrides, {
       face: faceDefaults,
       image: imageDefaults,
       video: videoDefaults,
@@ -3059,6 +3113,7 @@ async function saveAdminConfig(event, context) {
   const previousVersion = Number(current && current.version) || 0;
   const data = {
     _id: ADMIN_RUNTIME_CONFIG_ID,
+    face: next.face,
     image: next.image,
     video: next.video,
     points: next.points,
@@ -3072,12 +3127,19 @@ async function saveAdminConfig(event, context) {
     .doc(ADMIN_RUNTIME_CONFIG_ID)
     .set({ data: stripDocumentId(data) });
   adminRuntimeCache = {
-    value: { image: next.image, video: next.video, points: next.points, costs: next.costs },
+    value: {
+      face: next.face,
+      image: next.image,
+      video: next.video,
+      points: next.points,
+      costs: next.costs
+    },
     expiresAt: Date.now() + ADMIN_RUNTIME_CACHE_TTL_MS
   };
   log("info", "admin.runtime-config.saved", {
     updatedBy: getOpenId(context),
     version: data.version,
+    faceFields: Object.keys(patch.face),
     imageFields: Object.keys(patch.image),
     videoFields: Object.keys(patch.video),
     pointsFields: Object.keys(patch.points),
@@ -3108,6 +3170,11 @@ async function checkDeployment(event, context) {
   if (!isAdminContext(context)) return adminForbidden();
   const configs = await resolveEffectiveConfigs();
   const runtime = await loadAdminRuntimeConfig();
+  const faceReady = Boolean(
+    configs.face.apiKey
+    && (configs.face.baseUrl || configs.face.endpoint)
+    && configs.face.model
+  );
   const imageReady = Boolean(
     configs.image.apiKey &&
     (configs.image.baseUrl || configs.image.endpoint) &&
@@ -3118,6 +3185,12 @@ async function checkDeployment(event, context) {
     buildVersion: API_BUILD_VERSION,
     buildMarker: API_BUILD_MARKER,
     environment: env("CLOUDBASE_ENV_ID", ""),
+    face: {
+      ready: faceReady,
+      provider: configs.face.provider || "",
+      model: configs.face.model || "",
+      apiKeyConfigured: Boolean(configs.face.apiKey)
+    },
     image: {
       ready: imageReady,
       provider: configs.image.provider || "",
@@ -3138,7 +3211,7 @@ async function checkDeployment(event, context) {
   };
   const logWritten = await writeDeploymentLog(Object.assign({}, result, {
     requestId: event.requestId,
-    ok: imageReady || videoReady,
+    ok: faceReady || imageReady || videoReady,
     checkedBy: getOpenId(context)
   }));
   return jsonResponse(true, Object.assign(result, {
@@ -3499,8 +3572,8 @@ async function analyze(event) {
 async function detectFaceCircle(event, context) {
   const detectionStartedAt = Date.now();
   const payload = event.payload || {};
-  const vision = resolveVisionConfig();
   const configs = await resolveEffectiveConfigs();
+  const vision = configs.face;
   const costs = configs.costs;
   if (!vision.apiKey) {
     return fail(
@@ -3523,7 +3596,7 @@ async function detectFaceCircle(event, context) {
     imageBytes
   });
   const url = vision.endpoint || endpoint(vision.baseUrl, "chat/completions");
-  const model = vision.faceModel || vision.model;
+  const model = vision.model;
   const instruction = [
     "你是人脸位置检测器，只分析这张原图中清晰可见的人脸。",
     "请找出所有可识别的人脸，忽略海报、头像小图、屏幕反光和动物脸。",
@@ -3735,7 +3808,8 @@ async function getAutoFaceProbeHistory(event, context) {
 async function probeAutoFace(event, context) {
   if (!isAdminContext(context)) return adminForbidden();
   const startedAt = Date.now();
-  const probe = buildAutoFaceProbe();
+  const configs = await resolveEffectiveConfigs();
+  const probe = buildAutoFaceProbe(configs.face);
   const durationMs = Math.max(0, Math.min(60 * 1000, Date.now() - startedAt));
   const historyWritten = await writeAutoFaceProbeHistory({
     status: "ok",
@@ -4064,6 +4138,75 @@ function userAssetId(openid, fileID) {
     .slice(0, 32);
 }
 
+function userProfileId(openid) {
+  return crypto.createHash("sha256")
+    .update(`user-profile:${openid}`)
+    .digest("hex")
+    .slice(0, 32);
+}
+
+function normalizeUserGender(value) {
+  const gender = String(value || "").trim().toLowerCase();
+  return gender === "male" || gender === "female" ? gender : "";
+}
+
+function normalizeUserNickname(value) {
+  return String(value || "")
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 32);
+}
+
+function userProfileView(source = {}) {
+  const gender = normalizeUserGender(source.gender);
+  return {
+    userHash: compactUsageText(source.userHash, 40),
+    nickname: normalizeUserNickname(source.nickname),
+    avatarFileID: compactUsageText(source.avatarFileID, 500),
+    avatarUrl: compactUsageText(source.avatarFileID, 500),
+    gender,
+    genderText: gender === "male" ? "男" : gender === "female" ? "女" : "",
+    createdAt: source.createdAt ? new Date(source.createdAt).toISOString() : "",
+    updatedAt: source.updatedAt ? new Date(source.updatedAt).toISOString() : ""
+  };
+}
+
+function buildAdminUserStats(rows = [], offset = 0, limit = 20) {
+  const valid = (Array.isArray(rows) ? rows : [])
+    .map((item) => Object.assign({}, item, {
+      gender: normalizeUserGender(item && item.gender)
+    }))
+    .filter((item) => item.gender && normalizeUserNickname(item.nickname))
+    .sort((left, right) => (
+      new Date(right.createdAt || 0).getTime()
+      - new Date(left.createdAt || 0).getTime()
+    ));
+  const maleCount = valid.filter((item) => item.gender === "male").length;
+  const femaleCount = valid.filter((item) => item.gender === "female").length;
+  const total = maleCount + femaleCount;
+  const safeOffset = Math.max(0, Number(offset) || 0);
+  const safeLimit = Math.max(1, Math.min(50, Number(limit) || 20));
+  const maleRatio = total ? Math.round(maleCount / total * 1000) / 10 : 0;
+  const femaleRatio = total ? Math.round((100 - maleRatio) * 10) / 10 : 0;
+  const users = valid
+    .slice(safeOffset, safeOffset + safeLimit)
+    .map(userProfileView);
+  return {
+    total,
+    maleCount,
+    femaleCount,
+    maleRatio,
+    femaleRatio,
+    users,
+    offset: safeOffset,
+    limit: safeLimit,
+    nextOffset: safeOffset + users.length < total
+      ? safeOffset + users.length
+      : null
+  };
+}
+
 function normalizeAssetKind(kind) {
   const value = String(kind || "").trim().toLowerCase();
   return REPAIR_ASSET_KINDS.has(value) ? value : "";
@@ -4236,6 +4379,161 @@ async function findUserAsset(openid, fileID, kind, store = db) {
     throw error;
   }
   return asset;
+}
+
+async function getMyUserProfile(context) {
+  const openid = getOpenId(context);
+  if (openid === "anonymous") {
+    return fail("请使用微信身份打开小程序。", "wechat-binding-required");
+  }
+  let profile = null;
+  if (process.env.WECHAT_MINIAPP_TEST === "1") {
+    profile = userProfileTestRows.find((item) => item.openid === openid) || null;
+  } else {
+    profile = await readDocument(
+      db.collection(USER_PROFILE_COLLECTION).doc(userProfileId(openid))
+    );
+  }
+  return jsonResponse(true, {
+    completed: Boolean(
+      profile
+      && normalizeUserNickname(profile.nickname)
+      && profile.avatarFileID
+      && normalizeUserGender(profile.gender)
+    ),
+    profile: profile ? userProfileView(profile) : null
+  });
+}
+
+async function saveMyUserProfile(event, context) {
+  const openid = getOpenId(context);
+  if (openid === "anonymous") {
+    return fail("请使用微信身份打开小程序。", "wechat-binding-required");
+  }
+  const source = event && event.profile && typeof event.profile === "object"
+    ? event.profile
+    : {};
+  const nickname = normalizeUserNickname(source.nickname);
+  const avatarFileID = String(source.avatarFileID || "").trim();
+  const gender = normalizeUserGender(source.gender);
+  const errors = [];
+  if (!nickname) errors.push("请填写微信昵称");
+  if (!avatarFileID || !/^cloud:\/\//i.test(avatarFileID)) errors.push("请选择并上传微信头像");
+  if (!gender) errors.push("请选择男性或女性");
+  if (errors.length) {
+    return fail(errors.join("；"), "USER_PROFILE_INVALID", { fields: errors });
+  }
+  const now = new Date();
+  const id = userProfileId(openid);
+  const userHash = usageUserHash(openid);
+
+  if (process.env.WECHAT_MINIAPP_TEST === "1") {
+    const index = userProfileTestRows.findIndex((item) => item.openid === openid);
+    const existing = index >= 0 ? userProfileTestRows[index] : null;
+    const next = {
+      _id: id,
+      openid,
+      userHash,
+      nickname,
+      avatarFileID,
+      gender,
+      privacyConsentVersion: "2026-08-24-v1",
+      consentedAt: existing && existing.consentedAt || now,
+      createdAt: existing && existing.createdAt || now,
+      updatedAt: now
+    };
+    if (index >= 0) userProfileTestRows.splice(index, 1, next);
+    else userProfileTestRows.push(next);
+    return jsonResponse(true, {
+      completed: true,
+      profile: userProfileView(next)
+    });
+  }
+
+  const existing = await readDocument(
+    db.collection(USER_PROFILE_COLLECTION).doc(id)
+  );
+  await findUserAsset(openid, avatarFileID, "avatar");
+  const next = {
+    _id: id,
+    openid,
+    userHash,
+    nickname,
+    avatarFileID,
+    gender,
+    privacyConsentVersion: "2026-08-24-v1",
+    consentedAt: existing && existing.consentedAt || now,
+    createdAt: existing && existing.createdAt || now,
+    updatedAt: now
+  };
+  await db.runTransaction(async (transaction) => {
+    const profileRef = transaction.collection(USER_PROFILE_COLLECTION).doc(id);
+    const avatar = await findUserAsset(openid, avatarFileID, "avatar", transaction);
+    await transaction.collection(USER_ASSET_COLLECTION).doc(avatar._id).update({
+      data: {
+        refCount: 1,
+        updatedAt: now
+      }
+    });
+    await profileRef.set({ data: stripDocumentId(next) });
+  }, 5);
+
+  const previousAvatar = String(existing && existing.avatarFileID || "");
+  if (previousAvatar && previousAvatar !== avatarFileID) {
+    try {
+      await cloud.deleteFile({ fileList: [previousAvatar] });
+      await db
+        .collection(USER_ASSET_COLLECTION)
+        .doc(userAssetId(openid, previousAvatar))
+        .remove();
+    } catch (error) {
+      log("warn", "user-profile.avatar-cleanup-failed", {
+        userHash,
+        error: error && error.message
+      });
+    }
+  }
+  return jsonResponse(true, {
+    completed: true,
+    profile: userProfileView(next)
+  });
+}
+
+async function getAdminUserStats(event, context) {
+  if (!isAdminContext(context)) return adminForbidden();
+  const offset = Math.max(0, Number(event && event.offset) || 0);
+  const limit = Math.max(1, Math.min(50, Number(event && event.limit) || 20));
+  if (process.env.WECHAT_MINIAPP_TEST === "1") {
+    return jsonResponse(true, buildAdminUserStats(userProfileTestRows, offset, limit));
+  }
+  const collection = db.collection(USER_PROFILE_COLLECTION);
+  const [maleResult, femaleResult, listResult] = await Promise.all([
+    collection.where({ gender: "male" }).count(),
+    collection.where({ gender: "female" }).count(),
+    collection
+      .orderBy("createdAt", "desc")
+      .skip(offset)
+      .limit(limit)
+      .get()
+  ]);
+  const maleCount = Number(maleResult && maleResult.total) || 0;
+  const femaleCount = Number(femaleResult && femaleResult.total) || 0;
+  const total = maleCount + femaleCount;
+  const maleRatio = total ? Math.round(maleCount / total * 1000) / 10 : 0;
+  const femaleRatio = total ? Math.round((100 - maleRatio) * 10) / 10 : 0;
+  const users = (listResult && Array.isArray(listResult.data) ? listResult.data : [])
+    .map(userProfileView);
+  return jsonResponse(true, {
+    total,
+    maleCount,
+    femaleCount,
+    maleRatio,
+    femaleRatio,
+    users,
+    offset,
+    limit,
+    nextOffset: offset + users.length < total ? offset + users.length : null
+  });
 }
 
 async function retainUserAssets(openid, fileIDs, kind, store = db) {
@@ -6015,6 +6313,8 @@ exports.main = async (event = {}, context) => {
     else if (action === "registerAsset") result = await registerAsset(requestEvent, context);
     else if (action === "generate") result = await generate(requestEvent, context);
     else if (action === "repairImage") result = await repairImage(requestEvent, context);
+    else if (action === "getMyUserProfile") result = await getMyUserProfile(context);
+    else if (action === "saveMyUserProfile") result = await saveMyUserProfile(requestEvent, context);
     else if (action === "getUserPoints") result = await getUserPoints(context);
     else if (action === "checkIn") result = await checkIn(context);
     else if (action === "getPointLedger") result = await getPointLedger(context);
@@ -6025,6 +6325,7 @@ exports.main = async (event = {}, context) => {
     else if (action === "queryVideoTask") result = await queryVideoTask(requestEvent, context);
     else if (action === "getAdminStatus") result = await getAdminStatus(context);
     else if (action === "getAdminConfig") result = await getAdminConfig(context);
+    else if (action === "getAdminUserStats") result = await getAdminUserStats(requestEvent, context);
     else if (action === "initializeDatabase") result = await initializeDatabase(context);
     else if (action === "saveAdminConfig") result = await saveAdminConfig(requestEvent, context);
     else if (action === "checkDeployment") result = await checkDeployment(requestEvent, context);
@@ -6099,6 +6400,7 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     detectMime,
     invertMask,
     resolveVisionConfig,
+    resolveFaceConfig,
     resolveImageConfig,
     resolveEffectiveConfigs,
     assertVisionImageSize,
@@ -6177,6 +6479,17 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     mergeRuntimeConfig,
     getAdminStatus,
     getAdminConfig,
+    normalizeUserGender,
+    normalizeUserNickname,
+    userProfileView,
+    buildAdminUserStats,
+    getMyUserProfile,
+    saveMyUserProfile,
+    getAdminUserStats,
+    getUserProfileTestRows: () => userProfileTestRows.slice(),
+    resetUserProfileTestRows: () => {
+      userProfileTestRows.splice(0, userProfileTestRows.length);
+    },
     isCollectionMissingError,
     ensureDatabaseCollection,
     initializeDatabaseCollections,

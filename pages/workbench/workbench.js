@@ -242,6 +242,10 @@ Page({
       promoActive: false,
       promoStartDate: config.points.promoStartDate,
       promoEndDate: config.points.promoEndDate,
+      promoLabel: pointsUi.buildPromoLabel(
+        config.points.promoStartDate,
+        config.points.promoEndDate
+      ),
       billingMode: "daily-free"
     }
   },
@@ -249,6 +253,7 @@ Page({
   onShow() {
     this.clearNavigationWatchdog();
     this._navigating = false;
+    this.ensureProfileAccess();
     this.refreshWorkbench();
     this.setData({
       diagnosticExpanded: false
@@ -264,6 +269,25 @@ Page({
       setTimeout(refreshSecondary, 0);
     }
     this.schedulePromoRefresh();
+  },
+
+  async ensureProfileAccess() {
+    if (this._checkingProfileAccess || !cloud.isCloudReady()) return;
+    this._checkingProfileAccess = true;
+    try {
+      const result = await cloud.getMyUserProfile({
+        retryLimit: 0,
+        silent: true
+      });
+      if (!result || result.unavailable || result.completed) return;
+      wx.reLaunch({ url: "/pages/profile/profile" });
+    } catch (error) {
+      diagnosticLog.warn("profile", "workbench-guard-failed", "工作台用户资料检查失败", {
+        error
+      });
+    } finally {
+      this._checkingProfileAccess = false;
+    }
   },
 
   onHide() {
@@ -327,6 +351,10 @@ Page({
       promoActive: false,
       promoStartDate: config.points.promoStartDate,
       promoEndDate: config.points.promoEndDate,
+      promoLabel: pointsUi.buildPromoLabel(
+        config.points.promoStartDate,
+        config.points.promoEndDate
+      ),
       billingMode: "daily-free"
     }, result, {
       pointsBalance: Math.max(0, Number(result.pointsBalance) || 0),
@@ -341,7 +369,11 @@ Page({
       ),
       streakDays,
       promoStartDate: result.promoStartDate || config.points.promoStartDate,
-      promoEndDate: result.promoEndDate || config.points.promoEndDate
+      promoEndDate: result.promoEndDate || config.points.promoEndDate,
+      promoLabel: pointsUi.buildPromoLabel(
+        result.promoStartDate || config.points.promoStartDate,
+        result.promoEndDate || config.points.promoEndDate
+      )
     });
   },
 

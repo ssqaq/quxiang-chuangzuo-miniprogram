@@ -65,7 +65,7 @@
     </view>
 
     <view wx:if="{{points.promoActive}}" class="points-promo">
-      {{pointsCopy.pointsPromo}}
+      {{points.promoLabel}}
     </view>
   </view>
 

@@ -6,7 +6,6 @@ const root = path.resolve(__dirname, "..");
 const jsonFiles = [
   "app.json",
   "project.config.json",
-  "project.private.config.json",
   "sitemap.json",
   "pages/index/index.json",
   "pages/splash/splash.json",
@@ -19,6 +18,7 @@ const jsonFiles = [
   "cloudfunctions/api/package.json",
   "cloudfunctions/api/config.json"
 ];
+const optionalJsonFiles = ["project.private.config.json"];
 const jsFiles = [
   "app.js",
   "config.js",
@@ -87,6 +87,16 @@ const powerShellFiles = [
 
 for (const relative of jsonFiles) {
   const file = path.join(root, relative);
+  JSON.parse(fs.readFileSync(file, "utf8"));
+  console.log(`JSON OK  ${relative}`);
+}
+
+for (const relative of optionalJsonFiles) {
+  const file = path.join(root, relative);
+  if (!fs.existsSync(file)) {
+    console.log(`JSON SKIP ${relative}（本机私有配置不存在）`);
+    continue;
+  }
   JSON.parse(fs.readFileSync(file, "utf8"));
   console.log(`JSON OK  ${relative}`);
 }
@@ -511,7 +521,7 @@ if (
 }
 if (
   !indexWxml.includes('class="primary-btn nav-action-button" bindtap="nextStep">下一步</button>')
-  || !indexWxss.includes(".main-image-action-button,\n.nav-action-button")
+  || !/\.main-image-action-button,\r?\n\.nav-action-button/.test(indexWxss)
   || !navActionsStyle
   || !/margin:\s*8rpx calc\(28rpx \+ 1px\) 0/.test(navActionsStyle[1])
   || !navActionButtonsStyle

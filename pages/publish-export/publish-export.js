@@ -366,7 +366,7 @@ Page({
       }
       const downloaded = await cloud.downloadFile(result.fileID);
       try {
-        await cloud.deleteFile(result.fileID);
+        await cloud.cleanupPublishExportResult(result.jobId, result.fileID);
       } catch (cleanupError) {
         console.warn("[publish-export] 云端结果临时文件清理失败", cleanupError);
       }

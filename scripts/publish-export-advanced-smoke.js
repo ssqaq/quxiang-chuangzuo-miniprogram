@@ -76,7 +76,7 @@ assert.strictEqual(output.length, input.length);
   "confirmCloudExport",
   "本地处理失败，可以改用云端继续",
   "cloud.publishExport",
-  "cloud.deleteFile(result.fileID)"
+  "cloud.cleanupPublishExportResult"
 ].forEach((marker) => assert.ok(pageJs.includes(marker), `页面缺少：${marker}`));
 
 [

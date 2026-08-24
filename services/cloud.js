@@ -409,6 +409,16 @@ function publishExport(payload = {}) {
   });
 }
 
+function cleanupPublishExportResult(jobId, fileID) {
+  return callApi({
+    action: "cleanupPublishExportResult",
+    jobId: String(jobId || ""),
+    fileID: String(fileID || ""),
+    retryLimit: 0,
+    silent: true
+  });
+}
+
 function getTempUrl(fileID) {
   return new Promise((resolve, reject) => {
     if (!isCloudReady() || !fileID) {
@@ -545,6 +555,7 @@ module.exports = {
   prepareAssetUpload,
   registerAsset,
   publishExport,
+  cleanupPublishExportResult,
   registerPhotoToVideoTempAsset,
   registerPhotoToVideoRecord,
   markPhotoToVideoSessionActive,

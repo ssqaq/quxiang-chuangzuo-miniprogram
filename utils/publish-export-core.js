@@ -10,14 +10,14 @@ const DEFAULT_OPTIONS = Object.freeze({
   quality: 88,
   maxLongEdge: 2048,
   colorOptimize: true,
-  gentleSoften: false,
+  gentleSoften: true,
   gentleSharpen: true,
   cameraNoise: true,
   cameraNoiseStrength: 3,
   frequencyPerturb: true,
   frequencyStrength: 3,
   removeVisibleMarks: true,
-  watermarkStrength: 1,
+  watermarkStrength: 3,
   resamplePerturb: true
 });
 

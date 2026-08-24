@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.35.6";
-const API_BUILD_MARKER = "API_BUILD_TAG_20260824_PUBLISH_EXPORT_ORDER_V356";
+const API_BUILD_VERSION = "0.35.7";
+const API_BUILD_MARKER = "API_BUILD_TAG_20260824_PUBLISH_EXPORT_DEFAULTS_V357";
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
 const cloud = require("wx-server-sdk");
@@ -2449,11 +2449,14 @@ function addUsageEvent(target, event) {
 }
 
 function failureDetailFromEvent(event = {}) {
+  const dateKey = event.dateKey || "";
   return {
-    dateKey: event.dateKey || "",
+    dateKey,
+    monthKey: monthKeyFromDateKey(dateKey),
     createdAt: event.createdAt instanceof Date
       ? event.createdAt.toISOString()
       : String(event.createdAt || ""),
+    userHash: event.userHash || "anonymous",
     usageType: event.usageType || "",
     usageTypeLabel: modelUsageTypeLabel(event.usageType),
     provider: event.provider || "",
@@ -2468,9 +2471,12 @@ function failureDetailFromEvent(event = {}) {
   };
 }
 
-function buildFailureStats(reasonMap, modelMap, details, total, failure) {
+function buildFailureStats(reasonMap, modelMap, details, monthlyMap, total, failure) {
   const failureCount = Math.max(0, Number(failure) || 0);
   const totalCount = Math.max(0, Number(total) || 0);
+  const normalizedDetails = (Array.isArray(details) ? details : [])
+    .slice()
+    .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)));
   const reasons = Object.values(reasonMap || {})
     .map((item) => Object.assign({}, item, {
       rate: failureCount ? Number((item.count / failureCount * 100).toFixed(2)) : 0
@@ -2491,13 +2497,70 @@ function buildFailureStats(reasonMap, modelMap, details, total, failure) {
       return right.total - left.total;
     })
     .slice(0, 20);
+  const monthUsers = {};
+  const userMap = {};
+  normalizedDetails.forEach((item) => {
+    const monthKey = item.monthKey || monthKeyFromDateKey(item.dateKey);
+    const userHash = item.userHash || "anonymous";
+    if (monthKey) {
+      if (!monthUsers[monthKey]) monthUsers[monthKey] = {};
+      monthUsers[monthKey][userHash] = true;
+    }
+    if (!userMap[userHash]) {
+      userMap[userHash] = {
+        userHash,
+        total: 0,
+        lastSeen: "",
+        reasonMap: {}
+      };
+    }
+    userMap[userHash].total += 1;
+    if (!userMap[userHash].lastSeen) userMap[userHash].lastSeen = item.createdAt;
+    const reasonKey = failureReasonKey(item);
+    if (!userMap[userHash].reasonMap[reasonKey]) {
+      userMap[userHash].reasonMap[reasonKey] = {
+        code: item.errorCode || "",
+        label: failureReasonLabel(item),
+        count: 0,
+        status: Number(item.errorStatus) || 0
+      };
+    }
+    userMap[userHash].reasonMap[reasonKey].count += 1;
+  });
+  const monthly = Object.values(monthlyMap || {})
+    .sort((left, right) => String(right.monthKey).localeCompare(String(left.monthKey)))
+    .map((item) => ({
+      monthKey: item.monthKey || "",
+      total: Number(item.total) || 0,
+      success: Number(item.success) || 0,
+      failure: Number(item.failure) || 0,
+      userCount: Object.keys(monthUsers[item.monthKey] || {}).length
+    }));
   return {
     total: failureCount,
     failureRate: totalCount ? Number((failureCount / totalCount * 100).toFixed(2)) : 0,
     topFailureReasons: reasons.slice(0, 5),
     failedModels,
-    failureDetails: (Array.isArray(details) ? details : [])
-      .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)))
+    monthly,
+    users: Object.values(userMap)
+      .map((item) => {
+        const topReason = Object.values(item.reasonMap)
+          .sort((left, right) => right.count - left.count)[0];
+        return {
+          userHash: item.userHash,
+          total: item.total,
+          lastSeen: item.lastSeen,
+          topFailureReason: topReason ? topReason.label : "未提供错误原因",
+          topFailureCode: topReason ? topReason.code : "",
+          topFailureStatus: topReason ? topReason.status : 0
+        };
+      })
+      .sort((left, right) => {
+        if (right.total !== left.total) return right.total - left.total;
+        return String(left.userHash).localeCompare(String(right.userHash));
+      }),
+    failureDetails: normalizedDetails,
+    details: normalizedDetails
   };
 }
 
@@ -2660,6 +2723,7 @@ function aggregateModelUsageEvents(events = [], days = 30, now = new Date()) {
       failureReasonMap,
       modelMap,
       failureDetails,
+      monthlyMap,
       rangeTotal,
       rangeFailure
     )

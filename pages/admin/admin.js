@@ -118,6 +118,7 @@ const AUTO_FACE_FAILURE_SECTION_KEYS = Object.freeze([
 ]);
 const MONITOR_LAYOUT_STORAGE_KEY = "admin-monitor-layout-v2";
 const AUTO_FACE_FAILURE_AUTO_REFRESH_MS = 10 * 60 * 1000;
+const MODEL_FAILURE_AUTO_REFRESH_MS = 10 * 60 * 1000;
 
 function defaultUsageSections() {
   return {
@@ -195,7 +196,10 @@ function emptyFailureStats() {
     failureRate: 0,
     topFailureReasons: [],
     failedModels: [],
-    failureDetails: []
+    failureDetails: [],
+    details: [],
+    monthly: [],
+    users: []
   };
 }
 
@@ -1025,6 +1029,21 @@ function formatUsageStats(result) {
   const failureStats = Object.assign(emptyFailureStats(), {
     total: Number(failureSource.total) || 0,
     failureRate: Number(failureSource.failureRate) || 0,
+    monthly: (Array.isArray(failureSource.monthly) ? failureSource.monthly : []).map((item) => ({
+      monthKey: item.monthKey || "",
+      total: Number(item.total) || 0,
+      success: Number(item.success) || 0,
+      failure: Number(item.failure) || 0,
+      userCount: Number(item.userCount) || 0
+    })),
+    users: (Array.isArray(failureSource.users) ? failureSource.users : []).map((item) => ({
+      userHash: item.userHash || "anonymous",
+      total: Number(item.total) || 0,
+      lastSeen: item.lastSeen || "",
+      topFailureReason: item.topFailureReason || "未提供错误原因",
+      topFailureCode: item.topFailureCode || "",
+      topFailureStatus: Number(item.topFailureStatus) || 0
+    })),
     topFailureReasons: (Array.isArray(failureSource.topFailureReasons)
       ? failureSource.topFailureReasons
       : []
@@ -1058,7 +1077,11 @@ function formatUsageStats(result) {
       ? failureSource.failureDetails
       : []
     ).map((item) => ({
+      dateKey: item.dateKey || "",
+      monthKey: item.monthKey || String(item.dateKey || "").slice(0, 7),
+      createdAt: item.createdAt || "",
       createdAtText: formatAdminDate(item.createdAt || item.dateKey),
+      userHash: item.userHash || "anonymous",
       usageType: item.usageType || "unknown",
       usageTypeLabel: item.usageTypeLabel || usageTypeLabel(item.usageType),
       provider: item.provider || "未知 Provider",
@@ -1072,6 +1095,7 @@ function formatUsageStats(result) {
       durationMs: Math.max(0, Number(item.durationMs) || 0)
     }))
   });
+  failureStats.details = failureStats.failureDetails;
   return Object.assign(emptyUsageStats(), source, {
     today: formatUsageCounter(source.today),
     last7d: formatUsageCounter(source.last7d),
@@ -1083,6 +1107,180 @@ function formatUsageStats(result) {
     models: formattedModels,
     failureStats
   });
+}
+
+function modelFailureReasonKey(item = {}) {
+  if (item.errorCode) return `code:${item.errorCode}`;
+  if (item.errorStatus) return `http:${item.errorStatus}`;
+  if (item.errorMessage) return `message:${item.errorMessage}`;
+  return "unknown";
+}
+
+function modelFailureReasonLabel(item = {}) {
+  if (item.errorMessage && item.errorCode) {
+    return `${item.errorCode}：${item.errorMessage}`;
+  }
+  if (item.errorMessage) return item.errorMessage;
+  if (item.errorCode) return item.errorCode;
+  if (item.errorStatus) return `HTTP ${item.errorStatus}`;
+  return "未提供错误原因";
+}
+
+function modelFailureTone(item = {}) {
+  const code = String(item.errorCode || "").toLowerCase();
+  const message = String(item.errorMessage || "").toLowerCase();
+  const status = Number(item.errorStatus) || 0;
+  if (
+    status === 408
+    || status === 504
+    || /timeout|timed-out|deadline|超时/.test(`${code} ${message}`)
+  ) {
+    return "warning";
+  }
+  if (
+    status === 401
+    || status === 403
+    || /api.?key|auth|config|probe|missing|invalid|鉴权|配置|探针/.test(`${code} ${message}`)
+  ) {
+    return "violet";
+  }
+  if (
+    status >= 500
+    || status === 429
+    || /network|upstream|provider|gateway|rate-limit|接口|网络|供应商/.test(`${code} ${message}`)
+  ) {
+    return "danger";
+  }
+  return "neutral";
+}
+
+function buildModelFailureView(stats, requestedMonth = "") {
+  const source = Object.assign(emptyFailureStats(), stats || {});
+  const detailSource = Array.isArray(source.details) && source.details.length
+    ? source.details
+    : (Array.isArray(source.failureDetails) ? source.failureDetails : []);
+  const monthOptions = Array.from(new Set(
+    (Array.isArray(source.monthly) ? source.monthly : [])
+      .map((item) => String(item.monthKey || ""))
+      .concat(detailSource.map((item) => String(
+        item.monthKey || String(item.dateKey || "").slice(0, 7)
+      )))
+  ))
+    .filter((item) => /^\d{4}-\d{2}$/.test(item))
+    .sort((left, right) => right.localeCompare(left));
+  const selectedMonth = monthOptions.includes(requestedMonth)
+    ? requestedMonth
+    : (monthOptions[0] || String(source.todayKey || "").slice(0, 7));
+  const details = detailSource
+    .filter((item) => {
+      const monthKey = item.monthKey || String(item.dateKey || "").slice(0, 7);
+      return !selectedMonth || monthKey === selectedMonth;
+    })
+    .map((item) => Object.assign({}, item, {
+      userHash: item.userHash || "anonymous",
+      failureTone: modelFailureTone(item),
+      failureReasonLabel: modelFailureReasonLabel(item)
+    }))
+    .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)));
+  const reasonMap = {};
+  const userMap = {};
+  const modelMap = {};
+  details.forEach((item) => {
+    const reasonKey = modelFailureReasonKey(item);
+    if (!reasonMap[reasonKey]) {
+      reasonMap[reasonKey] = {
+        key: reasonKey,
+        code: item.errorCode || "",
+        label: modelFailureReasonLabel(item),
+        count: 0,
+        lastSeen: item.createdAt || "",
+        usageType: item.usageType || "",
+        usageTypeLabel: item.usageTypeLabel || usageTypeLabel(item.usageType),
+        provider: item.provider || "",
+        model: item.model || "",
+        status: Number(item.errorStatus) || 0,
+        failureTone: modelFailureTone(item)
+      };
+    }
+    reasonMap[reasonKey].count += 1;
+    if (String(item.createdAt || "") > String(reasonMap[reasonKey].lastSeen || "")) {
+      reasonMap[reasonKey].lastSeen = item.createdAt;
+    }
+    const userHash = item.userHash || "anonymous";
+    if (!userMap[userHash]) {
+      userMap[userHash] = {
+        userHash,
+        total: 0,
+        lastSeen: item.createdAt || "",
+        topFailureReason: modelFailureReasonLabel(item),
+        topFailureCode: item.errorCode || "",
+        topFailureStatus: Number(item.errorStatus) || 0,
+        reasonMap: {}
+      };
+    }
+    userMap[userHash].total += 1;
+    if (String(item.createdAt || "") > String(userMap[userHash].lastSeen || "")) {
+      userMap[userHash].lastSeen = item.createdAt;
+    }
+    userMap[userHash].reasonMap[reasonKey] = (userMap[userHash].reasonMap[reasonKey] || 0) + 1;
+    const modelKey = [
+      item.usageType || "unknown",
+      item.provider || "未知 Provider",
+      item.model || "未知模型"
+    ].join("|");
+    if (!modelMap[modelKey]) {
+      modelMap[modelKey] = {
+        usageType: item.usageType || "unknown",
+        usageTypeLabel: item.usageTypeLabel || usageTypeLabel(item.usageType),
+        provider: item.provider || "未知 Provider",
+        model: item.model || "未知模型",
+        failure: 0
+      };
+    }
+    modelMap[modelKey].failure += 1;
+  });
+  const selectedMonthMeta = (Array.isArray(source.monthly) ? source.monthly : [])
+    .find((item) => item.monthKey === selectedMonth);
+  const failureTotal = details.length;
+  const total = Number(selectedMonthMeta && selectedMonthMeta.total) || failureTotal;
+  const topFailureReasons = Object.values(reasonMap)
+    .map((item) => Object.assign({}, item, {
+      rate: failureTotal ? Number((item.count / failureTotal * 100).toFixed(2)) : 0,
+      lastSeenText: formatAdminDate(item.lastSeen)
+    }))
+    .sort((left, right) => right.count - left.count)
+    .slice(0, 5);
+  const users = Object.values(userMap)
+    .map((item) => {
+      const topReasonKey = Object.entries(item.reasonMap)
+        .sort((left, right) => right[1] - left[1])[0];
+      const topReason = topReasonKey ? reasonMap[topReasonKey[0]] : null;
+      return Object.assign({}, item, {
+        topFailureReason: topReason ? topReason.label : item.topFailureReason,
+        topFailureCode: topReason ? topReason.code : item.topFailureCode,
+        topFailureStatus: topReason ? topReason.status : item.topFailureStatus,
+        failureTone: topReason ? topReason.failureTone : "neutral",
+        lastSeenText: formatAdminDate(item.lastSeen)
+      });
+    })
+    .sort((left, right) => right.total - left.total);
+  const failedModels = Object.values(modelMap)
+    .sort((left, right) => right.failure - left.failure)
+    .slice(0, 5);
+  return {
+    selectedMonth,
+    monthOptions,
+    monthIndex: Math.max(0, monthOptions.indexOf(selectedMonth)),
+    total: failureTotal,
+    failureRate: total ? Number((failureTotal / total * 100).toFixed(2)) : 0,
+    topFailureReasons,
+    failedModels,
+    users,
+    details,
+    emptyText: selectedMonth
+      ? `${selectedMonth} 没有模型失败记录。`
+      : "最近统计范围内没有失败记录。"
+  };
 }
 
 function diagnosticLevelText(level) {
@@ -1666,6 +1864,11 @@ Page({
     autoFaceFailureSelectedMonth: "",
     autoFaceFailureDetailOpen: false,
     autoFaceFailureDetail: null,
+    modelFailureExporting: false,
+    modelFailureView: buildModelFailureView(emptyFailureStats()),
+    modelFailureSelectedMonth: "",
+    modelFailureDetailOpen: false,
+    modelFailureDetail: null,
     autoFaceProbe: emptyAutoFaceProbe(),
     autoFaceProbeHistory: emptyAutoFaceProbeHistory(),
     modelProbes: emptyModelProbes(),
@@ -1694,11 +1897,13 @@ Page({
     this._adminLoadToken = 0;
     this.restoreMonitorLayout();
     this.loadAdminPage();
+    this.startModelFailureAutoRefresh();
     this.startAutoFaceFailureAutoRefresh();
   },
 
   onUnload() {
     this._adminLoadToken = (this._adminLoadToken || 0) + 1;
+    this.stopModelFailureAutoRefresh();
     this.stopAutoFaceFailureAutoRefresh();
   },
 
@@ -1726,6 +1931,9 @@ Page({
     const autoFaceFailureSelectedMonth = hasOwnValue("autoFaceFailureSelectedMonth")
       ? overrides.autoFaceFailureSelectedMonth
       : this.data.autoFaceFailureSelectedMonth;
+    const modelFailureSelectedMonth = hasOwnValue("modelFailureSelectedMonth")
+      ? overrides.modelFailureSelectedMonth
+      : this.data.modelFailureSelectedMonth;
     const userStats = hasOwnValue("userStats") ? overrides.userStats : this.data.userStats;
     return {
       dashboardStatus: buildDashboardStatus(
@@ -1750,6 +1958,10 @@ Page({
         moduleStates
       ),
       todayFailureText: buildTodayFailureText(usageStats, moduleStates),
+      modelFailureView: buildModelFailureView(
+        usageStats && usageStats.failureStats,
+        modelFailureSelectedMonth
+      ),
       autoFaceFailureView: buildAutoFaceFailureView(
         autoFaceFailureStats,
         autoFaceFailureSelectedMonth
@@ -2025,8 +2237,9 @@ Page({
     }
   },
 
-  async refreshModelUsage() {
+  async refreshModelUsage(options = {}) {
     if (this.data.usageLoading) return;
+    const silent = Boolean(options && options.silent);
     const result = await this.loadAdminModule(
       this._adminLoadToken || 0,
       "usage",
@@ -2043,10 +2256,69 @@ Page({
     );
     if (result.stale) return;
     if (result.ok) {
-      wx.showToast({ title: "统计已刷新", icon: "success" });
+      if (!silent) wx.showToast({ title: "统计已刷新", icon: "success" });
     } else {
-      this.showError("统计刷新失败", result.error || new Error("统计读取失败，请稍后重试。"));
+      if (silent) {
+        diagnosticLog.warn("admin", "model-failure-auto-refresh-failed", "模型失败统计自动刷新失败", {
+          error: result.error
+        });
+      } else {
+        this.showError("统计刷新失败", result.error || new Error("统计读取失败，请稍后重试。"));
+      }
     }
+  },
+
+  startModelFailureAutoRefresh() {
+    this.stopModelFailureAutoRefresh();
+    this._modelFailureRefreshTimer = setInterval(() => {
+      if (
+        !this.data.isAdmin
+        || this.data.usageLoading
+        || this.data.loading
+      ) {
+        return;
+      }
+      this.refreshModelUsage({ silent: true });
+    }, MODEL_FAILURE_AUTO_REFRESH_MS);
+  },
+
+  stopModelFailureAutoRefresh() {
+    if (this._modelFailureRefreshTimer) {
+      clearInterval(this._modelFailureRefreshTimer);
+      this._modelFailureRefreshTimer = null;
+    }
+  },
+
+  selectModelFailureMonth(event) {
+    const index = Number(event && event.detail && event.detail.value);
+    const options = this.data.modelFailureView.monthOptions || [];
+    const monthKey = options[index] || options[0] || "";
+    this.setData({
+      modelFailureSelectedMonth: monthKey
+    }, () => {
+      this.setData(this.buildAdminDerivedPatch({
+        modelFailureSelectedMonth: monthKey
+      }, this.data.moduleStates));
+    });
+  },
+
+  openModelFailureUserDetail(event) {
+    const index = Number(event && event.currentTarget && event.currentTarget.dataset.index);
+    const user = this.data.modelFailureView.users[index];
+    if (!user) return;
+    const details = this.data.modelFailureView.details
+      .filter((item) => item.userHash === user.userHash);
+    this.setData({
+      modelFailureDetailOpen: true,
+      modelFailureDetail: Object.assign({}, user, { details })
+    });
+  },
+
+  closeModelFailureUserDetail() {
+    this.setData({
+      modelFailureDetailOpen: false,
+      modelFailureDetail: null
+    });
   },
 
   startAutoFaceFailureAutoRefresh() {
@@ -2576,7 +2848,7 @@ Page({
 
   copyModelFailure(event) {
     const index = Number(event.currentTarget.dataset.index);
-    const item = this.data.usageStats.failureStats.failureDetails[index];
+    const item = this.data.modelFailureView.details[index];
     if (!item) return;
     wx.setClipboardData({
       data: modelFailureCopyText(item),
@@ -2684,6 +2956,36 @@ Page({
     this.setData({
       monitorExpanded: !this.data.monitorExpanded
     }, () => this.persistMonitorLayout());
+  },
+
+  async exportModelFailureStats() {
+    if (this.data.modelFailureExporting) return;
+    const monthKey = this.data.modelFailureView.selectedMonth
+      || this.data.usageStats.todayKey.slice(0, 7);
+    this.setData({ modelFailureExporting: true });
+    try {
+      const result = await cloud.exportModelFailureStats(monthKey);
+      if (!result || !result.fileID) throw new Error("失败统计 Excel 生成失败。");
+      const filePath = await cloud.downloadFile(result.fileID);
+      if (!filePath || typeof wx.openDocument !== "function") {
+        throw new Error("文件已生成，但当前微信版本无法打开 Excel 文件。");
+      }
+      await new Promise((resolve, reject) => {
+        wx.openDocument({
+          filePath,
+          fileType: "xlsx",
+          showMenu: true,
+          success: resolve,
+          fail: reject
+        });
+      });
+      this.setData({ modelFailureExporting: false });
+      wx.showToast({ title: "失败统计已导出", icon: "success" });
+    } catch (error) {
+      this.setData({ modelFailureExporting: false });
+      diagnosticLog.error("admin", "model-failure-export-failed", "模型失败统计 Excel 导出失败", { error });
+      this.showError("导出失败", error);
+    }
   },
 
   toggleMonitorSection(event) {

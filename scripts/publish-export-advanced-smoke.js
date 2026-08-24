@@ -41,6 +41,18 @@ assert.strictEqual(options.cameraNoiseStrength, 2.4);
 assert.strictEqual(options.frequencyStrength, 1);
 assert.strictEqual(options.watermarkStrength, 4);
 assert.strictEqual(options.removeVisibleMarks, true);
+const defaultOptions = core.normalizeOptions({});
+assert.strictEqual(defaultOptions.quality, 88);
+assert.strictEqual(defaultOptions.colorOptimize, true);
+assert.strictEqual(defaultOptions.gentleSoften, true);
+assert.strictEqual(defaultOptions.gentleSharpen, true);
+assert.strictEqual(defaultOptions.cameraNoise, true);
+assert.strictEqual(defaultOptions.cameraNoiseStrength, 3);
+assert.strictEqual(defaultOptions.frequencyPerturb, true);
+assert.strictEqual(defaultOptions.frequencyStrength, 3);
+assert.strictEqual(defaultOptions.removeVisibleMarks, true);
+assert.strictEqual(defaultOptions.watermarkStrength, 3);
+assert.strictEqual(defaultOptions.resamplePerturb, true);
 assert.strictEqual(
   core.normalizeOptions({ removeVisibleMarks: false }).removeVisibleMarks,
   true

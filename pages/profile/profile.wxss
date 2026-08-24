@@ -30,6 +30,61 @@ page {
   line-height: 52rpx;
 }
 
+.profile-steps {
+  display: flex;
+  width: 100%;
+  margin-top: 18rpx;
+  padding: 0 8rpx;
+  align-items: center;
+}
+
+.profile-step {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8rpx;
+  color: #a3afbf;
+  font-size: 21rpx;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.profile-step.is-current,
+.profile-step.is-done {
+  color: #1f6feb;
+}
+
+.profile-step-dot {
+  display: flex;
+  width: 36rpx;
+  height: 36rpx;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 36rpx;
+  border-radius: 50%;
+  color: #9aa8ba;
+  background: #e8edf4;
+  font-size: 19rpx;
+  font-weight: 800;
+}
+
+.profile-step.is-current .profile-step-dot,
+.profile-step.is-done .profile-step-dot {
+  color: #ffffff;
+  background: #1f6feb;
+}
+
+.profile-step-line {
+  height: 2rpx;
+  margin: 0 12rpx;
+  flex: 1;
+  background: #dfe6ef;
+}
+
+.profile-step-line.is-complete {
+  background: #1f6feb;
+}
+
 .profile-subtitle {
   max-width: 620rpx;
   margin-top: 12rpx;

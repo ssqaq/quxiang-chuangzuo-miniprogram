@@ -1,7 +1,23 @@
 <view class="profile-page">
   <view class="profile-header">
     <image class="profile-brand" src="/assets/brand/brand-icon.png" mode="aspectFit"></image>
-    <view class="profile-title">{{fromCheckIn ? '签到前完善资料' : '完善用户资料'}}</view>
+    <view class="profile-title">完善用户资料</view>
+    <view class="profile-steps" aria-label="资料填写进度">
+      <view class="profile-step {{avatarPath ? 'is-done' : 'is-current'}}">
+        <view class="profile-step-dot">1</view>
+        <view class="profile-step-label">头像</view>
+      </view>
+      <view class="profile-step-line {{avatarPath ? 'is-complete' : ''}}"></view>
+      <view class="profile-step {{nickname ? 'is-done' : (avatarPath ? 'is-current' : '')}}">
+        <view class="profile-step-dot">2</view>
+        <view class="profile-step-label">昵称</view>
+      </view>
+      <view class="profile-step-line {{nickname ? 'is-complete' : ''}}"></view>
+      <view class="profile-step {{gender ? 'is-done' : (avatarPath && nickname ? 'is-current' : '')}}">
+        <view class="profile-step-dot">3</view>
+        <view class="profile-step-label">性别</view>
+      </view>
+    </view>
   </view>
 
   <view wx:if="{{loading}}" class="profile-loading">正在读取资料...</view>

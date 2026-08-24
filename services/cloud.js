@@ -604,6 +604,12 @@ module.exports = {
       silent: Boolean(options.silent)
     });
   },
+  resetMyPoints() {
+    return callApi({
+      action: "resetMyPoints",
+      retryLimit: 0
+    });
+  },
   checkIn() {
     return callApi({ action: "checkIn", retryLimit: 0 });
   },

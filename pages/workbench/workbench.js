@@ -253,7 +253,6 @@ Page({
   onShow() {
     this.clearNavigationWatchdog();
     this._navigating = false;
-    this.ensureProfileAccess();
     this.refreshWorkbench();
     this.setData({
       diagnosticExpanded: false
@@ -269,25 +268,6 @@ Page({
       setTimeout(refreshSecondary, 0);
     }
     this.schedulePromoRefresh();
-  },
-
-  async ensureProfileAccess() {
-    if (this._checkingProfileAccess || !cloud.isCloudReady()) return;
-    this._checkingProfileAccess = true;
-    try {
-      const result = await cloud.getMyUserProfile({
-        retryLimit: 0,
-        silent: true
-      });
-      if (!result || result.unavailable || result.completed) return;
-      wx.reLaunch({ url: "/pages/profile/profile" });
-    } catch (error) {
-      diagnosticLog.warn("profile", "workbench-guard-failed", "工作台用户资料检查失败", {
-        error
-      });
-    } finally {
-      this._checkingProfileAccess = false;
-    }
   },
 
   onHide() {
@@ -825,7 +805,7 @@ Page({
       wx.showToast({ title: config.points.copy.cloudRequired, icon: "none" });
       return Promise.resolve();
     }
-    const request = this.performCheckIn();
+    const request = this.checkProfileAndCheckIn();
     this._checkInPromise = request;
     const clearCheckInLock = () => {
       if (this._checkInPromise === request) {
@@ -834,6 +814,27 @@ Page({
     };
     request.then(clearCheckInLock, clearCheckInLock);
     return request;
+  },
+
+  async checkProfileAndCheckIn() {
+    this.setData({ checkingIn: true });
+    try {
+      const profile = await cloud.getMyUserProfile({ retryLimit: 0 });
+      if (!profile || !profile.completed) {
+        this.setData({ checkingIn: false });
+        wx.navigateTo({ url: "/pages/profile/profile?from=checkin" });
+        return;
+      }
+    } catch (error) {
+      this.setData({ checkingIn: false });
+      wx.showModal({
+        title: "签到前检查失败",
+        content: String(error && error.message || "请稍后重试。"),
+        showCancel: false
+      });
+      return;
+    }
+    return this.performCheckIn();
   },
 
   async performCheckIn() {

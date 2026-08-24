@@ -24,10 +24,18 @@ Page({
     gender: "",
     avatarPath: "",
     avatarFileID: "",
+    fromCheckIn: false,
     errorMessage: ""
   },
 
-  onLoad() {
+  onLoad(options = {}) {
+    const fromCheckIn = options.from === "checkin";
+    this.setData({ fromCheckIn });
+    if (typeof wx.setNavigationBarTitle === "function") {
+      wx.setNavigationBarTitle({
+        title: fromCheckIn ? "签到资料" : "完善用户资料"
+      });
+    }
     this.loadProfile();
   },
 
@@ -119,8 +127,26 @@ Page({
         avatarFileID,
         avatarPath: result.profile && result.profile.avatarUrl || avatarFileID
       });
-      wx.showToast({ title: "资料已保存", icon: "success" });
-      setTimeout(() => wx.reLaunch({ url: WORKBENCH_URL }), 350);
+      if (this.data.fromCheckIn) {
+        try {
+          const checkInResult = await cloud.checkIn();
+          const earned = Number(checkInResult && checkInResult.earnedToday) || 0;
+          wx.showToast({
+            title: checkInResult && checkInResult.duplicate
+              ? "今天已经签过了"
+              : `签到成功，获得${earned}积分`,
+            icon: checkInResult && checkInResult.duplicate ? "none" : "success"
+          });
+        } catch (checkInError) {
+          diagnosticLog.error("profile", "checkin-after-save-failed", "资料保存后签到失败", {
+            error: checkInError
+          });
+          wx.showToast({ title: "资料已保存，签到失败请重试", icon: "none" });
+        }
+      } else {
+        wx.showToast({ title: "资料已保存", icon: "success" });
+      }
+      setTimeout(() => wx.reLaunch({ url: WORKBENCH_URL }), 650);
     } catch (error) {
       const message = (error && error.message) || "资料保存失败，请重试。";
       this.setData({ saving: false, errorMessage: message });

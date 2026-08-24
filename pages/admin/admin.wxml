@@ -28,20 +28,43 @@
         <text>探针 {{dashboardStatus.probeDurationText}}</text>
         <text>今日 {{usageStats.today.failure}} 个失败</text>
       </view>
-      <view
-        class="status-check-button {{checking ? 'is-disabled' : ''}}"
-        bindtap="checkDeployment"
-        hover-class="control-tap"
-        role="button"
-        aria-label="立即检查线上部署"
-      >
-        {{checking ? '正在检查线上部署' : '立即检查线上部署'}}
+      <view class="status-console-actions">
+        <view
+          class="status-check-button {{checking ? 'is-disabled' : ''}}"
+          bindtap="checkDeployment"
+          hover-class="control-tap"
+          role="button"
+          aria-label="立即检查线上部署"
+        >
+          {{checking ? '正在检查' : '检查线上部署'}}
+        </view>
+        <view
+          class="status-check-button status-refresh-button {{refreshingAll ? 'is-disabled' : ''}}"
+          bindtap="refreshAll"
+          hover-class="control-tap"
+          role="button"
+          aria-label="一键刷新全部"
+        >
+          {{refreshingAll ? '正在刷新' : '一键刷新全部'}}
+        </view>
       </view>
     </view>
 
     <view class="quick-launch-grid">
       <view
-        class="quick-launch quick-image {{activeConfigSection === 'image' ? 'is-active' : ''}}"
+        class="quick-launch quick-face {{activeConfigSection === 'face' ? 'is-active' : ''}} {{entryHealth.face.abnormal ? 'is-abnormal' : ''}}"
+        data-section="face"
+        bindtap="toggleConfigSection"
+        hover-class="control-tap"
+        role="button"
+        aria-label="打开人脸识别模型配置"
+      >
+        <view class="quick-launch-icon">脸</view>
+        <view class="quick-launch-name">人脸</view>
+        <view class="quick-launch-state">{{entryHealth.face.label}}</view>
+      </view>
+      <view
+        class="quick-launch quick-image {{activeConfigSection === 'image' ? 'is-active' : ''}} {{entryHealth.image.abnormal ? 'is-abnormal' : ''}}"
         data-section="image"
         bindtap="toggleConfigSection"
         hover-class="control-tap"
@@ -50,9 +73,10 @@
       >
         <view class="quick-launch-icon">图</view>
         <view class="quick-launch-name">生图</view>
+        <view class="quick-launch-state">{{entryHealth.image.label}}</view>
       </view>
       <view
-        class="quick-launch quick-video {{activeConfigSection === 'video' ? 'is-active' : ''}}"
+        class="quick-launch quick-video {{activeConfigSection === 'video' ? 'is-active' : ''}} {{entryHealth.video.abnormal ? 'is-abnormal' : ''}}"
         data-section="video"
         bindtap="toggleConfigSection"
         hover-class="control-tap"
@@ -61,9 +85,10 @@
       >
         <view class="quick-launch-icon">视</view>
         <view class="quick-launch-name">视频</view>
+        <view class="quick-launch-state">{{entryHealth.video.label}}</view>
       </view>
       <view
-        class="quick-launch quick-points {{activeConfigSection === 'points' ? 'is-active' : ''}}"
+        class="quick-launch quick-points {{activeConfigSection === 'points' ? 'is-active' : ''}} {{entryHealth.points.abnormal ? 'is-abnormal' : ''}}"
         data-section="points"
         bindtap="toggleConfigSection"
         hover-class="control-tap"
@@ -72,9 +97,10 @@
       >
         <view class="quick-launch-icon">积</view>
         <view class="quick-launch-name">积分</view>
+        <view class="quick-launch-state">{{entryHealth.points.label}}</view>
       </view>
       <view
-        class="quick-launch quick-costs {{activeConfigSection === 'costs' ? 'is-active' : ''}}"
+        class="quick-launch quick-costs {{activeConfigSection === 'costs' ? 'is-active' : ''}} {{entryHealth.costs.abnormal ? 'is-abnormal' : ''}}"
         data-section="costs"
         bindtap="toggleConfigSection"
         hover-class="control-tap"
@@ -83,12 +109,32 @@
       >
         <view class="quick-launch-icon">¥</view>
         <view class="quick-launch-name">成本</view>
+        <view class="quick-launch-state">{{entryHealth.costs.label}}</view>
+      </view>
+      <view
+        class="quick-launch quick-users {{activeConfigSection === 'users' ? 'is-active' : ''}} {{entryHealth.users.abnormal ? 'is-abnormal' : ''}}"
+        data-section="users"
+        bindtap="toggleConfigSection"
+        hover-class="control-tap"
+        role="button"
+        aria-label="打开用户统计"
+      >
+        <view class="quick-launch-icon">人</view>
+        <view class="quick-launch-name">用户</view>
+        <view class="quick-launch-state">{{entryHealth.users.label}}</view>
       </view>
     </view>
 
     <view class="overview-section">
       <view class="overview-heading">当前配置</view>
-      <view class="current-config-row current-config-static">
+      <view
+        class="current-config-row {{entryHealth.face.abnormal ? 'is-abnormal' : ''}}"
+        data-section="face"
+        bindtap="toggleConfigSection"
+        hover-class="control-tap"
+        role="button"
+        aria-label="查看人脸识别模型配置"
+      >
         <view class="current-config-main">
           <view class="current-config-title">人脸识别模型</view>
           <view class="current-config-meta">
@@ -99,10 +145,11 @@
           <view class="config-state {{faceConfigSummary.ready ? 'is-ready' : 'is-off'}}">
             {{faceConfigSummary.ready ? '正常' : '未就绪'}}
           </view>
+          <text class="current-config-arrow">›</text>
         </view>
       </view>
       <view
-        class="current-config-row"
+        class="current-config-row {{entryHealth.image.abnormal ? 'is-abnormal' : ''}}"
         data-section="image"
         bindtap="toggleConfigSection"
         hover-class="control-tap"
@@ -123,7 +170,7 @@
         </view>
       </view>
       <view
-        class="current-config-row"
+        class="current-config-row {{entryHealth.video.abnormal ? 'is-abnormal' : ''}}"
         data-section="video"
         bindtap="toggleConfigSection"
         hover-class="control-tap"
@@ -170,6 +217,17 @@
           <view class="config-editor-title">{{activeConfigTitle}}</view>
         </view>
         <view class="config-close-button" bindtap="closeConfigSection" hover-class="control-tap" role="button" aria-label="收起配置">收起</view>
+      </view>
+
+      <view wx:if="{{activeConfigSection === 'face'}}" class="config-editor-body">
+        <view class="config-helper">API Key 继续从云函数环境变量读取，这里只改人脸识别服务地址和模型。</view>
+        <view class="admin-grid">
+          <view class="admin-field"><text>Provider</text><input value="{{form.face.provider}}" data-section="face" data-key="provider" bindinput="onInput" /></view>
+          <view class="admin-field"><text>Model</text><input value="{{form.face.model}}" data-section="face" data-key="model" bindinput="onInput" /></view>
+          <view class="admin-field admin-field-wide"><text>Base URL</text><input value="{{form.face.baseUrl}}" data-section="face" data-key="baseUrl" bindinput="onInput" /></view>
+          <view class="admin-field admin-field-wide"><text>Endpoint（可空）</text><input value="{{form.face.endpoint}}" data-section="face" data-key="endpoint" bindinput="onInput" /></view>
+          <view class="admin-field"><text>超时毫秒</text><input type="number" value="{{form.face.timeoutMs}}" data-section="face" data-key="timeoutMs" bindinput="onInput" /></view>
+        </view>
       </view>
 
       <view wx:if="{{activeConfigSection === 'image'}}" class="config-editor-body">
@@ -234,9 +292,89 @@
           <view class="admin-field"><text>视频 1080p / 秒</text><input type="digit" value="{{form.costs.video1080p}}" data-section="costs" data-key="video1080p" bindinput="onInput" /></view>
           <view class="admin-field"><text>视频默认秒数</text><input type="digit" value="{{form.costs.videoDefaultDuration}}" data-section="costs" data-key="videoDefaultDuration" bindinput="onInput" /></view>
         </view>
+        <view class="cost-trend-panel">
+          <view class="cost-trend-heading">
+            <view>
+              <view class="cost-trend-title">最近7天成本</view>
+              <view class="cost-trend-total">合计 ¥{{costTrend.totalCost}}</view>
+            </view>
+            <view class="config-state {{usageStats.unavailable ? 'is-off' : 'is-ready'}}">
+              {{usageStats.unavailable ? '读取失败' : '已更新'}}
+            </view>
+          </view>
+          <view wx:if="{{costTrend.hasCost}}" class="cost-chart">
+            <view wx:for="{{costTrend.days}}" wx:key="dateKey" class="cost-chart-item">
+              <view class="cost-chart-value">¥{{item.cost}}</view>
+              <view class="cost-chart-track">
+                <view class="cost-chart-bar" style="height: {{item.barPercent}}%;"></view>
+              </view>
+              <view class="cost-chart-date">{{item.label}}</view>
+            </view>
+          </view>
+          <view wx:else class="cost-empty">最近7天没有消费，成本为 0 元。</view>
+        </view>
       </view>
 
-      <view class="admin-actions">
+      <view wx:if="{{activeConfigSection === 'users'}}" class="config-editor-body">
+        <view class="user-stats-toolbar">
+          <view class="config-helper user-stats-helper">只显示匿名编号，不显示原始 OpenID。</view>
+          <button
+            class="usage-refresh-button"
+            bindtap="refreshUserStats"
+            loading="{{userStatsLoading}}"
+            disabled="{{userStatsLoading}}"
+          >{{userStatsLoading ? '刷新中' : '刷新'}}</button>
+        </view>
+        <view wx:if="{{userStats.message}}" class="usage-message {{userStats.unavailable ? 'is-warn' : ''}}">
+          {{userStats.message}}
+        </view>
+        <view class="user-summary-grid">
+          <view class="user-summary-card user-summary-total">
+            <text>总用户</text>
+            <text>{{userStats.total}}</text>
+          </view>
+          <view class="user-summary-card user-summary-male">
+            <text>男性</text>
+            <text>{{userStats.maleCount}}</text>
+            <text>{{userStats.maleRatio}}%</text>
+          </view>
+          <view class="user-summary-card user-summary-female">
+            <text>女性</text>
+            <text>{{userStats.femaleCount}}</text>
+            <text>{{userStats.femaleRatio}}%</text>
+          </view>
+        </view>
+        <view class="gender-ratio-bar">
+          <view class="gender-ratio-male" style="width: {{userStats.maleRatio}}%;"></view>
+          <view class="gender-ratio-female" style="width: {{userStats.femaleRatio}}%;"></view>
+        </view>
+        <view class="gender-ratio-legend">
+          <text>男 {{userStats.maleRatio}}%</text>
+          <text>女 {{userStats.femaleRatio}}%</text>
+        </view>
+        <view wx:if="{{userStats.users.length}}" class="admin-user-list">
+          <view wx:for="{{userStats.users}}" wx:key="userHash" class="admin-user-row">
+            <image wx:if="{{item.avatarUrl}}" class="admin-user-avatar" src="{{item.avatarUrl}}" mode="aspectFill"></image>
+            <view wx:else class="admin-user-avatar admin-user-avatar-empty">人</view>
+            <view class="admin-user-copy">
+              <view class="admin-user-name">{{item.nickname}}</view>
+              <view class="admin-user-meta">{{item.genderText}} · {{item.createdAtText}}</view>
+              <view class="admin-user-id">编号 {{item.userHash}}</view>
+            </view>
+            <view class="admin-user-gender gender-{{item.gender}}">{{item.genderText}}</view>
+          </view>
+        </view>
+        <view wx:else class="admin-empty">还没有已完善资料的用户。</view>
+        <button
+          wx:if="{{userStats.nextOffset !== null}}"
+          class="user-load-more"
+          bindtap="loadMoreUsers"
+          loading="{{userStatsLoading}}"
+          disabled="{{userStatsLoading}}"
+        >{{userStatsLoading ? '加载中...' : '继续加载20条'}}</button>
+      </view>
+
+      <view wx:if="{{activeConfigSection !== 'users'}}" class="admin-actions">
         <view
           class="admin-action-button primary-btn admin-save-button {{saving ? 'is-disabled' : ''}}"
           bindtap="saveConfig"
@@ -277,13 +415,14 @@
             <view class="admin-section-title">当前线上部署</view>
             <view class="admin-section-help">当前云函数版本和动态配置状态。</view>
           </view>
-          <text class="{{deployment.image.ready && deployment.video.ready ? 'log-ok' : 'log-warn'}}">
-            {{deployment.image.ready && deployment.video.ready ? '运行正常' : '需要处理'}}
+          <text class="{{deployment.face.ready && deployment.image.ready && deployment.video.ready ? 'log-ok' : 'log-warn'}}">
+            {{deployment.face.ready && deployment.image.ready && deployment.video.ready ? '运行正常' : '需要处理'}}
           </text>
         </view>
         <view class="deployment-grid">
           <view><text>云函数版本</text><text>{{deployment.buildVersion}}</text></view>
           <view><text>构建标记</text><text>{{deployment.buildMarker}}</text></view>
+          <view><text>人脸状态</text><text>{{deployment.face.ready ? '可用' : '未就绪'}}</text></view>
           <view><text>生图状态</text><text>{{deployment.image.ready ? '可用' : '未就绪'}}</text></view>
           <view><text>视频状态</text><text>{{deployment.video.ready ? '可用' : '未就绪'}}</text></view>
           <view><text>动态配置版本</text><text>{{deployment.runtimeConfigVersion}}</text></view>
@@ -450,6 +589,22 @@
             </view>
           </view>
           <view wx:else class="admin-empty usage-empty">最近统计范围内没有失败记录。</view>
+          <view wx:if="{{usageStats.failureStats.failureDetails.length}}" class="failure-detail-list">
+            <view class="usage-failure-list-title">最近失败明细</view>
+            <view wx:for="{{usageStats.failureStats.failureDetails}}" wx:key="requestId" class="failure-detail-row">
+              <view class="failure-detail-head">
+                <view class="failure-detail-title">{{item.createdAtText}} · {{item.provider}} / {{item.model}}</view>
+                <button class="copy-error-button" data-index="{{index}}" catchtap="copyModelFailure">复制错误</button>
+              </view>
+              <view class="failure-detail-meta">
+                <text>{{item.errorCode}}</text>
+                <text wx:if="{{item.errorStatus}}">HTTP {{item.errorStatus}}</text>
+                <text>{{item.durationMs}}ms</text>
+                <text wx:if="{{item.requestId}}">请求 {{item.requestId}}</text>
+              </view>
+              <view class="failure-detail-message">{{item.errorMessage}}</view>
+            </view>
+          </view>
         </view>
 
         <view class="usage-daily-title">最近{{usageStats.days}}天每日明细</view>
@@ -603,7 +758,7 @@
           <view wx:for="{{autoFaceFailureStats.recent}}" wx:key="createdAtText" class="auto-face-failure-recent-row">
             <view class="auto-face-failure-recent-top">
               <text>{{item.createdAtText}} · {{item.failureTypeLabel}}</text>
-              <text>{{item.retryable ? '可重试' : '不可重试'}}</text>
+              <button class="copy-error-button" data-index="{{index}}" catchtap="copyAutoFaceFailure">复制错误</button>
             </view>
             <view class="auto-face-failure-recent-meta">
               <text>错误码 {{item.errorCode}}</text>
@@ -633,7 +788,7 @@
             <text class="{{item.ok ? 'log-ok' : 'log-warn'}}">{{item.statusText}}</text>
           </view>
           <view class="admin-log-meta">{{item.buildVersion}} · {{item.buildMarker}}</view>
-          <view class="admin-log-meta">{{item.imageText}} · {{item.videoText}}</view>
+          <view class="admin-log-meta">{{item.faceText}} · {{item.imageText}} · {{item.videoText}}</view>
         </view>
       </view>
     </view>

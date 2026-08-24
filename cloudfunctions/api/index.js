@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.25.0";
-const API_BUILD_MARKER = "API_BUILD_TAG_20260824_ADMIN_CONSOLE_OPTION09_V250";
+const API_BUILD_VERSION = "0.26.1";
+const API_BUILD_MARKER = "API_BUILD_TAG_20260824_POINTS_RESET_V261";
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
 const cloud = require("wx-server-sdk");
@@ -62,6 +62,7 @@ const ADMIN_RUNTIME_CACHE_TTL_MS = 15000;
 const POINTS_ACCOUNT_COLLECTION = "user_accounts";
 const USER_PROFILE_COLLECTION = "user_profiles";
 const POINTS_LEDGER_COLLECTION = "point_ledger";
+const POINTS_RESET_LEDGER_BATCH_SIZE = 100;
 const USER_QUOTA_COLLECTION = "user_quotas";
 const GENERATION_OPERATION_COLLECTION = "generation_operations";
 const POINTS_TIME_ZONE = "Asia/Shanghai";
@@ -4648,6 +4649,29 @@ async function savePointLedger(openid, requestId, data, store = db) {
   return record;
 }
 
+async function removePointLedgerForUser(openid) {
+  let removed = 0;
+  while (true) {
+    const result = await db
+      .collection(POINTS_LEDGER_COLLECTION)
+      .where({ openid })
+      .limit(POINTS_RESET_LEDGER_BATCH_SIZE)
+      .get();
+    const rows = result && Array.isArray(result.data)
+      ? result.data.filter((item) => item && item._id)
+      : [];
+    if (!rows.length) break;
+    await Promise.all(
+      rows.map((item) => (
+        db.collection(POINTS_LEDGER_COLLECTION).doc(item._id).remove()
+      ))
+    );
+    removed += rows.length;
+    if (rows.length < POINTS_RESET_LEDGER_BATCH_SIZE) break;
+  }
+  return removed;
+}
+
 async function findGenerationOperation(openid, requestId, store = db) {
   if (!openid || !requestId) return null;
   return readDocument(
@@ -5099,6 +5123,82 @@ async function getUserPoints(context) {
     boundMessage: account ? "已绑定当前微信" : "点击签到后绑定微信身份"
   }, pointsSummary(
     account || defaultPointsAccount("anonymous"),
+    quota,
+    configs.points,
+    dateKey
+  )));
+}
+
+async function resetMyPoints(context) {
+  const openid = getOpenId(context);
+  if (openid === "anonymous") {
+    return fail("请先完成微信授权后再重置积分。", "wechat-binding-required");
+  }
+
+  const accountRef = db
+    .collection(POINTS_ACCOUNT_COLLECTION)
+    .doc(pointsAccountId(openid));
+  const existing = await readDocument(accountRef);
+  const previousAccount = existing ? Object.assign({}, existing) : null;
+  const now = new Date();
+  const nextAccount = Object.assign(
+    defaultPointsAccount(openid),
+    existing || {},
+    {
+      _id: pointsAccountId(openid),
+      openid,
+      pointsBalance: 0,
+      totalEarned: 0,
+      totalSpent: 0,
+      currentStreak: 0,
+      lastCheckinDate: "",
+      updatedAt: now,
+      pointsResetAt: now,
+      pointsResetSource: "self-test"
+    }
+  );
+
+  await accountRef.set({ data: stripDocumentId(nextAccount) });
+  let removedLedgerRecords = 0;
+  try {
+    removedLedgerRecords = await removePointLedgerForUser(openid);
+  } catch (error) {
+    if (previousAccount) {
+      try {
+        await accountRef.set({ data: stripDocumentId(previousAccount) });
+      } catch (restoreError) {
+        log("error", "points.reset-restore-failed", {
+          userHash: usageUserHash(openid),
+          message: restoreError && restoreError.message
+        });
+      }
+    } else {
+      try {
+        await accountRef.remove();
+      } catch (removeError) {
+        log("error", "points.reset-account-cleanup-failed", {
+          userHash: usageUserHash(openid),
+          message: removeError && removeError.message
+        });
+      }
+    }
+    throw error;
+  }
+
+  const configs = await resolveEffectiveConfigs();
+  const dateKey = dateKeyForTimeZone(new Date(), configs.points.timeZone);
+  const quota = await readDailyQuota(
+    openid,
+    dateKey,
+    configs.points.dailyFreeLimit
+  );
+  return jsonResponse(true, Object.assign({
+    accountBound: true,
+    reset: true,
+    removedLedgerRecords,
+    message: "当前微信账号的积分和签到状态已清除，可以重新签到。"
+  }, pointsSummary(
+    nextAccount,
     quota,
     configs.points,
     dateKey
@@ -6316,6 +6416,7 @@ exports.main = async (event = {}, context) => {
     else if (action === "getMyUserProfile") result = await getMyUserProfile(context);
     else if (action === "saveMyUserProfile") result = await saveMyUserProfile(requestEvent, context);
     else if (action === "getUserPoints") result = await getUserPoints(context);
+    else if (action === "resetMyPoints") result = await resetMyPoints(context);
     else if (action === "checkIn") result = await checkIn(context);
     else if (action === "getPointLedger") result = await getPointLedger(context);
     else if (action === "listRecords") result = await listRecords(context);
@@ -6506,6 +6607,7 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     claimGenerationOperation,
     completeGenerationOperation,
     failGenerationOperation,
+    resetMyPoints,
     checkIn,
     getTestDatabase: () => db,
     getAdminRuntimeCache: () => adminRuntimeCache

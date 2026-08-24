@@ -16,15 +16,11 @@
   </view>
 
   <view class="splash-footer">
-    <view wx:if="{{checkingProfile}}" class="loading-indicator" aria-label="正在加载">
+    <view class="loading-indicator" aria-label="正在加载">
       <view class="loading-dot loading-dot-first"></view>
       <view class="loading-dot loading-dot-second"></view>
       <view class="loading-dot loading-dot-third"></view>
     </view>
-    <text wx:if="{{checkingProfile}}" class="loading-text">正在检查用户资料</text>
-    <view wx:else class="splash-error">
-      <text class="splash-error-text">{{errorMessage}}</text>
-      <button class="splash-retry-button" bindtap="retryProfileCheck">重新检查</button>
-    </view>
+    <text class="loading-text">正在进入创作空间</text>
   </view>
 </view>

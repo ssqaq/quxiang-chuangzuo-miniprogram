@@ -229,6 +229,7 @@ async function main() {
   let checkInCalls = 0;
   let resolveCheckIn = null;
   cloudService.isCloudReady = () => true;
+  cloudService.getMyUserProfile = () => Promise.resolve({ completed: true });
   cloudService.checkIn = () => {
     checkInCalls += 1;
     return new Promise((resolve) => {
@@ -239,6 +240,7 @@ async function main() {
   const firstCheckIn = page.checkIn();
   const duplicateCheckIn = page.checkIn();
   assert.strictEqual(firstCheckIn, duplicateCheckIn);
+  await Promise.resolve();
   assert.strictEqual(checkInCalls, 1);
   resolveCheckIn({
     duplicate: false,

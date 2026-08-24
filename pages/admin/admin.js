@@ -4,6 +4,13 @@ const diagnosticLog = require("../../utils/diagnostic-log");
 
 function emptyForm() {
   return {
+    face: {
+      provider: "",
+      baseUrl: "",
+      endpoint: "",
+      model: "",
+      timeoutMs: "30000"
+    },
     image: {
       provider: "",
       baseUrl: "",
@@ -59,10 +66,12 @@ const USAGE_TYPE_META = [
 ];
 
 const CONFIG_SECTION_TITLES = Object.freeze({
+  face: "人脸识别模型",
   image: "生图模型",
   video: "视频模型",
   points: "签到与积分规则",
-  costs: "模型成本配置"
+  costs: "模型成本配置",
+  users: "用户统计"
 });
 
 function emptyDashboardStatus() {
@@ -207,6 +216,28 @@ function emptyAutoFaceProbeHistory() {
   };
 }
 
+function emptyUserStats() {
+  return {
+    total: 0,
+    maleCount: 0,
+    femaleCount: 0,
+    maleRatio: 0,
+    femaleRatio: 0,
+    users: [],
+    nextOffset: null,
+    unavailable: false,
+    message: ""
+  };
+}
+
+function emptyCostTrend() {
+  return {
+    days: [],
+    totalCost: 0,
+    hasCost: false
+  };
+}
+
 function formatAdminDate(value) {
   const date = new Date(value || 0);
   if (Number.isNaN(date.getTime())) return "未知时间";
@@ -267,6 +298,8 @@ function formatAutoFaceFailureStats(result) {
       probeBuildVersion: item.probe && item.probe.buildVersion || "",
       probeBuildMarker: item.probe && item.probe.buildMarker || "",
       probeVisionConfigured: Boolean(item.probe && item.probe.visionConfigured),
+      probeProvider: item.probe && item.probe.provider || "",
+      probeModel: item.probe && item.probe.model || "",
       probeSummaryText: formatProbeSummaryText(item.probe),
       createdAtText: formatAdminDate(item.createdAt)
     }))
@@ -359,10 +392,14 @@ function buildDashboardStatus(
   autoFaceProbe,
   autoFaceProbeHistory
 ) {
+  const face = effective && effective.face || {};
   const image = effective && effective.image || {};
   const video = effective && effective.video || {};
   const configReady = Boolean(
-    image.apiKeyConfigured
+    face.apiKeyConfigured
+    && face.provider
+    && face.model
+    && image.apiKeyConfigured
     && image.provider
     && image.model
     && video.apiKeyConfigured
@@ -544,9 +581,22 @@ function formatUsageStats(result) {
       failure: Number(item.failure) || 0,
       failureRate: Number(item.failureRate) || 0
     })),
-    failureDetails: Array.isArray(failureSource.failureDetails)
+    failureDetails: (Array.isArray(failureSource.failureDetails)
       ? failureSource.failureDetails
       : []
+    ).map((item) => ({
+      createdAtText: formatAdminDate(item.createdAt || item.dateKey),
+      usageType: item.usageType || "unknown",
+      provider: item.provider || "未知 Provider",
+      model: item.model || "未知模型",
+      requestId: item.requestId || "",
+      errorCode: item.errorCode || "unknown",
+      errorMessage: String(item.errorMessage || "未提供错误摘要").slice(0, 500),
+      errorStatus: Number(item.errorStatus) || 0,
+      retryable: Boolean(item.retryable),
+      attempt: Math.max(1, Number(item.attempt) || 1),
+      durationMs: Math.max(0, Number(item.durationMs) || 0)
+    }))
   });
   return Object.assign(emptyUsageStats(), source, {
     today: Object.assign(emptyUsageCounter(), source.today || {}),
@@ -560,8 +610,130 @@ function formatUsageStats(result) {
   });
 }
 
+function formatUserStats(result, previousUsers = []) {
+  const source = result || {};
+  const incoming = (Array.isArray(source.users) ? source.users : []).map((item) => ({
+    userHash: item.userHash || "anonymous",
+    nickname: item.nickname || "未填写昵称",
+    avatarUrl: item.avatarUrl || item.avatarFileID || "",
+    gender: item.gender === "female" ? "female" : "male",
+    genderText: item.gender === "female" ? "女" : "男",
+    createdAtText: formatAdminDate(item.createdAt)
+  }));
+  const users = Number(source.offset) > 0
+    ? previousUsers.concat(incoming).filter((item, index, list) => (
+      list.findIndex((candidate) => candidate.userHash === item.userHash) === index
+    ))
+    : incoming;
+  return Object.assign(emptyUserStats(), {
+    total: Number(source.total) || 0,
+    maleCount: Number(source.maleCount) || 0,
+    femaleCount: Number(source.femaleCount) || 0,
+    maleRatio: Number(source.maleRatio) || 0,
+    femaleRatio: Number(source.femaleRatio) || 0,
+    users,
+    nextOffset: source.nextOffset === null || source.nextOffset === undefined
+      ? null
+      : Math.max(0, Number(source.nextOffset) || 0)
+  });
+}
+
+function dateKeyShift(dateKey, offset) {
+  const match = String(dateKey || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const source = match
+    ? new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])))
+    : new Date();
+  source.setUTCDate(source.getUTCDate() + Number(offset || 0));
+  return source.toISOString().slice(0, 10);
+}
+
+function buildCostTrend(usageStats) {
+  const source = usageStats || emptyUsageStats();
+  const todayKey = source.todayKey || new Date(Date.now() + 8 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
+  const costByDate = {};
+  (Array.isArray(source.daily) ? source.daily : []).forEach((item) => {
+    costByDate[item.dateKey] = Math.max(0, Number(item.estimatedCost) || 0);
+  });
+  const days = [];
+  for (let index = -6; index <= 0; index += 1) {
+    const dateKey = dateKeyShift(todayKey, index);
+    days.push({
+      dateKey,
+      label: dateKey.slice(5),
+      cost: Math.round((costByDate[dateKey] || 0) * 10000) / 10000
+    });
+  }
+  const maxCost = Math.max(0, ...days.map((item) => item.cost));
+  const normalizedDays = days.map((item) => Object.assign({}, item, {
+    barPercent: maxCost ? Math.round(item.cost / maxCost * 100) : 0
+  }));
+  const totalCost = Math.round(
+    normalizedDays.reduce((total, item) => total + item.cost, 0) * 10000
+  ) / 10000;
+  return {
+    days: normalizedDays,
+    totalCost,
+    hasCost: totalCost > 0
+  };
+}
+
+function buildEntryHealth(
+  effective,
+  usageStats,
+  autoFaceProbe,
+  autoFaceProbeHistory,
+  autoFaceFailureStats,
+  userStats
+) {
+  const configs = effective || {};
+  const usage = usageStats || emptyUsageStats();
+  const today = usage.today || emptyUsageCounter();
+  const currentProbe = autoFaceProbe || emptyAutoFaceProbe();
+  const history = autoFaceProbeHistory && Array.isArray(autoFaceProbeHistory.history)
+    ? autoFaceProbeHistory.history
+    : [];
+  const latestProbeStatus = currentProbe.status && currentProbe.status !== "not-run"
+    ? currentProbe.status
+    : history[0] && history[0].status || "not-run";
+  const configReady = (section) => {
+    const value = configs[section] || {};
+    return Boolean(value.apiKeyConfigured && value.provider && value.model);
+  };
+  const failureFor = (section) => Number(today[section] && today[section].failure) || 0;
+  const faceAbnormal = !configReady("face")
+    || latestProbeStatus === "failed"
+    || failureFor("face") > 0
+    || Number(autoFaceFailureStats && autoFaceFailureStats.today) > 0;
+  return {
+    face: {
+      abnormal: faceAbnormal,
+      label: faceAbnormal ? "异常" : "正常"
+    },
+    image: {
+      abnormal: !configReady("image") || failureFor("image") > 0,
+      label: !configReady("image") || failureFor("image") > 0 ? "异常" : "正常"
+    },
+    video: {
+      abnormal: !configReady("video") || failureFor("video") > 0,
+      label: !configReady("video") || failureFor("video") > 0 ? "异常" : "正常"
+    },
+    points: { abnormal: false, label: "正常" },
+    costs: {
+      abnormal: Boolean(usage.unavailable),
+      label: usage.unavailable ? "读取失败" : "正常"
+    },
+    users: {
+      abnormal: Boolean(userStats && userStats.unavailable),
+      label: userStats && userStats.unavailable ? "读取失败" : "正常"
+    }
+  };
+}
+
 function formFromConfig(result) {
   const source = result && result.effective ? result.effective : {};
+  const face = source.face || {};
   const image = source.image || {};
   const video = source.video || {};
   const points = source.points || {};
@@ -570,6 +742,13 @@ function formFromConfig(result) {
   const imageCosts = costs.image || {};
   const videoCosts = costs.video || {};
   return {
+    face: {
+      provider: face.provider || "",
+      baseUrl: face.baseUrl || "",
+      endpoint: face.endpoint || "",
+      model: face.model || "",
+      timeoutMs: String(face.timeoutMs || 30000)
+    },
     image: {
       provider: image.provider || "",
       baseUrl: image.baseUrl || "",
@@ -620,6 +799,13 @@ function formFromConfig(result) {
 
 function formToConfig(form) {
   return {
+    face: {
+      provider: String(form.face.provider || "").trim(),
+      baseUrl: String(form.face.baseUrl || "").trim(),
+      endpoint: String(form.face.endpoint || "").trim(),
+      model: String(form.face.model || "").trim(),
+      timeoutMs: Number(form.face.timeoutMs || 0)
+    },
     image: {
       provider: String(form.image.provider || "").trim(),
       baseUrl: String(form.image.baseUrl || "").trim(),
@@ -688,9 +874,48 @@ function displayLog(item) {
       ? String(value.checkedAt).replace("T", " ").replace(/\.\d+Z$/, "")
       : "未知时间",
     statusText: value.ok ? "检查通过" : "需要处理",
+    faceText: value.face && value.face.ready ? "人脸可用" : "人脸未就绪",
     imageText: value.image && value.image.ready ? "生图可用" : "生图未就绪",
     videoText: value.video && value.video.ready ? "视频可用" : "视频未就绪"
   });
+}
+
+function safeCopyValue(value, fallback = "无") {
+  const text = String(value || "")
+    .replace(/\bsk-[A-Za-z0-9._~-]+\b/gi, "[Key已隐藏]")
+    .replace(/cloud:\/\/[^\s,;]+/gi, "[素材地址已隐藏]")
+    .replace(
+      /(?:[A-Za-z]:[\\/]|\/(?:tmp|var|home|Users|private|data)\/)[^\s,;]+/g,
+      "[路径已隐藏]"
+    )
+    .replace(/openid\s*[:=]\s*[^\s,;]+/gi, "OpenID=[已隐藏]")
+    .slice(0, 500)
+    .trim();
+  return text || fallback;
+}
+
+function modelFailureCopyText(item = {}) {
+  return [
+    `发生时间：${safeCopyValue(item.createdAtText, "未知时间")}`,
+    `模型和服务商：${safeCopyValue(item.provider)} / ${safeCopyValue(item.model)}`,
+    `错误码：${safeCopyValue(item.errorCode)}`,
+    `接口状态：${item.errorStatus ? `HTTP ${item.errorStatus}` : "无"}`,
+    `接口耗时：${Number(item.durationMs) || 0} 毫秒`,
+    `请求编号：${safeCopyValue(item.requestId)}`,
+    `错误原因：${safeCopyValue(item.errorMessage, "未提供错误摘要")}`
+  ].join("\n");
+}
+
+function autoFaceFailureCopyText(item = {}) {
+  return [
+    `发生时间：${safeCopyValue(item.createdAtText, "未知时间")}`,
+    `模型和服务商：${safeCopyValue(item.probeProvider || "人脸识别")} / ${safeCopyValue(item.probeModel || "自动贴脸")}`,
+    `错误码：${safeCopyValue(item.errorCode)}`,
+    `接口状态：${item.status ? `HTTP ${item.status}` : "无"}`,
+    `接口耗时：${Number(item.durationMs) || 0} 毫秒`,
+    `请求编号：${safeCopyValue(item.requestId)}`,
+    `错误原因：${safeCopyValue(item.message, "未提供错误摘要")}`
+  ].join("\n");
 }
 
 Page({
@@ -699,6 +924,7 @@ Page({
     loading: true,
     saving: false,
     checking: false,
+    refreshingAll: false,
     isAdmin: false,
     form: emptyForm(),
     defaults: null,
@@ -709,12 +935,16 @@ Page({
     usageLoading: false,
     usageExporting: false,
     usageStats: emptyUsageStats(),
+    costTrend: emptyCostTrend(),
+    userStatsLoading: false,
+    userStats: emptyUserStats(),
     autoFaceFailureLoading: false,
     autoFaceFailureStats: emptyAutoFaceFailureStats(),
     autoFaceProbe: emptyAutoFaceProbe(),
     autoFaceProbeHistory: emptyAutoFaceProbeHistory(),
     dashboardStatus: emptyDashboardStatus(),
     faceConfigSummary: emptyFaceConfigSummary(),
+    entryHealth: buildEntryHealth(),
     activeConfigSection: "",
     activeConfigTitle: "",
     monitorExpanded: false
@@ -791,7 +1021,18 @@ Page({
           error
         });
       }
+      let userStats = emptyUserStats();
+      try {
+        userStats = formatUserStats(await cloud.getAdminUserStats(0, 20));
+      } catch (error) {
+        userStats = Object.assign(userStats, {
+          unavailable: true,
+          message: "用户统计暂时读取失败，请点击刷新。"
+        });
+        diagnosticLog.warn("admin", "user-stats-load-failed", "用户统计读取失败", { error });
+      }
       const effective = result.effective || null;
+      const autoFaceProbe = this.data.autoFaceProbe;
       this.setData({
         loading: false,
         isAdmin: true,
@@ -800,18 +1041,28 @@ Page({
         effective,
         logs: (logs.logs || []).map(displayLog),
         usageStats,
+        costTrend: buildCostTrend(usageStats),
+        userStats,
         autoFaceFailureStats,
         autoFaceProbeHistory,
         dashboardStatus: buildDashboardStatus(
           effective,
           usageStats,
-          this.data.autoFaceProbe,
+          autoFaceProbe,
           autoFaceProbeHistory
         ),
         faceConfigSummary: buildFaceConfigSummary(
           effective,
-          this.data.autoFaceProbe,
+          autoFaceProbe,
           autoFaceProbeHistory
+        ),
+        entryHealth: buildEntryHealth(
+          effective,
+          usageStats,
+          autoFaceProbe,
+          autoFaceProbeHistory,
+          autoFaceFailureStats,
+          userStats
         ),
         message: ""
       });
@@ -833,11 +1084,20 @@ Page({
       this.setData({
         usageLoading: false,
         usageStats,
+        costTrend: buildCostTrend(usageStats),
         dashboardStatus: buildDashboardStatus(
           this.data.effective,
           usageStats,
           this.data.autoFaceProbe,
           this.data.autoFaceProbeHistory
+        ),
+        entryHealth: buildEntryHealth(
+          this.data.effective,
+          usageStats,
+          this.data.autoFaceProbe,
+          this.data.autoFaceProbeHistory,
+          this.data.autoFaceFailureStats,
+          this.data.userStats
         )
       });
       wx.showToast({ title: "统计已刷新", icon: "success" });
@@ -859,7 +1119,15 @@ Page({
       const result = await cloud.getAutoFaceFailureStats();
       this.setData({
         autoFaceFailureLoading: false,
-        autoFaceFailureStats: formatAutoFaceFailureStats(result)
+        autoFaceFailureStats: formatAutoFaceFailureStats(result),
+        entryHealth: buildEntryHealth(
+          this.data.effective,
+          this.data.usageStats,
+          this.data.autoFaceProbe,
+          this.data.autoFaceProbeHistory,
+          formatAutoFaceFailureStats(result),
+          this.data.userStats
+        )
       });
       wx.showToast({ title: "失败统计已刷新", icon: "success" });
     } catch (error) {
@@ -894,6 +1162,14 @@ Page({
           this.data.effective,
           this.data.autoFaceProbe,
           autoFaceProbeHistory
+        ),
+        entryHealth: buildEntryHealth(
+          this.data.effective,
+          this.data.usageStats,
+          this.data.autoFaceProbe,
+          autoFaceProbeHistory,
+          this.data.autoFaceFailureStats,
+          this.data.userStats
         )
       });
       wx.showToast({ title: "探针历史已刷新", icon: "success" });
@@ -907,6 +1183,168 @@ Page({
       });
       this.showError("探针历史刷新失败", error);
     }
+  },
+
+  async refreshUserStats(reset = true) {
+    if (this.data.userStatsLoading) return;
+    const offset = reset ? 0 : this.data.userStats.nextOffset;
+    if (!reset && (offset === null || offset === undefined)) return;
+    this.setData({ userStatsLoading: true });
+    try {
+      const result = await cloud.getAdminUserStats(offset || 0, 20);
+      const userStats = formatUserStats(
+        result,
+        reset ? [] : this.data.userStats.users
+      );
+      this.setData({
+        userStatsLoading: false,
+        userStats,
+        entryHealth: buildEntryHealth(
+          this.data.effective,
+          this.data.usageStats,
+          this.data.autoFaceProbe,
+          this.data.autoFaceProbeHistory,
+          this.data.autoFaceFailureStats,
+          userStats
+        )
+      });
+      if (reset) wx.showToast({ title: "用户统计已刷新", icon: "success" });
+    } catch (error) {
+      const userStats = Object.assign({}, this.data.userStats, {
+        unavailable: true,
+        message: "用户统计读取失败，请稍后重试。"
+      });
+      this.setData({
+        userStatsLoading: false,
+        userStats,
+        entryHealth: buildEntryHealth(
+          this.data.effective,
+          this.data.usageStats,
+          this.data.autoFaceProbe,
+          this.data.autoFaceProbeHistory,
+          this.data.autoFaceFailureStats,
+          userStats
+        )
+      });
+      diagnosticLog.error("admin", "user-stats-refresh-failed", "用户统计刷新失败", { error });
+      this.showError("用户统计刷新失败", error);
+    }
+  },
+
+  loadMoreUsers() {
+    this.refreshUserStats(false);
+  },
+
+  async refreshAll() {
+    if (this.data.refreshingAll) return;
+    this.setData({ refreshingAll: true, message: "正在刷新全部数据..." });
+    const run = async (name, task) => {
+      try {
+        return { name, ok: true, value: await task() };
+      } catch (error) {
+        return { name, ok: false, error };
+      }
+    };
+    const parts = await Promise.all([
+      run("模型配置", () => cloud.getAdminConfig()),
+      run("用户统计", () => cloud.getAdminUserStats(0, 20)),
+      run("模型用量和成本", () => cloud.getModelUsageStats(30)),
+      run("自动贴脸失败统计", () => cloud.getAutoFaceFailureStats()),
+      run("探针历史", () => cloud.getAutoFaceProbeHistory()),
+      run("部署日志", () => cloud.listDeploymentLogs())
+    ]);
+    const patch = {};
+    const failed = [];
+    parts.forEach((part) => {
+      if (!part.ok) {
+        failed.push(part.name);
+        diagnosticLog.warn("admin", "refresh-all-part-failed", `${part.name}刷新失败`, {
+          error: part.error
+        });
+        return;
+      }
+      if (part.name === "模型配置") {
+        patch.form = formFromConfig(part.value);
+        patch.defaults = part.value.defaults || null;
+        patch.effective = part.value.effective || null;
+      } else if (part.name === "用户统计") {
+        patch.userStats = formatUserStats(part.value);
+      } else if (part.name === "模型用量和成本") {
+        patch.usageStats = formatUsageStats(part.value);
+        patch.costTrend = buildCostTrend(patch.usageStats);
+      } else if (part.name === "自动贴脸失败统计") {
+        patch.autoFaceFailureStats = formatAutoFaceFailureStats(part.value);
+      } else if (part.name === "探针历史") {
+        patch.autoFaceProbeHistory = formatAutoFaceProbeHistory(part.value);
+      } else if (part.name === "部署日志") {
+        patch.logs = (part.value.logs || []).map(displayLog);
+      }
+    });
+    const effective = patch.effective || this.data.effective;
+    const usageStats = patch.usageStats || this.data.usageStats;
+    const userStats = failed.includes("用户统计")
+      ? Object.assign({}, this.data.userStats, {
+        unavailable: true,
+        message: "用户统计本次刷新失败。"
+      })
+      : patch.userStats || this.data.userStats;
+    const autoFaceFailureStats = patch.autoFaceFailureStats || this.data.autoFaceFailureStats;
+    const autoFaceProbeHistory = patch.autoFaceProbeHistory || this.data.autoFaceProbeHistory;
+    if (failed.includes("模型用量和成本")) {
+      patch.usageStats = Object.assign({}, usageStats, {
+        unavailable: true,
+        message: "模型用量和成本本次刷新失败。"
+      });
+    }
+    patch.userStats = userStats;
+    patch.dashboardStatus = buildDashboardStatus(
+      effective,
+      patch.usageStats || usageStats,
+      this.data.autoFaceProbe,
+      autoFaceProbeHistory
+    );
+    patch.faceConfigSummary = buildFaceConfigSummary(
+      effective,
+      this.data.autoFaceProbe,
+      autoFaceProbeHistory
+    );
+    patch.entryHealth = buildEntryHealth(
+      effective,
+      patch.usageStats || usageStats,
+      this.data.autoFaceProbe,
+      autoFaceProbeHistory,
+      autoFaceFailureStats,
+      userStats
+    );
+    patch.refreshingAll = false;
+    patch.message = failed.length
+      ? `刷新完成；失败项：${failed.join("、")}`
+      : "全部数据已刷新。";
+    this.setData(patch);
+    wx.showToast({
+      title: failed.length ? `${failed.length}项失败` : "全部已刷新",
+      icon: failed.length ? "none" : "success"
+    });
+  },
+
+  copyModelFailure(event) {
+    const index = Number(event.currentTarget.dataset.index);
+    const item = this.data.usageStats.failureStats.failureDetails[index];
+    if (!item) return;
+    wx.setClipboardData({
+      data: modelFailureCopyText(item),
+      success: () => wx.showToast({ title: "错误已复制", icon: "success" })
+    });
+  },
+
+  copyAutoFaceFailure(event) {
+    const index = Number(event.currentTarget.dataset.index);
+    const item = this.data.autoFaceFailureStats.recent[index];
+    if (!item) return;
+    wx.setClipboardData({
+      data: autoFaceFailureCopyText(item),
+      success: () => wx.showToast({ title: "错误已复制", icon: "success" })
+    });
   },
 
   async exportModelUsage() {
@@ -961,6 +1399,9 @@ Page({
       activeConfigSection: nextSection,
       activeConfigTitle: nextSection ? CONFIG_SECTION_TITLES[nextSection] : ""
     }, () => {
+      if (nextSection === "users" && this.data.userStats.unavailable) {
+        this.refreshUserStats(true);
+      }
       if (nextSection && typeof wx.pageScrollTo === "function") {
         wx.pageScrollTo({
           selector: "#config-editor",
@@ -1003,6 +1444,14 @@ Page({
           effective,
           this.data.autoFaceProbe,
           this.data.autoFaceProbeHistory
+        ),
+        entryHealth: buildEntryHealth(
+          effective,
+          this.data.usageStats,
+          this.data.autoFaceProbe,
+          this.data.autoFaceProbeHistory,
+          this.data.autoFaceFailureStats,
+          this.data.userStats
         ),
         message: `配置已保存，第 ${result.version || 0} 版`
       });
@@ -1064,6 +1513,14 @@ Page({
           this.data.effective,
           autoFaceProbe,
           autoFaceProbeHistory
+        ),
+        entryHealth: buildEntryHealth(
+          this.data.effective,
+          this.data.usageStats,
+          autoFaceProbe,
+          autoFaceProbeHistory,
+          this.data.autoFaceFailureStats,
+          this.data.userStats
         ),
         monitorExpanded: true,
         checking: false,

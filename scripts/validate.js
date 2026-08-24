@@ -9,6 +9,7 @@ const jsonFiles = [
   "sitemap.json",
   "pages/index/index.json",
   "pages/splash/splash.json",
+  "pages/profile/profile.json",
   "pages/workbench/workbench.json",
   "pages/publish-export/publish-export.json",
   "pages/photo-to-video/photo-to-video.json",
@@ -36,6 +37,7 @@ const jsFiles = [
   "utils/diagnostic-log.js",
   "utils/points-ui.js",
   "pages/splash/splash.js",
+  "pages/profile/profile.js",
   "pages/workbench/workbench.js",
   "pages/publish-export/publish-export.js",
   "pages/photo-to-video/photo-to-video.js",
@@ -65,6 +67,7 @@ const jsFiles = [
   "scripts/photo-to-video-smoke.js",
   "scripts/video-provider-smoke.js",
   "scripts/admin-config-smoke.js",
+  "scripts/user-profile-smoke.js",
   "scripts/database-init-smoke.js",
   "scripts/points-checkin-smoke.js",
   "scripts/generation-concurrency-smoke.js",
@@ -145,6 +148,10 @@ const required = [
   "pages/splash/splash.json",
   "pages/splash/splash.wxml",
   "pages/splash/splash.wxss",
+  "pages/profile/profile.js",
+  "pages/profile/profile.json",
+  "pages/profile/profile.wxml",
+  "pages/profile/profile.wxss",
   "assets/brand/brand-icon.png",
   "assets/contact/author-wechat-qr.jpg",
   "pages/workbench/workbench.wxml",
@@ -218,6 +225,9 @@ const appJs = fs.readFileSync(path.join(root, "app.js"), "utf8");
 const splashJs = fs.readFileSync(path.join(root, "pages/splash/splash.js"), "utf8");
 const splashWxml = fs.readFileSync(path.join(root, "pages/splash/splash.wxml"), "utf8");
 const splashWxss = fs.readFileSync(path.join(root, "pages/splash/splash.wxss"), "utf8");
+const profileJs = fs.readFileSync(path.join(root, "pages/profile/profile.js"), "utf8");
+const profileWxml = fs.readFileSync(path.join(root, "pages/profile/profile.wxml"), "utf8");
+const profileWxss = fs.readFileSync(path.join(root, "pages/profile/profile.wxss"), "utf8");
 const workbenchJs = fs.readFileSync(path.join(root, "pages/workbench/workbench.js"), "utf8");
 const workbenchWxml = fs.readFileSync(path.join(root, "pages/workbench/workbench.wxml"), "utf8");
 const workbenchWxss = fs.readFileSync(path.join(root, "pages/workbench/workbench.wxss"), "utf8");
@@ -341,7 +351,8 @@ if (
   || !adminWxml.includes("生图模型")
   || !adminWxml.includes("人脸识别模型")
   || !adminWxml.includes("视频模型")
-  || !adminWxml.includes("立即检查线上部署")
+  || !adminWxml.includes("检查线上部署")
+  || !adminWxml.includes("一键刷新全部")
   || !adminWxml.includes("部署检查日志")
   || !adminWxml.includes("接口耗时")
   || !adminWxml.includes("云函数处理耗时")
@@ -366,11 +377,14 @@ if (
   !adminWxml.includes("线上运行状态")
   || !adminWxml.includes("模型、积分与成本配置")
   || !adminWxml.includes("更多监控与历史")
-  || (adminWxml.match(/class="quick-launch /g) || []).length !== 4
+  || (adminWxml.match(/class="quick-launch /g) || []).length !== 6
+  || adminWxml.indexOf("quick-face") > adminWxml.indexOf("quick-image")
+  || adminWxml.indexOf("quick-costs") > adminWxml.indexOf("quick-users")
+  || !adminWxss.includes("grid-template-columns: repeat(4, minmax(0, 1fr))")
   || adminWxml.includes('class="console-back"') && adminWxml.includes("<button class=\"console-back\"")
   || !adminQuickLaunchStyle
-  || !/width:\s*0/.test(adminQuickLaunchStyle[1])
-  || !/flex:\s*1/.test(adminQuickLaunchStyle[1])
+  || !/width:\s*100%/.test(adminQuickLaunchStyle[1])
+  || !/height:\s*136rpx/.test(adminQuickLaunchStyle[1])
   || !adminConfigRowStyle
   || !/width:\s*100%/.test(adminConfigRowStyle[1])
   || !adminCloseButtonStyle
@@ -396,7 +410,60 @@ if (
   || !/align-items:\s*center/.test(adminFaceProbeSummaryStyle[1])
   || !/justify-content:\s*center/.test(adminFaceProbeSummaryStyle[1])
 ) {
-  throw new Error("方案9管理页入口均分、全宽卡片或统计内容居中样式不完整。");
+  throw new Error("方案9管理页六入口四列、全宽卡片或统计内容居中样式不完整。");
+}
+if (
+  !appJson.pages.includes("pages/profile/profile")
+  || appJson.pages[0] !== "pages/splash/splash"
+  || splashJs.includes("getMyUserProfile")
+  || workbenchJs.includes("ensureProfileAccess")
+  || !workbenchJs.includes('"/pages/profile/profile?from=checkin"')
+  || !pointsJs.includes('"/pages/profile/profile?from=checkin"')
+  || !workbenchJs.includes("checkProfileAndCheckIn")
+  || !pointsJs.includes("checkProfileAndCheckIn")
+  || !profileWxml.includes('open-type="chooseAvatar"')
+  || !profileWxml.includes('type="nickname"')
+  || !profileWxml.includes('data-gender="male"')
+  || !profileWxml.includes('data-gender="female"')
+  || profileWxml.includes("只用于显示头像昵称和统计男女数量")
+  || !profileWxml.includes("保存并签到")
+  || !profileJs.includes('options.from === "checkin"')
+  || !profileJs.includes('cloud.uploadAsset(this.data.avatarPath, "avatar"')
+  || !profileJs.includes("cloud.saveMyUserProfile")
+  || !profileJs.includes("cloud.checkIn()")
+  || !profileWxss.includes(".gender-grid")
+  || !clientCloudJs.includes('action: "getMyUserProfile"')
+  || !clientCloudJs.includes('action: "saveMyUserProfile"')
+  || !clientCloudJs.includes('action: "getAdminUserStats"')
+  || !cloudJs.includes('USER_PROFILE_COLLECTION = "user_profiles"')
+  || !cloudJs.includes('REPAIR_ASSET_KINDS = new Set(["main", "mask", "face", "wardrobe", "avatar"])')
+  || !cloudJs.includes("getMyUserProfile")
+  || !cloudJs.includes("saveMyUserProfile")
+  || !cloudJs.includes("getAdminUserStats")
+  || !fs.existsSync(path.join(root, "scripts/user-profile-smoke.js"))
+) {
+  throw new Error("签到资料页、头像昵称性别保存、用户统计或隐私限制不完整。");
+}
+if (
+  !adminJs.includes("face: {")
+  || !adminJs.includes("buildCostTrend")
+  || !adminJs.includes("formatUserStats")
+  || !adminJs.includes("buildEntryHealth")
+  || !adminJs.includes("refreshAll")
+  || !adminJs.includes("copyModelFailure")
+  || !adminJs.includes("copyAutoFaceFailure")
+  || !adminWxml.includes("最近7天成本")
+  || !adminWxml.includes("总用户")
+  || !adminWxml.includes("男性")
+  || !adminWxml.includes("女性")
+  || !adminWxml.includes("继续加载20条")
+  || !adminWxml.includes("复制错误")
+  || !adminWxss.includes(".cost-chart")
+  || !adminWxss.includes(".admin-user-list")
+  || !adminWxss.includes(".quick-launch.is-abnormal")
+  || !adminWxss.includes(".copy-error-button")
+) {
+  throw new Error("人脸配置、用户统计、成本趋势、异常变红、一键刷新或复制错误不完整。");
 }
 if (
   !clientCloudJs.includes('action: "getModelUsageStats"')

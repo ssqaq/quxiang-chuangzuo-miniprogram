@@ -1,8 +1,7 @@
 <view class="profile-page">
   <view class="profile-header">
     <image class="profile-brand" src="/assets/brand/brand-icon.png" mode="aspectFit"></image>
-    <view class="profile-title">先完善用户资料</view>
-    <view class="profile-subtitle">只用于显示头像昵称和统计男女数量，填完才能进入创作工作台。</view>
+    <view class="profile-title">{{fromCheckIn ? '签到前完善资料' : '完善用户资料'}}</view>
   </view>
 
   <view wx:if="{{loading}}" class="profile-loading">正在读取资料...</view>
@@ -69,7 +68,7 @@
       loading="{{saving}}"
       disabled="{{saving}}"
     >
-      {{saving ? '正在保存...' : '保存并进入工作台'}}
+      {{saving ? '正在保存...' : (fromCheckIn ? '保存并签到' : '保存')}}
     </button>
     <button wx:if="{{errorMessage && !saving}}" class="profile-retry-button" bindtap="loadProfile">
       重新读取

@@ -256,6 +256,15 @@ function emptyCostTrend() {
   };
 }
 
+function buildTodayFailureText(usageStats, moduleStates) {
+  const state = moduleStates && moduleStates.usage;
+  if (state && state.status === "loading") return "读取中";
+  if (state && state.status === "failed") return "读取失败";
+  const usage = usageStats || emptyUsageStats();
+  const today = usage.today || emptyUsageCounter();
+  return `${Number(today.failure) || 0} 个失败`;
+}
+
 const ADMIN_MODULE_KEYS = [
   "usage",
   "users",
@@ -1077,6 +1086,7 @@ Page({
   data: {
     appVersion: config.appVersion,
     loading: true,
+    canRetry: false,
     saving: false,
     checking: false,
     refreshingAll: false,
@@ -1099,6 +1109,7 @@ Page({
     autoFaceProbe: emptyAutoFaceProbe(),
     autoFaceProbeHistory: emptyAutoFaceProbeHistory(),
     moduleStates: emptyAdminModuleStates(),
+    todayFailureText: "读取中",
     probeHistoryLoading: false,
     dashboardStatus: emptyDashboardStatus(),
     faceConfigSummary: emptyFaceConfigSummary(),
@@ -1161,7 +1172,8 @@ Page({
         autoFaceFailureStats,
         userStats,
         moduleStates
-      )
+      ),
+      todayFailureText: buildTodayFailureText(usageStats, moduleStates)
     };
   },
 
@@ -1325,11 +1337,24 @@ Page({
         loading: false,
         isAdmin: false,
         canRetry: true,
+        moduleStates: emptyAdminModuleStates(),
+        todayFailureText: "读取失败",
         message: "云端未连接，无法读取管理员配置。"
       });
       return;
     }
-    this.setData({ loading: true, canRetry: false, message: "" });
+    this.setData({
+      loading: true,
+      isAdmin: false,
+      canRetry: false,
+      moduleStates: emptyAdminModuleStates(),
+      usageLoading: false,
+      userStatsLoading: false,
+      autoFaceFailureLoading: false,
+      probeHistoryLoading: false,
+      todayFailureText: "读取中",
+      message: ""
+    });
     try {
       const status = await withTimeout(
         cloud.getAdminStatus(),
@@ -1392,112 +1417,73 @@ Page({
 
   async refreshModelUsage() {
     if (this.data.usageLoading) return;
-    this.setData({ usageLoading: true });
-    try {
-      const result = await cloud.getModelUsageStats(30);
-      const usageStats = formatUsageStats(result);
-      this.setData({
-        usageLoading: false,
+    const result = await this.loadAdminModule(
+      this._adminLoadToken || 0,
+      "usage",
+      () => cloud.getModelUsageStats(30),
+      formatUsageStats,
+      (usageStats) => ({
         usageStats,
-        costTrend: buildCostTrend(usageStats),
-        dashboardStatus: buildDashboardStatus(
-          this.data.effective,
-          usageStats,
-          this.data.autoFaceProbe,
-          this.data.autoFaceProbeHistory
-        ),
-        entryHealth: buildEntryHealth(
-          this.data.effective,
-          usageStats,
-          this.data.autoFaceProbe,
-          this.data.autoFaceProbeHistory,
-          this.data.autoFaceFailureStats,
-          this.data.userStats
-        )
-      });
+        costTrend: buildCostTrend(usageStats)
+      }),
+      {
+        label: "模型用量和成本",
+        loadingKey: "usageLoading"
+      }
+    );
+    if (result.stale) return;
+    if (result.ok) {
       wx.showToast({ title: "统计已刷新", icon: "success" });
-    } catch (error) {
-      this.setData({
-        usageLoading: false,
-        "usageStats.unavailable": true,
-        "usageStats.message": "统计读取失败，请稍后重试。"
-      });
-      diagnosticLog.error("admin", "usage-refresh-failed", "模型用量统计刷新失败", { error });
-      this.showError("统计刷新失败", error);
+    } else {
+      this.showError("统计刷新失败", result.error || new Error("统计读取失败，请稍后重试。"));
     }
   },
 
   async refreshAutoFaceFailureStats() {
     if (this.data.autoFaceFailureLoading) return;
-    this.setData({ autoFaceFailureLoading: true });
-    try {
-      const result = await cloud.getAutoFaceFailureStats();
-      this.setData({
-        autoFaceFailureLoading: false,
-        autoFaceFailureStats: formatAutoFaceFailureStats(result),
-        entryHealth: buildEntryHealth(
-          this.data.effective,
-          this.data.usageStats,
-          this.data.autoFaceProbe,
-          this.data.autoFaceProbeHistory,
-          formatAutoFaceFailureStats(result),
-          this.data.userStats
-        )
-      });
+    const result = await this.loadAdminModule(
+      this._adminLoadToken || 0,
+      "autoFaceFailure",
+      () => cloud.getAutoFaceFailureStats(),
+      formatAutoFaceFailureStats,
+      (autoFaceFailureStats) => ({ autoFaceFailureStats }),
+      {
+        label: "自动贴脸失败统计",
+        loadingKey: "autoFaceFailureLoading"
+      }
+    );
+    if (result.stale) return;
+    if (result.ok) {
       wx.showToast({ title: "失败统计已刷新", icon: "success" });
-    } catch (error) {
-      this.setData({
-        autoFaceFailureLoading: false,
-        "autoFaceFailureStats.unavailable": true,
-        "autoFaceFailureStats.message": "统计读取失败，请稍后重试。"
-      });
-      diagnosticLog.error(
-        "admin",
-        "auto-face-failure-refresh-failed",
-        "自动贴脸失败统计刷新失败",
-        { error }
+    } else {
+      this.showError(
+        "失败统计刷新失败",
+        result.error || new Error("统计读取失败，请稍后重试。")
       );
-      this.showError("失败统计刷新失败", error);
     }
   },
 
   async refreshAutoFaceProbeHistory() {
-    try {
-      const result = await cloud.getAutoFaceProbeHistory();
-      const autoFaceProbeHistory = formatAutoFaceProbeHistory(result);
-      this.setData({
-        autoFaceProbeHistory,
-        dashboardStatus: buildDashboardStatus(
-          this.data.effective,
-          this.data.usageStats,
-          this.data.autoFaceProbe,
-          autoFaceProbeHistory
-        ),
-        faceConfigSummary: buildFaceConfigSummary(
-          this.data.effective,
-          this.data.autoFaceProbe,
-          autoFaceProbeHistory
-        ),
-        analysisConfigSummary: buildAnalysisConfigSummary(this.data.effective),
-        entryHealth: buildEntryHealth(
-          this.data.effective,
-          this.data.usageStats,
-          this.data.autoFaceProbe,
-          autoFaceProbeHistory,
-          this.data.autoFaceFailureStats,
-          this.data.userStats
-        )
-      });
+    if (this.data.probeHistoryLoading) return;
+    const result = await this.loadAdminModule(
+      this._adminLoadToken || 0,
+      "probeHistory",
+      () => cloud.getAutoFaceProbeHistory(),
+      formatAutoFaceProbeHistory,
+      (autoFaceProbeHistory) => ({ autoFaceProbeHistory }),
+      {
+        label: "探针历史",
+        loadingKey: "probeHistoryLoading"
+      }
+    );
+    if (result.stale) return;
+    if (result.ok) {
       wx.showToast({ title: "探针历史已刷新", icon: "success" });
-    } catch (error) {
-      this.setData({
-        "autoFaceProbeHistory.unavailable": true,
-        "autoFaceProbeHistory.message": "探针历史读取失败，请稍后重试。"
-      });
-      diagnosticLog.error("admin", "auto-face-probe-history-refresh-failed", "探针历史刷新失败", {
-        error
-      });
-      this.showError("探针历史刷新失败", error);
+    } else {
+      this.showError(
+        "探针历史刷新失败",
+        result.error || new Error("探针历史读取失败，请稍后重试。")
+      );
     }
   },
 
@@ -1505,45 +1491,26 @@ Page({
     if (this.data.userStatsLoading) return;
     const offset = reset ? 0 : this.data.userStats.nextOffset;
     if (!reset && (offset === null || offset === undefined)) return;
-    this.setData({ userStatsLoading: true });
-    try {
-      const result = await cloud.getAdminUserStats(offset || 0, 20);
-      const userStats = formatUserStats(
-        result,
-        reset ? [] : this.data.userStats.users
+    const previousUsers = reset ? [] : this.data.userStats.users;
+    const result = await this.loadAdminModule(
+      this._adminLoadToken || 0,
+      "users",
+      () => cloud.getAdminUserStats(offset || 0, 20),
+      (rawResult) => formatUserStats(rawResult, previousUsers),
+      (userStats) => ({ userStats }),
+      {
+        label: "用户统计",
+        loadingKey: "userStatsLoading"
+      }
+    );
+    if (result.stale) return;
+    if (result.ok && reset) {
+      wx.showToast({ title: "用户统计已刷新", icon: "success" });
+    } else if (!result.ok) {
+      this.showError(
+        "用户统计刷新失败",
+        result.error || new Error("用户统计读取失败，请稍后重试。")
       );
-      this.setData({
-        userStatsLoading: false,
-        userStats,
-        entryHealth: buildEntryHealth(
-          this.data.effective,
-          this.data.usageStats,
-          this.data.autoFaceProbe,
-          this.data.autoFaceProbeHistory,
-          this.data.autoFaceFailureStats,
-          userStats
-        )
-      });
-      if (reset) wx.showToast({ title: "用户统计已刷新", icon: "success" });
-    } catch (error) {
-      const userStats = Object.assign({}, this.data.userStats, {
-        unavailable: true,
-        message: "用户统计读取失败，请稍后重试。"
-      });
-      this.setData({
-        userStatsLoading: false,
-        userStats,
-        entryHealth: buildEntryHealth(
-          this.data.effective,
-          this.data.usageStats,
-          this.data.autoFaceProbe,
-          this.data.autoFaceProbeHistory,
-          this.data.autoFaceFailureStats,
-          userStats
-        )
-      });
-      diagnosticLog.error("admin", "user-stats-refresh-failed", "用户统计刷新失败", { error });
-      this.showError("用户统计刷新失败", error);
     }
   },
 
@@ -1583,91 +1550,113 @@ Page({
 
   async refreshAll() {
     if (this.data.refreshingAll) return;
-    this.setData({ refreshingAll: true, message: "正在刷新全部数据..." });
-    const run = async (name, task) => {
-      try {
-        return { name, ok: true, value: await task() };
-      } catch (error) {
-        return { name, ok: false, error };
-      }
-    };
-    const parts = await Promise.all([
-      run("模型配置", () => cloud.getAdminConfig()),
-      run("用户统计", () => cloud.getAdminUserStats(0, 20)),
-      run("模型用量和成本", () => cloud.getModelUsageStats(30)),
-      run("自动贴脸失败统计", () => cloud.getAutoFaceFailureStats()),
-      run("探针历史", () => cloud.getAutoFaceProbeHistory()),
-      run("部署日志", () => cloud.listDeploymentLogs())
-    ]);
-    const patch = {};
-    const failed = [];
-    parts.forEach((part) => {
-      if (!part.ok) {
-        failed.push(part.name);
-        diagnosticLog.warn("admin", "refresh-all-part-failed", `${part.name}刷新失败`, {
-          error: part.error
-        });
-        return;
-      }
-      if (part.name === "模型配置") {
-        patch.form = formFromConfig(part.value);
-        patch.defaults = part.value.defaults || null;
-        patch.effective = part.value.effective || null;
-      } else if (part.name === "用户统计") {
-        patch.userStats = formatUserStats(part.value);
-      } else if (part.name === "模型用量和成本") {
-        patch.usageStats = formatUsageStats(part.value);
-        patch.costTrend = buildCostTrend(patch.usageStats);
-      } else if (part.name === "自动贴脸失败统计") {
-        patch.autoFaceFailureStats = formatAutoFaceFailureStats(part.value);
-      } else if (part.name === "探针历史") {
-        patch.autoFaceProbeHistory = formatAutoFaceProbeHistory(part.value);
-      } else if (part.name === "部署日志") {
-        patch.logs = (part.value.logs || []).map(displayLog);
-      }
+    const token = (this._adminLoadToken || 0) + 1;
+    this._adminLoadToken = token;
+    const loadingStates = loadingAdminModuleStates(this.data.moduleStates);
+    this.setData({
+      refreshingAll: true,
+      message: "正在刷新全部数据...",
+      moduleStates: loadingStates,
+      usageLoading: true,
+      userStatsLoading: true,
+      autoFaceFailureLoading: true,
+      probeHistoryLoading: true,
+      todayFailureText: "读取中"
     });
-    const effective = patch.effective || this.data.effective;
-    const usageStats = patch.usageStats || this.data.usageStats;
-    const userStats = failed.includes("用户统计")
-      ? Object.assign({}, this.data.userStats, {
-        unavailable: true,
-        message: "用户统计本次刷新失败。"
-      })
-      : patch.userStats || this.data.userStats;
-    const autoFaceFailureStats = patch.autoFaceFailureStats || this.data.autoFaceFailureStats;
-    const autoFaceProbeHistory = patch.autoFaceProbeHistory || this.data.autoFaceProbeHistory;
-    if (failed.includes("模型用量和成本")) {
-      patch.usageStats = Object.assign({}, usageStats, {
-        unavailable: true,
-        message: "模型用量和成本本次刷新失败。"
-      });
+
+    const configTask = (async () => {
+      try {
+        const result = await withTimeout(
+          cloud.getAdminConfig({ retryLimit: 1 }),
+          10000,
+          "管理员配置"
+        );
+        if (!this.isCurrentAdminLoad(token) || !this.data.isAdmin) {
+          return { ok: false, stale: true };
+        }
+        const patch = {
+          form: formFromConfig(result),
+          defaults: result.defaults || null,
+          effective: result.effective || null
+        };
+        Object.assign(patch, this.buildAdminDerivedPatch(patch, this.data.moduleStates));
+        this.setData(patch);
+        return { ok: true };
+      } catch (error) {
+        diagnosticLog.warn("admin", "refresh-all-part-failed", "模型配置刷新失败", { error });
+        return { ok: false, error };
+      }
+    })();
+
+    const moduleTasks = [
+      this.loadAdminModule(
+        token,
+        "usage",
+        () => cloud.getModelUsageStats(30),
+        formatUsageStats,
+        (usageStats) => ({ usageStats, costTrend: buildCostTrend(usageStats) }),
+        { label: "模型用量和成本", loadingKey: "usageLoading" }
+      ),
+      this.loadAdminModule(
+        token,
+        "users",
+        () => cloud.getAdminUserStats(0, 20),
+        formatUserStats,
+        (userStats) => ({ userStats }),
+        { label: "用户统计", loadingKey: "userStatsLoading" }
+      ),
+      this.loadAdminModule(
+        token,
+        "autoFaceFailure",
+        () => cloud.getAutoFaceFailureStats(),
+        formatAutoFaceFailureStats,
+        (autoFaceFailureStats) => ({ autoFaceFailureStats }),
+        { label: "自动贴脸失败统计", loadingKey: "autoFaceFailureLoading" }
+      ),
+      this.loadAdminModule(
+        token,
+        "probeHistory",
+        () => cloud.getAutoFaceProbeHistory(),
+        formatAutoFaceProbeHistory,
+        (autoFaceProbeHistory) => ({ autoFaceProbeHistory }),
+        { label: "探针历史", loadingKey: "probeHistoryLoading" }
+      ),
+      this.loadAdminModule(
+        token,
+        "logs",
+        () => cloud.listDeploymentLogs(),
+        (result) => result || {},
+        (result) => ({ logs: (result.logs || []).map(displayLog) }),
+        { label: "部署日志" }
+      )
+    ];
+    const [configResult, ...parts] = await Promise.all([configTask, ...moduleTasks]);
+    if (
+      !this.isCurrentAdminLoad(token)
+      || configResult.stale
+      || parts.some((part) => part && part.stale)
+    ) {
+      return;
     }
-    patch.userStats = userStats;
-    patch.dashboardStatus = buildDashboardStatus(
-      effective,
-      patch.usageStats || usageStats,
-      this.data.autoFaceProbe,
-      autoFaceProbeHistory
-    );
-    patch.faceConfigSummary = buildFaceConfigSummary(
-      effective,
-      this.data.autoFaceProbe,
-      autoFaceProbeHistory
-    );
-    patch.analysisConfigSummary = buildAnalysisConfigSummary(effective);
-    patch.entryHealth = buildEntryHealth(
-      effective,
-      patch.usageStats || usageStats,
-      this.data.autoFaceProbe,
-      autoFaceProbeHistory,
-      autoFaceFailureStats,
-      userStats
-    );
-    patch.refreshingAll = false;
-    patch.message = failed.length
-      ? `刷新完成；失败项：${failed.join("、")}`
-      : "全部数据已刷新。";
-    this.setData(patch);
+    const failed = [];
+    if (!configResult.ok) failed.push("模型配置");
+    parts.forEach((part, index) => {
+      if (!part || part.ok) return;
+      const labels = [
+        "模型用量和成本",
+        "用户统计",
+        "自动贴脸失败统计",
+        "探针历史",
+        "部署日志"
+      ];
+      failed.push(labels[index]);
+    });
+    this.setData({
+      refreshingAll: false,
+      message: failed.length
+        ? `刷新完成；失败项：${failed.join("、")}`
+        : "全部数据已刷新。"
+    });
     wx.showToast({
       title: failed.length ? `${failed.length}项失败` : "全部已刷新",
       icon: failed.length ? "none" : "success"
@@ -1777,32 +1766,14 @@ Page({
     try {
       const result = await cloud.saveAdminConfig(formToConfig(this.data.form));
       const effective = result.effective || null;
-      this.setData({
+      const patch = {
         form: formFromConfig(result),
         effective,
         saving: false,
-        dashboardStatus: buildDashboardStatus(
-          effective,
-          this.data.usageStats,
-          this.data.autoFaceProbe,
-          this.data.autoFaceProbeHistory
-        ),
-        faceConfigSummary: buildFaceConfigSummary(
-          effective,
-          this.data.autoFaceProbe,
-          this.data.autoFaceProbeHistory
-        ),
-        analysisConfigSummary: buildAnalysisConfigSummary(effective),
-        entryHealth: buildEntryHealth(
-          effective,
-          this.data.usageStats,
-          this.data.autoFaceProbe,
-          this.data.autoFaceProbeHistory,
-          this.data.autoFaceFailureStats,
-          this.data.userStats
-        ),
         message: `配置已保存，第 ${result.version || 0} 版`
-      });
+      };
+      Object.assign(patch, this.buildAdminDerivedPatch(patch, this.data.moduleStates));
+      this.setData(patch);
       diagnosticLog.info("admin", "config-saved", "管理员配置保存完成", {
         version: result.version || 0
       });

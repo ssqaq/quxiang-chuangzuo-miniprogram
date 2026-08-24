@@ -25,10 +25,10 @@ async function main() {
   }, { OPENID: "probe-admin" });
   assert.strictEqual(probeResult.ok, true);
   assert.strictEqual(probeResult.historyWritten, true);
-  assert.strictEqual(probeResult.buildVersion, "0.28.3");
+  assert.strictEqual(probeResult.buildVersion, "0.28.4");
   assert.strictEqual(
     probeResult.buildMarker,
-    "API_BUILD_TAG_20260824_BACKGROUND_REFERENCE_V283"
+    "API_BUILD_TAG_20260824_ANALYSIS_MODEL_V284"
   );
   assert.ok(Number.isInteger(probeResult.durationMs));
   assert.ok(probeResult.durationMs >= 0);

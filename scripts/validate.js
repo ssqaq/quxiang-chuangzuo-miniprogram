@@ -43,6 +43,7 @@ const jsFiles = [
   "pages/photo-to-video/photo-to-video.js",
   "pages/points/points.js",
   "pages/admin/admin.js",
+  "scripts/admin-loading-smoke.js",
   "pages/index/index.js",
   "pages/records/records.js",
   "pages/repair/repair.js",
@@ -178,6 +179,7 @@ const required = [
   "pages/admin/admin.json",
   "pages/admin/admin.wxml",
   "pages/admin/admin.wxss",
+  "scripts/admin-loading-smoke.js",
   "pages/index/index.wxml",
   "pages/index/index.wxss",
   "utils/canvas-gesture.js",
@@ -343,7 +345,7 @@ if (
 if (
   !appJson.pages.includes("pages/admin/admin")
   || !adminJs.includes("cloud.getAdminStatus()")
-  || !adminJs.includes("cloud.getAdminConfig()")
+  || !adminJs.includes("cloud.getAdminConfig")
   || !adminJs.includes("cloud.saveAdminConfig")
   || !adminJs.includes("cloud.checkDeployment()")
   || !adminJs.includes("cloud.listDeploymentLogs()")

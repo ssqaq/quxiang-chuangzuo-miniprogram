@@ -148,18 +148,19 @@
       <view class="enhancement-group-title">相机质感</view>
       <view class="enhancement-list">
         <view class="enhancement-row">
-          <view>
+          <view class="enhancement-row-copy">
             <view class="enhancement-title">固定相机颗粒</view>
             <view class="enhancement-description">使用稳定的轻微颗粒，避免彩色噪点</view>
           </view>
+          <view class="enhancement-side-note">增加自然颗粒</view>
           <switch checked="{{cameraNoise}}" color="#1f6feb" data-key="cameraNoise" bindchange="toggleAdvanced"></switch>
         </view>
         <view class="strength-row">
           <view class="strength-head">
             <text class="option-label">颗粒强度</text>
-            <text class="quality-value">{{cameraNoiseStrength}}</text>
+            <text class="quality-value">{{cameraNoiseStrengthPreview}}</text>
           </view>
-          <slider value="{{cameraNoiseStrength}}" min="1" max="5" step="0.1" activeColor="#1f6feb" backgroundColor="#dfe7f3" block-size="22" data-key="cameraNoiseStrength" bindchanging="changeAdvancedStrength" bindchange="changeAdvancedStrength"></slider>
+          <slider value="{{cameraNoiseStrength}}" min="1" max="5" step="0.1" activeColor="#1f6feb" backgroundColor="#dfe7f3" block-size="22" data-key="cameraNoiseStrength" bindchanging="previewAdvancedStrength" bindchange="commitAdvancedStrength"></slider>
         </view>
       </view>
     </view>
@@ -168,18 +169,19 @@
       <view class="enhancement-group-title">高级画面处理</view>
       <view class="enhancement-list">
         <view class="enhancement-row">
-          <view>
+          <view class="enhancement-row-copy">
             <view class="enhancement-title">频域扰动</view>
             <view class="enhancement-description">轻微改变高频细节，尽量不影响整体画面</view>
           </view>
+          <view class="enhancement-side-note">改变细节频率</view>
           <switch checked="{{frequencyPerturb}}" color="#1f6feb" data-key="frequencyPerturb" bindchange="toggleAdvanced"></switch>
         </view>
         <view class="strength-row">
           <view class="strength-head">
             <text class="option-label">扰动强度</text>
-            <text class="quality-value">{{frequencyStrength}}</text>
+            <text class="quality-value">{{frequencyStrengthPreview}}</text>
           </view>
-          <slider value="{{frequencyStrength}}" min="1" max="5" step="0.1" activeColor="#1f6feb" backgroundColor="#dfe7f3" block-size="22" data-key="frequencyStrength" bindchanging="changeAdvancedStrength" bindchange="changeAdvancedStrength"></slider>
+          <slider value="{{frequencyStrength}}" min="1" max="5" step="0.1" activeColor="#1f6feb" backgroundColor="#dfe7f3" block-size="22" data-key="frequencyStrength" bindchanging="previewAdvancedStrength" bindchange="commitAdvancedStrength"></slider>
         </view>
         <view class="enhancement-row">
           <view>
@@ -189,18 +191,19 @@
           <switch checked="{{resamplePerturb}}" color="#1f6feb" data-key="resamplePerturb" bindchange="toggleAdvanced"></switch>
         </view>
         <view class="enhancement-row">
-          <view>
+          <view class="enhancement-row-copy">
             <view class="enhancement-title">可见标记淡化</view>
             <view class="enhancement-description">仅尝试淡化可见标记，不保证移除不可见溯源或AI来源标识</view>
           </view>
+          <view class="enhancement-side-note">只把图片上肉眼能看到的水印、文字或标记变淡一点。</view>
           <switch checked="{{removeVisibleMarks}}" color="#1f6feb" data-key="removeVisibleMarks" bindchange="toggleAdvanced"></switch>
         </view>
         <view class="strength-row">
           <view class="strength-head">
             <text class="option-label">淡化强度</text>
-            <text class="quality-value">{{watermarkStrength}}</text>
+            <text class="quality-value">{{watermarkStrengthPreview}}</text>
           </view>
-          <slider value="{{watermarkStrength}}" min="1" max="5" step="1" activeColor="#1f6feb" backgroundColor="#dfe7f3" block-size="22" data-key="watermarkStrength" bindchanging="changeAdvancedStrength" bindchange="changeAdvancedStrength"></slider>
+          <slider value="{{watermarkStrength}}" min="1" max="5" step="0.1" activeColor="#1f6feb" backgroundColor="#dfe7f3" block-size="22" data-key="watermarkStrength" bindchanging="previewAdvancedStrength" bindchange="commitAdvancedStrength"></slider>
         </view>
       </view>
     </view>

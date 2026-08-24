@@ -108,9 +108,24 @@ assert.ok(
   "频域扰动滑块没有使用连续步进。"
 );
 assert.ok(
-  pageWxml.includes("bindchanging=\"changeAdvancedStrength\"")
-    && pageJs.includes("Math.round(value * 10) / 10"),
+  pageWxml.includes("bindchanging=\"previewAdvancedStrength\"")
+    && pageWxml.includes("bindchange=\"commitAdvancedStrength\"")
+    && pageJs.includes("previewAdvancedStrength")
+    && pageJs.includes("commitAdvancedStrength"),
   "高级强度滑块没有复用顺滑拖动更新逻辑。"
+);
+[
+  "增加自然颗粒",
+  "改变细节频率",
+  "只把图片上肉眼能看到的水印、文字或标记变淡一点。"
+].forEach((marker) => {
+  assert.ok(pageWxml.includes(marker), `页面缺少右侧说明：${marker}`);
+});
+assert.ok(
+  pageWxml.includes(
+    'value="{{watermarkStrength}}" min="1" max="5" step="0.1"'
+  ),
+  "淡化强度滑块没有使用连续步进。"
 );
 assert.ok(
   !pageWxml.includes("高级处理后再导出照片"),

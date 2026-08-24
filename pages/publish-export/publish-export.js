@@ -65,10 +65,13 @@ Page({
     sharpen: true,
     cameraNoise: true,
     cameraNoiseStrength: 3,
+    cameraNoiseStrengthPreview: 3,
     frequencyPerturb: true,
     frequencyStrength: 3,
+    frequencyStrengthPreview: 3,
     removeVisibleMarks: false,
     watermarkStrength: 1,
+    watermarkStrengthPreview: 1,
     resamplePerturb: true,
     archiveRecords: [],
     deviceRecords: [],
@@ -166,7 +169,7 @@ Page({
     });
   },
 
-  changeAdvancedStrength(event = {}) {
+  getAdvancedStrengthValue(event = {}) {
     const key = event.currentTarget
       && event.currentTarget.dataset
       && event.currentTarget.dataset.key;
@@ -174,14 +177,32 @@ Page({
     if (
       !["cameraNoiseStrength", "frequencyStrength", "watermarkStrength"].includes(key)
       || !Number.isFinite(value)
-    ) return;
-    const smooth = key === "cameraNoiseStrength" || key === "frequencyStrength";
-    const nextValue = smooth
-      ? Math.max(1, Math.min(5, Math.round(value * 10) / 10))
-      : Math.max(1, Math.min(5, Math.round(value)));
-    if (this.data[key] === nextValue) return;
+    ) return null;
+    return {
+      key,
+      previewKey: `${key}Preview`,
+      value: Math.max(1, Math.min(5, Math.round(value * 10) / 10))
+    };
+  },
+
+  previewAdvancedStrength(event = {}) {
+    const update = this.getAdvancedStrengthValue(event);
+    if (!update || this.data[update.previewKey] === update.value) return;
     this.setData({
-      [key]: nextValue
+      [update.previewKey]: update.value
+    });
+  },
+
+  commitAdvancedStrength(event = {}) {
+    const update = this.getAdvancedStrengthValue(event);
+    if (!update) return;
+    if (
+      this.data[update.key] === update.value
+      && this.data[update.previewKey] === update.value
+    ) return;
+    this.setData({
+      [update.key]: update.value,
+      [update.previewKey]: update.value
     });
   },
 

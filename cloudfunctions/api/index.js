@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.35.9";
-const API_BUILD_MARKER = "API_BUILD_TAG_20260824_QR_NATIVE_PREVIEW_V359";
+const API_BUILD_VERSION = "0.35.10";
+const API_BUILD_MARKER = "API_BUILD_TAG_20260824_REMOVE_ADMIN_IDENTITY_V3510";
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
 const cloud = require("wx-server-sdk");
@@ -3809,18 +3809,12 @@ function adminConfigView(configs, runtime, metadata = {}) {
 }
 
 async function getAdminStatus(context) {
-  const openid = getOpenId(context);
-  const identityHash = usageUserHash(openid);
   const isAdmin = isAdminContext(context);
   log("info", "admin.status", {
-    isAdmin,
-    openidConfigured: openid !== "anonymous",
-    identityHash
+    isAdmin
   });
   return jsonResponse(true, {
-    isAdmin,
-    openidConfigured: openid !== "anonymous",
-    identityHash
+    isAdmin
   });
 }
 

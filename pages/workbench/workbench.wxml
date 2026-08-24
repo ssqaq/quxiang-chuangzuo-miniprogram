@@ -241,8 +241,6 @@
 
   <view class="workbench-footer">
     <view>局部创作，整体可控</view>
-    <view bindtap="onTapVersionFooter">
-      版本 {{appVersion}} · {{cloudReady ? '云端已连接' : '本地预览模式'}}
-    </view>
+    <view>版本 {{appVersion}} · {{cloudReady ? '云端已连接' : '本地预览模式'}}</view>
   </view>
 </view>

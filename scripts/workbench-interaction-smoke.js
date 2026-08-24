@@ -197,22 +197,6 @@ async function main() {
   let checkInCalls = 0;
   let resolveCheckIn = null;
   cloudService.isCloudReady = () => true;
-  cloudService.getAdminStatus = () => Promise.resolve({
-    isAdmin: false,
-    identityHash: "123456789abc"
-  });
-  await page.refreshAdminAccess();
-  assert.strictEqual(page.data.adminVisible, false);
-  assert.strictEqual(page.data.adminIdentityHash, "123456789abc");
-  for (let index = 0; index < 5; index += 1) {
-    page.onTapVersionFooter();
-  }
-  assert.ok(events.some((item) => (
-    item.type === "modal"
-    && item.options.title === "管理员识别码"
-    && item.options.content.includes("123456789abc")
-  )));
-
   cloudService.getMyUserProfile = () => Promise.resolve({ completed: true });
   cloudService.checkIn = () => {
     checkInCalls += 1;

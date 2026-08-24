@@ -2210,15 +2210,21 @@ Page({
       );
       if (!this.isCurrentAdminLoad(token)) return;
       if (!status || !status.isAdmin) {
+        const identityHash = String(status && status.identityHash || "").trim();
+        const message = identityHash
+          ? `当前账号没有管理员权限。请把识别码 ${identityHash} 加入 ADMIN_OPENIDS，保存云函数环境变量后重新编译。`
+          : "当前账号没有管理员权限。";
         this.setData({
           loading: false,
           isAdmin: false,
           canRetry: false,
-          message: "当前账号没有管理员权限。"
+          message
         });
         wx.showModal({
           title: "无权访问",
-          content: "当前微信账号不在管理员白名单中。",
+          content: identityHash
+            ? `当前账号不在白名单中。\n识别码：${identityHash}\n请把识别码加入 ADMIN_OPENIDS 后重试。`
+            : "当前微信账号不在管理员白名单中。",
           showCancel: false,
           success: () => wx.reLaunch({ url: "/pages/workbench/workbench" })
         });

@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.35.24";
-const API_BUILD_MARKER = "API_BUILD_TAG_20260824_ADMIN_SPACING_V3524";
+const API_BUILD_VERSION = "0.35.25";
+const API_BUILD_MARKER = "API_BUILD_TAG_20260824_ADMIN_IDENTITY_V3525";
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
 const cloud = require("wx-server-sdk");
@@ -4879,12 +4879,15 @@ function adminConfigView(configs, runtime, metadata = {}) {
 }
 
 async function getAdminStatus(context) {
+  const openid = getOpenId(context);
   const isAdmin = isAdminContext(context);
   log("info", "admin.status", {
     isAdmin
   });
   return jsonResponse(true, {
-    isAdmin
+    isAdmin,
+    // 不返回原始 OpenID，只返回可用于白名单匹配的不可逆识别码。
+    identityHash: openid === "anonymous" ? "" : usageUserHash(openid)
   });
 }
 

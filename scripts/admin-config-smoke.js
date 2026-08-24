@@ -94,10 +94,7 @@ api.main({
 }, { OPENID: "admin-openid-001" }).then((result) => {
   assert.strictEqual(result.ok, true);
   assert.strictEqual(result.isAdmin, true);
-  assert.strictEqual(
-    Object.prototype.hasOwnProperty.call(result, "identityHash"),
-    false
-  );
+  assert.strictEqual(result.identityHash, test.usageUserHash("admin-openid-001"));
   return api.main({
     action: "getAdminConfig",
     requestId: "admin-smoke-config"

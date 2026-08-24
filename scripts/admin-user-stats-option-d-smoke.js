@@ -86,4 +86,18 @@ assert.ok(
   "旧的拥挤排版仍残留在用户统计区。"
 );
 
+const narrowScreenStyles = wxss.slice(wxss.indexOf("@media (max-width: 360px)"));
+assert.ok(
+  /\.user-stats-d-head\s*\{[^}]*flex-direction:\s*column;/s.test(narrowScreenStyles),
+  "窄屏时用户统计标题和操作按钮没有改成上下排列。"
+);
+assert.ok(
+  /\.user-stats-d-actions\s*\{[^}]*width:\s*100%;/s.test(narrowScreenStyles),
+  "窄屏时刷新、导出按钮区域没有占满一行。"
+);
+assert.ok(
+  /\.user-stats-d-action\s*\{[^}]*flex:\s*1;[^}]*min-width:\s*0;/s.test(narrowScreenStyles),
+  "窄屏时刷新、导出按钮没有安全平分宽度。"
+);
+
 console.log("admin user stats option D smoke: OK");

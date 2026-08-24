@@ -1,8 +1,8 @@
 <view class="page publish-export-page">
   <view class="card publish-export-intro">
-    <view class="section-title">降低AI识别率再导出照片</view>
+    <view class="section-title">高级处理后再导出照片</view>
     <view class="section-subtitle">
-      让图片更不容易被判成AI生成，再另存到手机相册
+      小图优先在手机处理，大图或失败时经你确认后使用云端
     </view>
   </view>
 
@@ -102,6 +102,21 @@
       </view>
     </view>
 
+    <view class="option-line">
+      <view class="option-label">最长边</view>
+      <view class="choice-list">
+        <button
+          wx:for="{{sizeOptions}}"
+          wx:key="value"
+          class="choice-button {{maxEdge === item.value ? 'choice-button-active' : ''}}"
+          data-max-edge="{{item.value}}"
+          bindtap="changeMaxEdge"
+        >
+          {{item.label}}
+        </button>
+      </view>
+    </view>
+
     <view wx:if="{{format === 'jpg'}}" class="quality-line">
       <view class="quality-head">
         <text class="option-label">JPG 品质</text>
@@ -120,42 +135,91 @@
       ></slider>
     </view>
 
-    <view class="enhancement-list">
-      <view class="enhancement-row">
-        <view>
-          <view class="enhancement-title">基础色彩校正</view>
-          <view class="enhancement-description">轻微提亮对比度和饱和度</view>
+    <view class="enhancement-group">
+      <view class="enhancement-group-title">画面处理</view>
+      <view class="enhancement-list">
+        <view class="enhancement-row">
+          <view>
+            <view class="enhancement-title">基础色彩校正</view>
+            <view class="enhancement-description">轻微提亮对比度和饱和度</view>
+          </view>
+          <switch checked="{{colorCorrect}}" color="#1f6feb" data-key="colorCorrect" bindchange="toggleEnhancement"></switch>
         </view>
-        <switch
-          checked="{{colorCorrect}}"
-          color="#1f6feb"
-          data-key="colorCorrect"
-          bindchange="toggleEnhancement"
-        ></switch>
+        <view class="enhancement-row">
+          <view>
+            <view class="enhancement-title">轻度降噪</view>
+            <view class="enhancement-description">尽量压住重新导出后的细碎噪点</view>
+          </view>
+          <switch checked="{{denoise}}" color="#1f6feb" data-key="denoise" bindchange="toggleEnhancement"></switch>
+        </view>
+        <view class="enhancement-row">
+          <view>
+            <view class="enhancement-title">清晰补偿</view>
+            <view class="enhancement-description">轻微加强边缘对比，避免过度锐化</view>
+          </view>
+          <switch checked="{{sharpen}}" color="#1f6feb" data-key="sharpen" bindchange="toggleEnhancement"></switch>
+        </view>
       </view>
-      <view class="enhancement-row">
-        <view>
-          <view class="enhancement-title">轻度降噪</view>
-          <view class="enhancement-description">尽量压住重新导出后的细碎噪点</view>
+    </view>
+
+    <view class="enhancement-group">
+      <view class="enhancement-group-title">相机质感</view>
+      <view class="enhancement-list">
+        <view class="enhancement-row">
+          <view>
+            <view class="enhancement-title">固定相机颗粒</view>
+            <view class="enhancement-description">使用稳定的轻微颗粒，避免彩色噪点</view>
+          </view>
+          <switch checked="{{cameraNoise}}" color="#1f6feb" data-key="cameraNoise" bindchange="toggleAdvanced"></switch>
         </view>
-        <switch
-          checked="{{denoise}}"
-          color="#1f6feb"
-          data-key="denoise"
-          bindchange="toggleEnhancement"
-        ></switch>
+        <view class="strength-row">
+          <view class="strength-head">
+            <text class="option-label">颗粒强度</text>
+            <text class="quality-value">{{cameraNoiseStrength}}</text>
+          </view>
+          <slider value="{{cameraNoiseStrength}}" min="1" max="5" step="1" activeColor="#1f6feb" backgroundColor="#dfe7f3" block-size="22" data-key="cameraNoiseStrength" bindchanging="changeAdvancedStrength" bindchange="changeAdvancedStrength"></slider>
+        </view>
       </view>
-      <view class="enhancement-row">
-        <view>
-          <view class="enhancement-title">清晰补偿</view>
-          <view class="enhancement-description">轻微加强边缘对比，避免过度锐化</view>
+    </view>
+
+    <view class="enhancement-group">
+      <view class="enhancement-group-title">高级画面处理</view>
+      <view class="enhancement-list">
+        <view class="enhancement-row">
+          <view>
+            <view class="enhancement-title">频域扰动</view>
+            <view class="enhancement-description">轻微改变高频细节，尽量不影响整体画面</view>
+          </view>
+          <switch checked="{{frequencyPerturb}}" color="#1f6feb" data-key="frequencyPerturb" bindchange="toggleAdvanced"></switch>
         </view>
-        <switch
-          checked="{{sharpen}}"
-          color="#1f6feb"
-          data-key="sharpen"
-          bindchange="toggleEnhancement"
-        ></switch>
+        <view class="strength-row">
+          <view class="strength-head">
+            <text class="option-label">扰动强度</text>
+            <text class="quality-value">{{frequencyStrength}}</text>
+          </view>
+          <slider value="{{frequencyStrength}}" min="1" max="5" step="1" activeColor="#1f6feb" backgroundColor="#dfe7f3" block-size="22" data-key="frequencyStrength" bindchanging="changeAdvancedStrength" bindchange="changeAdvancedStrength"></slider>
+        </view>
+        <view class="enhancement-row">
+          <view>
+            <view class="enhancement-title">反向重采样</view>
+            <view class="enhancement-description">轻微扰动像素网格，保持输出尺寸不变</view>
+          </view>
+          <switch checked="{{resamplePerturb}}" color="#1f6feb" data-key="resamplePerturb" bindchange="toggleAdvanced"></switch>
+        </view>
+        <view class="enhancement-row">
+          <view>
+            <view class="enhancement-title">可见标记淡化</view>
+            <view class="enhancement-description">仅尝试淡化可见标记，不保证移除不可见溯源或AI来源标识</view>
+          </view>
+          <switch checked="{{removeVisibleMarks}}" color="#1f6feb" data-key="removeVisibleMarks" bindchange="toggleAdvanced"></switch>
+        </view>
+        <view class="strength-row">
+          <view class="strength-head">
+            <text class="option-label">淡化强度</text>
+            <text class="quality-value">{{watermarkStrength}}</text>
+          </view>
+          <slider value="{{watermarkStrength}}" min="1" max="5" step="1" activeColor="#1f6feb" backgroundColor="#dfe7f3" block-size="22" data-key="watermarkStrength" bindchanging="changeAdvancedStrength" bindchange="changeAdvancedStrength"></slider>
+        </view>
       </view>
     </view>
 

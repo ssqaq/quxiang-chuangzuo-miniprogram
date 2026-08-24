@@ -325,12 +325,13 @@ function prepareAssetUpload(kind, filePath, options = {}) {
   });
 }
 
-function registerAsset(ticket, fileID, kind) {
+function registerAsset(ticket, fileID, kind, options = {}) {
   return callApi({
     action: "registerAsset",
     ticketId: ticket && (ticket.ticketId || ticket.id) || "",
     fileID,
-    kind
+    kind,
+    temporary: Boolean(options.temporary)
   });
 }
 
@@ -387,12 +388,24 @@ async function uploadAsset(filePath, kind, options = {}) {
   if (!uploaded || !uploaded.fileID) {
     throw new Error("素材上传完成但没有返回 fileID。");
   }
-  const registered = await registerAsset(ticket, uploaded.fileID, kind);
+  const registered = await registerAsset(ticket, uploaded.fileID, kind, options);
   return Object.assign({}, uploaded, registered && registered.asset ? {
     asset: registered.asset
   } : {}, {
     ticketId: ticket.ticketId || ticket.id || "",
     kind
+  });
+}
+
+function publishExport(payload = {}) {
+  return callApi({
+    action: "publishExport",
+    recordId: payload.recordId || "",
+    fileID: payload.fileID || "",
+    temporaryInput: Boolean(payload.temporaryInput),
+    options: payload.options && typeof payload.options === "object"
+      ? payload.options
+      : {}
   });
 }
 
@@ -531,6 +544,7 @@ module.exports = {
   uploadAsset,
   prepareAssetUpload,
   registerAsset,
+  publishExport,
   registerPhotoToVideoTempAsset,
   registerPhotoToVideoRecord,
   markPhotoToVideoSessionActive,

@@ -283,6 +283,35 @@ slider {
   border-top: 1rpx solid #edf0f5;
 }
 
+.enhancement-group {
+  margin-top: 24rpx;
+}
+
+.enhancement-group-title {
+  color: #25344d;
+  font-size: 25rpx;
+  font-weight: 700;
+}
+
+.strength-row {
+  padding: 12rpx 0 6rpx;
+  border-bottom: 1rpx solid #f0f2f6;
+}
+
+.strength-row:last-child {
+  border-bottom: 0;
+}
+
+.strength-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.strength-head .option-label {
+  width: auto;
+}
+
 .enhancement-row {
   display: flex;
   min-height: 86rpx;
@@ -310,10 +339,12 @@ slider {
 
 .export-button {
   display: flex;
-  width: 100% !important;
+  width: 52% !important;
   height: 82rpx;
   min-height: 82rpx;
   margin-top: 22rpx;
+  margin-left: auto;
+  margin-right: auto;
   padding: 0;
   max-width: none;
   align-items: center;
@@ -327,10 +358,12 @@ slider {
 
 .back-button {
   display: flex;
-  width: 100% !important;
+  width: 52% !important;
   height: 82rpx;
   min-height: 82rpx;
   margin-top: 14rpx;
+  margin-left: auto;
+  margin-right: auto;
   padding: 0;
   max-width: none;
   align-items: center;

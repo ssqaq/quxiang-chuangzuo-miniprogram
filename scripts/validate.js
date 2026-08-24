@@ -1052,7 +1052,10 @@ if (
   || !publishExportJs.includes("publishExport.resolveImageSource")
   || !publishExportJs.includes("publishExport.renderToTempFile")
   || !publishExportJs.includes("publishExport.saveToAlbum")
-  || !publishExportWxml.includes("降低AI识别率再导出照片")
+  || (
+    !publishExportWxml.includes("降低AI识别率再导出照片")
+    && !publishExportWxml.includes("高级处理后再导出照片")
+  )
   || !publishExportWxml.includes("1. 导入照片")
   || !publishExportWxml.includes("从手机相册选择照片导入")
   || !publishExportWxml.includes("选择照片")
@@ -1106,6 +1109,18 @@ if (
   ))
 ) {
   throw new Error("照片转实况图底部两个按钮没有和降低AI痕迹页面统一尺寸、字号、间距或上下居中规则。");
+}
+if (
+  getCssProperty(publishExportButtonRule, "width") !== "52% !important"
+  || getCssProperty(photoToVideoButtonRule, "width") !== "52% !important"
+  || getCssProperty(publishBackButtonRule, "width") !== "52% !important"
+  || getCssProperty(photoBackButtonRule, "width") !== "52% !important"
+  || getCssProperty(publishExportButtonRule, "margin-left") !== "auto"
+  || getCssProperty(photoToVideoButtonRule, "margin-left") !== "auto"
+  || getCssProperty(publishBackButtonRule, "margin-left") !== "auto"
+  || getCssProperty(photoBackButtonRule, "margin-left") !== "auto"
+) {
+  throw new Error("底部按钮宽度没有按截图3收窄到52%并居中。");
 }
 const publishScopeButtonStyle = publishExportWxss.match(
   /\.scope-button\s*\{([^}]*)\}/

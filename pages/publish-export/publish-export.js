@@ -1,6 +1,7 @@
 const cloud = require("../../services/cloud");
 const storage = require("../../utils/storage");
 const publishExport = require("../../utils/publish-export");
+const publishExportCore = require("../../utils/publish-export-core");
 const diagnosticLog = require("../../utils/diagnostic-log");
 
 const SCOPE_OPTIONS = [
@@ -11,6 +12,12 @@ const SCOPE_OPTIONS = [
 const FORMAT_OPTIONS = [
   { value: "jpg", label: "JPG" },
   { value: "png", label: "PNG" }
+];
+
+const SIZE_OPTIONS = [
+  { value: 1536, label: "1536px" },
+  { value: 2048, label: "2048px" },
+  { value: 4096, label: "4096px" }
 ];
 
 function normalizeRecord(record, index) {
@@ -55,6 +62,7 @@ Page({
   data: {
     scopeOptions: SCOPE_OPTIONS,
     formatOptions: FORMAT_OPTIONS,
+    sizeOptions: SIZE_OPTIONS,
     scope: "latest",
     usingDevicePhotos: false,
     format: "jpg",
@@ -62,7 +70,14 @@ Page({
     quality: publishExport.DEFAULT_QUALITY,
     colorCorrect: true,
     denoise: false,
-    sharpen: false,
+    sharpen: true,
+    cameraNoise: true,
+    cameraNoiseStrength: 3,
+    frequencyPerturb: true,
+    frequencyStrength: 3,
+    removeVisibleMarks: false,
+    watermarkStrength: 1,
+    resamplePerturb: true,
     archiveRecords: [],
     deviceRecords: [],
     records: [],
@@ -73,10 +88,12 @@ Page({
     progressValue: 0,
     progressText: "",
     canvasWidth: 1,
-    canvasHeight: 1
+    canvasHeight: 1,
+    cloudConfirming: false
   },
 
   onShow() {
+    this.cloudConsentGranted = false;
     diagnosticLog.info("export", "page-show", "打开图片导出页面");
     this.loadLocalRecords();
     this.refreshCloudRecords();
@@ -141,6 +158,16 @@ Page({
     this.setData({ format });
   },
 
+  changeMaxEdge(event = {}) {
+    const value = Number(
+      event.currentTarget
+      && event.currentTarget.dataset
+      && event.currentTarget.dataset.maxEdge
+    );
+    if (![1536, 2048, 4096].includes(value)) return;
+    this.setData({ maxEdge: value });
+  },
+
   changeQuality(event = {}) {
     const value = Number(event.detail && event.detail.value);
     if (!value) return;
@@ -152,6 +179,32 @@ Page({
       && event.currentTarget.dataset
       && event.currentTarget.dataset.key;
     if (!["colorCorrect", "denoise", "sharpen"].includes(key)) return;
+    this.setData({
+      [key]: Boolean(event.detail && event.detail.value)
+    });
+  },
+
+  changeAdvancedStrength(event = {}) {
+    const key = event.currentTarget
+      && event.currentTarget.dataset
+      && event.currentTarget.dataset.key;
+    const value = Number(event.detail && event.detail.value);
+    if (
+      !["cameraNoiseStrength", "frequencyStrength", "watermarkStrength"].includes(key)
+      || !Number.isFinite(value)
+    ) return;
+    this.setData({
+      [key]: Math.max(1, Math.min(5, Math.round(value)))
+    });
+  },
+
+  toggleAdvanced(event = {}) {
+    const key = event.currentTarget
+      && event.currentTarget.dataset
+      && event.currentTarget.dataset.key;
+    if (!["cameraNoise", "frequencyPerturb", "removeVisibleMarks", "resamplePerturb"].includes(key)) {
+      return;
+    }
     this.setData({
       [key]: Boolean(event.detail && event.detail.value)
     });
@@ -246,6 +299,84 @@ Page({
     return this.data.records.filter((item) => item.selected);
   },
 
+  getExportOptions() {
+    return publishExportCore.normalizeOptions({
+      format: this.data.format,
+      quality: this.data.quality,
+      maxLongEdge: this.data.maxEdge,
+      colorOptimize: this.data.colorCorrect,
+      gentleSoften: this.data.denoise,
+      gentleSharpen: this.data.sharpen,
+      cameraNoise: this.data.cameraNoise,
+      cameraNoiseStrength: this.data.cameraNoiseStrength,
+      frequencyPerturb: this.data.frequencyPerturb,
+      frequencyStrength: this.data.frequencyStrength,
+      removeVisibleMarks: this.data.removeVisibleMarks,
+      watermarkStrength: this.data.watermarkStrength,
+      resamplePerturb: this.data.resamplePerturb
+    });
+  },
+
+  confirmCloudExport(reason) {
+    if (this.cloudConsentGranted) return Promise.resolve(true);
+    if (this.data.cloudConfirming) return Promise.resolve(false);
+    this.setData({ cloudConfirming: true });
+    return new Promise((resolve) => {
+      wx.showModal({
+        title: "需要云端处理",
+        content: `${reason || "当前图片不适合在手机本地处理。"}\n\n继续后会上传临时文件，原图不会被覆盖。`,
+        confirmText: "继续上传",
+        cancelText: "取消",
+        success: (result) => {
+          const confirmed = Boolean(result && result.confirm);
+          if (confirmed) this.cloudConsentGranted = true;
+          resolve(confirmed);
+        },
+        fail: () => resolve(false),
+        complete: () => this.setData({ cloudConfirming: false })
+      });
+    });
+  },
+
+  async cloudExportRecord(record, sourcePath, options) {
+    if (!cloud.isCloudReady()) {
+      throw new Error("云端处理还没有配置，请先完成 CloudBase 配置。");
+    }
+    const item = record && typeof record === "object" ? record : {};
+    const isArchiveRecord = item.source !== "device" && item.fileID;
+    let uploaded = null;
+    let fileID = isArchiveRecord ? item.fileID : "";
+    try {
+      if (!fileID) {
+        uploaded = await cloud.uploadAsset(sourcePath, "main", {
+          temporary: true,
+          fileName: `${item.projectName || "publish-export"}.${options.format}`
+        });
+        fileID = uploaded && uploaded.fileID;
+      }
+      if (!fileID) throw new Error("上传临时图片后没有拿到 fileID。");
+      const result = await cloud.publishExport({
+        recordId: isArchiveRecord ? item.id : "",
+        fileID,
+        temporaryInput: Boolean(uploaded),
+        options
+      });
+      if (!result || !result.fileID) {
+        throw new Error("云端处理完成但没有返回结果文件。");
+      }
+      return cloud.downloadFile(result.fileID);
+    } catch (error) {
+      if (uploaded && uploaded.fileID) {
+        try {
+          await cloud.deleteFile(uploaded.fileID);
+        } catch (_) {
+          // 云端函数失败时的输入清理由服务端和定期任务兜底。
+        }
+      }
+      throw error;
+    }
+  },
+
   async startExport() {
     if (this.data.processing) return;
     const records = this.getSelectedRecords();
@@ -253,14 +384,10 @@ Page({
       wx.showToast({ title: "先选择要导出的记录", icon: "none" });
       return;
     }
+    const exportOptions = this.getExportOptions();
     diagnosticLog.info("export", "batch-start", "开始批量导出图片", {
       recordCount: records.length,
-      format: this.data.format,
-      maxEdge: this.data.maxEdge,
-      quality: this.data.quality,
-      colorCorrect: this.data.colorCorrect,
-      denoise: this.data.denoise,
-      sharpen: this.data.sharpen
+      options: exportOptions
     });
 
     this.setData({
@@ -282,36 +409,67 @@ Page({
         try {
           const sourcePath = await publishExport.resolveImageSource(record);
           const imageInfo = await publishExport.getImageInfo(sourcePath);
-          const outputSize = publishExport.getOutputSize(
+          const decision = publishExport.getProcessingDecision(
             imageInfo.width,
             imageInfo.height,
-            this.data.maxEdge
+            exportOptions,
+            typeof wx.createWorker === "function"
           );
-          this.setData({
-            canvasWidth: outputSize.width,
-            canvasHeight: outputSize.height
-          });
-          await waitForViewUpdate(this);
-
-          const tempFilePath = await publishExport.renderToTempFile({
-            page: this,
-            canvasId: "publish-export-canvas",
-            sourcePath,
-            width: outputSize.width,
-            height: outputSize.height,
-            format: this.data.format,
-            quality: this.data.quality,
-            colorCorrect: this.data.colorCorrect,
-            denoise: this.data.denoise,
-            sharpen: this.data.sharpen
-          });
+          let tempFilePath;
+          if (decision.mode === "cloud") {
+            const confirmed = await this.confirmCloudExport(decision.reason);
+            if (!confirmed) throw new Error("你取消了云端处理。");
+            this.setData({
+              progressText: `正在云端处理第 ${index + 1} / ${records.length} 张...`
+            });
+            tempFilePath = await this.cloudExportRecord(
+              record,
+              sourcePath,
+              exportOptions
+            );
+          } else {
+            const outputSize = decision.output;
+            this.setData({
+              canvasWidth: outputSize.width,
+              canvasHeight: outputSize.height
+            });
+            await waitForViewUpdate(this);
+            tempFilePath = await publishExport.renderToTempFile({
+              page: this,
+              canvasId: "publish-export-canvas",
+              sourcePath,
+              width: outputSize.width,
+              height: outputSize.height,
+              format: exportOptions.format,
+              quality: exportOptions.quality,
+              options: exportOptions,
+              colorOptimize: exportOptions.colorOptimize,
+              gentleSoften: exportOptions.gentleSoften,
+              gentleSharpen: exportOptions.gentleSharpen,
+              cameraNoise: exportOptions.cameraNoise,
+              cameraNoiseStrength: exportOptions.cameraNoiseStrength,
+              frequencyPerturb: exportOptions.frequencyPerturb,
+              frequencyStrength: exportOptions.frequencyStrength,
+              removeVisibleMarks: exportOptions.removeVisibleMarks,
+              watermarkStrength: exportOptions.watermarkStrength,
+              resamplePerturb: exportOptions.resamplePerturb,
+              useWorker: decision.mode === "local-worker",
+              seed: `${record.id || index}:${exportOptions.format}`,
+              onStage: (stage) => {
+                this.setData({
+                  progressText: `正在处理第 ${index + 1} / ${records.length} 张：${stage}`
+                });
+              }
+            });
+          }
           await publishExport.saveToAlbum(tempFilePath);
           successCount += 1;
           diagnosticLog.info("export", "item-success", "单张图片导出完成", {
             recordId: record.id,
             projectName: record.projectName,
-            format: this.data.format,
-            outputSize
+            format: exportOptions.format,
+            outputSize: decision.output,
+            mode: decision.mode
           });
         } catch (error) {
           console.warn("[publish-export] 单张导出失败", record.id, error);

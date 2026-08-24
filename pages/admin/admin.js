@@ -387,12 +387,18 @@ function moduleStateLabel(status) {
   return "未读取";
 }
 
-function createModuleState(status = "idle", hasData = false, message = "") {
+function createModuleState(
+  status = "idle",
+  hasData = false,
+  message = "",
+  updatedAtText = "尚未更新"
+) {
   return {
     status,
     label: moduleStateLabel(status),
     hasData: Boolean(hasData),
-    message: message || ""
+    message: message || "",
+    updatedAtText: updatedAtText || "尚未更新"
   };
 }
 
@@ -409,19 +415,28 @@ function loadingAdminModuleStates(previous = {}) {
     result[key] = createModuleState(
       "loading",
       Boolean(previousState.hasData),
-      previousState.message || ""
+      previousState.message || "",
+      previousState.updatedAtText || "尚未更新"
     );
     return result;
   }, {});
 }
 
-function updateAdminModuleState(states, key, status, hasData, message = "") {
+function updateAdminModuleState(
+  states,
+  key,
+  status,
+  hasData,
+  message = "",
+  updatedAtText = ""
+) {
   const previous = states && states[key] ? states[key] : createModuleState();
   return Object.assign({}, states || {}, {
     [key]: createModuleState(
       status,
       hasData === undefined ? previous.hasData : hasData,
-      message
+      message,
+      updatedAtText || previous.updatedAtText
     )
   });
 }
@@ -1628,9 +1643,10 @@ Page({
     const loadingStates = updateAdminModuleState(
       currentStates,
       key,
-      "loading",
-      undefined,
-      ""
+        "loading",
+        undefined,
+        "",
+        currentStates[key] && currentStates[key].updatedAtText || "尚未更新"
     );
     const loadingPatch = {
       moduleStates: loadingStates
@@ -1656,7 +1672,8 @@ Page({
         key,
         unavailable ? "failed" : "ready",
         unavailable ? previousState.hasData : true,
-        formatted && formatted.message
+        formatted && formatted.message,
+        formatAdminDate(new Date())
       );
       const patch = {};
       if (!unavailable || !previousState.hasData) {
@@ -1664,13 +1681,13 @@ Page({
       }
       if (options.loadingKey) patch[options.loadingKey] = false;
       patch.moduleStates = nextStates;
+      if (unavailable && MONITOR_SECTION_KEYS.includes(key)) {
+        patch.monitorExpanded = true;
+        patch[`monitorSections.${key}`] = true;
+      }
       Object.assign(patch, this.buildAdminDerivedPatch(patch, nextStates));
       this.setData(patch);
       if (unavailable) {
-        if (MONITOR_SECTION_KEYS.includes(key)) {
-          patch.monitorExpanded = true;
-          patch[`monitorSections.${key}`] = true;
-        }
         diagnosticLog.warn("admin", "module-load-unavailable", `${label}返回不可用状态`, {
           error: formatted && formatted.message
         });
@@ -1692,7 +1709,8 @@ Page({
         key,
         "failed",
         previousState.hasData,
-        message
+        message,
+        formatAdminDate(new Date())
       );
       const patch = {
         moduleStates: nextStates
@@ -2550,7 +2568,7 @@ Page({
   persistMonitorLayout() {
     try {
       wx.setStorageSync(MONITOR_LAYOUT_STORAGE_KEY, {
-        version: 2,
+        version: 3,
         monitorExpanded: Boolean(this.data.monitorExpanded),
         monitorSections: Object.assign({}, this.data.monitorSections),
         usageSections: Object.assign({}, this.data.usageSections),

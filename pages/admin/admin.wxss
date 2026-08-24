@@ -2585,6 +2585,26 @@ page {
   overflow: hidden;
 }
 
+.auto-face-failure-panels {
+  min-width: 0;
+  margin-top: 14rpx;
+}
+
+.auto-face-failure-panel {
+  min-width: 0;
+  border-top: 1rpx solid #edf0f5;
+}
+
+.auto-face-failure-subsection-head {
+  margin-top: 0;
+  padding: 12rpx 0;
+}
+
+.auto-face-failure-panel-body {
+  min-width: 0;
+  padding-bottom: 8rpx;
+}
+
 .auto-face-failure-summary {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -2779,6 +2799,77 @@ page {
   line-height: 26rpx;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.auto-face-failure-daily-list,
+.auto-face-failure-user-list,
+.auto-face-failure-monthly-list {
+  margin-top: 8rpx;
+}
+
+.auto-face-failure-daily-row,
+.auto-face-failure-user-row,
+.auto-face-failure-monthly-row {
+  min-width: 0;
+  padding: 14rpx 0;
+  border-bottom: 1rpx solid #edf0f5;
+}
+
+.auto-face-failure-daily-row:last-child,
+.auto-face-failure-user-row:last-child,
+.auto-face-failure-monthly-row:last-child {
+  border-bottom: 0;
+}
+
+.auto-face-failure-daily-top,
+.auto-face-failure-monthly-top,
+.auto-face-failure-user-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+}
+
+.auto-face-failure-daily-top text:first-child,
+.auto-face-failure-monthly-top text:first-child,
+.auto-face-failure-user-name {
+  min-width: 0;
+  overflow: hidden;
+  color: #334258;
+  font-size: 21rpx;
+  font-weight: 700;
+  line-height: 30rpx;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.auto-face-failure-daily-top text:last-child,
+.auto-face-failure-monthly-top text:last-child,
+.auto-face-failure-user-count {
+  flex: none;
+  color: #b43e4b;
+  font-size: 20rpx;
+  font-weight: 700;
+  line-height: 28rpx;
+}
+
+.auto-face-failure-daily-meta,
+.auto-face-failure-monthly-meta,
+.auto-face-failure-user-meta {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 6rpx 16rpx;
+  margin-top: 5rpx;
+  color: #7a879a;
+  font-size: 18rpx;
+  line-height: 28rpx;
+}
+
+.auto-face-failure-user-main {
+  min-width: 0;
+  flex: 1;
 }
 
 .usage-subsection-title {

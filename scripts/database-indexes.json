@@ -1,0 +1,157 @@
+{
+  "version": 1,
+  "indexes": [
+    {
+      "collection": "auto_face_failure_logs",
+      "name": "idx_created_at_desc",
+      "keys": [
+        {
+          "name": "createdAt",
+          "direction": -1
+        }
+      ],
+      "unique": false,
+      "reason": "按创建时间清理过期日志并读取最近失败记录"
+    },
+    {
+      "collection": "photo_to_video_temp_assets",
+      "name": "idx_session_id_asc",
+      "keys": [
+        {
+          "name": "sessionId",
+          "direction": 1
+        }
+      ],
+      "unique": false,
+      "reason": "按照片转视频会话查找临时资源"
+    },
+    {
+      "collection": "photo_to_video_temp_assets",
+      "name": "idx_idle_cleanup_after_asc",
+      "keys": [
+        {
+          "name": "idleCleanupAfter",
+          "direction": 1
+        }
+      ],
+      "unique": false,
+      "reason": "按空闲清理时间查找待清理资源"
+    },
+    {
+      "collection": "photo_to_video_temp_assets",
+      "name": "idx_cleanup_after_asc",
+      "keys": [
+        {
+          "name": "cleanupAfter",
+          "direction": 1
+        }
+      ],
+      "unique": false,
+      "reason": "按兜底清理时间查找待清理资源"
+    },
+    {
+      "collection": "admin_deployment_logs",
+      "name": "idx_checked_at_desc",
+      "keys": [
+        {
+          "name": "checkedAt",
+          "direction": -1
+        }
+      ],
+      "unique": false,
+      "reason": "按检查时间倒序读取最近部署记录"
+    },
+    {
+      "collection": "model_usage_events",
+      "name": "idx_date_key_asc",
+      "keys": [
+        {
+          "name": "dateKey",
+          "direction": 1
+        }
+      ],
+      "unique": false,
+      "reason": "按日期范围读取模型用量事件"
+    },
+    {
+      "collection": "auto_face_probe_logs",
+      "name": "idx_created_at_checked_at",
+      "keys": [
+        {
+          "name": "createdAt",
+          "direction": 1
+        },
+        {
+          "name": "checkedAt",
+          "direction": -1
+        }
+      ],
+      "unique": false,
+      "reason": "按创建时间过滤并按检查时间倒序读取探针历史"
+    },
+    {
+      "collection": "point_ledger",
+      "name": "idx_openid_created_at",
+      "keys": [
+        {
+          "name": "openid",
+          "direction": 1
+        },
+        {
+          "name": "createdAt",
+          "direction": -1
+        }
+      ],
+      "unique": false,
+      "reason": "按用户读取最近积分流水"
+    },
+    {
+      "collection": "generation_records",
+      "name": "idx_openid_request_id",
+      "keys": [
+        {
+          "name": "openid",
+          "direction": 1
+        },
+        {
+          "name": "requestId",
+          "direction": 1
+        }
+      ],
+      "unique": false,
+      "reason": "按用户和请求号查找幂等生成记录"
+    },
+    {
+      "collection": "generation_records",
+      "name": "idx_openid_created_at",
+      "keys": [
+        {
+          "name": "openid",
+          "direction": 1
+        },
+        {
+          "name": "createdAt",
+          "direction": -1
+        }
+      ],
+      "unique": false,
+      "reason": "按用户读取最近生成记录"
+    },
+    {
+      "collection": "generation_records",
+      "name": "idx_openid_parent_record_id",
+      "keys": [
+        {
+          "name": "openid",
+          "direction": 1
+        },
+        {
+          "name": "parentRecordId",
+          "direction": 1
+        }
+      ],
+      "unique": false,
+      "reason": "按用户和父记录查找修复子记录"
+    }
+  ]
+}

@@ -123,6 +123,13 @@ assert.ok(
 assert.strictEqual(stats.today, 2, "今天统计不正确");
 assert.strictEqual(stats.last7d, 28, "近 7 天统计不正确");
 assert.strictEqual(stats.total30d, 30, "近 30 天统计不正确");
+assert.strictEqual(stats.daily.length, 4, "最近 30 天每日统计不正确");
+assert.strictEqual(stats.monthly.length, 2, "按月统计月份数量不正确");
+assert.strictEqual(stats.monthly[0].monthKey, "2026-08", "按月统计排序不正确");
+assert.strictEqual(stats.monthly[0].total, 30, "当月失败数量统计不正确");
+assert.strictEqual(stats.users.length, 1, "按用户统计数量不正确");
+assert.strictEqual(stats.users[0].userHash, "anonymous", "匿名用户统计不正确");
+assert.strictEqual(stats.users[0].total, 31, "用户失败数量统计不正确");
 assert.strictEqual(stats.probeSummary.total, 30, "探针统计总数不正确");
 assert.ok(stats.probeSummary.ok > 0, "探针正常次数统计不正确");
 assert.ok(stats.probeSummary.failed > 0, "探针失败次数统计不正确");
@@ -151,6 +158,7 @@ async function main() {
   assert.strictEqual(reportResult.accepted, true);
   const stored = test.getAutoFaceFailureTestEvents();
   assert.strictEqual(stored.length, 1);
+  assert.strictEqual(stored[0].userHash, test.usageUserHash("normal-user"));
   assert.ok(!Object.prototype.hasOwnProperty.call(stored[0], "prompt"));
   assert.ok(!Object.prototype.hasOwnProperty.call(stored[0], "fileID"));
 
@@ -166,6 +174,9 @@ async function main() {
   assert.strictEqual(adminStats.ok, true);
   assert.ok(Array.isArray(adminStats.byType));
   assert.ok(Array.isArray(adminStats.recent));
+  assert.ok(Array.isArray(adminStats.daily));
+  assert.ok(Array.isArray(adminStats.monthly));
+  assert.ok(Array.isArray(adminStats.users));
 
   console.log("auto face failure stats smoke: OK");
   console.log(JSON.stringify({

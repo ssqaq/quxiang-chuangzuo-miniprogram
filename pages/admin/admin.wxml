@@ -455,6 +455,46 @@
               aria-label="查看{{item.label}}注册用户"
             >{{item.label}}</view>
           </view>
+          <view wx:if="{{userDateRange === 'custom'}}" class="user-custom-date-row">
+            <picker
+              class="user-custom-date-picker"
+              mode="date"
+              value="{{userCustomStartDate}}"
+              end="{{userTodayKey}}"
+              bindchange="onUserCustomStartChange"
+            >
+              <view class="user-custom-date-value">
+                <text>开始日期</text>
+                <text>{{userCustomStartDate}}</text>
+              </view>
+            </picker>
+            <text class="user-custom-date-separator">至</text>
+            <picker
+              class="user-custom-date-picker"
+              mode="date"
+              value="{{userCustomEndDate}}"
+              end="{{userTodayKey}}"
+              bindchange="onUserCustomEndChange"
+            >
+              <view class="user-custom-date-value">
+                <text>结束日期</text>
+                <text>{{userCustomEndDate}}</text>
+              </view>
+            </picker>
+          </view>
+          <view class="user-stats-filter-label">用户性别</view>
+          <view class="user-stats-gender-filter">
+            <view
+              wx:for="{{userGenders}}"
+              wx:key="value"
+              class="user-stats-gender-option {{userGender === item.value ? 'is-active' : ''}}"
+              data-gender="{{item.value}}"
+              bindtap="selectUserGender"
+              hover-class="control-tap"
+              role="button"
+              aria-label="只看{{item.label}}用户"
+            >{{item.label}}</view>
+          </view>
         </view>
         <view class="user-stats-d-state-row">
           <view class="config-state {{moduleStates.users.status === 'failed' ? 'is-off' : 'is-ready'}}">
@@ -1160,46 +1200,6 @@
               class="diagnostic-admin-filter-chip {{diagnosticLevel === item.value ? 'is-active' : ''}}"
               data-level="{{item.value}}"
               bindtap="selectDiagnosticLevel"
-            >{{item.label}}</view>
-          </view>
-          <view wx:if="{{userDateRange === 'custom'}}" class="user-custom-date-row">
-            <picker
-              class="user-custom-date-picker"
-              mode="date"
-              value="{{userCustomStartDate}}"
-              end="{{userTodayKey}}"
-              bindchange="onUserCustomStartChange"
-            >
-              <view class="user-custom-date-value">
-                <text>开始日期</text>
-                <text>{{userCustomStartDate}}</text>
-              </view>
-            </picker>
-            <text class="user-custom-date-separator">至</text>
-            <picker
-              class="user-custom-date-picker"
-              mode="date"
-              value="{{userCustomEndDate}}"
-              end="{{userTodayKey}}"
-              bindchange="onUserCustomEndChange"
-            >
-              <view class="user-custom-date-value">
-                <text>结束日期</text>
-                <text>{{userCustomEndDate}}</text>
-              </view>
-            </picker>
-          </view>
-          <view class="user-stats-filter-label">用户性别</view>
-          <view class="user-stats-gender-filter">
-            <view
-              wx:for="{{userGenders}}"
-              wx:key="value"
-              class="user-stats-gender-option {{userGender === item.value ? 'is-active' : ''}}"
-              data-gender="{{item.value}}"
-              bindtap="selectUserGender"
-              hover-class="control-tap"
-              role="button"
-              aria-label="只看{{item.label}}用户"
             >{{item.label}}</view>
           </view>
         </view>

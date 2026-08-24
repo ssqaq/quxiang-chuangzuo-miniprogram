@@ -144,6 +144,7 @@ def main() -> None:
         "scripts/analysis-cost-probe-smoke.js",
         "scripts/admin-user-stats-option-d-smoke.js",
         "scripts/admin-user-filter-trend-smoke.js",
+        "scripts/admin-user-gender-custom-date-detail-smoke.js",
         "RELEASE-MANIFEST.txt",
     }
     with ZipFile(output) as archive:

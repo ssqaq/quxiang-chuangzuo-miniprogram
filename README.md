@@ -136,6 +136,27 @@ imageCompression: {
 
 云函数目录里的 `package.json` 会自动安装 `wx-server-sdk`。
 
+媒体解析功能使用独立云函数，不和主 `api` 云函数混在一起：
+
+```text
+右键 cloudfunctions/watermark-gateway
+→ 上传并部署：云端安装依赖
+```
+
+然后只在 `watermark-gateway` 云函数控制台配置：
+
+```text
+WATERMARK_PROVIDER=zhuceka
+ZHUCEKA_API_BASE=https://api.zhuceka.cn/home/api
+ZHUCEKA_UID=你的接口 UID
+ZHUCEKA_KEY=你的接口 Key
+ZHUCEKA_TIMEOUT_MS=20000
+```
+
+UID、Key 不能写进源码、README、Git 或小程序前端。当前网关会把第三方返回的视频或单张
+图片地址交给小程序预览和保存；如果真机因动态 CDN 域名未加入微信下载白名单而保存失败，
+下一阶段需要由网关先转存到 CloudBase 云存储，再返回自有临时地址。
+
 ### 4. 配置云端自动贴脸
 
 不需要上传本地模型，也不需要配置 WASM 文件。部署 `api` 云函数后，只要在云函数环境变量里配置 `AI_VISION_API_KEY`，自动贴脸就会使用阿里云百炼。

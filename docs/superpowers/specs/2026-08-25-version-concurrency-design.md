@@ -35,7 +35,7 @@
 
 ## 3. 版本组
 
-版本组固定为以下六个文件：
+版本组由当前项目实际存在的发布组件组成。当前版本组为以下七个文件：
 
 ```text
 config.js
@@ -44,6 +44,7 @@ cloudfunctions/api/package.json
 cloudfunctions/api/package-lock.json
 media-worker/package.json
 media-worker/package-lock.json
+cloudfunctions/watermark-gateway/package.json
 ```
 
 只允许修改这些文件中的项目自身版本字段：
@@ -52,6 +53,7 @@ media-worker/package-lock.json
 - `cloudfunctions/api/index.js`：`API_BUILD_VERSION`，同时生成新的构建标记
 - 两个 `package.json`：顶层 `version`
 - 两个 `package-lock.json`：根对象和 `packages[""]` 的 `version`
+- `cloudfunctions/watermark-gateway/package.json`：顶层 `version`
 
 依赖包的版本、业务代码、配置内容和锁文件中的其他字段不得被版本分配逻辑改写。
 
@@ -206,7 +208,7 @@ D:\aips小程序\wechat-miniapp-release-records\release-v版本-提交号.json
 3. 远端抢先提交时，第一次推送失败，第二次尝试读取新基线并生成下一补丁版本；
 4. 本地 `IncludePath` 文件在流程中被修改时，发布停止且原文件内容不变；
 5. 未列入 `IncludePath` 的并发业务文件不会进入提交；
-6. 六个版本组文件最终版本完全一致；
+6. 七个版本组文件最终版本完全一致；
 7. 失败后无残留临时 worktree、预留记录和空 ZIP。
 
 保留并继续执行：

@@ -1,5 +1,6 @@
-<view class="workbench-page">
-  <view class="workbench-hero card">
+<view class="workbench-root">
+  <view class="workbench-page">
+    <view class="workbench-hero card">
     <view class="workbench-brand-row">
       <image
         class="workbench-brand-icon"
@@ -22,44 +23,44 @@
       <view class="welcome-title">今天，想创作什么？</view>
       <view class="welcome-subtitle">先选入口，后面按需补素材。</view>
     </view>
-  </view>
-
-  <view
-    class="card points-entry-card home-feature-card workbench-link-card"
-    bindtap="openPoints"
-    hover-class="workbench-link-card-hover"
-    hover-start-time="0"
-    hover-stay-time="70"
-  >
-    <view class="points-entry-copy">
-      <view class="points-entry-topline">
-        <view class="points-entry-title">{{pointsCopy.cardTitle}}</view>
-        <view class="points-entry-balance">{{points.pointsBalance}} {{pointsCopy.pointsUnit}}</view>
-      </view>
-      <view class="points-entry-subtitle">
-        {{pointsCopy.streakPrefix}} {{points.streakDays}} {{pointsCopy.streakSuffix}}
-      </view>
-      <view class="points-entry-track">
-        <view
-          class="points-entry-fill"
-          style="width: {{points.progressPercent}}%;"
-        ></view>
-      </view>
-      <view class="points-entry-foot">
-        <text>{{pointsCopy.streakStatusPrefix}} {{points.currentStreak}} {{pointsCopy.dayUnit}} · {{points.checkedInToday ? pointsCopy.checkedIn : pointsCopy.notCheckedIn}}</text>
-        <text class="points-entry-promo {{points.promoActive ? 'points-entry-promo-active' : ''}}">{{points.promoActive ? points.promoLabel : pointsCopy.freePrefix + ' ' + points.freeRemaining + ' ' + pointsCopy.freeSuffix}}</text>
-      </view>
     </view>
-    <button
-      class="points-checkin-button"
-      catchtap="checkIn"
-      loading="{{checkingIn}}"
-      disabled="{{checkingIn || points.checkedInToday}}"
+
+    <view
+      class="card points-entry-card home-feature-card workbench-link-card"
+      bindtap="openPoints"
+      hover-class="workbench-link-card-hover"
+      hover-start-time="0"
+      hover-stay-time="70"
     >
-      {{points.checkedInToday ? pointsCopy.checkedInButton : pointsCopy.checkIn}}
-    </button>
-    <view class="home-feature-arrow points-entry-arrow">›</view>
-  </view>
+      <view class="points-entry-copy">
+        <view class="points-entry-topline">
+          <view class="points-entry-title">{{pointsCopy.cardTitle}}</view>
+          <view class="points-entry-balance">{{points.pointsBalance}} {{pointsCopy.pointsUnit}}</view>
+        </view>
+        <view class="points-entry-subtitle">
+          {{pointsCopy.streakPrefix}} {{points.streakDays}} {{pointsCopy.streakSuffix}}
+        </view>
+        <view class="points-entry-track">
+          <view
+            class="points-entry-fill"
+            style="width: {{points.progressPercent}}%;"
+          ></view>
+        </view>
+        <view class="points-entry-foot">
+          <text>{{pointsCopy.streakStatusPrefix}} {{points.currentStreak}} {{pointsCopy.dayUnit}} · {{points.checkedInToday ? pointsCopy.checkedIn : pointsCopy.notCheckedIn}}</text>
+          <text class="points-entry-promo {{points.promoActive ? 'points-entry-promo-active' : ''}}">{{points.promoActive ? points.promoLabel : pointsCopy.freePrefix + ' ' + points.freeRemaining + ' ' + pointsCopy.freeSuffix}}</text>
+        </view>
+      </view>
+      <button
+        class="points-checkin-button"
+        catchtap="checkIn"
+        loading="{{checkingIn}}"
+        disabled="{{checkingIn || points.checkedInToday}}"
+      >
+        {{points.checkedInToday ? pointsCopy.checkedInButton : pointsCopy.checkIn}}
+      </button>
+      <view class="home-feature-arrow points-entry-arrow">›</view>
+    </view>
 
   <view class="workbench-feature-stack">
   <view class="common-feature-panel">
@@ -253,11 +254,12 @@
     <view class="home-feature-arrow admin-entry-arrow">›</view>
   </view>
 
-</view>
+    </view>
 
-  <view class="workbench-footer">
-    <view>局部创作，整体可控</view>
-    <view>版本 {{appVersion}} · {{cloudReady ? '云端已连接' : '本地预览模式'}}</view>
+    <view class="workbench-footer">
+      <view>局部创作，整体可控</view>
+      <view>版本 {{appVersion}} · {{cloudReady ? '云端已连接' : '本地预览模式'}}</view>
+    </view>
   </view>
 
   <image-preview

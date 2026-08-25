@@ -79,6 +79,10 @@ Component({
         return;
       }
 
+      // 先用兜底尺寸同步撑开弹窗，避免模拟器或本地资源的
+      // getImageInfo 回调较慢时，弹窗保持 1px 而只剩下遮罩层。
+      this.layoutImage(DEFAULT_WIDTH, DEFAULT_HEIGHT);
+
       const ready = (width, height) => {
         if (token !== this._prepareToken) return;
         this.layoutImage(width, height);

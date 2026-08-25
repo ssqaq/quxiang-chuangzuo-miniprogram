@@ -51,7 +51,7 @@
 }
 
 .input-card {
-  padding: 22rpx;
+  padding: 22rpx 22rpx 122rpx;
 }
 
 .input-card-heading,

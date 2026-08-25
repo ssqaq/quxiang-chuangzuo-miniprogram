@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.40.37";
-const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V04037";
+const API_BUILD_VERSION = "0.40.38";
+const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V04038";
 const DEFAULT_IMAGE_MODE = "edits";
 const IMAGE_EDIT_ERROR_CODES = Object.freeze([
   "image-edit-unsupported",

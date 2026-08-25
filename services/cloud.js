@@ -707,12 +707,23 @@ module.exports = {
   checkDeployment() {
     return callApi({ action: "checkDeployment" });
   },
-  probeModels(modelType = "") {
-    return callApi({
+  probeModels(modelType = "", modelConfig = null) {
+    const data = {
       action: "probeModels",
       modelType: String(modelType || "").trim(),
       retryLimit: 0
-    });
+    };
+    if (modelConfig && typeof modelConfig === "object") data.config = modelConfig;
+    return callApi(data);
+  },
+  listModels(modelType, modelConfig = null) {
+    const data = {
+      action: "listModels",
+      modelType: String(modelType || "").trim(),
+      retryLimit: 0
+    };
+    if (modelConfig && typeof modelConfig === "object") data.config = modelConfig;
+    return callApi(data);
   },
   listDeploymentLogs() {
     return callApi({ action: "listDeploymentLogs" });

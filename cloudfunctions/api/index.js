@@ -1286,7 +1286,7 @@ function resolveFaceConfig(overrides = {}) {
     provider: overrideString(source, "provider", vision.provider),
     baseUrl: overrideString(source, "baseUrl", vision.baseUrl),
     endpoint: overrideString(source, "endpoint", vision.endpoint),
-    apiKey: vision.apiKey,
+    apiKey: overrideString(source, "apiKey", vision.apiKey),
     model,
     faceModel: model,
     timeoutMs: clampNumber(
@@ -1306,7 +1306,7 @@ function resolveAnalysisConfig(overrides = {}) {
     provider: overrideString(source, "provider", vision.provider),
     baseUrl: overrideString(source, "baseUrl", vision.baseUrl),
     endpoint: overrideString(source, "endpoint", vision.endpoint),
-    apiKey: vision.apiKey,
+    apiKey: overrideString(source, "apiKey", vision.apiKey),
     model: overrideString(source, "model", vision.model || "qwen3-vl-flash"),
     timeoutMs: clampNumber(
       hasOwn(source, "timeoutMs") ? source.timeoutMs : vision.timeoutMs,
@@ -1383,7 +1383,7 @@ function resolveImageConfig(overrides = {}) {
       "https://api.openai.com/v1"
     )),
     endpoint: overrideString(image, "endpoint", env("AI_IMAGE_ENDPOINT")),
-    apiKey: firstEnv(["AI_IMAGE_API_KEY", "AI_API_KEY"]),
+    apiKey: overrideString(image, "apiKey", firstEnv(["AI_IMAGE_API_KEY", "AI_API_KEY"])),
     model: overrideString(image, "model", env("AI_IMAGE_MODEL", "gpt-image-2")),
     size: overrideString(image, "size", env("AI_IMAGE_SIZE", "1024x1024")),
     mode,
@@ -1412,7 +1412,7 @@ function resolveVideoConfig(overrides = {}) {
   const provider = overrideString(video, "provider", firstEnv(["AI_VIDEO_PROVIDER"]));
   const baseUrl = overrideString(video, "baseUrl", firstEnv(["AI_VIDEO_BASE_URL"]));
   const endpointValue = overrideString(video, "endpoint", env("AI_VIDEO_ENDPOINT"));
-  const apiKey = firstEnv(["AI_VIDEO_API_KEY", "AI_VIDEO_KEY"]);
+  const apiKey = overrideString(video, "apiKey", firstEnv(["AI_VIDEO_API_KEY", "AI_VIDEO_KEY"]));
   const model = overrideString(video, "model", env("AI_VIDEO_MODEL", "grok-imagine-video-1.5"));
   return {
     provider,
@@ -4375,6 +4375,7 @@ function normalizeRuntimePatch(input = {}) {
     "provider",
     "baseUrl",
     "endpoint",
+    "apiKey",
     "model",
     "timeoutMs"
   ];
@@ -4382,6 +4383,7 @@ function normalizeRuntimePatch(input = {}) {
     "provider",
     "baseUrl",
     "endpoint",
+    "apiKey",
     "model",
     "mode",
     "size",
@@ -4394,6 +4396,7 @@ function normalizeRuntimePatch(input = {}) {
     "baseUrl",
     "endpoint",
     "queryEndpoint",
+    "apiKey",
     "model",
     "createPath",
     "queryPath",
@@ -4695,6 +4698,7 @@ function redactConfig(config, defaults) {
       provider: face.provider || "",
       baseUrl: face.baseUrl || "",
       endpoint: face.endpoint || "",
+      apiKey: face.apiKey || "",
       model: face.faceModel || face.model || "",
       timeoutMs: Number(face.timeoutMs || 0),
       apiKeyConfigured: Boolean(defaults.face && defaults.face.apiKey)
@@ -4703,6 +4707,7 @@ function redactConfig(config, defaults) {
       provider: analysis.provider || "",
       baseUrl: analysis.baseUrl || "",
       endpoint: analysis.endpoint || "",
+      apiKey: analysis.apiKey || "",
       model: analysis.model || "",
       timeoutMs: Number(analysis.timeoutMs || 0),
       apiKeyConfigured: Boolean(defaults.analysis && defaults.analysis.apiKey)
@@ -4711,6 +4716,7 @@ function redactConfig(config, defaults) {
       provider: image.provider || "",
       baseUrl: image.baseUrl || "",
       endpoint: image.endpoint || "",
+      apiKey: image.apiKey || "",
       model: image.model || "",
       mode: image.mode || "",
       size: image.size || "",
@@ -4724,6 +4730,7 @@ function redactConfig(config, defaults) {
       baseUrl: video.baseUrl || "",
       endpoint: video.endpoint || "",
       queryEndpoint: video.queryEndpoint || "",
+      apiKey: video.apiKey || "",
       model: video.model || "",
       createPath: video.createPath || "",
       queryPath: video.queryPath || "",
@@ -5200,22 +5207,25 @@ function listedModelIds(payload) {
         : null;
   if (!data) return null;
   return data
-    .map((item) => item && (item.id || item.model || item.name))
+    .map((item) => typeof item === "string"
+      ? item
+      : item && (item.id || item.model || item.name))
     .filter(Boolean)
     .map((item) => String(item));
 }
 
-async function probeOneModel(type, modelConfig) {
+async function probeOneModel(type, modelConfig, options = {}) {
   const startedAt = Date.now();
   const label = modelUsageTypeLabel(type);
   const config = modelConfig || {};
   const provider = config.provider || "";
   const model = config.model || "";
+  const requireModel = options.requireModel !== false;
   const configured = Boolean(
     config.apiKey
     && provider
     && (config.baseUrl || config.endpoint)
-    && model
+    && (!requireModel || model)
   );
   const base = {
     type,
@@ -5231,7 +5241,12 @@ async function probeOneModel(type, modelConfig) {
     durationMs: 0,
     checkedAt: new Date().toISOString(),
     endpoint: "",
-    message: configured ? "" : "请先填写 Provider、地址、模型，并确认云函数环境变量里有 API Key。"
+    models: [],
+    message: configured
+      ? ""
+      : requireModel
+        ? "请先填写 Provider、地址、模型，并确认管理员配置里有 API Key。"
+        : "请先填写 Provider、地址，并确认管理员配置里有 API Key。"
   };
   if (!configured) return base;
 
@@ -5269,6 +5284,18 @@ async function probeOneModel(type, modelConfig) {
           httpStatus: status,
           durationMs,
           message: "接口可以访问，但返回内容不是标准模型列表，请人工确认兼容方式。"
+        });
+      }
+      if (!requireModel) {
+        return Object.assign(base, {
+          ready: true,
+          reachable: true,
+          status: "ok",
+          statusText: modelProbeStatusText("ok"),
+          httpStatus: status,
+          durationMs,
+          models: ids,
+          message: `接口可访问，已读取 ${ids.length} 个模型。`
         });
       }
       const normalizedModel = String(model).trim().toLowerCase();
@@ -5330,6 +5357,17 @@ function normalizeModelProbeType(value) {
   return MODEL_PROBE_TYPES.includes(type) ? type : "";
 }
 
+function temporaryModelConfig(configs, type, input) {
+  const current = configs && configs[type] ? configs[type] : {};
+  const patch = normalizeRuntimePatch({
+    [type]: input && typeof input === "object" ? input : {}
+  })[type] || {};
+  return Object.assign({}, current, patch, {
+    // 空字符串表示沿用后台已有密钥，避免无意中把可用密钥覆盖掉。
+    apiKey: String(patch.apiKey || "").trim() || current.apiKey || ""
+  });
+}
+
 async function probeModels(event, context) {
   if (!isAdminContext(context)) return adminForbidden();
   const requestedValue = String(event && event.modelType || "").trim();
@@ -5343,7 +5381,12 @@ async function probeModels(event, context) {
   const configs = await resolveEffectiveConfigs();
   const types = requestedType ? [requestedType] : MODEL_PROBE_TYPES;
   const results = await Promise.all(types.map((type) => (
-    probeOneModel(type, configs[type])
+    probeOneModel(
+      type,
+      requestedType && event && event.config
+        ? temporaryModelConfig(configs, type, event.config)
+        : configs[type]
+    )
   )));
   const readyCount = results.filter((item) => item.ready).length;
   return jsonResponse(true, {
@@ -5356,6 +5399,39 @@ async function probeModels(event, context) {
     readyCount,
     total: results.length,
     results
+  });
+}
+
+async function listModels(event, context) {
+  if (!isAdminContext(context)) return adminForbidden();
+  const requestedValue = String(event && event.modelType || "").trim();
+  const requestedType = normalizeModelProbeType(requestedValue);
+  if (!requestedType) {
+    return fail(
+      `不支持读取的模型类型：${requestedValue || "未指定"}`,
+      "invalid-model-type"
+    );
+  }
+  const configs = await resolveEffectiveConfigs();
+  const config = event && event.config
+    ? temporaryModelConfig(configs, requestedType, event.config)
+    : configs[requestedType];
+  const result = await probeOneModel(requestedType, config, { requireModel: false });
+  return jsonResponse(true, {
+    buildVersion: API_BUILD_VERSION,
+    buildMarker: API_BUILD_MARKER,
+    checkedAt: new Date().toISOString(),
+    type: requestedType,
+    typeLabel: result.typeLabel,
+    status: result.status,
+    statusText: result.statusText,
+    ready: result.ready,
+    reachable: result.reachable,
+    httpStatus: result.httpStatus,
+    durationMs: result.durationMs,
+    endpoint: result.endpoint,
+    models: result.models || [],
+    message: result.message || ""
   });
 }
 
@@ -10267,6 +10343,7 @@ exports.main = async (event = {}, context) => {
     else if (action === "saveAdminConfig") result = await saveAdminConfig(requestEvent, context);
     else if (action === "checkDeployment") result = await checkDeployment(requestEvent, context);
     else if (action === "probeModels") result = await probeModels(requestEvent, context);
+    else if (action === "listModels") result = await listModels(requestEvent, context);
     else if (action === "listDeploymentLogs") result = await listDeploymentLogs(context);
     else if (action === "getModelUsageStats") result = await getModelUsageStats(requestEvent, context);
     else if (action === "exportModelUsageStats") result = await exportModelUsageStats(requestEvent, context);
@@ -10515,6 +10592,7 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     probeOneModel,
     normalizeModelProbeType,
     probeModels,
+    listModels,
     listDeploymentLogs
     ,
     exportModelUsageStats,

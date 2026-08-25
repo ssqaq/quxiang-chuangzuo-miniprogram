@@ -189,8 +189,8 @@
   >
     <view class="media-parser-icon">析</view>
     <view class="media-parser-copy">
-      <view class="media-parser-title">媒体解析</view>
-      <view class="media-parser-description">整理本人或已获授权的视频内容</view>
+      <view class="media-parser-title">免费去水印</view>
+      <view class="media-parser-description">版权归平台及作者所有，本程序不储存任何内容</view>
     </view>
     <view class="common-feature-action">打开</view>
     <view class="home-feature-arrow media-parser-arrow">›</view>

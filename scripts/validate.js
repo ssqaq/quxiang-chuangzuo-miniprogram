@@ -1098,7 +1098,7 @@ if (
   || commonFeatureSubtitleCount !== 2
   || !workbenchWxml.includes('class="feature-group-heading service-feature-heading"')
   || workbenchWxml.indexOf("service-feature-heading") > workbenchWxml.indexOf('class="card contact-author-card"')
-  || !workbenchWxml.includes("媒体解析")
+  || !workbenchWxml.includes("免费去水印")
   || !workbenchWxml.includes('bindtap="openMediaParser"')
   || !workbenchJs.includes("openMediaParser()")
   || !workbenchJs.includes('"/pages/watermark-remover/watermark-remover"')

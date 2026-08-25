@@ -1,7 +1,88 @@
 {
   "description": "圈像创作微信小程序",
   "packOptions": {
-    "ignore": [],
+    "ignore": [
+      {
+        "type": "folder",
+        "value": ".superpowers"
+      },
+      {
+        "type": "folder",
+        "value": ".worktrees"
+      },
+      {
+        "type": "folder",
+        "value": ".githooks"
+      },
+      {
+        "type": "folder",
+        "value": "cloudfunctions"
+      },
+      {
+        "type": "folder",
+        "value": "docs"
+      },
+      {
+        "type": "folder",
+        "value": "media-worker"
+      },
+      {
+        "type": "folder",
+        "value": "scripts"
+      },
+      {
+        "type": "glob",
+        "value": "**/node_modules/**"
+      },
+      {
+        "type": "prefix",
+        "value": "_tmp_"
+      },
+      {
+        "type": "prefix",
+        "value": ".tmp-"
+      },
+      {
+        "type": "prefix",
+        "value": ".tmp_"
+      },
+      {
+        "type": "file",
+        "value": ".codex-inspect.js"
+      },
+      {
+        "type": "file",
+        "value": ".gitignore"
+      },
+      {
+        "type": "file",
+        "value": "AGENTS.md"
+      },
+      {
+        "type": "file",
+        "value": "README.md"
+      },
+      {
+        "type": "file",
+        "value": "project.private.config.json"
+      },
+      {
+        "type": "suffix",
+        "value": ".log"
+      },
+      {
+        "type": "suffix",
+        "value": ".zip"
+      },
+      {
+        "type": "suffix",
+        "value": ".tgz"
+      },
+      {
+        "type": "suffix",
+        "value": ".pyc"
+      }
+    ],
     "include": []
   },
   "setting": {

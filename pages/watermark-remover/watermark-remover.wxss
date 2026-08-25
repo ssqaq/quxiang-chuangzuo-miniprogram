@@ -533,6 +533,18 @@
   font-size: 24rpx;
 }
 
+.copywriting-section {
+  margin-top: 16rpx;
+}
+
+.copywriting-label {
+  margin-bottom: 7rpx;
+  color: #6b85a7;
+  font-size: 20rpx;
+  font-weight: 800;
+  line-height: 28rpx;
+}
+
 .copy-button {
   height: 60rpx;
   line-height: 60rpx;
@@ -558,6 +570,34 @@
   color: #8da0b9;
 }
 
+.copywriting-title-body {
+  min-height: 0;
+}
+
+.copywriting-tag-box {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10rpx;
+  min-height: 56rpx;
+  padding: 10rpx 12rpx;
+  box-sizing: border-box;
+  border: 1rpx solid #e0eaf7;
+  border-radius: 13rpx;
+  background: #ffffff;
+}
+
+.copywriting-tag-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36rpx;
+  padding: 0 11rpx;
+  border-radius: 999rpx;
+  color: #4d78ba;
+  background: #edf5ff;
+  font-size: 19rpx;
+  line-height: 36rpx;
+}
+
 .copywriting-footer {
   align-items: flex-start;
   margin-top: 10rpx;
@@ -566,17 +606,9 @@
   line-height: 30rpx;
 }
 
-.copywriting-tags {
-  display: flex;
-  flex: 1;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  margin-left: 12rpx;
-}
-
-.copywriting-tag {
-  margin-left: 10rpx;
-  color: #5f86c7;
+.copywriting-footer text:last-child {
+  margin-left: 14rpx;
+  text-align: right;
 }
 
 .save-button {

@@ -48,32 +48,42 @@ function normalizeCopywritingTags(value) {
 }
 
 function getCopywritingFields(response = {}) {
+  const title = normalizeCopywritingText(
+    response.copywritingTitle || response.title || response.name
+  );
   const candidates = [
-    ["copywriting", response.copywriting],
+    ["copywritingBody", response.copywritingBody],
     ["description", response.description],
     ["desc", response.desc],
     ["caption", response.caption],
     ["content", response.content],
     ["text", response.text],
-    ["title", response.title]
+    ["copywriting", response.copywriting]
   ];
-  let copywriting = "";
+  let body = "";
   let source = "";
   for (const [candidateSource, candidateValue] of candidates) {
     const text = normalizeCopywritingText(candidateValue);
     if (text) {
-      copywriting = text;
+      body = text;
       source = candidateSource;
       break;
     }
   }
+  const copywriting = [title, body && body !== title ? body : ""]
+    .filter(Boolean)
+    .join("\n")
+    .trim()
+    .slice(0, 2000);
   return {
+    copywritingTitle: title,
+    copywritingBody: body,
     copywriting,
     copywritingTags: normalizeCopywritingTags(
       response.copywritingTags || response.hashtags || response.tags
     ),
     copywritingLength: Array.from(copywriting).length,
-    copywritingSource: source
+    copywritingSource: source || (title ? "title" : "")
   };
 }
 
@@ -167,6 +177,12 @@ function invokeGateway(data) {
       fail: reject
     });
   });
+}
+
+function shouldRetryParse(errorCode) {
+  return ["PROVIDER_TIMEOUT", "PROVIDER_FAILED"].includes(
+    String(errorCode || "").trim()
+  );
 }
 
 function downloadUrl(url) {
@@ -265,6 +281,8 @@ Page({
   data: {
     inputText: "",
     parsing: false,
+    retrying: false,
+    retryCount: 0,
     parseStage: 0,
     saving: false,
     status: "idle",
@@ -345,6 +363,8 @@ Page({
 
     this.setData({
       parsing: true,
+      retrying: false,
+      retryCount: 0,
       parseStage: 0,
       status: "parsing",
       errorTitle: "",
@@ -353,11 +373,32 @@ Page({
     });
 
     try {
-      const response = await invokeGateway({
-        action: "parse",
-        text: text.slice(0, MAX_INPUT_LENGTH),
-        requestId: createRequestId()
-      });
+      let response;
+      let retryCount = 0;
+      while (retryCount <= 1) {
+        this.setData({ retrying: retryCount > 0, retryCount });
+        try {
+          response = await invokeGateway({
+            action: "parse",
+            text: text.slice(0, MAX_INPUT_LENGTH),
+            requestId: createRequestId()
+          });
+        } catch (error) {
+          if (retryCount === 0) {
+            retryCount += 1;
+            continue;
+          }
+          throw error;
+        }
+        const errorCode = response && (response.errorCode || response.code);
+        if (response && response.ok !== false) break;
+        if (retryCount === 0 && shouldRetryParse(errorCode)) {
+          retryCount += 1;
+          continue;
+        }
+        break;
+      }
+      this.setData({ retrying: false, retryCount });
       if (!response || response.ok === false) {
         const view = errorView(
           response && (response.errorCode || response.code),
@@ -428,6 +469,7 @@ Page({
       });
       this.setData({
         parsing: false,
+        retrying: false,
         parseStage: 3,
         status: "success",
         result,
@@ -445,7 +487,7 @@ Page({
       this.showError(view.title, view.message, view.code);
     } finally {
       if (this.data.status === "parsing") {
-        this.setData({ parsing: false });
+        this.setData({ parsing: false, retrying: false });
       }
     }
   },
@@ -454,6 +496,7 @@ Page({
     const configurationError = errorCode === "PROVIDER_NOT_CONFIGURED";
     this.setData({
       parsing: false,
+      retrying: false,
       parseStage: 0,
       status: "error",
       errorTitle: title,
@@ -573,6 +616,8 @@ Page({
   resetResult() {
     this.setData({
       status: "idle",
+      retrying: false,
+      retryCount: 0,
       parseStage: 0,
       result: null,
       errorTitle: "",

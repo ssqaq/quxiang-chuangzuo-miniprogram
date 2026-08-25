@@ -70,8 +70,8 @@
     <view class="state-loading-head">
       <view class="state-spinner"></view>
       <view>
-        <view class="state-title">正在整理你的内容</view>
-        <view class="state-text">识别链接、提取媒体并同步整理作品文案。</view>
+        <view class="state-title">{{retrying ? '连接不稳，正在重试' : '正在整理你的内容'}}</view>
+        <view class="state-text">{{retrying ? '第一次请求没有完成，正在自动再试一次。' : '识别链接、提取媒体并同步整理作品文案。'}}</view>
       </view>
     </view>
     <view class="stage-list">
@@ -160,13 +160,26 @@
         </view>
         <button class="copy-button" bindtap="copyCopywriting">复制文案</button>
       </view>
-      <view wx:if="{{result.copywriting}}" class="copywriting-body">{{result.copywriting}}</view>
-      <view wx:else class="copywriting-empty">服务商暂未返回可复制的文案。</view>
+      <view class="copywriting-section">
+        <view class="copywriting-label">标题</view>
+        <view wx:if="{{result.copywritingTitle}}" class="copywriting-body copywriting-title-body">{{result.copywritingTitle}}</view>
+        <view wx:else class="copywriting-empty">未提取到标题。</view>
+      </view>
+      <view class="copywriting-section">
+        <view class="copywriting-label">正文</view>
+        <view wx:if="{{result.copywritingBody}}" class="copywriting-body">{{result.copywritingBody}}</view>
+        <view wx:else class="copywriting-empty">服务商暂未返回正文文案。</view>
+      </view>
+      <view class="copywriting-section">
+        <view class="copywriting-label">标签</view>
+        <view wx:if="{{result.copywritingTags.length}}" class="copywriting-tag-box">
+          <text wx:for="{{result.copywritingTags}}" wx:key="*this" class="copywriting-tag-chip">#{{item}}</text>
+        </view>
+        <view wx:else class="copywriting-empty">暂未提取到标签。</view>
+      </view>
       <view class="copywriting-footer">
         <text>{{result.copywritingLength || 0}} 字</text>
-        <view wx:if="{{result.copywritingTags.length}}" class="copywriting-tags">
-          <text wx:for="{{result.copywritingTags}}" wx:key="*this" class="copywriting-tag">#{{item}}</text>
-        </view>
+        <text>复制按钮会复制标题、正文和标签</text>
       </view>
     </view>
 

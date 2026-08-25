@@ -345,26 +345,37 @@ function normalizeCopywritingTags(value) {
 }
 
 function normalizeCopywritingFields(data = {}) {
-  const candidates = [
-    ["copywriting", data.copywriting],
+  const title = copywritingText(data.copywritingTitle || data.title || data.name);
+  const bodyCandidates = [
+    ["copywritingBody", data.copywritingBody],
     ["description", data.description],
     ["desc", data.desc],
     ["caption", data.caption],
     ["content", data.content],
     ["text", data.text],
-    ["title", data.title]
+    ["copywriting", data.copywriting]
   ];
   let copywriting = "";
   let source = "";
-  for (const [candidateSource, candidateValue] of candidates) {
+  let body = "";
+  let bodySource = "";
+  for (const [candidateSource, candidateValue] of bodyCandidates) {
     const text = copywritingText(candidateValue);
     if (text) {
-      copywriting = text;
-      source = candidateSource;
+      body = text;
+      bodySource = candidateSource;
       break;
     }
   }
+  copywriting = [title, body && body !== title ? body : ""]
+    .filter(Boolean)
+    .join("\n")
+    .trim()
+    .slice(0, 2000);
+  source = bodySource || (title ? "title" : "");
   return {
+    copywritingTitle: title,
+    copywritingBody: body,
     copywriting,
     copywritingTags: normalizeCopywritingTags(
       data.copywritingTags || data.hashtags || data.tags

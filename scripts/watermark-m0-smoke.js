@@ -126,7 +126,9 @@ async function testRealProviderMappings() {
   assert.strictEqual(video.provider, "zhuceka");
   assert.strictEqual(video.contentType, "video");
   assert.strictEqual(video.mediaUrl, "https://cdn.example.com/video.mp4");
-  assert.strictEqual(video.copywriting, "这是服务商返回的真实作品文案。");
+  assert.strictEqual(video.copywritingTitle, "真实视频");
+  assert.strictEqual(video.copywritingBody, "这是服务商返回的真实作品文案。");
+  assert.strictEqual(video.copywriting, "真实视频\n这是服务商返回的真实作品文案。");
   assert.deepStrictEqual(video.copywritingTags, ["旅行", "短视频"]);
   assert.strictEqual(video.copywritingSource, "description");
   assert.strictEqual(video.demo, false);
@@ -325,6 +327,7 @@ function createPageHarness(handler) {
 
 async function testRealPageFlow() {
   let resultType = "video";
+  let parseCalls = 0;
   const harness = createPageHarness((data) => {
     if (data.action === "health") {
       return {
@@ -335,6 +338,7 @@ async function testRealPageFlow() {
         supports: ["video", "image"]
       };
     }
+    parseCalls += 1;
     if (resultType === "video") {
       return {
         ok: true,
@@ -342,7 +346,7 @@ async function testRealPageFlow() {
         platform: "douyin",
         contentType: "video",
         title: "真实视频",
-        copywriting: "这是一段可复制的真实文案。",
+        copywritingBody: "这是一段可复制的真实文案。",
         copywritingTags: ["真实结果"],
         coverUrl: "https://cdn.example.com/cover.jpg",
         mediaUrl: "https://cdn.example.com/video.mp4",
@@ -371,8 +375,10 @@ async function testRealPageFlow() {
   assert.strictEqual(harness.page.data.result.demo, false);
   assert.strictEqual(harness.page.data.result.isReal, true);
   assert.strictEqual(harness.page.data.result.platformLabel, "抖音");
-  assert.strictEqual(harness.page.data.result.copywriting, "这是一段可复制的真实文案。");
-  assert.strictEqual(harness.page.data.result.copywritingLength, 13);
+  assert.strictEqual(harness.page.data.result.copywritingTitle, "真实视频");
+  assert.strictEqual(harness.page.data.result.copywritingBody, "这是一段可复制的真实文案。");
+  assert.strictEqual(harness.page.data.result.copywriting, "真实视频\n这是一段可复制的真实文案。");
+  assert.strictEqual(harness.page.data.result.copywritingLength, 18);
   harness.page.copyCopywriting();
   assert.ok(harness.events.some((item) => item.type === "set-clipboard"));
   await harness.page.saveMedia();
@@ -387,9 +393,39 @@ async function testRealPageFlow() {
   assert.ok(harness.events.some((item) => item.type === "save-image"));
 
   harness.setHandler(() => Promise.reject(new Error("cloud unavailable")));
+  parseCalls = 0;
   await harness.page.parseMedia();
   assert.strictEqual(harness.page.data.status, "error");
   assert.strictEqual(harness.page.data.result, null);
+  assert.strictEqual(parseCalls, 0);
+}
+
+async function testPageRetryOnce() {
+  let parseCalls = 0;
+  const harness = createPageHarness((data) => {
+    if (data.action === "health") {
+      return { ok: true, mode: "real", configured: true };
+    }
+    parseCalls += 1;
+    if (parseCalls === 1) {
+      return { ok: false, errorCode: "PROVIDER_TIMEOUT", message: "第一次超时" };
+    }
+    return {
+      ok: true,
+      contentType: "video",
+      title: "重试成功",
+      copywritingBody: "重试后拿到的正文",
+      mediaUrl: "https://cdn.example.com/retried.mp4",
+      demo: false
+    };
+  });
+  await harness.page.onLoad();
+  harness.page.onInput({ detail: { value: "分享 https://example.com/retry" } });
+  await harness.page.parseMedia();
+  assert.strictEqual(parseCalls, 2);
+  assert.strictEqual(harness.page.data.status, "success");
+  assert.strictEqual(harness.page.data.retryCount, 1);
+  assert.strictEqual(harness.page.data.result.copywritingTitle, "重试成功");
 }
 
 async function testExplicitMockPageFlow() {
@@ -459,6 +495,7 @@ async function main() {
   await testRealProviderFailures();
   testProviderRedirectSafety();
   await testRealPageFlow();
+  await testPageRetryOnce();
   await testExplicitMockPageFlow();
   testPageMarkup();
   console.log("watermark provider smoke: OK");

@@ -6,6 +6,7 @@ const Module = require("module");
 let pageDefinition = null;
 let usageResolve = null;
 let probeFailure = false;
+let probeCallCount = 0;
 
 const baseConfig = {
   effective: {
@@ -50,6 +51,11 @@ const cloudMock = {
   isCloudReady: () => true,
   getAdminStatus: async () => ({ isAdmin: true }),
   getAdminConfig: async () => baseConfig,
+  saveAdminConfig: async () => ({
+    ok: true,
+    effective: baseConfig.effective,
+    version: 2
+  }),
   getModelUsageStats: () => delayedUsage,
   getAdminUserStats: async () => ({
     total: 1,
@@ -86,28 +92,42 @@ const cloudMock = {
     retentionDays: 30
   }),
   listDeploymentLogs: async () => ({ logs: [] }),
-  probeModels: async (modelType, modelConfig) => ({
-    ok: true,
-    results: [{
-      type: modelType,
-      typeLabel: modelType,
-      provider: modelConfig.provider,
-      model: modelConfig.model,
-      ready: !probeFailure,
-      reachable: true,
-      status: probeFailure ? "auth-failed" : "ok",
-      statusText: probeFailure ? "密钥异常" : "正常",
-      httpStatus: probeFailure ? 401 : 200,
-      message: probeFailure
-        ? "接口地址可访问，但 API Key 无效或没有权限。"
-        : "接口可访问，当前模型配置正常。"
-    }]
-  }),
+  probeModels: async (modelType, modelConfig) => {
+    probeCallCount += 1;
+    const types = modelType
+      ? [modelType]
+      : ["face", "analysis", "image", "video"];
+    const labels = {
+      face: "人脸识别",
+      analysis: "图片分析",
+      image: "生图",
+      video: "视频"
+    };
+    return {
+      ok: true,
+      readyCount: probeFailure ? 0 : types.length,
+      total: types.length,
+      results: types.map((type) => ({
+        type,
+        typeLabel: labels[type] || type,
+        provider: modelConfig && modelConfig.provider || `${type}-provider`,
+        model: modelConfig && modelConfig.model || `${type}-model`,
+        ready: !probeFailure,
+        reachable: true,
+        status: probeFailure ? "auth-failed" : "ok",
+        statusText: probeFailure ? "密钥异常" : "正常",
+        httpStatus: probeFailure ? 401 : 200,
+        message: probeFailure
+          ? "接口地址可访问，但 API Key 无效或没有权限。"
+          : "接口可访问，当前模型配置正常。"
+      }))
+    };
+  },
   listModels: async () => ({
     ok: true,
     status: "ok",
-    models: ["model-a", "model-b"],
-    message: "接口可访问，已读取 2 个模型。"
+    models: ["model-10", "model-2", "model-a", "model-b"],
+    message: "接口可访问，已读取 4 个模型。"
   })
 };
 
@@ -229,6 +249,14 @@ async function main() {
   assert.strictEqual(page.data.costTrend.totalCostDisplay, "0.0007");
   assert.strictEqual(page.data.form.face.apiKey, "face-key");
 
+  const probesBeforeSave = probeCallCount;
+  await page.saveConfig();
+  assert.strictEqual(page.data.saving, false);
+  assert.ok(probeCallCount > probesBeforeSave);
+  assert.strictEqual(page.data.modelProbes.readyCount, 4);
+  assert.strictEqual(page.data.modelProbes.total, 4);
+  assert.ok(page.data.message.includes("4/4"));
+
   await page.testModelConnection({
     currentTarget: { dataset: { modelType: "face" } }
   });
@@ -240,6 +268,8 @@ async function main() {
   });
   assert.strictEqual(page.data.modelPickerOpen, true);
   assert.deepStrictEqual(page.data.modelPickerOptions.map((item) => item.value), [
+    "model-2",
+    "model-10",
     "model-a",
     "model-b"
   ]);

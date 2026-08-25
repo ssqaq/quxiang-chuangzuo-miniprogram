@@ -51,6 +51,7 @@ const jsFiles = [
   "pages/admin/admin.js",
   "scripts/admin-loading-smoke.js",
   "scripts/admin-layout-state-smoke.js",
+  "scripts/admin-usage-entry-smoke.js",
   "scripts/admin-responsive-smoke.js",
   "pages/index/index.js",
   "pages/records/records.js",
@@ -200,6 +201,7 @@ const required = [
   "pages/admin/admin.wxss",
   "scripts/admin-loading-smoke.js",
   "scripts/admin-layout-state-smoke.js",
+  "scripts/admin-usage-entry-smoke.js",
   "scripts/admin-responsive-smoke.js",
   "scripts/diagnostic-admin-logs-smoke.js",
   "pages/index/index.wxml",
@@ -595,10 +597,15 @@ if (
   || !adminJs.includes("onModelPickerSearchInput")
   || !adminJs.includes("filterModelOptions")
   || !adminJs.includes("formatModelConnectionFailure")
+  || !adminJs.includes("modelProbeRepairAdvice")
+  || !adminJs.includes("await this.runModelProbe(\"\")")
+  || !adminJs.includes("compareModelNames")
   || !adminWxml.includes("搜索模型名称")
   || !adminWxml.includes("没有找到相关模型")
+  || !adminWxml.includes("修复建议")
   || !adminWxss.includes(".model-picker-search-row")
   || !adminWxss.includes(".model-picker-empty")
+  || !adminWxss.includes(".model-probe-repair")
   || !clientCloudJs.includes('action: "listModels"')
   || !adminWxss.includes(".model-probe-row")
   || !adminWxss.includes(".model-probe-single-button")

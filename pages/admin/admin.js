@@ -794,6 +794,27 @@ function formatAutoFaceProbe(result, error = null) {
   return probe;
 }
 
+function modelProbeRepairAdvice(status, httpStatus) {
+  switch (String(status || "")) {
+    case "not-configured":
+      return "补齐 Provider、接口地址、API Key 和模型后再测试。";
+    case "auth-failed":
+      return "重新填写 API Key，并确认这个 Key 有读取模型的权限。";
+    case "model-not-listed":
+      return "点击“获取模型”，重新读取后选择列表里的模型。";
+    case "endpoint-not-supported":
+      return "把接口地址改成兼容接口根地址（通常以 /v1 结尾），不要填聊天完成地址。";
+    case "upstream-error":
+      return httpStatus
+        ? `检查服务商状态，确认 HTTP ${httpStatus} 不是临时故障。`
+        : "检查服务商状态和接口返回内容。";
+    case "network-error":
+      return "检查域名、接口地址、网络和服务是否在线。";
+    default:
+      return status ? "检查接口地址、API Key 和模型名称后重试。" : "";
+  }
+}
+
 function formatModelProbes(result, error = null) {
   const source = result || {};
   const failed = Boolean(error) || source.ok === false && !Array.isArray(source.results);
@@ -811,7 +832,10 @@ function formatModelProbes(result, error = null) {
     durationMs: Number(item.durationMs) || 0,
     durationText: `${Number(item.durationMs) || 0} 毫秒`,
     endpoint: item.endpoint || "",
-    message: item.message || ""
+    message: item.message || "",
+    repairAdvice: item.ready
+      ? ""
+      : modelProbeRepairAdvice(item.status, Number(item.httpStatus) || 0)
   }));
   const readyCount = Number(source.readyCount);
   const total = Number(source.total) || 4;
@@ -1799,12 +1823,33 @@ function modelConfigForAction(form, modelType) {
   };
 }
 
+function compareModelNames(left, right) {
+  const leftParts = String(left || "").toLowerCase().split(/(\d+)/);
+  const rightParts = String(right || "").toLowerCase().split(/(\d+)/);
+  const length = Math.max(leftParts.length, rightParts.length);
+  for (let index = 0; index < length; index += 1) {
+    const leftPart = leftParts[index] || "";
+    const rightPart = rightParts[index] || "";
+    if (leftPart === rightPart) continue;
+    const leftNumber = /^\d+$/.test(leftPart);
+    const rightNumber = /^\d+$/.test(rightPart);
+    if (leftNumber && rightNumber) {
+      return Number(leftPart) - Number(rightPart);
+    }
+    return leftPart.localeCompare(rightPart, undefined, { sensitivity: "base" });
+  }
+  return String(left || "").localeCompare(String(right || ""), undefined, {
+    sensitivity: "base"
+  });
+}
+
 function normalizeModelOptions(result) {
   const source = result && Array.isArray(result.models) ? result.models : [];
   return Array.from(new Set(source
     .map((item) => typeof item === "string" ? item : item && (item.id || item.name || item.model))
     .map((item) => String(item || "").trim())
-    .filter(Boolean)))
+    .filter(Boolean))
+    .sort(compareModelNames))
     .map((value) => ({ value, label: value }));
 }
 
@@ -1838,6 +1883,8 @@ function formatModelConnectionFailure(typeLabel, result, error) {
   if (httpStatus && !message.includes(`HTTP ${httpStatus}`)) {
     details.push(`HTTP：${httpStatus}`);
   }
+  const advice = modelProbeRepairAdvice(target && target.status, httpStatus);
+  if (advice) details.push(`修复建议：${advice}`);
   const safeMessage = safeCopyValue(message, "连接测试未通过，请检查配置。");
   return [`${typeLabel}模型：${safeMessage}`].concat(details).join("\n");
 }
@@ -3088,7 +3135,7 @@ Page({
   toggleConfigSection(event) {
     const section = event.currentTarget.dataset.section;
     if (!CONFIG_SECTION_TITLES[section]) return;
-    const nextSection = this.data.activeConfigSection === section ? "" : section;
+    const nextSection = section;
     this.setData({
       activeConfigSection: nextSection,
       activeConfigTitle: nextSection ? CONFIG_SECTION_TITLES[nextSection] : ""
@@ -3375,14 +3422,15 @@ Page({
         form: formFromConfig(result),
         effective,
         saving: false,
-        message: `配置已保存，第 ${result.version || 0} 版`
+        message: `配置已保存，第 ${result.version || 0} 版；正在自动测试四套模型...`
       };
       Object.assign(patch, this.buildAdminDerivedPatch(patch, this.data.moduleStates));
       this.setData(patch);
       diagnosticLog.info("admin", "config-saved", "管理员配置保存完成", {
         version: result.version || 0
       });
-      wx.showToast({ title: "配置已保存", icon: "success" });
+      wx.showToast({ title: "已保存，正在测试", icon: "loading", duration: 1200 });
+      await this.runModelProbe("");
     } catch (error) {
       this.setData({ saving: false });
       diagnosticLog.error("admin", "config-save-failed", "管理员配置保存失败", { error });
@@ -3677,8 +3725,16 @@ Page({
         modelProbes,
         monitorExpanded: true,
         message: modelType && target
-          ? `${target.typeLabel}探测完成：${target.statusText}。`
-          : `模型接口探测完成：${modelProbes.readyCount}/${modelProbes.total} 套正常。`
+          ? `${target.typeLabel}探测完成：${target.statusText}。${
+            target.ready
+              ? ""
+              : ` ${target.message || "连接测试未通过。"}${
+                target.repairAdvice ? ` 修复建议：${target.repairAdvice}` : ""
+              }`
+          }`
+          : modelProbes.readyCount === modelProbes.total
+            ? `模型接口探测完成：${modelProbes.readyCount}/${modelProbes.total} 套正常。`
+            : `模型接口探测完成：${modelProbes.readyCount}/${modelProbes.total} 套正常，失败项请按下方修复建议处理。`
       });
       wx.showToast({
         title: modelType && target

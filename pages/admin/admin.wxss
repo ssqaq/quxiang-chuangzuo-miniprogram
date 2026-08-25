@@ -3347,6 +3347,13 @@ page {
   text-align: center;
 }
 
+.model-probe-repair {
+  margin-top: 8rpx;
+  color: #a25a16;
+  font-size: 18rpx;
+  line-height: 28rpx;
+}
+
 .model-picker-option {
   display: flex;
   min-width: 0;

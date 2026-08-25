@@ -156,6 +156,7 @@ def main() -> None:
         "pages/admin/admin.wxml",
         "pages/admin/admin.wxss",
         "scripts/admin-layout-state-smoke.js",
+        "scripts/admin-usage-entry-smoke.js",
         "scripts/admin-responsive-smoke.js",
         "pages/repair/repair.js",
         "pages/repair/repair.json",

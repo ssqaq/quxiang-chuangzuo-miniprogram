@@ -12,6 +12,22 @@ assert.ok(wxml.includes("quick-launch quick-usage"), "用量快捷卡片缺失")
 assert.ok(wxml.includes('bindtap="jumpToUsageSection"'), "用量快捷卡片没有跳转事件");
 assert.ok(wxml.includes("entryHealth.usage.label"), "用量卡片没有状态文字");
 assert.ok(wxml.includes('id="usage-section"'), "模型用量统计锚点缺失");
+assert.ok(wxml.includes('data-section="face"'), "人脸入口缺失");
+assert.ok(wxml.includes('data-section="analysis"'), "图片入口缺失");
+assert.ok(wxml.includes('data-section="image"'), "生图入口缺失");
+assert.ok(wxml.includes('data-section="video"'), "视频入口缺失");
+assert.ok(wxml.includes('data-section="points"'), "积分入口缺失");
+assert.ok(wxml.includes('data-section="costs"'), "成本入口缺失");
+assert.ok(wxml.includes('data-section="users"'), "用户入口缺失");
+assert.ok(wxml.includes('bindtap="toggleConfigSection"'), "配置入口没有跳转事件");
+assert.ok(
+  wxml.indexOf("按模型名称分组") < wxml.indexOf("失败情况"),
+  "模型详情必须放在失败情况之前"
+);
+assert.ok(
+  wxml.indexOf("最近{{usageStats.days}}天每日明细") < wxml.indexOf("失败情况"),
+  "每日明细必须放在失败情况之前"
+);
 
 let pageDefinition = null;
 const originalLoad = Module._load;
@@ -67,4 +83,16 @@ instance.jumpToUsageSection();
 assert.strictEqual(instance.data.usageExpanded, true, "点击用量后没有展开统计卡片");
 assert.strictEqual(scrollTarget, "#usage-section", "点击用量后没有滚动到模型用量统计");
 
-console.log("admin usage entry smoke: OK");
+instance.toggleConfigSection({
+  currentTarget: { dataset: { section: "users" } }
+});
+assert.strictEqual(instance.data.activeConfigSection, "users", "点击用户入口没有打开用户统计");
+assert.strictEqual(instance.data.activeConfigTitle, "用户统计", "用户入口标题不正确");
+assert.strictEqual(scrollTarget, "#config-editor", "点击配置入口没有滚动到配置区");
+
+instance.toggleConfigSection({
+  currentTarget: { dataset: { section: "users" } }
+});
+assert.strictEqual(instance.data.activeConfigSection, "users", "重复点击入口不应收起配置区");
+
+console.log("admin usage/config entry smoke: OK");

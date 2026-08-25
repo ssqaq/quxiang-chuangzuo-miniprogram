@@ -1845,11 +1845,12 @@ function compareModelNames(left, right) {
 
 function normalizeModelOptions(result) {
   const source = result && Array.isArray(result.models) ? result.models : [];
-  return Array.from(new Set(source
+  const values = Array.from(new Set(source
     .map((item) => typeof item === "string" ? item : item && (item.id || item.name || item.model))
     .map((item) => String(item || "").trim())
-    .filter(Boolean))
-    .sort(compareModelNames))
+    .filter(Boolean)));
+  values.sort(compareModelNames);
+  return values
     .map((value) => ({ value, label: value }));
 }
 

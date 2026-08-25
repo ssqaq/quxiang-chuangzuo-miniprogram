@@ -478,12 +478,15 @@ if (
     !adminWxml.includes("更多监控与历史")
     && !adminWxml.includes("运行监控")
   )
-  || (adminWxml.match(/class="quick-launch /g) || []).length !== 7
+  || (adminWxml.match(/class="quick-launch /g) || []).length < 8
   || adminWxml.indexOf("quick-face") > adminWxml.indexOf("quick-image")
   || adminWxml.indexOf("quick-face") > adminWxml.indexOf("quick-analysis")
   || adminWxml.indexOf("quick-analysis") > adminWxml.indexOf("quick-image")
   || adminWxml.indexOf("quick-image") > adminWxml.indexOf("quick-video")
   || adminWxml.indexOf("quick-costs") > adminWxml.indexOf("quick-users")
+  || adminWxml.indexOf("quick-users") > adminWxml.indexOf("quick-usage")
+  || !adminWxml.includes('bindtap="jumpToUsageSection"')
+  || !adminWxml.includes("entryHealth.usage.label")
   || !adminWxss.includes("grid-template-columns: repeat(4, minmax(0, 1fr))")
   || adminWxml.includes('class="console-back"') && adminWxml.includes("<button class=\"console-back\"")
   || !adminQuickLaunchStyle
@@ -514,7 +517,7 @@ if (
   || !/align-items:\s*center/.test(adminFaceProbeSummaryStyle[1])
   || !/justify-content:\s*center/.test(adminFaceProbeSummaryStyle[1])
 ) {
-  throw new Error("管理页七入口四列、图片分析独立配置或统计内容居中样式不完整。");
+  throw new Error("管理页八入口四列、图片分析独立配置或统计内容居中样式不完整。");
 }
 if (
   !appJson.pages.includes("pages/profile/profile")

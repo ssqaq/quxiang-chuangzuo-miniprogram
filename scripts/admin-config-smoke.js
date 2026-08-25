@@ -13,6 +13,51 @@ assert.deepStrictEqual(test.adminOpenIds(), [
   "admin-openid-001",
   "admin-openid-002"
 ]);
+
+const previousImageRetryEnabled = process.env.AI_IMAGE_RETRY_ENABLED;
+delete process.env.AI_IMAGE_RETRY_ENABLED;
+assert.strictEqual(
+  test.resolveImageConfig().retryEnabled,
+  true,
+  "未配置 AI_IMAGE_RETRY_ENABLED 时，生图自动重试默认必须开启"
+);
+assert.strictEqual(
+  test.resolveImageConfig({ image: { retryEnabled: false } }).retryEnabled,
+  true,
+  "没有新标记的旧管理员配置必须迁移为开启自动重试"
+);
+assert.strictEqual(
+  test.resolveImageConfig({
+    image: { retryEnabled: false, retryPreferenceVersion: 1 }
+  }).retryEnabled,
+  false,
+  "新版管理员明确关闭自动重试后必须保持关闭"
+);
+assert.strictEqual(
+  test.resolveImageConfig({
+    image: { retryEnabled: true, retryPreferenceVersion: 1 }
+  }).retryPreferenceVersion,
+  1,
+  "新版自动重试偏好标记必须保留"
+);
+process.env.AI_IMAGE_RETRY_ENABLED = "false";
+assert.strictEqual(
+  test.resolveImageConfig().retryEnabled,
+  false,
+  "显式关闭 AI_IMAGE_RETRY_ENABLED 后，生图自动重试必须关闭"
+);
+process.env.AI_IMAGE_RETRY_ENABLED = "true";
+assert.strictEqual(
+  test.resolveImageConfig().retryEnabled,
+  true,
+  "显式开启 AI_IMAGE_RETRY_ENABLED 后，生图自动重试必须开启"
+);
+if (previousImageRetryEnabled === undefined) {
+  delete process.env.AI_IMAGE_RETRY_ENABLED;
+} else {
+  process.env.AI_IMAGE_RETRY_ENABLED = previousImageRetryEnabled;
+}
+
 assert.strictEqual(
   test.isAdminContext({ OPENID: "admin-openid-001" }),
   true
@@ -55,6 +100,47 @@ assert.deepStrictEqual(patch.image, {
   model: "smoke-image-model",
   apiKey: "smoke-image-key"
 });
+assert.deepStrictEqual(
+  test.normalizeRuntimePatch({
+    image: {
+      retryEnabled: false,
+      retryPreferenceVersion: 0
+    }
+  }).image,
+  {
+    retryEnabled: false,
+    retryPreferenceVersion: 0
+  },
+  "配置规范化必须保留重试偏好字段，交给保存入口统一升级标记"
+);
+const retryPatch = test.normalizeRuntimePatch({
+  image: {
+    retryEnabled: false
+  }
+});
+retryPatch.image.retryPreferenceVersion = 1;
+assert.strictEqual(
+  test.resolveImageConfig({ image: retryPatch.image }).retryEnabled,
+  false,
+  "管理员保存后的 false + 版本标记必须被后端尊重"
+);
+const migrated = test.migrateLegacyImageRetryConfig(
+  test.normalizeRuntimePatch({
+    image: { retryEnabled: false }
+  }),
+  { image: { retryEnabled: false } }
+);
+assert.strictEqual(migrated.migrated, true);
+assert.strictEqual(migrated.value.image.retryEnabled, true);
+assert.strictEqual(migrated.value.image.retryPreferenceVersion, 1);
+const alreadyConfigured = test.migrateLegacyImageRetryConfig(
+  test.normalizeRuntimePatch({
+    image: { retryEnabled: false, retryPreferenceVersion: 1 }
+  }),
+  { image: { retryEnabled: false, retryPreferenceVersion: 1 } }
+);
+assert.strictEqual(alreadyConfigured.migrated, false);
+assert.strictEqual(alreadyConfigured.value.image.retryEnabled, false);
 assert.deepStrictEqual(patch.video, {
   model: "smoke-video-model",
   apiKey: "smoke-video-key"

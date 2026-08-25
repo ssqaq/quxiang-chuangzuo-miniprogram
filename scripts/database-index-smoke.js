@@ -16,7 +16,7 @@ function assertNonBlankString(value, label) {
 
 assert.strictEqual(manifest.version, 1, "manifest.version 必须为 1");
 assert.ok(Array.isArray(manifest.indexes), "manifest.indexes 必须是数组");
-assert.strictEqual(manifest.indexes.length, 11, "manifest.indexes.length 必须为 11");
+assert.strictEqual(manifest.indexes.length, 12, "manifest.indexes.length 必须为 12");
 
 const identities = new Set();
 

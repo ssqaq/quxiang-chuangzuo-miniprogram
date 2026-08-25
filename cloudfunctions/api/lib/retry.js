@@ -34,7 +34,7 @@ function maxRetries() {
 }
 
 function imageRetryEnabled() {
-  return boolEnv("AI_IMAGE_RETRY_ENABLED", false);
+  return boolEnv("AI_IMAGE_RETRY_ENABLED", true);
 }
 
 function sleep(ms) {

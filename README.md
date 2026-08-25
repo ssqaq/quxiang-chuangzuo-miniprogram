@@ -33,6 +33,7 @@ D:\aips小程序\wechat-miniapp
 - 主图、人脸参考图、穿搭参考图上传前自动压缩；
 - 压缩失败或压缩后变大时自动回退原图，mask 保留 PNG 透明通道。
 - 照片转动态视频入口、相册/制作记录选图和小程序内长按预览骨架；
+- 媒体解析结果通过 CloudBase 临时转存后再保存到手机，成功立即释放，失败最多保留约 2 小时；
 
 ## 和桌面版的差异
 
@@ -153,9 +154,11 @@ ZHUCEKA_KEY=你的接口 Key
 ZHUCEKA_TIMEOUT_MS=20000
 ```
 
-UID、Key 不能写进源码、README、Git 或小程序前端。当前网关会把第三方返回的视频或单张
-图片地址交给小程序预览和保存；如果真机因动态 CDN 域名未加入微信下载白名单而保存失败，
-下一阶段需要由网关先转存到 CloudBase 云存储，再返回自有临时地址。
+UID、Key 不能写进源码、README、Git 或小程序前端。媒体解析网关返回视频或图片地址后，
+小程序点击“保存媒体”会调用主 `api` 云函数，把第三方文件转存到 CloudBase 临时文件，
+再由小程序下载到本地并保存到手机相册。保存成功后立即删除云端临时文件；网络中断、
+用户退出或删除失败时，由每 15 分钟一次的清理任务兜底，文件最多保留约 2 小时。
+这条链路不新增独立服务器，也不把第三方动态 CDN 域名直接交给微信 `downloadFile`。
 
 ### 4. 配置云端自动贴脸
 
@@ -199,7 +202,7 @@ AI_IMAGE_MASK_FIELD=mask
 AI_IMAGE_REFERENCE_FIELD=image[]
 AI_MASK_INVERT=false
 AI_MAX_RETRIES=2
-AI_IMAGE_RETRY_ENABLED=false
+AI_IMAGE_RETRY_ENABLED=true
 
 # 转实况/动态视频专用：凌云中转站 + Grok 异步视频任务
 AI_VIDEO_PROVIDER=lingyun
@@ -314,10 +317,14 @@ generation_records
 model_usage_events
 photo_to_video_temp_assets
 point_ledger
+publish_export_jobs
 repair_chains
 user_accounts
 user_assets
+user_diagnostic_logs
+user_profiles
 user_quotas
+watermark_transfer_temp_assets
 ```
 
 已经存在的集合只会显示为 `existing`，不会清空或覆盖数据。正式执行前可追加
@@ -332,6 +339,10 @@ user_quotas
 
 `auto_face_probe_logs` 只保存管理员主动检查的探针状态、版本、视觉配置、Provider、Model
 和耗时，保留最近 30 天，管理页最多显示 20 条；不保存 API Key、图片、提示词或完整用户身份。
+
+`watermark_transfer_temp_assets` 只登记媒体保存时的临时 CloudBase 文件。正常保存成功后
+立即删除；失败或中途退出时，`api` 每 15 分钟检查一次，到期后删除云文件并移除登记，
+删除失败会保留记录继续重试。手机相册里的文件不受这个 2 小时清理影响。
 
 ### 7. 检查数据库索引
 
@@ -448,7 +459,7 @@ AI_IMAGE_REFERENCE_FIELD=image[]
 
 小程序会根据红圈导出透明区域 mask，并把主图、mask、人脸参考图和穿搭参考图交给云函数组装 multipart 请求。不同供应商如果要求 `reference_images[]` 等字段，只改环境变量，不改页面代码。
 
-生图默认不自动重试，避免上游已经扣费但客户端没有收到响应时重复生成。视觉分析、云文件下载和结果图片下载会按 `AI_MAX_RETRIES` 做退避重试；每次云函数请求都有 `requestId`，排查失败时把请求编号交给后台日志即可。
+生图默认允许自动重试，最多按 `AI_MAX_RETRIES` 再试；只对网络失败、限流和服务端临时错误重试。若上游已经扣费但客户端没有收到响应，仍可能产生重复生成；对计费敏感的环境可在管理员页面取消勾选，或把 `AI_IMAGE_RETRY_ENABLED=false`。视觉分析、云文件下载和结果图片下载也会按 `AI_MAX_RETRIES` 做退避重试；每次云函数请求都有 `requestId`，排查失败时把请求编号交给后台日志即可。
 
 ## AI 接口回归测试
 

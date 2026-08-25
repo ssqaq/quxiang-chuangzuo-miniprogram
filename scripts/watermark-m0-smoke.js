@@ -259,10 +259,46 @@ function createPageHarness(handler) {
       callFunction(options) {
         Promise.resolve()
           .then(() => cloudHandler(options.data))
+          .then((result) => {
+            const action = options.data && options.data.action;
+            if (
+              action === "transferMedia"
+              && result
+              && result.ok !== false
+              && !result.fileID
+            ) {
+              return {
+                ok: true,
+                transferId: `transfer-${Date.now()}`,
+                fileID: "cloud://watermark-transfer/smoke.mp4",
+                kind: options.data.kind,
+                mimeType: options.data.kind === "image" ? "image/jpeg" : "video/mp4"
+              };
+            }
+            if (
+              action === "releaseTransferMedia"
+              && result
+              && result.ok !== false
+              && result.released === undefined
+            ) {
+              return {
+                ok: true,
+                released: true,
+                transferId: options.data.transferId,
+                fileID: options.data.fileID
+              };
+            }
+            return result;
+          })
           .then(
             (result) => options.success({ result }),
             (error) => options.fail(error)
           );
+      },
+      downloadFile(options) {
+        events.push({ type: "cloud-download", options });
+        const suffix = options.fileID && /\.jpg$/i.test(options.fileID) ? ".jpg" : ".mp4";
+        options.success({ tempFilePath: `/tmp/cloud-downloaded${suffix}` });
       }
     },
     showToast(options) {
@@ -306,6 +342,11 @@ function createPageHarness(handler) {
   global.Page = (definition) => {
     page = definition;
   };
+  global.getApp = () => ({
+    globalData: {
+      cloudReady: true
+    }
+  });
 
   const pagePath = require.resolve("../pages/watermark-remover/watermark-remover.js");
   delete require.cache[pagePath];
@@ -523,6 +564,13 @@ function testPageMarkup() {
   assert.ok(wxml.includes('wx:if="{{result.demo}}"'));
   assert.ok(wxml.includes("真实结果"));
   assert.ok(wxml.includes("一键解析并提取"));
+  assert.ok(wxml.includes("直接粘贴短视频分享链接"));
+  assert.strictEqual(
+    (wxml.match(/直接粘贴短视频分享链接/g) || []).length,
+    2,
+    "短视频分享链接文案应出现在顶部说明和输入区标题"
+  );
+  assert.ok(wxml.includes('placeholder="粘贴包含 http 或 https 链接的分享文本"'));
   assert.ok(wxml.includes('class="button-label"'));
   assert.ok(wxml.includes('class="action-row"'));
   assert.ok(wxml.includes('class="secondary-btn action-button back-button"'));

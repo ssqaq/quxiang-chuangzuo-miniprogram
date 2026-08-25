@@ -103,6 +103,22 @@ instance.jumpToUsageSection();
 assert.strictEqual(instance.data.usageExpanded, true, "点击用量后没有展开统计卡片");
 assert.strictEqual(scrollTarget, "#usage-section", "点击用量后没有滚动到模型用量统计");
 
+["face", "analysis", "image", "video"].forEach((section) => {
+  instance.toggleConfigSection({
+    currentTarget: { dataset: { section } }
+  });
+  assert.strictEqual(
+    instance.data.activeConfigSection,
+    section,
+    `${section} 入口没有打开对应模型配置`
+  );
+  assert.strictEqual(
+    scrollTarget,
+    `#config-editor-${section}`,
+    `${section} 入口没有滚动到对应模型参数区`
+  );
+});
+
 instance.toggleConfigSection({
   currentTarget: { dataset: { section: "users" } }
 });

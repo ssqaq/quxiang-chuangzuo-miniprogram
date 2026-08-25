@@ -19,7 +19,7 @@
 - API Key、AppSecret、CloudBase 密钥不进入前端源码、发布包或日志。
 - 原桌面版 Electron、Python、Playwright 和本地 Ollama 不迁入小程序。
 - 真实中转站可能改变 endpoint、multipart 字段名或是否支持多张参考图，因此不能把供应商字段写死。
-- 生图请求默认不自动重试，避免上游已经扣费但客户端没有收到响应时重复生成。
+- 生图请求默认允许自动重试；管理员可以关闭，避免上游已经扣费但客户端没有收到响应时重复生成。
 
 ## 3. 方案
 
@@ -33,7 +33,7 @@
 - `AI_IMAGE_MASK_FIELD`，默认 `mask`；
 - `AI_IMAGE_REFERENCE_FIELD`，默认 `image[]`；
 - `AI_MAX_RETRIES`，默认 `2`；
-- `AI_IMAGE_RETRY_ENABLED`，默认 `false`。
+- `AI_IMAGE_RETRY_ENABLED`，默认 `true`；管理员页面取消勾选后可针对运行时配置关闭。
 
 `generations` 保留现有 JSON 请求。`edits` 使用 multipart，主图、mask 和参考素材
 均从云存储下载为 Buffer 后上传给上游。
@@ -75,7 +75,7 @@ mask 的默认语义是“透明区域允许编辑”。如果供应商语义相
 默认重试状态码：408、409、425、429、500、502、503、504。采用指数退避并尊重
 `Retry-After`，每次请求最多 `AI_MAX_RETRIES + 1` 次。
 
-生图 POST 默认不重试；只有显式设置 `AI_IMAGE_RETRY_ENABLED=true` 才允许重试。
+生图 POST 默认允许重试；显式设置 `AI_IMAGE_RETRY_ENABLED=false` 或在管理员页面取消勾选后关闭。
 
 每次云函数调用生成 `requestId`，结构化日志记录：
 

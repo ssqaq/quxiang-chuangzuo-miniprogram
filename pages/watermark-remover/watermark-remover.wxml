@@ -4,12 +4,12 @@
   <view class="media-parser-hero">
     <view class="hero-kicker">媒体解析 · 文案提取</view>
     <view class="media-parser-heading">一个链接，媒体文案全提取</view>
-    <view class="media-parser-subheading">粘贴平台分享链接，同时获取高清媒体和作品原始文案。</view>
+    <view class="media-parser-subheading">直接粘贴短视频分享链接，自动获取高清媒体和作品原始文案。</view>
   </view>
 
   <view class="input-card">
     <view class="input-card-heading">
-      <view class="section-label">粘贴分享链接或分享文本</view>
+      <view class="section-label">直接粘贴短视频分享链接</view>
       <button class="paste-button" bindtap="pasteFromClipboard">一键粘贴</button>
     </view>
     <textarea

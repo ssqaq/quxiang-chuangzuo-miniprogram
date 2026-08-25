@@ -50,6 +50,18 @@
       "reason": "按兜底清理时间查找待清理资源"
     },
     {
+      "collection": "watermark_transfer_temp_assets",
+      "name": "idx_cleanup_after_asc",
+      "keys": [
+        {
+          "name": "cleanupAfter",
+          "direction": 1
+        }
+      ],
+      "unique": false,
+      "reason": "按到期时间查找媒体解析临时文件"
+    },
+    {
       "collection": "admin_deployment_logs",
       "name": "idx_checked_at_desc",
       "keys": [

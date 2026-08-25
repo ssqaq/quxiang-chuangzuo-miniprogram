@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.40.35";
-const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V04035";
+const API_BUILD_VERSION = "0.40.36";
+const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V04036";
 const DEFAULT_IMAGE_MODE = "edits";
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
@@ -1152,6 +1152,13 @@ const PHOTO_TO_VIDEO_TEMP_ASSET_COLLECTION = "photo_to_video_temp_assets";
 const PHOTO_TO_VIDEO_TEMP_ASSET_TTL_MS = 3 * 24 * 60 * 60 * 1000;
 const PHOTO_TO_VIDEO_IDLE_CLEANUP_MS = 2 * 60 * 60 * 1000;
 const PHOTO_TO_VIDEO_TEMP_ASSET_CLEANUP_BATCH_SIZE = 100;
+const WATERMARK_TRANSFER_TEMP_COLLECTION = "watermark_transfer_temp_assets";
+const WATERMARK_TRANSFER_TTL_MS = 2 * 60 * 60 * 1000;
+const WATERMARK_TRANSFER_CLEANUP_BATCH_SIZE = 100;
+const WATERMARK_TRANSFER_MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+const WATERMARK_TRANSFER_MAX_VIDEO_BYTES = 110 * 1024 * 1024;
+const WATERMARK_TRANSFER_TIMEOUT_MS = 90000;
+const WATERMARK_TRANSFER_MAX_REDIRECTS = 3;
 const MODEL_COST_CONFIG_VERSION = "2026-08-23-v1";
 const ADMIN_RUNTIME_CACHE_TTL_MS = 15000;
 const POINTS_ACCOUNT_COLLECTION = "user_accounts";
@@ -1226,6 +1233,7 @@ const REQUIRED_DATABASE_COLLECTIONS = Object.freeze([
   "generation_records",
   MODEL_USAGE_EVENT_COLLECTION,
   PHOTO_TO_VIDEO_TEMP_ASSET_COLLECTION,
+  WATERMARK_TRANSFER_TEMP_COLLECTION,
   POINTS_LEDGER_COLLECTION,
   PUBLISH_EXPORT_JOB_COLLECTION,
   REPAIR_CHAIN_COLLECTION,
@@ -3000,6 +3008,14 @@ function isPhotoToVideoCleanupTrigger(event = {}) {
   );
 }
 
+function isWatermarkTransferCleanupTrigger(event = {}) {
+  const source = event && typeof event === "object" ? event : {};
+  return (
+    source.triggerName === "watermark-transfer-temp-cleanup"
+    || source.action === "cleanupWatermarkTransferTempAssets"
+  );
+}
+
 function normalizePhotoToVideoTempFileError(error) {
   return sanitizeFailureMessage(
     error && (error.errMsg || error.message) || error || "云文件清理失败",
@@ -4531,6 +4547,541 @@ async function requestJsonMethod(
       : upstreamError(response);
   }
   return response.json || {};
+}
+
+function isPrivateTransferIpv4(hostname) {
+  const match = String(hostname || "").match(
+    /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/
+  );
+  if (!match) return false;
+  const parts = match.slice(1).map(Number);
+  if (parts.some((part) => part < 0 || part > 255)) return true;
+  const [first, second] = parts;
+  return (
+    first === 0
+    || first === 10
+    || first === 127
+    || (first === 100 && second >= 64 && second <= 127)
+    || (first === 169 && second === 254)
+    || (first === 172 && second >= 16 && second <= 31)
+    || (first === 192 && second === 168)
+    || first >= 224
+  );
+}
+
+function isPrivateTransferHostname(hostname) {
+  const normalized = String(hostname || "")
+    .trim()
+    .toLowerCase()
+    .replace(/^\[|\]$/g, "");
+  if (
+    !normalized
+    || normalized === "localhost"
+    || normalized.endsWith(".localhost")
+    || normalized.endsWith(".local")
+    || normalized === "::1"
+    || normalized.startsWith("fc")
+    || normalized.startsWith("fd")
+    || normalized.startsWith("fe80:")
+  ) {
+    return true;
+  }
+  return isPrivateTransferIpv4(normalized);
+}
+
+function validateTransferMediaUrl(value) {
+  let parsed;
+  try {
+    parsed = new URL(String(value || "").trim());
+  } catch (_error) {
+    return { ok: false, message: "媒体地址无效。" };
+  }
+  if (parsed.protocol !== "https:") {
+    return { ok: false, message: "媒体地址只支持 HTTPS。" };
+  }
+  if (
+    parsed.username
+    || parsed.password
+    || isPrivateTransferHostname(parsed.hostname)
+  ) {
+    return { ok: false, message: "媒体地址不允许访问内网或私有地址。" };
+  }
+  return { ok: true, url: parsed.toString() };
+}
+
+function transferMediaTypeFromBuffer(buffer) {
+  const source = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer || []);
+  if (source.length >= 3 && source[0] === 0xff && source[1] === 0xd8 && source[2] === 0xff) {
+    return { kind: "image", mimeType: "image/jpeg", extension: "jpg" };
+  }
+  if (
+    source.length >= 8
+    && source[0] === 0x89
+    && source[1] === 0x50
+    && source[2] === 0x4e
+    && source[3] === 0x47
+    && source[4] === 0x0d
+    && source[5] === 0x0a
+    && source[6] === 0x1a
+    && source[7] === 0x0a
+  ) {
+    return { kind: "image", mimeType: "image/png", extension: "png" };
+  }
+  if (
+    source.length >= 12
+    && source.subarray(0, 4).toString("ascii") === "RIFF"
+    && source.subarray(8, 12).toString("ascii") === "WEBP"
+  ) {
+    return { kind: "image", mimeType: "image/webp", extension: "webp" };
+  }
+  if (source.length >= 6 && ["GIF87a", "GIF89a"].includes(source.subarray(0, 6).toString("ascii"))) {
+    return { kind: "image", mimeType: "image/gif", extension: "gif" };
+  }
+  if (source.length >= 12 && source.subarray(4, 8).toString("ascii") === "ftyp") {
+    const brand = source.subarray(8, 12).toString("ascii").toLowerCase();
+    const isQuickTime = brand === "qt  ";
+    return {
+      kind: "video",
+      mimeType: isQuickTime ? "video/quicktime" : "video/mp4",
+      extension: isQuickTime ? "mov" : "mp4"
+    };
+  }
+  if (
+    source.length >= 4
+    && source[0] === 0x1a
+    && source[1] === 0x45
+    && source[2] === 0xdf
+    && source[3] === 0xa3
+  ) {
+    return { kind: "video", mimeType: "video/webm", extension: "webm" };
+  }
+  return null;
+}
+
+function transferMediaLimit(kind) {
+  return kind === "image"
+    ? WATERMARK_TRANSFER_MAX_IMAGE_BYTES
+    : WATERMARK_TRANSFER_MAX_VIDEO_BYTES;
+}
+
+function requestTransferMedia(url, options = {}) {
+  const kind = String(options.kind || "").trim().toLowerCase();
+  const maxBytes = transferMediaLimit(kind);
+  const redirectCount = Math.max(0, Number(options.redirectCount) || 0);
+  const validation = validateTransferMediaUrl(url);
+  if (!validation.ok) {
+    const error = new Error(validation.message);
+    error.code = "WATERMARK_TRANSFER_URL_INVALID";
+    error.retryable = false;
+    return Promise.reject(error);
+  }
+  if (redirectCount > WATERMARK_TRANSFER_MAX_REDIRECTS) {
+    const error = new Error("媒体地址重定向次数过多。");
+    error.code = "WATERMARK_TRANSFER_REDIRECT_LIMIT";
+    error.retryable = false;
+    return Promise.reject(error);
+  }
+
+  const parsed = new URL(validation.url);
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const transport = parsed.protocol === "https:" ? https : http;
+    const request = transport.request({
+      method: "GET",
+      hostname: parsed.hostname,
+      port: parsed.port || 443,
+      path: `${parsed.pathname || "/"}${parsed.search || ""}`,
+      headers: {
+        Accept: kind === "image"
+          ? "image/*,application/octet-stream;q=0.8"
+          : "video/*,application/octet-stream;q=0.8",
+        "User-Agent": "aips-watermark-transfer/1.0"
+      }
+    }, (response) => {
+      const statusCode = Number(response.statusCode || 0);
+      if (
+        statusCode >= 300
+        && statusCode < 400
+        && response.headers
+        && response.headers.location
+      ) {
+        response.resume();
+        if (redirectCount >= WATERMARK_TRANSFER_MAX_REDIRECTS) {
+          const error = new Error("媒体地址重定向次数过多。");
+          error.code = "WATERMARK_TRANSFER_REDIRECT_LIMIT";
+          error.retryable = false;
+          reject(error);
+          return;
+        }
+        let nextUrl;
+        try {
+          nextUrl = new URL(response.headers.location, validation.url).toString();
+        } catch (_error) {
+          const error = new Error("媒体地址重定向无效。");
+          error.code = "WATERMARK_TRANSFER_REDIRECT_INVALID";
+          error.retryable = false;
+          reject(error);
+          return;
+        }
+        requestTransferMedia(nextUrl, {
+          kind,
+          redirectCount: redirectCount + 1,
+          requestId: options.requestId
+        }).then(resolve, reject);
+        return;
+      }
+      const contentLength = Number(response.headers && response.headers["content-length"]);
+      if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+        response.resume();
+        const error = new Error(
+          `${kind === "image" ? "图片" : "视频"}文件超过大小限制。`
+        );
+        error.code = "WATERMARK_TRANSFER_TOO_LARGE";
+        error.retryable = false;
+        reject(error);
+        return;
+      }
+      const chunks = [];
+      let received = 0;
+      let tooLarge = false;
+      response.on("data", (chunk) => {
+        received += chunk.length;
+        if (received > maxBytes) {
+          tooLarge = true;
+          return;
+        }
+        chunks.push(chunk);
+      });
+      response.on("end", () => {
+        if (tooLarge) {
+          const error = new Error(
+            `${kind === "image" ? "图片" : "视频"}文件超过大小限制。`
+          );
+          error.code = "WATERMARK_TRANSFER_TOO_LARGE";
+          error.retryable = false;
+          reject(error);
+          return;
+        }
+        if (statusCode < 200 || statusCode >= 300) {
+          const error = new Error(`媒体源返回 HTTP ${statusCode || "未知状态"}。`);
+          error.code = "WATERMARK_TRANSFER_SOURCE_FAILED";
+          error.status = statusCode;
+          error.retryable = statusCode >= 500;
+          reject(error);
+          return;
+        }
+        if (!chunks.length) {
+          const error = new Error("媒体源返回空文件。");
+          error.code = "WATERMARK_TRANSFER_EMPTY";
+          error.retryable = false;
+          reject(error);
+          return;
+        }
+        if (!settled) {
+          settled = true;
+          resolve({
+            buffer: Buffer.concat(chunks),
+            contentType: String(response.headers && response.headers["content-type"] || "")
+              .split(";")[0]
+              .trim()
+              .toLowerCase(),
+            finalUrl: validation.url
+          });
+        }
+      });
+      response.on("error", (error) => {
+        if (settled) return;
+        settled = true;
+        reject(error);
+      });
+    });
+    request.setTimeout(
+      Math.max(5000, Number(options.timeoutMs) || WATERMARK_TRANSFER_TIMEOUT_MS),
+      () => {
+        const error = new Error("媒体下载超时。");
+        error.code = "WATERMARK_TRANSFER_TIMEOUT";
+        error.retryable = true;
+        request.destroy(error);
+      }
+    );
+    request.on("error", (error) => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    });
+    request.end();
+  });
+}
+
+function normalizeWatermarkTransferKind(value) {
+  const kind = String(value || "").trim().toLowerCase();
+  return ["image", "video"].includes(kind) ? kind : "";
+}
+
+function watermarkTransferDocumentId(transferId) {
+  return crypto
+    .createHash("sha256")
+    .update(String(transferId || ""))
+    .digest("hex")
+    .slice(0, 30);
+}
+
+function watermarkTransferOwnerHash(openid) {
+  return crypto
+    .createHash("sha256")
+    .update(String(openid || "anonymous"))
+    .digest("hex")
+    .slice(0, 24);
+}
+
+function isWatermarkTransferFileMissing(error) {
+  return /not.?found|不存在|file.?not.?exist|no such file|404/i
+    .test(sanitizeFailureMessage(error && (error.errMsg || error.message) || error, 240));
+}
+
+async function deleteWatermarkTransferFile(fileID, cloudClient = cloud) {
+  const response = await cloudClient.deleteFile({ fileList: [fileID] });
+  const item = response && Array.isArray(response.fileList)
+    ? response.fileList.find((entry) => entry && entry.fileID === fileID)
+    : null;
+  if (item && Number(item.status) !== 0) {
+    const error = new Error(item.errMsg || "临时媒体删除失败。");
+    error.code = "WATERMARK_TRANSFER_DELETE_FAILED";
+    throw error;
+  }
+  return response;
+}
+
+function watermarkTransferFilePath(ownerOpenId, transferId, extension) {
+  return [
+    "watermark-transfer",
+    watermarkTransferOwnerHash(ownerOpenId),
+    `${watermarkTransferDocumentId(transferId)}.${extension}`
+  ].join("/");
+}
+
+async function transferMedia(event = {}, context = {}, dependencies = {}) {
+  const cloudClient = dependencies.cloud || cloud;
+  const database = dependencies.db || db;
+  const requestMedia = dependencies.requestTransferMedia || requestTransferMedia;
+  const deleteFile = dependencies.deleteFile
+    || ((fileID) => deleteWatermarkTransferFile(fileID, cloudClient));
+  const kind = normalizeWatermarkTransferKind(event.kind);
+  const requestId = String(event.requestId || createRequestId("transfer")).trim();
+  if (!kind) return fail("媒体类型只能是图片或视频。", "WATERMARK_TRANSFER_KIND_INVALID");
+  const validation = validateTransferMediaUrl(event.url);
+  if (!validation.ok) return fail(validation.message, "WATERMARK_TRANSFER_URL_INVALID");
+  const ownerOpenId = getOpenId(context);
+  // 转存编号必须由服务端生成，不能接受客户端传入，避免覆盖其他用户的临时记录。
+  const transferId = createRequestId("transfer");
+  const documentId = watermarkTransferDocumentId(transferId);
+  let downloaded;
+  try {
+    downloaded = await requestMedia(validation.url, {
+      kind,
+      requestId
+    });
+  } catch (error) {
+    const errorCode = error && error.code === "WATERMARK_TRANSFER_TOO_LARGE"
+      ? error.code
+      : error && error.code === "WATERMARK_TRANSFER_URL_INVALID"
+        ? error.code
+        : error && error.code === "WATERMARK_TRANSFER_REDIRECT_LIMIT"
+          ? error.code
+          : "WATERMARK_TRANSFER_DOWNLOAD_FAILED";
+    return fail(
+      error && error.message || "第三方媒体下载失败。",
+      errorCode,
+      { retryable: Boolean(error && error.retryable) }
+    );
+  }
+  const detected = transferMediaTypeFromBuffer(downloaded.buffer);
+  if (!detected || detected.kind !== kind) {
+    return fail(
+      `第三方返回的文件不是有效的${kind === "image" ? "图片" : "视频"}。`,
+      "WATERMARK_TRANSFER_MEDIA_TYPE_INVALID"
+    );
+  }
+  const now = new Date();
+  const cleanupAfter = new Date(now.getTime() + WATERMARK_TRANSFER_TTL_MS);
+  const cloudPath = watermarkTransferFilePath(ownerOpenId, transferId, detected.extension);
+  let fileID = "";
+  try {
+    const uploaded = await cloudClient.uploadFile({
+      cloudPath,
+      fileContent: downloaded.buffer
+    });
+    fileID = String(uploaded && uploaded.fileID || "").trim();
+    if (!fileID) throw new Error("CloudBase 上传没有返回 fileID。");
+    await database.collection(WATERMARK_TRANSFER_TEMP_COLLECTION).doc(documentId).set({
+      data: {
+        transferId,
+        fileID,
+        ownerOpenId,
+        kind,
+        mimeType: detected.mimeType,
+        sizeBytes: downloaded.buffer.length,
+        createdAt: now,
+        cleanupAfter,
+        status: "pending",
+        attempts: 0,
+        lastError: "",
+        updatedAt: now
+      }
+    });
+  } catch (error) {
+    if (fileID) {
+      try {
+        await deleteFile(fileID);
+      } catch (cleanupError) {
+        log("warn", "watermark-transfer.orphan-cleanup-failed", {
+          requestId,
+          fileID,
+          error: sanitizeFailureMessage(cleanupError)
+        });
+      }
+    }
+    return fail(
+      "媒体转存到 CloudBase 失败，请稍后重试。",
+      "WATERMARK_TRANSFER_UPLOAD_FAILED",
+      { retryable: true }
+    );
+  }
+  log("info", "watermark-transfer.success", {
+    requestId,
+    transferId,
+    kind,
+    sizeBytes: downloaded.buffer.length,
+    mimeType: detected.mimeType,
+    fileID
+  });
+  return jsonResponse(true, {
+    requestId,
+    transferId,
+    fileID,
+    kind,
+    mimeType: detected.mimeType,
+    sizeBytes: downloaded.buffer.length,
+    cleanupAfter: cleanupAfter.toISOString()
+  });
+}
+
+async function releaseTransferMedia(event = {}, context = {}, dependencies = {}) {
+  const database = dependencies.db || db;
+  const deleteFile = dependencies.deleteFile
+    || ((fileID) => deleteWatermarkTransferFile(fileID, dependencies.cloud || cloud));
+  const transferId = compactUsageText(event.transferId, 100);
+  const fileID = String(event.fileID || "").trim();
+  if (!transferId || !fileID) {
+    return fail("缺少临时媒体清理参数。", "WATERMARK_TRANSFER_RELEASE_INVALID");
+  }
+  const ownerOpenId = getOpenId(context);
+  const ref = database.collection(WATERMARK_TRANSFER_TEMP_COLLECTION)
+    .doc(watermarkTransferDocumentId(transferId));
+  const row = await readDocument(ref);
+  if (!row) {
+    return jsonResponse(true, {
+      transferId,
+      fileID,
+      released: true,
+      alreadyGone: true
+    });
+  }
+  if (
+    String(row.transferId || "") !== transferId
+    || String(row.fileID || "") !== fileID
+    || String(row.ownerOpenId || "anonymous") !== ownerOpenId
+  ) {
+    return fail("无权清理这份临时媒体。", "WATERMARK_TRANSFER_RELEASE_FORBIDDEN");
+  }
+  try {
+    await deleteFile(fileID);
+    await ref.remove();
+    return jsonResponse(true, {
+      transferId,
+      fileID,
+      released: true
+    });
+  } catch (error) {
+    if (isWatermarkTransferFileMissing(error)) {
+      await ref.remove();
+      return jsonResponse(true, {
+        transferId,
+        fileID,
+        released: true,
+        alreadyGone: true
+      });
+    }
+    await ref.update({
+      data: {
+        status: "failed",
+        attempts: Math.max(0, Number(row.attempts) || 0) + 1,
+        lastError: sanitizeFailureMessage(error),
+        updatedAt: new Date()
+      }
+    });
+    return jsonResponse(true, {
+      transferId,
+      fileID,
+      released: false,
+      pendingCleanup: true
+    });
+  }
+}
+
+async function cleanupWatermarkTransferTempAssets(baseDate = new Date(), dependencies = {}) {
+  const database = dependencies.db || db;
+  const deleteFile = dependencies.deleteFile
+    || ((fileID) => deleteWatermarkTransferFile(fileID, dependencies.cloud || cloud));
+  const now = baseDate instanceof Date ? baseDate : new Date(baseDate);
+  const result = await database.collection(WATERMARK_TRANSFER_TEMP_COLLECTION)
+    .where({ cleanupAfter: database.command.lte(now) })
+    .limit(WATERMARK_TRANSFER_CLEANUP_BATCH_SIZE)
+    .get();
+  const rows = result && Array.isArray(result.data) ? result.data : [];
+  let removed = 0;
+  let failed = 0;
+  let retried = 0;
+  for (const row of rows) {
+    if (!row || !row._id || !row.fileID) continue;
+    try {
+      await deleteFile(row.fileID);
+      await database.collection(WATERMARK_TRANSFER_TEMP_COLLECTION).doc(row._id).remove();
+      removed += 1;
+    } catch (error) {
+      if (isWatermarkTransferFileMissing(error)) {
+        await database.collection(WATERMARK_TRANSFER_TEMP_COLLECTION).doc(row._id).remove();
+        removed += 1;
+        continue;
+      }
+      failed += 1;
+      retried += 1;
+      await database.collection(WATERMARK_TRANSFER_TEMP_COLLECTION).doc(row._id).update({
+        data: {
+          status: "failed",
+          attempts: Math.max(0, Number(row.attempts) || 0) + 1,
+          lastError: sanitizeFailureMessage(error),
+          updatedAt: new Date()
+        }
+      });
+      log("warn", "watermark-transfer.cleanup-failed", {
+        transferId: row.transferId,
+        fileID: row.fileID,
+        error: sanitizeFailureMessage(error)
+      });
+    }
+  }
+  const summary = {
+    skipped: false,
+    cutoff: now.toISOString(),
+    scanned: rows.length,
+    removed,
+    retried,
+    failed,
+    truncated: rows.length >= WATERMARK_TRANSFER_CLEANUP_BATCH_SIZE
+  };
+  log("info", "watermark-transfer.cleanup", summary);
+  return jsonResponse(true, summary);
 }
 
 async function downloadCloudFile(fileID, meta = {}) {
@@ -10983,12 +11534,22 @@ exports.main = async (event = {}, context) => {
     let result;
     if (isPhotoToVideoCleanupTrigger(requestEvent)) {
       const cleanupDate = new Date();
-      const [photoToVideo, diagnosticLogs, publishExportJobs] = await Promise.all([
+      const [photoToVideo, diagnosticLogs, publishExportJobs, watermarkTransfer] = await Promise.all([
         cleanupPhotoToVideoTempAssets(cleanupDate),
         cleanupDiagnosticLogs(cleanupDate),
-        cleanupPublishExportJobs(cleanupDate)
+        cleanupPublishExportJobs(cleanupDate),
+        cleanupWatermarkTransferTempAssets(cleanupDate)
       ]);
-      result = jsonResponse(true, { photoToVideo, diagnosticLogs, publishExportJobs });
+      result = jsonResponse(true, {
+        photoToVideo,
+        diagnosticLogs,
+        publishExportJobs,
+        watermarkTransfer
+      });
+    } else if (isWatermarkTransferCleanupTrigger(requestEvent)) {
+      result = jsonResponse(true, {
+        watermarkTransfer: await cleanupWatermarkTransferTempAssets(new Date())
+      });
     } else if (action === "analyze") result = await analyze(requestEvent, context);
     else if (action === "detectFaceCircle") result = await detectFaceCircle(requestEvent, context);
     else if (action === "probeAutoFace") result = await probeAutoFace(requestEvent, context);
@@ -11019,6 +11580,12 @@ exports.main = async (event = {}, context) => {
     }
     else if (action === "buildAppleLivePhoto") {
       result = await buildAppleLivePhoto(requestEvent, context);
+    }
+    else if (action === "transferMedia") {
+      result = await transferMedia(requestEvent, context);
+    }
+    else if (action === "releaseTransferMedia") {
+      result = await releaseTransferMedia(requestEvent, context);
     }
     else if (action === "getAdminStatus") result = await getAdminStatus(context);
     else if (action === "reportDiagnosticLogs") result = await reportDiagnosticLogs(requestEvent, context);
@@ -11186,10 +11753,18 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     photoToVideoIdleCleanupCutoff,
     photoToVideoCleanupState,
     isPhotoToVideoCleanupTrigger,
+    isWatermarkTransferCleanupTrigger,
     registerPhotoToVideoTempAsset,
     updatePhotoToVideoSession,
     cleanupPhotoToVideoFormalRecord,
     cleanupPhotoToVideoTempAssets,
+    validateTransferMediaUrl,
+    transferMediaTypeFromBuffer,
+    normalizeWatermarkTransferKind,
+    watermarkTransferDocumentId,
+    transferMedia,
+    releaseTransferMedia,
+    cleanupWatermarkTransferTempAssets,
     dateKeyForTimeZone,
     shiftDateKey,
     shiftMonthKey,

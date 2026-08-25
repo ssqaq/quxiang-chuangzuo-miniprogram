@@ -3,6 +3,7 @@ const DEMO_IMAGE_PATH = "/assets/media/media-parser-demo.jpg";
 const MAX_INPUT_LENGTH = 4096;
 const COPYWRITING_COLLAPSE_THRESHOLD = 120;
 const COPY_FEEDBACK_DURATION_MS = 1500;
+const cloud = require("../../services/cloud");
 
 function createRequestId() {
   return `media-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 10)}`;
@@ -251,6 +252,68 @@ function saveImageToAlbum(filePath) {
   });
 }
 
+function mediaFileName(item, contentType, index = 0) {
+  const candidate = item && (item.fileName || item.name || item.filename);
+  if (candidate) return String(candidate).split(/[\\/]/).pop();
+  const suffix = contentType === "image" ? "jpg" : "mp4";
+  return `media-${index + 1}.${suffix}`;
+}
+
+function mediaMimeType(item, contentType) {
+  const candidate = item && (item.mimeType || item.typeName || item.contentType);
+  if (candidate && /^(image|video)\//i.test(String(candidate))) {
+    return String(candidate).toLowerCase();
+  }
+  return contentType === "image" ? "image/jpeg" : "video/mp4";
+}
+
+async function downloadTransferredMedia(url, contentType, item, index = 0) {
+  if (!isHttpUrl(url)) return { filePath: url, transfer: null };
+  if (!cloud || typeof cloud.transferMedia !== "function" || typeof cloud.downloadFile !== "function") {
+    throw new Error("当前环境未接入 CloudBase 临时转存。请重新编译小程序。\n");
+  }
+  const transfer = await cloud.transferMedia(url, contentType, {
+    fileName: mediaFileName(item, contentType, index),
+    mimeType: mediaMimeType(item, contentType)
+  });
+  if (!transfer || transfer.ok === false || !transfer.fileID || !transfer.transferId) {
+    throw new Error(transfer && transfer.message || "媒体转存到 CloudBase 失败");
+  }
+  try {
+    const filePath = await cloud.downloadFile(transfer.fileID);
+    return { filePath, transfer };
+  } catch (error) {
+    try {
+      await cloud.releaseTransferMedia(transfer.transferId, transfer.fileID);
+    } catch (_releaseError) {
+      // 失败文件交给云端两小时清理兜底。
+    }
+    throw error;
+  }
+}
+
+async function saveTransferredMedia(url, contentType, item, index = 0) {
+  const materialized = await downloadTransferredMedia(url, contentType, item, index);
+  try {
+    if (contentType === "image") {
+      await saveImageToAlbum(materialized.filePath);
+    } else {
+      await saveVideoToAlbum(materialized.filePath);
+    }
+  } finally {
+    if (materialized.transfer) {
+      try {
+        await cloud.releaseTransferMedia(
+          materialized.transfer.transferId,
+          materialized.transfer.fileID
+        );
+      } catch (_releaseError) {
+        // 保存成功不应被清理网络抖动影响；云端定时任务会兜底删除。
+      }
+    }
+  }
+}
+
 function resolveImagePath(filePath) {
   if (isHttpUrl(filePath)) return downloadUrl(filePath);
   if (typeof wx.getImageInfo !== "function") return Promise.resolve(filePath);
@@ -265,27 +328,29 @@ function resolveImagePath(filePath) {
   });
 }
 
-function saveMediaItem(item, contentType) {
+function saveMediaItem(item, contentType, index = 0) {
   const rawUrl = contentType === "image"
     ? (item && (item.url || item.imageUrl))
     : (item && (item.url || item.videoUrl));
   const url = String(rawUrl || "").trim();
   if (!url) return Promise.reject(new Error("媒体地址为空"));
 
+  if (isHttpUrl(url)) {
+    return saveTransferredMedia(url, contentType, item, index);
+  }
   if (contentType === "image") {
     return resolveImagePath(url).then(saveImageToAlbum);
   }
-  const localPath = isHttpUrl(url) ? downloadUrl(url) : Promise.resolve(url);
-  return localPath.then(saveVideoToAlbum);
+  return saveVideoToAlbum(url);
 }
 
 async function saveMediaBatch(items, contentType) {
   let saved = 0;
   let failed = 0;
   let firstError = null;
-  for (const item of items) {
+  for (const [index, item] of items.entries()) {
     try {
-      await saveMediaItem(item, contentType);
+      await saveMediaItem(item, contentType, index);
       saved += 1;
     } catch (error) {
       if (!firstError) firstError = error;
@@ -377,7 +442,7 @@ Page({
         this.setData({ inputText: text });
         wx.showToast({ title: "已粘贴", icon: "success" });
       },
-      fail: () => wx.showToast({ title: "读取剪贴板失败", icon: "none" })
+      fail: () => wx.showToast({ title: "微信未允许读取剪贴板，请手动粘贴", icon: "none" })
     });
   },
 
@@ -602,7 +667,15 @@ Page({
         });
       }
     } catch (error) {
-      const raw = String(error && (error.errMsg || error.message) || "");
+      const raw = [
+        error && error.errMsg,
+        error && error.message,
+        error && error.code,
+        error && error.errorCode,
+        error && error.payload && error.payload.errorCode,
+        error && error.payload && error.payload.code,
+        error && error.payload && error.payload.message
+      ].filter(Boolean).map(String).join(" ");
       const typeLabel = contentType === "live_photo"
         ? "图片和动态视频"
         : (contentType === "image" ? "图片" : "视频");
@@ -616,6 +689,12 @@ Page({
         wx.showModal({
           title: "下载域名受限",
           content: "第三方媒体域名未通过微信下载校验。需要把媒体转存到 CloudBase 后再保存。",
+          showCancel: false
+        });
+      } else if (/WATERMARK_TRANSFER|CloudBase|临时转存|媒体转存/i.test(raw)) {
+        wx.showModal({
+          title: "媒体转存失败",
+          content: "第三方媒体暂时没有成功转存到 CloudBase，请稍后再试。",
           showCancel: false
         });
       } else if (this.data.result.demo) {

@@ -372,6 +372,29 @@ function closePhotoToVideoSession(sessionId) {
   });
 }
 
+function transferMedia(url, kind, options = {}) {
+  return callApi({
+    action: "transferMedia",
+    url: String(url || "").trim(),
+    kind: String(kind || "").trim(),
+    fileName: String(options.fileName || "").trim(),
+    mimeType: String(options.mimeType || "").trim(),
+    requestId: options.requestId || "",
+    retryLimit: 0
+  });
+}
+
+function releaseTransferMedia(transferId, fileID, options = {}) {
+  return callApi({
+    action: "releaseTransferMedia",
+    transferId: String(transferId || "").trim(),
+    fileID: String(fileID || "").trim(),
+    requestId: options.requestId || "",
+    retryLimit: 0,
+    silent: true
+  });
+}
+
 async function uploadAsset(filePath, kind, options = {}) {
   const ticket = await prepareAssetUpload(kind, filePath, options);
   if (!ticket || !ticket.cloudPath) {
@@ -560,6 +583,8 @@ module.exports = {
   registerPhotoToVideoRecord,
   markPhotoToVideoSessionActive,
   closePhotoToVideoSession,
+  transferMedia,
+  releaseTransferMedia,
   getTempUrl,
   downloadFile,
   deleteFile,

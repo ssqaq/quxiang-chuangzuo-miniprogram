@@ -104,6 +104,7 @@ const jsFiles = [
   "scripts/workbench-interaction-smoke.js",
   "scripts/workbench-media-parser-layout-smoke.js",
   "scripts/watermark-m0-smoke.js",
+  "scripts/watermark-transfer-smoke.js",
   "scripts/model-usage-stats-smoke.js",
   "scripts/model-cost-stats-smoke.js",
   "scripts/model-failure-stats-smoke.js",
@@ -273,6 +274,7 @@ const required = [
   "scripts/workbench-media-parser-layout-smoke.js",
   "scripts/photo-to-video-cleanup-smoke.js",
   "scripts/photo-to-video-session-smoke.js",
+  "scripts/watermark-transfer-smoke.js",
   "scripts/auto-face-probe-history-smoke.js",
   "scripts/publish-export-advanced-smoke.js",
   "scripts/publish-export-cloud-smoke.js",
@@ -305,7 +307,16 @@ const databaseIndexPs1 = fs.readFileSync(
 if (
   databaseIndexes.version !== 1
   || !Array.isArray(databaseIndexes.indexes)
-  || databaseIndexes.indexes.length !== 11
+  || databaseIndexes.indexes.length !== 12
+  || !databaseIndexes.indexes.some((item) => (
+    item
+    && item.collection === "watermark_transfer_temp_assets"
+    && item.name === "idx_cleanup_after_asc"
+    && Array.isArray(item.keys)
+    && item.keys.length === 1
+    && item.keys[0].name === "cleanupAfter"
+    && item.keys[0].direction === 1
+  ))
   || !databaseIndexPs1.includes("TENCENTCLOUD_SECRET_ID")
   || !databaseIndexPs1.includes("TENCENTCLOUD_SECRET_KEY")
   || !databaseIndexPs1.includes("Create this index? [Y/N/A/Q]")
@@ -511,8 +522,25 @@ if (
     && item.type === "timer"
     && item.config === "0 0 3 * * * *"
   ))
+  || !cloudTriggerConfig.triggers.some((item) => (
+    item
+    && item.name === "watermark-transfer-temp-cleanup"
+    && item.type === "timer"
+    && item.config === "0 */15 * * * * *"
+  ))
 ) {
-  throw new Error("照片转视频没有配置每15分钟闲置清理和每天凌晨3点兜底清理触发器。");
+  throw new Error("照片转视频或媒体临时文件没有配置完整的自动清理触发器。");
+}
+if (
+  !cloudJs.includes('const WATERMARK_TRANSFER_TEMP_COLLECTION = "watermark_transfer_temp_assets";')
+  || !cloudJs.includes('action === "transferMedia"')
+  || !cloudJs.includes('action === "releaseTransferMedia"')
+  || !cloudJs.includes("cleanupWatermarkTransferTempAssets")
+  || !clientCloudJs.includes('action: "transferMedia"')
+  || !clientCloudJs.includes('action: "releaseTransferMedia"')
+  || !clientCloudJs.includes("wx.cloud.downloadFile")
+) {
+  throw new Error("CloudBase 临时媒体转存、释放或下载链路不完整。");
 }
 if (!projectConfig.setting || projectConfig.setting.minified !== true) {
   throw new Error("微信开发者工具 JS 压缩没有开启，请确认 project.config.json 的 setting.minified 为 true。");

@@ -291,6 +291,11 @@ page {
   background: #fdeaf2;
 }
 
+.quick-usage .quick-launch-icon {
+  color: #2f70d4;
+  background: #e7f0ff;
+}
+
 .quick-launch-name {
   margin-top: 8rpx;
   color: #25344a;

@@ -1558,6 +1558,11 @@ function buildEntryHealth(
       abnormal: (states.users && states.users.status === "failed")
         || Boolean(userStats && userStats.unavailable),
       label: stateLabel("users")
+    },
+    usage: {
+      abnormal: (states.usage && states.usage.status === "failed")
+        || Boolean(usage.unavailable),
+      label: stateLabel("usage")
     }
   };
 }

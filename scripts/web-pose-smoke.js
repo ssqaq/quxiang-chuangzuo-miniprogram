@@ -31,6 +31,35 @@ const cloudNormalized = cloudApi.__test.normalizeWebPoseSuggestions({ poses: sou
 assert.strictEqual(cloudNormalized.length, 8);
 assert.strictEqual(cloudNormalized[0].direction, "自然");
 
+const aliasSource = source.map((item) => ({
+  index: item.id,
+  name: item.title,
+  text: item.description,
+  type: item.category,
+  keywords: item.tags,
+  reason: item.unsuitableReason
+}));
+const aliasNormalized = cloudApi.__test.normalizeWebPoseSuggestions({
+  data: { suggestions: aliasSource }
+});
+assert.strictEqual(aliasNormalized.length, 8);
+assert.strictEqual(aliasNormalized[0].id, 1);
+assert.strictEqual(aliasNormalized[0].title, source[0].title);
+
+const positionalSource = aliasSource.map((item) => {
+  const copy = Object.assign({}, item);
+  delete copy.index;
+  return copy;
+});
+const positionalNormalized = cloudApi.__test.normalizeWebPoseSuggestions({
+  suggestions: positionalSource
+});
+assert.strictEqual(positionalNormalized.length, 8);
+assert.deepStrictEqual(
+  positionalNormalized.map((item) => item.id),
+  [1, 2, 3, 4, 5, 6, 7, 8]
+);
+
 assert.deepStrictEqual(normalizeWebPoseSuggestions(source.slice(0, 7)), []);
 assert.strictEqual(cloudApi.__test.normalizeWebPoseSuggestions({ poses: source.slice(0, 7) }), null);
 

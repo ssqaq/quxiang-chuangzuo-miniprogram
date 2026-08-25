@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.40.26";
-const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V04026";
+const API_BUILD_VERSION = "0.40.27";
+const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V04027";
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
 const cloud = require("wx-server-sdk");
@@ -2282,11 +2282,46 @@ function compactWebPoseText(value, maxLength) {
   return String(value || "").replace(/\s+/g, " ").trim().slice(0, maxLength);
 }
 
-function normalizeWebPoseSuggestion(value) {
+function webPoseArrayFromValue(value, depth = 0) {
+  if (Array.isArray(value)) return value;
+  if (!value || typeof value !== "object" || depth > 3) return null;
+  const keys = ["poses", "suggestions", "items", "results", "list", "data"];
+  for (const key of keys) {
+    const candidate = value[key];
+    if (Array.isArray(candidate)) return candidate;
+    const nested = webPoseArrayFromValue(candidate, depth + 1);
+    if (nested) return nested;
+  }
+  return null;
+}
+
+function normalizeWebPoseSuggestion(value, fallbackId) {
   if (!value || typeof value !== "object") return null;
-  const id = Number(value.id);
-  const title = compactWebPoseText(value.title, 40);
-  const description = compactWebPoseText(value.description, 320);
+  const id = Number(
+    value.id
+      ?? value.index
+      ?? value.no
+      ?? value.number
+      ?? fallbackId
+  );
+  const title = compactWebPoseText(
+    value.title ?? value.name ?? value.label ?? value.heading,
+    40
+  );
+  const description = compactWebPoseText(
+    value.description
+      ?? value.desc
+      ?? value.text
+      ?? value.instruction
+      ?? value.action
+      ?? value.pose,
+    320
+  );
+  const category = value.category ?? value.type ?? value.kind;
+  const tags = value.tags ?? value.keywords;
+  const unsuitableReason = value.unsuitableReason
+    ?? value.reason
+    ?? value.limitations;
   if (
     !Number.isInteger(id)
     || id < 1
@@ -2300,11 +2335,11 @@ function normalizeWebPoseSuggestion(value) {
     id,
     title,
     description,
-    category: POSE_CATEGORIES.includes(value.category) ? value.category : "其他",
-    tags: Array.isArray(value.tags)
-      ? value.tags.map((item) => compactWebPoseText(item, 20)).filter(Boolean).slice(0, 5)
+    category: POSE_CATEGORIES.includes(category) ? category : "其他",
+    tags: Array.isArray(tags)
+      ? tags.map((item) => compactWebPoseText(item, 20)).filter(Boolean).slice(0, 5)
       : [],
-    unsuitableReason: compactWebPoseText(value.unsuitableReason, 180),
+    unsuitableReason: compactWebPoseText(unsuitableReason, 180),
     direction: "自然",
     intensity: "正常调整",
     platform: "社交平台照片"
@@ -2312,13 +2347,9 @@ function normalizeWebPoseSuggestion(value) {
 }
 
 function normalizeWebPoseSuggestions(value) {
-  const source = Array.isArray(value)
-    ? value
-    : value && typeof value === "object" && Array.isArray(value.poses)
-      ? value.poses
-      : null;
+  const source = webPoseArrayFromValue(value);
   if (!source || source.length !== 8) return null;
-  const suggestions = source.map(normalizeWebPoseSuggestion);
+  const suggestions = source.map((item, index) => normalizeWebPoseSuggestion(item, index + 1));
   if (
     suggestions.some((item) => !item)
     || new Set(suggestions.map((item) => item.id)).size !== 8
@@ -6915,42 +6946,74 @@ async function analyzeWebPoses(event, context) {
     "{\"poses\":[{\"id\":1,\"title\":\"短标题\",\"description\":\"具体姿势说明\",\"category\":\"侧身\",\"tags\":[\"肩颈\"],\"unsuitableReason\":\"\"}]}",
     "poses 必须正好有 8 条；id 必须恰好为 1 到 8 且不重复；category 只能是侧身、回头、手部、肩颈、坐姿、全身或其他；title 使用 2 到 12 个中文字符；description 每条至少 20 个中文字符。"
   ].join("\n");
-  const requestPayload = {
-    model,
-    temperature: 0.35,
-    messages: [{
-      role: "user",
-      content: [
-        { type: "text", text: instruction },
-        { type: "image_url", image_url: { url: toDataUrl(image, detectMime(image)) } }
-      ]
-    }]
-  };
-  let response;
-  try {
-    response = await requestJson(url, Object.assign({}, requestPayload, {
-      response_format: { type: "json_object" }
-    }), vision.apiKey, {}, Object.assign(
+  const imageDataUrl = toDataUrl(image, detectMime(image));
+  const requestWebPose = async (prompt, temperature) => {
+    const requestPayload = {
+      model,
+      temperature,
+      top_p: 0.2,
+      max_tokens: 2400,
+      enable_thinking: false,
+      messages: [{
+        role: "user",
+        content: [
+          { type: "text", text: prompt },
+          { type: "image_url", image_url: { url: imageDataUrl } }
+        ]
+      }]
+    };
+    const requestMeta = Object.assign(
       visionRequestMeta(event.requestId, "analyzeWebPoses", vision, costs),
       { userHash: usageUserHash(getOpenId(context)) }
-    ));
-  } catch (error) {
-    if (error.status !== 400) throw error;
-    response = await requestJson(
-      url,
-      requestPayload,
-      vision.apiKey,
-      {},
-      Object.assign(
-        visionRequestMeta(event.requestId, "analyzeWebPoses", vision, costs),
-        { userHash: usageUserHash(getOpenId(context)) }
-      )
     );
-  }
-  const rawText = extractText(response);
-  if (!rawText) return fail("视觉模型没有返回网感姿势建议。", "empty-web-pose-analysis");
-  const suggestions = normalizeWebPoseSuggestions(parseLooseJson(rawText));
+    try {
+      return await requestJson(
+        url,
+        Object.assign({}, requestPayload, {
+          response_format: { type: "json_object" }
+        }),
+        vision.apiKey,
+        {},
+        requestMeta
+      );
+    } catch (error) {
+      if (error.status !== 400) throw error;
+      // 部分 OpenAI-compatible 中转不接受 response_format 或 enable_thinking，降级后再发一次。
+      const fallbackPayload = Object.assign({}, requestPayload);
+      delete fallbackPayload.enable_thinking;
+      return requestJson(url, fallbackPayload, vision.apiKey, {}, requestMeta);
+    }
+  };
+  const repairInstruction = [
+    "请重新输出上一条任务的结果。只返回一个合法 JSON 对象，不要 Markdown、代码块、思考过程或解释文字。",
+    "顶层必须使用 poses 字段，poses 必须正好包含 8 个对象；每个对象必须有 id、title、description、category、tags、unsuitableReason。",
+    "id 必须是 1 到 8 且不重复；title 至少 2 个中文字符；description 至少 20 个中文字符。",
+    "如果某些身体部位在图片中看不见，就写不依赖该部位的替代动作，不要减少条数。",
+    "JSON 结构示例：{\"poses\":[{\"id\":1,\"title\":\"短标题\",\"description\":\"具体动作说明\",\"category\":\"其他\",\"tags\":[],\"unsuitableReason\":\"\"}]}"
+  ].join("\n");
+  let response = await requestWebPose(instruction, 0.2);
+  let rawText = extractText(response);
+  let suggestions = normalizeWebPoseSuggestions(parseLooseJson(rawText));
   if (!suggestions) {
+    log("warn", "vision.web-pose.invalid-output", {
+      requestId: event.requestId,
+      provider: vision.provider,
+      model,
+      rawTextLength: rawText.length,
+      retry: true
+    });
+    response = await requestWebPose(repairInstruction, 0);
+    rawText = extractText(response);
+    suggestions = normalizeWebPoseSuggestions(parseLooseJson(rawText));
+  }
+  if (!suggestions) {
+    log("warn", "vision.web-pose.invalid-output", {
+      requestId: event.requestId,
+      provider: vision.provider,
+      model,
+      rawTextLength: rawText.length,
+      retry: false
+    });
     return fail(
       "视觉模型没有返回完整且合规的 8 条网感姿势建议，请重新分析。",
       "invalid-web-pose-analysis"

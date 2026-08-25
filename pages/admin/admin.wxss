@@ -836,6 +836,7 @@ page {
   line-height: 28rpx;
   text-overflow: ellipsis;
   white-space: nowrap;
+  word-break: keep-all;
 }
 
 .monitor-section-toggle-button {
@@ -4607,7 +4608,7 @@ page {
   }
 }
 
-/* 模型用量统计与失败情况的三项操作按同一组基准线对齐。 */
+/* 模型用量统计与模型调用统计的三项操作按同一组基准线对齐。 */
 .usage-primary-actions,
 .usage-failure-actions {
   align-items: center;

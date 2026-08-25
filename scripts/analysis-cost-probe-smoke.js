@@ -97,6 +97,11 @@ assert.strictEqual(
 );
 assert.strictEqual(test.normalizeModelProbeType("analysis"), "analysis");
 assert.strictEqual(test.normalizeModelProbeType("unknown"), "");
+assert.strictEqual(test.normalizeApiKey('  "Bearer panda-key"  '), "panda-key");
+assert.deepStrictEqual(test.apiKeyHeaders("x-api-key: panda-key"), {
+  Authorization: "Bearer panda-key",
+  "x-api-key": "panda-key"
+});
 
 function listen(server) {
   return new Promise((resolve, reject) => {
@@ -112,10 +117,21 @@ function close(server) {
 async function main() {
   const server = http.createServer((request, response) => {
     const authorization = String(request.headers.authorization || "");
+    const xApiKey = String(request.headers["x-api-key"] || "");
     response.setHeader("Content-Type", "application/json");
+    if (authorization === "Bearer panda-key" && xApiKey === "panda-key") {
+      response.statusCode = 200;
+      response.end(JSON.stringify({
+        data: [{ id: "panda-model" }]
+      }));
+      return;
+    }
     if (authorization === "Bearer bad-key") {
       response.statusCode = 401;
-      response.end(JSON.stringify({ error: "unauthorized" }));
+      response.end(JSON.stringify({
+        code: "API_KEY_INVALID",
+        message: "API key is invalid"
+      }));
       return;
     }
     if (authorization === "Bearer unsupported-key") {
@@ -170,8 +186,14 @@ async function main() {
     assert.strictEqual(missingModel.status, "model-not-listed");
     assert.strictEqual(missingModel.ready, false);
     assert.strictEqual(badKey.status, "auth-failed");
+    assert.ok(badKey.message.includes("API_KEY_INVALID"));
     assert.strictEqual(unsupported.status, "endpoint-not-supported");
     assert.strictEqual(ok.endpoint, `${baseUrl}/models`);
+    const normalizedKey = await test.probeOneModel("image", Object.assign({}, common, {
+      apiKey: '  "Bearer panda-key"  '
+    }), { requireModel: false });
+    assert.strictEqual(normalizedKey.status, "ok");
+    assert.strictEqual(normalizedKey.models[0], "panda-model");
 
     const singleResult = await api.main({
       action: "probeModels",

@@ -1,0 +1,107 @@
+<view class="media-parser-page">
+  <view class="media-parser-hero">
+    <view class="media-parser-kicker">MEDIA PARSER</view>
+    <view class="media-parser-heading">解析视频或图片</view>
+    <view class="media-parser-subheading">粘贴平台分享链接或分享文本，实际支持范围以解析结果为准。</view>
+  </view>
+
+  <view class="input-card">
+    <view class="section-label">分享链接或分享文本</view>
+    <textarea
+      class="media-input"
+      value="{{inputText}}"
+      bindinput="onInput"
+      maxlength="4096"
+      placeholder="粘贴包含 http 或 https 链接的分享文本"
+      placeholder-class="media-input-placeholder"
+      auto-height
+    ></textarea>
+    <view class="input-footer">
+      <text>不会保存原始分享文本</text>
+      <text>{{inputText.length}} / 4096</text>
+    </view>
+  </view>
+
+  <button
+    class="primary-btn parse-button"
+    bindtap="parseMedia"
+    loading="{{parsing}}"
+    disabled="{{parsing}}"
+  >
+    {{parsing ? '正在解析...' : '开始解析'}}
+  </button>
+
+  <view wx:if="{{status === 'parsing'}}" class="state-card state-loading">
+    <view class="state-spinner"></view>
+    <view>
+      <view class="state-title">正在解析媒体</view>
+      <view class="state-text">正在识别链接并请求真实解析服务，请稍候。</view>
+    </view>
+  </view>
+
+  <view wx:if="{{status === 'error'}}" class="state-card state-error">
+    <view class="state-icon">×</view>
+    <view class="state-content">
+      <view class="state-title">{{errorTitle}}</view>
+      <view class="state-text">{{errorMessage}}</view>
+      <button class="text-button" bindtap="resetResult">清空后重试</button>
+    </view>
+  </view>
+
+  <view wx:if="{{result}}" class="result-card">
+    <view class="result-head">
+      <view class="result-heading-copy">
+        <view class="result-kicker">解析结果</view>
+        <view class="result-title">{{result.title}}</view>
+      </view>
+      <view wx:if="{{result.demo}}" class="result-badge result-badge-demo">演示数据</view>
+      <view wx:else class="result-badge result-badge-real">真实结果</view>
+    </view>
+
+    <view class="result-meta">
+      <text class="result-type-chip">{{result.typeLabel}}</text>
+      <text class="result-platform">{{result.platformLabel}}</text>
+    </view>
+
+    <video
+      wx:if="{{result.contentType === 'video'}}"
+      class="result-video"
+      src="{{result.mediaUrl}}"
+      poster="{{result.coverUrl}}"
+      controls
+      show-center-play-btn
+      object-fit="contain"
+    ></video>
+
+    <image
+      wx:if="{{result.contentType === 'image'}}"
+      class="result-image"
+      src="{{result.mediaUrl}}"
+      mode="aspectFit"
+    ></image>
+
+    <view wx:if="{{result.demo}}" class="result-hint">当前云函数显式启用了 Mock，这不是平台真实解析结果。</view>
+    <view wx:else class="result-hint">媒体地址由第三方解析服务返回；如果保存受微信域名限制，会提示后续转存处理。</view>
+
+    <button
+      class="primary-btn save-button"
+      bindtap="saveMedia"
+      loading="{{saving}}"
+      disabled="{{saving}}"
+    >
+      {{saving ? '保存中...' : '保存到相册'}}
+    </button>
+    <button class="secondary-btn reset-button" bindtap="resetResult">重新解析</button>
+  </view>
+
+  <view wx:if="{{providerMessage}}" class="provider-card">
+    <view class="provider-dot {{providerReady ? 'provider-ready' : 'provider-pending'}}"></view>
+    <view class="provider-copy">
+      <view class="provider-title">{{providerTitle}}</view>
+      <view class="provider-text">{{providerMessage}}</view>
+    </view>
+  </view>
+
+  <view class="compliance-note">仅处理本人发布或已获授权的内容，请勿用于侵犯他人权益或绕过平台限制。</view>
+  <view class="bottom-link" bindtap="backToWorkbench">返回工作台</view>
+</view>

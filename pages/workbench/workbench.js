@@ -584,6 +584,14 @@ Page({
     );
   },
 
+  openMediaParser() {
+    this.openPage(
+      "/pages/watermark-remover/watermark-remover",
+      "媒体解析页打开失败",
+      "已打开媒体解析"
+    );
+  },
+
   openPoints() {
     this.openPage("/pages/points/points", "积分中心打开失败", "已打开积分中心");
   },
@@ -666,15 +674,29 @@ Page({
       wx.showToast({ title: "当前环境不支持查看二维码", icon: "none" });
       return;
     }
-    if (typeof wx.previewImage !== "function") {
+    if (typeof wx.getImageInfo !== "function" || typeof wx.previewImage !== "function") {
       wx.showToast({ title: "当前环境不支持查看二维码", icon: "none" });
       return;
     }
-    wx.previewImage({
-      current: qrPath,
-      urls: [qrPath],
+
+    wx.getImageInfo({
+      src: qrPath,
+      success: (image) => {
+        const previewPath = String(image && image.path || "").trim();
+        if (!previewPath) {
+          wx.showToast({ title: "二维码读取失败，请重试", icon: "none" });
+          return;
+        }
+        wx.previewImage({
+          current: previewPath,
+          urls: [previewPath],
+          fail: () => {
+            wx.showToast({ title: "二维码打开失败，请重试", icon: "none" });
+          }
+        });
+      },
       fail: () => {
-        wx.showToast({ title: "二维码打开失败，请重试", icon: "none" });
+        wx.showToast({ title: "二维码读取失败，请重试", icon: "none" });
       }
     });
   },

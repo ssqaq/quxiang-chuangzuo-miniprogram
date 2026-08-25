@@ -84,6 +84,14 @@ function usageTypeLabel(type) {
   return item ? item.title : "模型";
 }
 
+function normalizeAdminModelLabel(value) {
+  const label = String(value || "模型").trim();
+  if (!label) return "模型";
+  return label !== "模型" && label.endsWith("模型")
+    ? label.slice(0, -2)
+    : label;
+}
+
 const MODEL_DISPLAY_EMPTY_VALUES = new Set([
   "",
   "未配置",
@@ -1887,7 +1895,9 @@ function formatModelConnectionFailure(typeLabel, result, error) {
   const advice = modelProbeRepairAdvice(target && target.status, httpStatus);
   if (advice) details.push(`修复建议：${advice}`);
   const safeMessage = safeCopyValue(message, "连接测试未通过，请检查配置。");
-  return [`${typeLabel}模型：${safeMessage}`].concat(details).join("\n");
+  return [
+    `${normalizeAdminModelLabel(typeLabel)}模型：${safeMessage}`
+  ].concat(details).join("\n");
 }
 
 function displayLog(item) {
@@ -3779,7 +3789,7 @@ Page({
       || (error && error.message)
       || "请稍后重试";
     const modelTypeLabel = payload && payload.modelTypeLabel
-      ? String(payload.modelTypeLabel)
+      ? normalizeAdminModelLabel(payload.modelTypeLabel)
       : "";
     const message = modelTypeLabel
       && !String(originalMessage).startsWith(`${modelTypeLabel}模型：`)

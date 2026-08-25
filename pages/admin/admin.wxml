@@ -615,6 +615,207 @@
         </view>
       </view>
 
+      <view id="monitor-section-diagnosticLogs" class="card admin-section diagnostic-admin-section monitor-fold-card {{monitorSections.diagnosticLogs ? 'is-open' : 'is-collapsed'}}">
+        <view class="admin-section-head">
+          <view>
+            <view class="admin-section-title">用户端日志</view>
+            <view class="admin-section-help">仅管理员可见，保留最近72小时；超过72小时自动删除。最近更新 {{moduleStates.diagnosticLogs.updatedAtText}}</view>
+          </view>
+          <view class="admin-section-tools">
+            <view class="config-state {{moduleStates.diagnosticLogs.status === 'failed' ? 'is-off' : 'is-ready'}}">
+              {{moduleStates.diagnosticLogs.label}}
+            </view>
+            <button
+              class="usage-refresh-button"
+              catchtap="refreshDiagnosticLogs"
+              loading="{{diagnosticLogsLoading}}"
+              disabled="{{diagnosticLogsLoading}}"
+            >{{diagnosticLogsLoading ? '读取中' : '刷新'}}</button>
+            <view class="admin-action-slot">
+              <view
+                class="monitor-section-toggle-button"
+                data-section="diagnosticLogs"
+                catchtap="toggleMonitorSection"
+                hover-class="control-tap"
+                role="button"
+                aria-label="{{monitorSections.diagnosticLogs ? '收起用户端日志' : '展开用户端日志'}}"
+              >
+                <text>{{monitorSections.diagnosticLogs ? '收起' : '展开'}}</text>
+                <text class="monitor-section-chevron {{monitorSections.diagnosticLogs ? 'is-open' : ''}}">⌄</text>
+              </view>
+            </view>
+          </view>
+        </view>
+
+        <view wx:if="{{monitorSections.diagnosticLogs}}" class="monitor-fold-body module-fold-body {{moduleStates.diagnosticLogs.status === 'loading' ? 'is-loading' : ''}}">
+        <view wx:if="{{moduleStates.diagnosticLogs.status === 'loading'}}" class="usage-message">
+          正在整理用户端日志...
+        </view>
+        <view wx:if="{{moduleStates.diagnosticLogs.status === 'loading'}}" class="module-loading-placeholder">
+          <view class="admin-loading-skeleton admin-loading-skeleton-row"></view>
+          <view class="admin-loading-skeleton-grid">
+            <view class="admin-loading-skeleton admin-loading-skeleton-tile"></view>
+            <view class="admin-loading-skeleton admin-loading-skeleton-tile"></view>
+            <view class="admin-loading-skeleton admin-loading-skeleton-tile"></view>
+          </view>
+          <view class="admin-loading-skeleton admin-loading-skeleton-panel"></view>
+        </view>
+        <view wx:if="{{moduleStates.diagnosticLogs.status === 'failed'}}" class="usage-message is-warn">
+          {{moduleStates.diagnosticLogs.message || '用户端日志读取失败，请点击刷新。'}}
+        </view>
+        <view wx:if="{{diagnosticLogs.message}}" class="usage-message {{diagnosticLogs.unavailable ? 'is-warn' : ''}}">
+          {{diagnosticLogs.message}}
+        </view>
+
+        <view wx:if="{{moduleStates.diagnosticLogs.status === 'ready' || moduleStates.diagnosticLogs.hasData}}" class="diagnostic-admin-summary">
+          <view class="diagnostic-admin-summary-item">
+            <text>全部</text>
+            <text>{{diagnosticLogs.summary.total}}</text>
+          </view>
+          <view class="diagnostic-admin-summary-item is-error">
+            <text>错误</text>
+            <text>{{diagnosticLogs.summary.errorCount}}</text>
+          </view>
+          <view class="diagnostic-admin-summary-item is-warn">
+            <text>提醒</text>
+            <text>{{diagnosticLogs.summary.warnCount}}</text>
+          </view>
+          <view class="diagnostic-admin-summary-item is-info">
+            <text>正常</text>
+            <text>{{diagnosticLogs.summary.infoCount}}</text>
+          </view>
+          <view class="diagnostic-admin-summary-item">
+            <text>用户</text>
+            <text>{{diagnosticLogs.summary.userCount}}</text>
+          </view>
+        </view>
+
+        <view class="diagnostic-admin-filter-block">
+          <view class="diagnostic-admin-filter-title">时间范围</view>
+          <scroll-view class="diagnostic-admin-filter-scroll" scroll-x enhanced show-scrollbar="{{false}}">
+            <view class="diagnostic-admin-filter-row">
+              <view
+                wx:for="{{diagnosticTimeRanges}}"
+                wx:key="value"
+                class="diagnostic-admin-filter-chip {{diagnosticHours === item.value ? 'is-active' : ''}}"
+                data-hours="{{item.value}}"
+                bindtap="selectDiagnosticHours"
+              >{{item.label}}</view>
+            </view>
+          </scroll-view>
+        </view>
+
+        <view class="diagnostic-admin-filter-block">
+          <view class="diagnostic-admin-filter-title">严重程度</view>
+          <view class="diagnostic-admin-filter-row">
+            <view
+              wx:for="{{diagnosticLevels}}"
+              wx:key="value"
+              class="diagnostic-admin-filter-chip {{diagnosticLevel === item.value ? 'is-active' : ''}}"
+              data-level="{{item.value}}"
+              bindtap="selectDiagnosticLevel"
+            >{{item.label}}</view>
+          </view>
+        </view>
+
+        <view class="diagnostic-admin-filter-block">
+          <view class="diagnostic-admin-filter-title">业务类型</view>
+          <scroll-view class="diagnostic-admin-filter-scroll" scroll-x enhanced show-scrollbar="{{false}}">
+            <view class="diagnostic-admin-filter-row">
+              <view
+                wx:for="{{diagnosticCategories}}"
+                wx:key="value"
+                class="diagnostic-admin-filter-chip {{diagnosticCategory === item.value ? 'is-active' : ''}}"
+                data-category="{{item.value}}"
+                bindtap="selectDiagnosticCategory"
+              >{{item.label}}</view>
+            </view>
+          </scroll-view>
+        </view>
+
+        <picker
+          mode="selector"
+          range="{{diagnosticLogs.userOptions}}"
+          range-key="label"
+          value="{{diagnosticUserIndex}}"
+          bindchange="selectDiagnosticUser"
+        >
+          <view class="diagnostic-admin-user-picker">
+            <text>用户筛选</text>
+          </view>
+        </picker>
+
+        <view wx:if="{{diagnosticLogs.summary.categories.length}}" class="diagnostic-admin-category-summary">
+          <view
+            wx:for="{{diagnosticLogs.summary.categories}}"
+            wx:key="category"
+            class="diagnostic-admin-category-item"
+          >
+            <text>{{item.label}}</text>
+            <text>{{item.count}} 条</text>
+          </view>
+        </view>
+
+        <view wx:if="{{diagnosticLogs.logs.length}}" class="diagnostic-admin-list">
+          <view
+            wx:for="{{diagnosticLogs.logs}}"
+            wx:key="eventId"
+            class="diagnostic-admin-log level-{{item.level}}"
+          >
+            <view class="diagnostic-admin-log-top">
+              <view class="diagnostic-admin-log-tags">
+                <text class="diagnostic-admin-level">{{item.levelText}}</text>
+                <text class="diagnostic-admin-category">{{item.categoryLabel}}</text>
+              </view>
+              <text class="diagnostic-admin-time">{{item.createdAtText}}</text>
+            </view>
+            <view class="diagnostic-admin-message">{{item.message}}</view>
+            <view class="diagnostic-admin-meta">
+              <text>用户 {{item.userHash}}</text>
+              <text wx:if="{{item.route}}">页面 {{item.route}}</text>
+              <text wx:if="{{item.durationMs !== null}}">耗时 {{item.durationText}}</text>
+              <text wx:if="{{item.code}}">代码 {{item.code}}</text>
+              <text wx:if="{{item.requestId}}">请求 {{item.requestId}}</text>
+            </view>
+            <view class="diagnostic-admin-log-actions">
+              <button
+                class="copy-error-button diagnostic-log-action-button {{item.hasDetails ? 'is-split' : 'is-single'}}"
+                data-index="{{index}}"
+                catchtap="copyDiagnosticLog"
+              >复制日志</button>
+              <button
+                wx:if="{{item.hasDetails}}"
+                class="copy-error-button diagnostic-detail-button diagnostic-log-action-button is-split"
+                data-index="{{index}}"
+                catchtap="toggleDiagnosticLogDetail"
+              >{{item.expanded ? '收起详情' : '查看详情'}}</button>
+            </view>
+            <view wx:if="{{item.expanded}}" class="diagnostic-admin-detail">
+              <view wx:if="{{item.errorText}}">
+                <text>错误详情</text>
+                <text selectable>{{item.errorText}}</text>
+              </view>
+              <view wx:if="{{item.detailsText}}">
+                <text>补充信息</text>
+                <text selectable>{{item.detailsText}}</text>
+              </view>
+            </view>
+          </view>
+        </view>
+        <view
+          wx:elif="{{moduleStates.diagnosticLogs.status === 'ready' || moduleStates.diagnosticLogs.hasData}}"
+          class="admin-empty usage-empty"
+        >这个筛选条件下没有日志。</view>
+        <button
+          wx:if="{{diagnosticLogs.nextOffset !== null}}"
+          class="user-load-more"
+          bindtap="loadMoreDiagnosticLogs"
+          loading="{{diagnosticLogsLoading}}"
+          disabled="{{diagnosticLogsLoading}}"
+        >{{diagnosticLogsLoading ? '加载中...' : '继续加载20条'}}</button>
+        </view>
+      </view>
+
       <view
         id="monitor-section-deployment"
         class="monitor-deployment-group {{monitorSections.deployment ? 'is-open' : 'is-collapsed'}}"
@@ -632,10 +833,7 @@
               <text class="monitor-status-dot {{deployment && deployment.face.ready && deployment.analysis.ready && deployment.image.ready && deployment.video.ready ? '' : 'is-danger'}}"></text>
               <text class="monitor-section-title">部署与探针</text>
             </view>
-            <text class="monitor-section-summary">
-              {{deployment && deployment.face.ready && deployment.analysis.ready && deployment.image.ready && deployment.video.ready ? '运行正常' : '需要处理'}}
-              · 探针历史 {{autoFaceProbeHistory.history.length}} 条
-            </text>
+            <text class="monitor-section-summary">{{deployment && deployment.face.ready && deployment.analysis.ready && deployment.image.ready && deployment.video.ready ? '运行正常' : '需要处理'}} · 探针历史 {{autoFaceProbeHistory.history.length}} 条</text>
           </view>
           <view class="admin-action-slot">
             <view class="monitor-section-toggle-button">
@@ -846,213 +1044,12 @@
       </view>
       </view>
 
-      <view id="monitor-section-diagnosticLogs" class="card admin-section diagnostic-admin-section monitor-fold-card {{monitorSections.diagnosticLogs ? 'is-open' : 'is-collapsed'}}">
-        <view class="admin-section-head">
-          <view>
-            <view class="admin-section-title">用户端日志</view>
-            <view class="admin-section-help">仅管理员可见，保留最近72小时；超过72小时自动删除。最近更新 {{moduleStates.diagnosticLogs.updatedAtText}}</view>
-          </view>
-          <view class="admin-section-tools">
-            <view class="config-state {{moduleStates.diagnosticLogs.status === 'failed' ? 'is-off' : 'is-ready'}}">
-              {{moduleStates.diagnosticLogs.label}}
-            </view>
-            <button
-              class="usage-refresh-button"
-              catchtap="refreshDiagnosticLogs"
-              loading="{{diagnosticLogsLoading}}"
-              disabled="{{diagnosticLogsLoading}}"
-            >{{diagnosticLogsLoading ? '读取中' : '刷新'}}</button>
-            <view class="admin-action-slot">
-              <view
-                class="monitor-section-toggle-button"
-                data-section="diagnosticLogs"
-                catchtap="toggleMonitorSection"
-                hover-class="control-tap"
-                role="button"
-                aria-label="{{monitorSections.diagnosticLogs ? '收起用户端日志' : '展开用户端日志'}}"
-              >
-                <text>{{monitorSections.diagnosticLogs ? '收起' : '展开'}}</text>
-                <text class="monitor-section-chevron {{monitorSections.diagnosticLogs ? 'is-open' : ''}}">⌄</text>
-              </view>
-            </view>
-          </view>
-        </view>
-
-        <view wx:if="{{monitorSections.diagnosticLogs}}" class="monitor-fold-body module-fold-body {{moduleStates.diagnosticLogs.status === 'loading' ? 'is-loading' : ''}}">
-        <view wx:if="{{moduleStates.diagnosticLogs.status === 'loading'}}" class="usage-message">
-          正在整理用户端日志...
-        </view>
-        <view wx:if="{{moduleStates.diagnosticLogs.status === 'loading'}}" class="module-loading-placeholder">
-          <view class="admin-loading-skeleton admin-loading-skeleton-row"></view>
-          <view class="admin-loading-skeleton-grid">
-            <view class="admin-loading-skeleton admin-loading-skeleton-tile"></view>
-            <view class="admin-loading-skeleton admin-loading-skeleton-tile"></view>
-            <view class="admin-loading-skeleton admin-loading-skeleton-tile"></view>
-          </view>
-          <view class="admin-loading-skeleton admin-loading-skeleton-panel"></view>
-        </view>
-        <view wx:if="{{moduleStates.diagnosticLogs.status === 'failed'}}" class="usage-message is-warn">
-          {{moduleStates.diagnosticLogs.message || '用户端日志读取失败，请点击刷新。'}}
-        </view>
-        <view wx:if="{{diagnosticLogs.message}}" class="usage-message {{diagnosticLogs.unavailable ? 'is-warn' : ''}}">
-          {{diagnosticLogs.message}}
-        </view>
-
-        <view wx:if="{{moduleStates.diagnosticLogs.status === 'ready' || moduleStates.diagnosticLogs.hasData}}" class="diagnostic-admin-summary">
-          <view class="diagnostic-admin-summary-item">
-            <text>全部</text>
-            <text>{{diagnosticLogs.summary.total}}</text>
-          </view>
-          <view class="diagnostic-admin-summary-item is-error">
-            <text>错误</text>
-            <text>{{diagnosticLogs.summary.errorCount}}</text>
-          </view>
-          <view class="diagnostic-admin-summary-item is-warn">
-            <text>提醒</text>
-            <text>{{diagnosticLogs.summary.warnCount}}</text>
-          </view>
-          <view class="diagnostic-admin-summary-item is-info">
-            <text>正常</text>
-            <text>{{diagnosticLogs.summary.infoCount}}</text>
-          </view>
-          <view class="diagnostic-admin-summary-item">
-            <text>用户</text>
-            <text>{{diagnosticLogs.summary.userCount}}</text>
-          </view>
-        </view>
-
-        <view class="diagnostic-admin-filter-block">
-          <view class="diagnostic-admin-filter-title">时间范围</view>
-          <scroll-view class="diagnostic-admin-filter-scroll" scroll-x enhanced show-scrollbar="{{false}}">
-            <view class="diagnostic-admin-filter-row">
-              <view
-                wx:for="{{diagnosticTimeRanges}}"
-                wx:key="value"
-                class="diagnostic-admin-filter-chip {{diagnosticHours === item.value ? 'is-active' : ''}}"
-                data-hours="{{item.value}}"
-                bindtap="selectDiagnosticHours"
-              >{{item.label}}</view>
-            </view>
-          </scroll-view>
-        </view>
-
-        <view class="diagnostic-admin-filter-block">
-          <view class="diagnostic-admin-filter-title">严重程度</view>
-          <view class="diagnostic-admin-filter-row">
-            <view
-              wx:for="{{diagnosticLevels}}"
-              wx:key="value"
-              class="diagnostic-admin-filter-chip {{diagnosticLevel === item.value ? 'is-active' : ''}}"
-              data-level="{{item.value}}"
-              bindtap="selectDiagnosticLevel"
-            >{{item.label}}</view>
-          </view>
-        </view>
-
-        <view class="diagnostic-admin-filter-block">
-          <view class="diagnostic-admin-filter-title">业务类型</view>
-          <scroll-view class="diagnostic-admin-filter-scroll" scroll-x enhanced show-scrollbar="{{false}}">
-            <view class="diagnostic-admin-filter-row">
-              <view
-                wx:for="{{diagnosticCategories}}"
-                wx:key="value"
-                class="diagnostic-admin-filter-chip {{diagnosticCategory === item.value ? 'is-active' : ''}}"
-                data-category="{{item.value}}"
-                bindtap="selectDiagnosticCategory"
-              >{{item.label}}</view>
-            </view>
-          </scroll-view>
-        </view>
-
-        <picker
-          mode="selector"
-          range="{{diagnosticLogs.userOptions}}"
-          range-key="label"
-          value="{{diagnosticUserIndex}}"
-          bindchange="selectDiagnosticUser"
-        >
-          <view class="diagnostic-admin-user-picker">
-            <text>用户筛选</text>
-          </view>
-        </picker>
-
-        <view wx:if="{{diagnosticLogs.summary.categories.length}}" class="diagnostic-admin-category-summary">
-          <view
-            wx:for="{{diagnosticLogs.summary.categories}}"
-            wx:key="category"
-            class="diagnostic-admin-category-item"
-          >
-            <text>{{item.label}}</text>
-            <text>{{item.count}} 条</text>
-          </view>
-        </view>
-
-        <view wx:if="{{diagnosticLogs.logs.length}}" class="diagnostic-admin-list">
-          <view
-            wx:for="{{diagnosticLogs.logs}}"
-            wx:key="eventId"
-            class="diagnostic-admin-log level-{{item.level}}"
-          >
-            <view class="diagnostic-admin-log-top">
-              <view class="diagnostic-admin-log-tags">
-                <text class="diagnostic-admin-level">{{item.levelText}}</text>
-                <text class="diagnostic-admin-category">{{item.categoryLabel}}</text>
-              </view>
-              <text class="diagnostic-admin-time">{{item.createdAtText}}</text>
-            </view>
-            <view class="diagnostic-admin-message">{{item.message}}</view>
-            <view class="diagnostic-admin-meta">
-              <text>用户 {{item.userHash}}</text>
-              <text wx:if="{{item.route}}">页面 {{item.route}}</text>
-              <text wx:if="{{item.durationMs !== null}}">耗时 {{item.durationText}}</text>
-              <text wx:if="{{item.code}}">代码 {{item.code}}</text>
-              <text wx:if="{{item.requestId}}">请求 {{item.requestId}}</text>
-            </view>
-            <view class="diagnostic-admin-log-actions">
-              <button
-                class="copy-error-button diagnostic-log-action-button {{item.hasDetails ? 'is-split' : 'is-single'}}"
-                data-index="{{index}}"
-                catchtap="copyDiagnosticLog"
-              >复制日志</button>
-              <button
-                wx:if="{{item.hasDetails}}"
-                class="copy-error-button diagnostic-detail-button diagnostic-log-action-button is-split"
-                data-index="{{index}}"
-                catchtap="toggleDiagnosticLogDetail"
-              >{{item.expanded ? '收起详情' : '查看详情'}}</button>
-            </view>
-            <view wx:if="{{item.expanded}}" class="diagnostic-admin-detail">
-              <view wx:if="{{item.errorText}}">
-                <text>错误详情</text>
-                <text selectable>{{item.errorText}}</text>
-              </view>
-              <view wx:if="{{item.detailsText}}">
-                <text>补充信息</text>
-                <text selectable>{{item.detailsText}}</text>
-              </view>
-            </view>
-          </view>
-        </view>
-        <view
-          wx:elif="{{moduleStates.diagnosticLogs.status === 'ready' || moduleStates.diagnosticLogs.hasData}}"
-          class="admin-empty usage-empty"
-        >这个筛选条件下没有日志。</view>
-        <button
-          wx:if="{{diagnosticLogs.nextOffset !== null}}"
-          class="user-load-more"
-          bindtap="loadMoreDiagnosticLogs"
-          loading="{{diagnosticLogsLoading}}"
-          disabled="{{diagnosticLogsLoading}}"
-        >{{diagnosticLogsLoading ? '加载中...' : '继续加载20条'}}</button>
-        </view>
-      </view>
-
 
     </view>
 
       <view wx:if="{{moduleStates.usage.status === 'ready' || moduleStates.usage.hasData}}" class="usage-failure-panel">
         <view class="usage-subsection-head usage-failure-head">
-          <view class="usage-subsection-title usage-failure-heading">失败情况</view>
+          <view class="usage-subsection-title usage-failure-heading">模型调用统计</view>
           <view class="usage-failure-actions">
             <picker
               mode="selector"
@@ -1075,7 +1072,7 @@
                 catchtap="toggleUsageSection"
                 hover-class="control-tap"
                 role="button"
-                aria-label="{{usageSections.failure ? '收起失败情况' : '展开失败情况'}}"
+                aria-label="{{usageSections.failure ? '收起模型调用统计' : '展开模型调用统计'}}"
               >
                 <text>{{usageSections.failure ? '收起' : '展开'}}</text>
                 <text class="usage-subsection-chevron {{usageSections.failure ? 'is-open' : ''}}">⌄</text>

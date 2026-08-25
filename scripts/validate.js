@@ -13,11 +13,13 @@ const jsonFiles = [
   "pages/workbench/workbench.json",
   "pages/publish-export/publish-export.json",
   "pages/photo-to-video/photo-to-video.json",
+  "pages/watermark-remover/watermark-remover.json",
   "pages/photo-guide/photo-guide.json",
   "pages/points/points.json",
   "pages/admin/admin.json",
   "pages/repair/repair.json",
   "cloudfunctions/api/package.json",
+  "cloudfunctions/watermark-gateway/package.json",
   "cloudfunctions/api/config.json",
   "scripts/database-indexes.json",
   "scripts/cloud-database-index-manager/package.json"
@@ -46,6 +48,7 @@ const jsFiles = [
   "pages/workbench/workbench.js",
   "pages/publish-export/publish-export.js",
   "pages/photo-to-video/photo-to-video.js",
+  "pages/watermark-remover/watermark-remover.js",
   "pages/photo-guide/photo-guide.js",
   "pages/points/points.js",
   "pages/admin/admin.js",
@@ -58,6 +61,7 @@ const jsFiles = [
   "pages/records/records.js",
   "pages/repair/repair.js",
   "cloudfunctions/api/index.js",
+  "cloudfunctions/watermark-gateway/index.js",
   "cloudfunctions/api/lib/logger.js",
   "cloudfunctions/api/lib/retry.js",
   "cloudfunctions/api/lib/multipart.js",
@@ -91,6 +95,8 @@ const jsFiles = [
   "scripts/generation-concurrency-smoke.js",
   "scripts/repair-smoke.js",
   "scripts/workbench-interaction-smoke.js",
+  "scripts/workbench-media-parser-layout-smoke.js",
+  "scripts/watermark-m0-smoke.js",
   "scripts/model-usage-stats-smoke.js",
   "scripts/model-cost-stats-smoke.js",
   "scripts/model-failure-stats-smoke.js",
@@ -199,6 +205,12 @@ const required = [
   "pages/photo-to-video/photo-to-video.json",
   "pages/photo-to-video/photo-to-video.wxml",
   "pages/photo-to-video/photo-to-video.wxss",
+  "pages/watermark-remover/watermark-remover.js",
+  "pages/watermark-remover/watermark-remover.json",
+  "pages/watermark-remover/watermark-remover.wxml",
+  "pages/watermark-remover/watermark-remover.wxss",
+  "assets/media/media-parser-demo.mp4",
+  "assets/media/media-parser-demo.jpg",
   "pages/points/points.js",
   "pages/points/points.json",
   "pages/points/points.wxml",
@@ -235,6 +247,11 @@ const required = [
   "scripts/auto-face-failure-stats-smoke.js",
   "cloudfunctions/api/index.js",
   "cloudfunctions/api/config.json",
+  "cloudfunctions/watermark-gateway/index.js",
+  "cloudfunctions/watermark-gateway/package.json",
+  "cloudfunctions/watermark-gateway/.env.example",
+  "docs/superpowers/specs/2026-08-25-zhuceka-watermark-provider-design.md",
+  "scripts/workbench-media-parser-layout-smoke.js",
   "scripts/photo-to-video-cleanup-smoke.js",
   "scripts/photo-to-video-session-smoke.js",
   "scripts/auto-face-probe-history-smoke.js",
@@ -290,6 +307,20 @@ const apiPackage = JSON.parse(
 );
 const apiLock = JSON.parse(
   fs.readFileSync(path.join(root, "cloudfunctions/api/package-lock.json"), "utf8")
+);
+const watermarkGatewayPackage = JSON.parse(
+  fs.readFileSync(
+    path.join(root, "cloudfunctions/watermark-gateway/package.json"),
+    "utf8"
+  )
+);
+const watermarkGatewayJs = fs.readFileSync(
+  path.join(root, "cloudfunctions/watermark-gateway/index.js"),
+  "utf8"
+);
+const watermarkGatewayEnvExample = fs.readFileSync(
+  path.join(root, "cloudfunctions/watermark-gateway/.env.example"),
+  "utf8"
 );
 const cloudTriggerConfig = JSON.parse(
   fs.readFileSync(path.join(root, "cloudfunctions/api/config.json"), "utf8")
@@ -402,6 +433,7 @@ if (
   !appConfig.appVersion
   || apiPackage.version !== appConfig.appVersion
   || apiLock.version !== appConfig.appVersion
+  || watermarkGatewayPackage.version !== appConfig.appVersion
   || !new RegExp(
     `const API_BUILD_VERSION = "${appConfig.appVersion.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`
   ).test(cloudJs)
@@ -411,7 +443,19 @@ if (
   || appConfig.photoToVideo.cleanup.idlePeriodMs !== 2 * 60 * 60 * 1000
   || appConfig.photoToVideo.cleanup.gracePeriodMs !== 3 * 24 * 60 * 60 * 1000
 ) {
-  throw new Error("小程序、云函数代码、云函数锁文件版本不一致，或照片转视频 2 小时/3×24 小时清理配置不正确。");
+  throw new Error("小程序、主云函数、媒体解析网关、云函数锁文件版本不一致，或照片转视频 2 小时/3×24 小时清理配置不正确。");
+}
+if (
+  !watermarkGatewayJs.includes('process.env.ZHUCEKA_UID')
+  || !watermarkGatewayJs.includes('process.env.ZHUCEKA_KEY')
+  || !watermarkGatewayJs.includes("resolveProviderRedirect")
+  || !watermarkGatewayJs.includes("allowedOrigin")
+  || /ZHUCEKA_UID\s*=\s*\d{5,}/.test(watermarkGatewayJs)
+  || /ZHUCEKA_KEY\s*=\s*[A-Za-z0-9_-]{8,}/.test(watermarkGatewayJs)
+  || !watermarkGatewayEnvExample.includes("在云函数控制台填写真实UID")
+  || !watermarkGatewayEnvExample.includes("在云函数控制台填写真实Key")
+) {
+  throw new Error("媒体解析网关缺少环境变量或同源重定向防护，或疑似把真实 UID/Key 写进源码。");
 }
 if (
   !Array.isArray(cloudTriggerConfig.triggers)
@@ -714,7 +758,7 @@ if (
   throw new Error("模型用量统计没有正确放在“今天”下面，或仍被运行监控旧状态控制。");
 }
 if (
-  !adminWxml.includes("失败情况")
+  !adminWxml.includes("模型调用统计")
   || !adminWxml.includes("失败原因前 5 名")
   || !adminWxml.includes("失败最多的模型")
   || !adminWxss.includes(".usage-failure-panel")
@@ -976,9 +1020,15 @@ const commonFeatureHeadingCount = (
 const commonFeatureSubtitleCount = (
   workbenchWxml.match(/class="feature-group-subtitle"/g) || []
 ).length;
-const workbenchEntryCardCount = workbenchWxml.includes('wx:if="{{adminVisible}}"') ? 6 : 5;
+const workbenchEntryCardCount = workbenchWxml.includes('wx:if="{{adminVisible}}"') ? 7 : 6;
 const serviceFeatureHeadingStyle = workbenchWxss.match(
   /\.service-feature-heading\s*\{([^}]*)\}/
+);
+const mediaParserEntryStyle = workbenchWxss.match(
+  /\.media-parser-entry\s*\{([^}]*)\}/
+);
+const mediaParserArrowStyle = workbenchWxss.match(
+  /\.media-parser-entry\s+\.media-parser-arrow\s*\{([^}]*)\}/
 );
 const contactAuthorCardStyle = workbenchWxss.match(
   /\.contact-author-card\s*\{([^}]*)\}/
@@ -1009,6 +1059,18 @@ if (
   || commonFeatureSubtitleCount !== 2
   || !workbenchWxml.includes('class="feature-group-heading service-feature-heading"')
   || workbenchWxml.indexOf("service-feature-heading") > workbenchWxml.indexOf('class="card contact-author-card"')
+  || !workbenchWxml.includes("媒体解析")
+  || !workbenchWxml.includes('bindtap="openMediaParser"')
+  || !workbenchJs.includes("openMediaParser()")
+  || !workbenchJs.includes('"/pages/watermark-remover/watermark-remover"')
+  || !workbenchWxss.includes(".media-parser-entry")
+  || !mediaParserEntryStyle
+  || !/display:\s*flex\s*!important/.test(mediaParserEntryStyle[1])
+  || !/flex-direction:\s*row\s*!important/.test(mediaParserEntryStyle[1])
+  || !/height:\s*148rpx/.test(mediaParserEntryStyle[1])
+  || !mediaParserArrowStyle
+  || !/position:\s*absolute/.test(mediaParserArrowStyle[1])
+  || !/right:\s*18rpx/.test(mediaParserArrowStyle[1])
   || !serviceFeatureHeadingStyle
   || !/margin-top:\s*28rpx/.test(serviceFeatureHeadingStyle[1])
   || !workbenchWxml.includes('class="card contact-author-card"')
@@ -1020,8 +1082,8 @@ if (
   || !workbenchJs.includes('AUTHOR_QR_PATH = "/assets/contact/author-wechat-qr.jpg"')
   || !workbenchJs.includes("previewAuthorQr()")
   || !workbenchJs.includes("wx.previewImage")
-  || !workbenchJs.includes("current: qrPath")
-  || !workbenchJs.includes("urls: [qrPath]")
+  || !workbenchJs.includes("current: previewPath")
+  || !workbenchJs.includes("urls: [previewPath]")
   || !workbenchJs.includes("saveAuthorQr()")
   || !workbenchJs.includes("wx.saveImageToPhotosAlbum")
   || workbenchJs.includes("authorQrPreviewVisible")

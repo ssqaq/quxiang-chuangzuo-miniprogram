@@ -814,6 +814,99 @@ page {
   margin-top: 28rpx;
 }
 
+.media-parser-entry {
+  position: relative;
+  display: flex !important;
+  width: 100%;
+  min-height: 148rpx;
+  height: 148rpx;
+  margin-top: 16rpx;
+  padding: 22rpx;
+  box-sizing: border-box;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: flex-start;
+  overflow: hidden;
+  border-color: #d8e4ff;
+  background: linear-gradient(135deg, #f0f4ff 0%, #ffffff 78%);
+}
+
+.media-parser-icon {
+  display: flex;
+  flex: none;
+  width: 76rpx;
+  height: 76rpx;
+  align-items: center;
+  justify-content: center;
+  border-radius: 24rpx;
+  background: #e4ecff;
+  color: #456bd1;
+  font-size: 26rpx;
+  font-weight: 800;
+  box-shadow: 0 8rpx 18rpx rgba(69, 107, 209, 0.12);
+}
+
+.media-parser-copy {
+  min-width: 0;
+  flex: 1;
+  margin-left: 18rpx;
+  padding-right: 26rpx;
+}
+
+.media-parser-title {
+  color: #2a3e78;
+  font-size: 30rpx;
+  font-weight: 800;
+  line-height: 40rpx;
+}
+
+.media-parser-description {
+  overflow: hidden;
+  margin-top: 8rpx;
+  color: #7182aa;
+  font-size: 21rpx;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.media-parser-arrow {
+  color: #617ed8;
+}
+
+/* 媒体解析卡片不在常用功能分组卡内，单独补齐横向布局兜底。 */
+.media-parser-entry .media-parser-icon {
+  flex: 0 0 76rpx;
+  align-self: center;
+}
+
+.media-parser-entry .media-parser-copy {
+  min-width: 0;
+  flex: 1 1 0;
+  align-self: center;
+  margin: 0 0 0 14rpx;
+  padding: 0 26rpx 0 0;
+}
+
+.media-parser-entry .common-feature-action {
+  position: absolute;
+  top: 50%;
+  /* 媒体解析卡片比常用功能行多出 common-feature-panel 的 22rpx 内边距，
+     左移同样的距离后，打开按钮与上方按钮四边完全对齐。 */
+  right: 68rpx;
+  z-index: 2;
+  transform: translateY(-50%);
+}
+
+.media-parser-entry .media-parser-arrow {
+  position: absolute;
+  top: 50%;
+  right: 18rpx;
+  z-index: 2;
+  width: 14rpx;
+  margin-top: -17rpx;
+}
+
 .admin-entry-card {
   display: flex;
   align-items: center;
@@ -844,7 +937,7 @@ page {
 }
 
 .admin-entry-title {
-  color: #25334a;
+  color: #2d3b54;
   font-size: 30rpx;
   font-weight: 800;
 }
@@ -852,7 +945,7 @@ page {
 .admin-entry-description {
   margin-top: 8rpx;
   overflow: hidden;
-  color: #7b899c;
+  color: #8b99aa;
   font-size: 21rpx;
   line-height: 32rpx;
   text-overflow: ellipsis;
@@ -907,9 +1000,14 @@ page {
   margin-left: 18rpx;
 }
 
+.contact-author-copy > .section-kicker {
+  color: #8b99aa;
+  font-size: 30rpx;
+}
+
 .contact-author-title {
   margin-top: 2rpx;
-  color: #263550;
+  color: #2d3b54;
   font-size: 21rpx;
   font-weight: 800;
   line-height: 40rpx;
@@ -918,7 +1016,7 @@ page {
 .contact-author-description {
   margin-top: 6rpx;
   color: #74839a;
-  font-size: 30rpx;
+  font-size: 21rpx;
   line-height: 30rpx;
 }
 
@@ -1608,7 +1706,20 @@ button.recent-more-c.small-btn {
   margin-left: 14rpx !important;
 }
 
-/* 工作台所有功能卡片统一文字颜色：深色标题、浅色说明、绿色操作、浅灰箭头。 */
+/* 其他服务的文字规格与“常用功能”完全一致。 */
+.service-feature-heading .feature-group-title {
+  color: #2b3a52;
+  font-size: 30rpx;
+  line-height: 42rpx;
+}
+
+.service-feature-heading .feature-group-subtitle {
+  color: #8d9aaa;
+  font-size: 22rpx;
+  line-height: 32rpx;
+}
+
+/* 工作台所有功能卡片统一文字颜色、字号：深色标题、浅色说明、绿色操作、浅灰箭头。 */
 .common-feature-panel .entry-title,
 .common-feature-panel .section-title,
 .common-feature-panel .publish-export-title,
@@ -1617,6 +1728,9 @@ button.recent-more-c.small-btn {
 .admin-entry-card .admin-entry-title,
 .contact-author-card .contact-author-copy > .section-kicker {
   color: #2d3b54;
+  font-size: 28rpx;
+  font-weight: 800;
+  line-height: 38rpx;
 }
 
 .common-feature-panel .entry-description,
@@ -1628,6 +1742,9 @@ button.recent-more-c.small-btn {
 .contact-author-card .contact-author-title,
 .contact-author-card .contact-author-description {
   color: #8b99aa;
+  font-size: 21rpx;
+  line-height: 30rpx;
+  font-weight: 400;
 }
 
 .common-feature-panel .common-feature-action,
@@ -1637,6 +1754,9 @@ button.recent-more-c.small-btn {
 .contact-author-card .contact-author-toggle,
 .contact-author-card .expand-toggle {
   color: #287762 !important;
+  font-size: 22rpx;
+  font-weight: 700;
+  line-height: 32rpx;
 }
 
 .common-feature-panel .entry-arrow,
@@ -1648,4 +1768,6 @@ button.recent-more-c.small-btn {
 .contact-author-card .contact-author-toggle-arrow,
 .contact-author-card .expand-toggle-arrow {
   color: #9bb0c3;
+  font-size: 34rpx;
+  line-height: 1;
 }

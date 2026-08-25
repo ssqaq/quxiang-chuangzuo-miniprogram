@@ -21,12 +21,12 @@ assert.ok(wxml.includes('data-section="costs"'), "成本入口缺失");
 assert.ok(wxml.includes('data-section="users"'), "用户入口缺失");
 assert.ok(wxml.includes('bindtap="toggleConfigSection"'), "配置入口没有跳转事件");
 assert.ok(
-  wxml.indexOf("按模型名称分组") < wxml.indexOf("失败情况"),
-  "模型详情必须放在失败情况之前"
+  wxml.indexOf("按模型名称分组") < wxml.indexOf("模型调用统计"),
+  "模型详情必须放在模型调用统计之前"
 );
 assert.ok(
-  wxml.indexOf("最近{{usageStats.days}}天每日明细") < wxml.indexOf("失败情况"),
-  "每日明细必须放在失败情况之前"
+  wxml.indexOf("最近{{usageStats.days}}天每日明细") < wxml.indexOf("模型调用统计"),
+  "每日明细必须放在模型调用统计之前"
 );
 
 let pageDefinition = null;

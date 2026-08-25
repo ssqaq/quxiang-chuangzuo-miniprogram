@@ -179,6 +179,22 @@
     <view class="feature-group-subtitle">联系客服和更多工具</view>
   </view>
 
+  <view
+    class="card media-parser-entry common-feature-row home-feature-card workbench-link-card"
+    bindtap="openMediaParser"
+    hover-class="workbench-link-card-hover"
+    hover-start-time="0"
+    hover-stay-time="70"
+  >
+    <view class="media-parser-icon">析</view>
+    <view class="media-parser-copy">
+      <view class="media-parser-title">媒体解析</view>
+      <view class="media-parser-description">整理本人或已获授权的视频内容</view>
+    </view>
+    <view class="common-feature-action">打开</view>
+    <view class="home-feature-arrow media-parser-arrow">›</view>
+  </view>
+
   <view class="card contact-author-card">
     <view
       class="contact-author-heading"

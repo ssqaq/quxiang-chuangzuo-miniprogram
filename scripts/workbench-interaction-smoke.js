@@ -4,6 +4,8 @@ const events = [];
 const storage = {};
 let page = null;
 let redirectMode = "success";
+let imageInfoMode = "success";
+let previewImageMode = "success";
 
 global.getApp = () => ({
   globalData: {
@@ -44,9 +46,20 @@ global.wx = {
   navigateTo() {},
   previewImage(options) {
     events.push({ type: "previewImage", options });
+    if (previewImageMode === "fail" && options.fail) {
+      options.fail({ errMsg: "previewImage:fail smoke" });
+    }
   },
   getImageInfo(options) {
     events.push({ type: "getImageInfo", options });
+    if (imageInfoMode === "fail") {
+      if (options.fail) options.fail({ errMsg: "getImageInfo:fail smoke" });
+      return;
+    }
+    if (imageInfoMode === "empty") {
+      options.success({});
+      return;
+    }
     options.success({ path: "/tmp/author-wechat-qr.jpg" });
   },
   saveImageToPhotosAlbum(options) {
@@ -112,11 +125,36 @@ async function main() {
   page.previewAuthorQr();
   const qrPreviewEvent = events.find((item) => item.type === "previewImage");
   assert.ok(qrPreviewEvent);
-  assert.strictEqual(qrPreviewEvent.options.current, "/assets/contact/author-wechat-qr.jpg");
+  const qrInfoEvent = events.find((item) => item.type === "getImageInfo");
+  assert.ok(qrInfoEvent);
+  assert.strictEqual(qrInfoEvent.options.src, "/assets/contact/author-wechat-qr.jpg");
+  assert.strictEqual(qrPreviewEvent.options.current, "/tmp/author-wechat-qr.jpg");
   assert.deepStrictEqual(
     qrPreviewEvent.options.urls,
-    ["/assets/contact/author-wechat-qr.jpg"]
+    ["/tmp/author-wechat-qr.jpg"]
   );
+
+  imageInfoMode = "fail";
+  page.previewAuthorQr();
+  assert.ok(events.some((item) => (
+    item.type === "toast"
+    && item.options.title === "二维码读取失败，请重试"
+  )));
+  imageInfoMode = "empty";
+  page.previewAuthorQr();
+  assert.ok(events.filter((item) => (
+    item.type === "toast"
+    && item.options.title === "二维码读取失败，请重试"
+  )).length >= 2);
+  imageInfoMode = "success";
+  previewImageMode = "fail";
+  page.previewAuthorQr();
+  assert.ok(events.some((item) => (
+    item.type === "toast"
+    && item.options.title === "二维码打开失败，请重试"
+  )));
+  previewImageMode = "success";
+
   page.saveAuthorQr();
   assert.ok(events.some((item) => (
     item.type === "saveImageToPhotosAlbum"

@@ -177,6 +177,19 @@ def main() -> None:
         )
     if not api_marker_match or not api_marker_match.group(1):
         raise RuntimeError("云函数 index.js 缺少 API_BUILD_MARKER")
+    watermark_gateway_package = json.loads(
+        (
+            source_root
+            / "cloudfunctions"
+            / "watermark-gateway"
+            / "package.json"
+        ).read_text(encoding="utf-8")
+    )
+    if watermark_gateway_package.get("version") != version:
+        raise RuntimeError(
+            "版本不一致："
+            f"config.js={version}，watermark gateway={watermark_gateway_package.get('version')}"
+        )
     media_worker_package = json.loads(
         (source_root / "media-worker" / "package.json").read_text(encoding="utf-8")
     )
@@ -210,6 +223,8 @@ def main() -> None:
             "云函数依赖：部署时可选择云端安装依赖",
             "CloudBase 环境 ID：需在 config.js 中填写后再部署",
             "云函数部署：执行 scripts/deploy-and-verify-api.ps1，部署后自动对比线上版本和构建标记",
+            "媒体解析网关：独立部署 cloudfunctions/watermark-gateway，并在云函数控制台配置 WATERMARK_PROVIDER、ZHUCEKA_API_BASE、ZHUCEKA_UID、ZHUCEKA_KEY、ZHUCEKA_TIMEOUT_MS",
+            "媒体解析保存：当前直接使用第三方媒体地址；动态 CDN 域名受微信限制时需改为 CloudBase 转存",
             "数据库初始化：部署 api 后执行 scripts/init-cloud-database.ps1，自动补齐 17 个集合（含 user_profiles、user_diagnostic_logs、publish_export_jobs）",
             "数据库索引：执行 scripts/check-cloud-database-indexes.ps1，先检查再逐项确认创建 11 组必需索引",
             "用户资料：仅在首次签到时要求选择头像、填写昵称并选择男/女，保存后自动签到",
@@ -269,6 +284,17 @@ def main() -> None:
         "pages/photo-to-video/photo-to-video.json",
         "pages/photo-to-video/photo-to-video.wxml",
         "pages/photo-to-video/photo-to-video.wxss",
+        "pages/watermark-remover/watermark-remover.js",
+        "pages/watermark-remover/watermark-remover.json",
+        "pages/watermark-remover/watermark-remover.wxml",
+        "pages/watermark-remover/watermark-remover.wxss",
+        "assets/media/media-parser-demo.mp4",
+        "assets/media/media-parser-demo.jpg",
+        "cloudfunctions/watermark-gateway/index.js",
+        "cloudfunctions/watermark-gateway/package.json",
+        "cloudfunctions/watermark-gateway/.env.example",
+        "docs/superpowers/specs/2026-08-25-zhuceka-watermark-provider-design.md",
+        "scripts/watermark-m0-smoke.js",
         "pages/publish-export/publish-export.js",
         "pages/publish-export/publish-export.wxml",
         "pages/publish-export/publish-export.wxss",
@@ -309,6 +335,7 @@ def main() -> None:
         "scripts/admin-user-stats-option-d-smoke.js",
         "scripts/admin-user-filter-trend-smoke.js",
         "scripts/admin-user-gender-custom-date-detail-smoke.js",
+        "scripts/workbench-media-parser-layout-smoke.js",
         "scripts/release-safety-smoke.js",
         "RELEASE-MANIFEST.txt",
     }

@@ -94,6 +94,35 @@ assert.ok(!adminJs.includes("monitorOnlyAbnormal"), "异常筛选状态仍残留
 assert.ok(!adminJs.includes("setAllMonitorSections"), "全部展开/收起方法仍残留");
 assert.ok(!adminJs.includes("toggleMonitorOnlyAbnormal"), "异常筛选方法仍残留");
 
+const monitorOverviewIndex = wxml.indexOf('class="monitor-overview-card"');
+const diagnosticLogsIndex = wxml.indexOf('id="monitor-section-diagnosticLogs"');
+const deploymentIndex = wxml.indexOf('id="monitor-section-deployment"');
+const failureIndex = wxml.indexOf('class="usage-failure-panel"');
+[
+  ["系统运行概览", monitorOverviewIndex],
+  ["用户端日志", diagnosticLogsIndex],
+  ["部署与探针", deploymentIndex],
+  ["模型调用统计", failureIndex]
+].forEach(([label, index]) => {
+  assert.notStrictEqual(index, -1, `管理员页缺少${label}区块`);
+});
+assert.ok(
+  monitorOverviewIndex < diagnosticLogsIndex
+  && diagnosticLogsIndex < deploymentIndex
+  && deploymentIndex < failureIndex,
+  "运行监控区块顺序应为：系统运行概览、用户端日志、部署与探针、模型调用统计"
+);
+assert.strictEqual(
+  (wxml.match(/id="monitor-section-diagnosticLogs"/g) || []).length,
+  1,
+  "用户端日志区块只能保留一个"
+);
+assert.strictEqual(
+  (wxml.match(/id="monitor-section-deployment"/g) || []).length,
+  1,
+  "部署与探针区块只能保留一个"
+);
+
 const viewTree = inspectViewTree(wxml);
 assert.strictEqual(viewTree.targets.length, 11, "管理员页目标展开按钮数量应为 11 个");
 assert.strictEqual(viewTree.slots.length, 11, "每个目标展开按钮都应有且只有一个统一位置框");
@@ -115,8 +144,8 @@ viewTree.slots.forEach((slot, index) => {
   assert.ok(wxml.includes(marker), `刷新、导出或月份选择事件被破坏：${marker}`);
 });
 
-const usageAlignmentStart = wxss.indexOf("/* 模型用量统计与失败情况的三项操作按同一组基准线对齐。 */");
-assert.notStrictEqual(usageAlignmentStart, -1, "缺少模型用量与失败情况的统一对齐规则");
+const usageAlignmentStart = wxss.indexOf("/* 模型用量统计与模型调用统计的三项操作按同一组基准线对齐。 */");
+assert.notStrictEqual(usageAlignmentStart, -1, "缺少模型用量与模型调用统计的统一对齐规则");
 const usageAlignmentBlock = wxss.slice(usageAlignmentStart);
 [
   ".usage-primary-actions,\n.usage-failure-actions",
@@ -135,11 +164,11 @@ const usageAlignmentBlock = wxss.slice(usageAlignmentStart);
   "gap: 8rpx",
   "border: 1rpx solid #bcd3f6"
 ].forEach((marker) => {
-  assert.ok(usageAlignmentBlock.includes(marker), `用量/失败情况对齐规则缺少：${marker}`);
+  assert.ok(usageAlignmentBlock.includes(marker), `用量/模型调用统计对齐规则缺少：${marker}`);
 });
 assert.ok(
   /\.usage-failure-head\s*\{\s*align-items:\s*center;\s*padding-right:\s*24rpx;/.test(wxss),
-  "失败情况标题行没有补齐与用户端日志相同的右侧基准线"
+  "模型调用统计标题行没有补齐与用户端日志相同的右侧基准线"
 );
 assert.ok(
   /\.auto-face-probe-history-card\s+\.admin-section-tools\s*\{\s*position:\s*relative;/.test(wxss),

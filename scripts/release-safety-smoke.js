@@ -279,15 +279,26 @@ function testPackageManifest() {
       .map((item) => item.trim())
       .filter(Boolean);
     const allReleaseSafetyFilesTracked = trackedFiles.length === 4;
+    const packageScriptDiff = run("git", [
+      "diff",
+      "--quiet",
+      "HEAD",
+      "--",
+      "scripts/package-release.py",
+    ]);
+    const canPackageHead = (
+      allReleaseSafetyFilesTracked
+      && packageScriptDiff.status === 0
+    );
 
     const packageArgs = [
       packageScript,
       "--commit-sha",
-      allReleaseSafetyFilesTracked ? head.stdout.trim() : "工作区未提交",
+      canPackageHead ? head.stdout.trim() : "工作区未提交",
       "--output",
       output,
     ];
-    if (allReleaseSafetyFilesTracked) {
+    if (canPackageHead) {
       packageArgs.splice(1, 0, "--source-tree", head.stdout.trim(), "--tree-sha", tree.stdout.trim());
     }
 
@@ -295,7 +306,7 @@ function testPackageManifest() {
       process.platform === "win32" ? "python" : "python3",
       packageArgs
     );
-    assertCommandOk(result, "从 commit 打包");
+    assertCommandOk(result, canPackageHead ? "从 commit 打包" : "从工作区打包");
     assert.ok(fs.statSync(output).size > 0, "发布包不能为空");
 
     const unzip = run(
@@ -313,14 +324,14 @@ function testPackageManifest() {
     );
     assertCommandOk(unzip, "读取发布清单");
     const manifest = Buffer.from(unzip.stdout.trim(), "base64").toString("utf8");
-    const expectedCommit = allReleaseSafetyFilesTracked
+    const expectedCommit = canPackageHead
       ? head.stdout.trim()
       : "工作区未提交";
     assert.ok(
       manifest.includes(`提交 SHA：${expectedCommit}`),
       "发布清单缺少最终提交 SHA"
     );
-    if (allReleaseSafetyFilesTracked) {
+    if (canPackageHead) {
       assert.ok(
         manifest.includes(`Git tree SHA：${tree.stdout.trim()}`),
         "发布清单缺少 Git tree SHA"

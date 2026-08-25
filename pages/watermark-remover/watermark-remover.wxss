@@ -271,17 +271,32 @@
   line-height: 88rpx;
 }
 
-.parse-button {
+.action-row {
   display: flex;
+  align-items: stretch;
+  gap: 16rpx;
+  margin-top: 18rpx;
+}
+
+.action-button {
+  display: flex;
+  flex: 1 1 0;
   align-items: center;
   justify-content: center;
-  position: relative;
+  width: auto;
+  min-width: 0;
+  height: 88rpx;
+  margin: 0;
   box-sizing: border-box;
-  padding-top: 0;
-  padding-bottom: 0;
-  padding-right: 72rpx;
-  padding-left: 72rpx;
+  border-radius: 18rpx;
+  font-size: 26rpx;
+  font-weight: 800;
   line-height: normal;
+}
+
+.parse-button {
+  position: relative;
+  padding: 0 46rpx;
   text-align: center;
 }
 
@@ -297,7 +312,7 @@
 .button-arrow {
   position: absolute;
   top: 50%;
-  right: 30rpx;
+  right: 22rpx;
   margin-left: 0;
   font-size: 29rpx;
   font-weight: 500;
@@ -309,6 +324,12 @@
   display: block;
   line-height: 1.35;
   text-align: center;
+}
+
+.back-button {
+  padding: 0 12rpx;
+  color: #2d7ff2;
+  background: #eef5ff;
 }
 
 .page-note {
@@ -761,22 +782,21 @@
   line-height: 80rpx;
 }
 
-.bottom-link {
-  min-height: 88rpx;
-  margin-top: 18rpx;
-  color: #2d7ff2;
-  font-size: 22rpx;
-  line-height: 88rpx;
-  text-align: center;
+.action-button.secondary-btn {
+  width: auto;
+  height: 88rpx;
+  margin: 0;
+  font-size: 26rpx;
+  line-height: normal;
 }
 
 .primary-btn:not([disabled]):active,
 .secondary-btn:not([disabled]):active,
 .paste-button:active,
 .copy-button:active,
-.copywriting-action:active,
-.copywriting-fade:active,
-.bottom-link:active {
+  .copywriting-action:active,
+  .copywriting-fade:active,
+  .back-button:active {
   opacity: 0.76;
 }
 

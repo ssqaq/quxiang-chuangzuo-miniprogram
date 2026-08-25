@@ -57,15 +57,18 @@
     </view>
   </view>
 
-  <button
-    class="primary-btn parse-button"
-    bindtap="parseMedia"
-    loading="{{parsing}}"
-    disabled="{{parsing}}"
-  >
-    <text class="button-label">{{parsing ? '正在解析并提取...' : '一键解析并提取'}}</text>
-    <text wx:if="{{!parsing}}" class="button-arrow">→</text>
-  </button>
+  <view class="action-row">
+    <button
+      class="primary-btn action-button parse-button"
+      bindtap="parseMedia"
+      loading="{{parsing}}"
+      disabled="{{parsing}}"
+    >
+      <text class="button-label">{{parsing ? '正在解析并提取...' : '一键解析并提取'}}</text>
+      <text wx:if="{{!parsing}}" class="button-arrow">→</text>
+    </button>
+    <button class="secondary-btn action-button back-button" bindtap="backToWorkbench">返回工作台</button>
+  </view>
 
   <view wx:if="{{status === 'idle'}}" class="page-note">
     <text class="note-dot"></text>
@@ -243,5 +246,4 @@
     <button class="secondary-btn reset-button" bindtap="resetResult">重新解析</button>
   </view>
 
-  <view class="bottom-link" bindtap="backToWorkbench">返回工作台</view>
 </view>

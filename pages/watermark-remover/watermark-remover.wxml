@@ -1,11 +1,17 @@
 <view class="media-parser-page">
+  <view class="media-parser-topline"></view>
+
   <view class="media-parser-hero">
-    <view class="media-parser-heading">解析视频或图片</view>
-    <view class="media-parser-subheading">粘贴平台分享链接或分享文本，实际支持范围以解析结果为准。</view>
+    <view class="hero-kicker">媒体解析 · 文案提取</view>
+    <view class="media-parser-heading">一个链接，媒体文案全提取</view>
+    <view class="media-parser-subheading">粘贴平台分享链接，同时获取高清媒体和作品原始文案。</view>
   </view>
 
   <view class="input-card">
-    <view class="section-label">分享链接或分享文本</view>
+    <view class="input-card-heading">
+      <view class="section-label">粘贴分享链接或分享文本</view>
+      <button class="paste-button" bindtap="pasteFromClipboard">一键粘贴</button>
+    </view>
     <textarea
       class="media-input"
       value="{{inputText}}"
@@ -16,8 +22,30 @@
       auto-height
     ></textarea>
     <view class="input-footer">
-      <text>不会保存原始分享文本</text>
+      <view class="privacy-note">
+        <text class="privacy-check">✓</text>
+        <text>不会保存原始分享文本</text>
+      </view>
       <text>{{inputText.length}} / 4096</text>
+    </view>
+
+    <view class="feature-row">
+      <view class="feature-option">
+        <view class="feature-icon feature-icon-media">媒</view>
+        <view class="feature-copy">
+          <view class="feature-title">解析高清媒体</view>
+          <view class="feature-subtitle">视频 / 图片 / 实况</view>
+        </view>
+        <view class="feature-check">✓</view>
+      </view>
+      <view class="feature-option">
+        <view class="feature-icon feature-icon-copy">文</view>
+        <view class="feature-copy">
+          <view class="feature-title">提取作品文案</view>
+          <view class="feature-subtitle">标题 / 正文 / 标签</view>
+        </view>
+        <view class="feature-check">✓</view>
+      </view>
     </view>
   </view>
 
@@ -27,14 +55,38 @@
     loading="{{parsing}}"
     disabled="{{parsing}}"
   >
-    {{parsing ? '正在解析...' : '开始解析'}}
+    {{parsing ? '正在解析并提取...' : '一键解析并提取'}}
+    <text wx:if="{{!parsing}}" class="button-arrow">→</text>
   </button>
 
+  <view wx:if="{{status === 'idle'}}" class="page-note">
+    <text class="note-dot"></text>
+    <text>自动识别链接</text>
+    <text class="note-divider">·</text>
+    <text>媒体与文案一次完成</text>
+  </view>
+
   <view wx:if="{{status === 'parsing'}}" class="state-card state-loading">
-    <view class="state-spinner"></view>
-    <view>
-      <view class="state-title">正在解析媒体</view>
-      <view class="state-text">正在识别链接并请求真实解析服务，请稍候。</view>
+    <view class="state-loading-head">
+      <view class="state-spinner"></view>
+      <view>
+        <view class="state-title">正在整理你的内容</view>
+        <view class="state-text">识别链接、提取媒体并同步整理作品文案。</view>
+      </view>
+    </view>
+    <view class="stage-list">
+      <view class="stage-item {{parseStage === 0 ? 'is-current' : 'is-done'}}">
+        <view class="stage-node">{{parseStage === 0 ? '1' : '✓'}}</view>
+        <text>识别分享链接</text>
+      </view>
+      <view class="stage-item {{parseStage > 1 ? 'is-done' : (parseStage === 1 ? 'is-current' : '')}}">
+        <view class="stage-node">{{parseStage > 1 ? '✓' : '2'}}</view>
+        <text>提取高清媒体</text>
+      </view>
+      <view class="stage-item {{parseStage > 2 ? 'is-done' : (parseStage === 2 ? 'is-current' : '')}}">
+        <view class="stage-node">{{parseStage > 2 ? '✓' : '3'}}</view>
+        <text>整理作品文案</text>
+      </view>
     </view>
   </view>
 
@@ -50,7 +102,7 @@
   <view wx:if="{{result}}" class="result-card">
     <view class="result-head">
       <view class="result-heading-copy">
-        <view class="result-kicker">解析结果</view>
+        <view class="result-kicker">解析与提取完成</view>
         <view class="result-title">{{result.title}}</view>
       </view>
       <view wx:if="{{result.demo}}" class="result-badge result-badge-demo">演示数据</view>
@@ -60,6 +112,7 @@
     <view class="result-meta">
       <text class="result-type-chip">{{result.typeLabel}}</text>
       <text class="result-platform">{{result.platformLabel}}</text>
+      <text wx:if="{{result.author}}" class="result-author">· {{result.author}}</text>
     </view>
 
     <video
@@ -95,36 +148,35 @@
     </view>
 
     <view wx:if="{{result.demo}}" class="result-hint">当前云函数显式启用了 Mock，这不是平台真实解析结果。</view>
-    <view wx:elif="{{result.contentType === 'live_photo'}}" class="result-hint">已取到实况的静态图片和动态视频；当前会分别保存，暂不封装成系统原生 Live Photo。</view>
-    <view wx:elif="{{result.contentType === 'image' && result.mediaCount > 1}}" class="result-hint">共 {{result.mediaCount}} 张图片，点击下面按钮可以全部保存。</view>
-    <view wx:else class="result-hint">媒体地址由第三方解析服务返回；如果保存受微信域名限制，会提示后续转存处理。</view>
+    <view wx:elif="{{result.contentType === 'live_photo'}}" class="result-hint">已取到实况的静态图片和动态视频；当前会分别保存。</view>
+    <view wx:elif="{{result.contentType === 'image' && result.mediaCount > 1}}" class="result-hint">共 {{result.mediaCount}} 张图片，保存按钮会一次处理全部媒体。</view>
+    <view wx:else class="result-hint">媒体文件和作品文案已经整理好，可以分别复制或保存。</view>
+
+    <view class="copywriting-card">
+      <view class="copywriting-head">
+        <view>
+          <view class="copywriting-kicker">作品文案</view>
+          <view class="copywriting-title">已提取文本</view>
+        </view>
+        <button class="copy-button" bindtap="copyCopywriting">复制文案</button>
+      </view>
+      <view wx:if="{{result.copywriting}}" class="copywriting-body">{{result.copywriting}}</view>
+      <view wx:else class="copywriting-empty">服务商暂未返回可复制的文案。</view>
+      <view class="copywriting-footer">
+        <text>{{result.copywritingLength || 0}} 字</text>
+        <view wx:if="{{result.copywritingTags.length}}" class="copywriting-tags">
+          <text wx:for="{{result.copywritingTags}}" wx:key="*this" class="copywriting-tag">#{{item}}</text>
+        </view>
+      </view>
+    </view>
 
     <button
-      wx:if="{{result.contentType === 'live_photo'}}"
       class="primary-btn save-button"
       bindtap="saveMedia"
       loading="{{saving}}"
       disabled="{{saving}}"
     >
-      {{saving ? '保存中...' : '保存实况图片和动态视频'}}
-    </button>
-    <button
-      wx:elif="{{result.contentType === 'image' && result.mediaCount > 1}}"
-      class="primary-btn save-button"
-      bindtap="saveMedia"
-      loading="{{saving}}"
-      disabled="{{saving}}"
-    >
-      {{saving ? '保存中...' : '保存全部图片'}}
-    </button>
-    <button
-      wx:else
-      class="primary-btn save-button"
-      bindtap="saveMedia"
-      loading="{{saving}}"
-      disabled="{{saving}}"
-    >
-      {{saving ? '保存中...' : '保存到相册'}}
+      {{saving ? '保存中...' : (result.contentType === 'live_photo' ? '保存图片和动态视频' : (result.contentType === 'image' && result.mediaCount > 1 ? '保存全部媒体' : '保存媒体'))}}
     </button>
     <button class="secondary-btn reset-button" bindtap="resetResult">重新解析</button>
   </view>

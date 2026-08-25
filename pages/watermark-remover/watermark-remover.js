@@ -15,15 +15,85 @@ function normalizeContentType(value) {
   return ["video", "image", "live_photo"].includes(normalized) ? normalized : "";
 }
 
+function normalizeCopywritingText(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map(normalizeCopywritingText)
+      .filter(Boolean)
+      .join("\n")
+      .trim()
+      .slice(0, 2000);
+  }
+  if (value && typeof value === "object") {
+    return normalizeCopywritingText(
+      value.text
+      || value.content
+      || value.value
+      || value.title
+      || value.description
+    );
+  }
+  return String(value || "").trim().slice(0, 2000);
+}
+
+function normalizeCopywritingTags(value) {
+  const values = Array.isArray(value)
+    ? value
+    : String(value || "").split(/[\s,，、#]+/u);
+  return Array.from(new Set(
+    values
+      .map((item) => String(item || "").trim().replace(/^#+/u, ""))
+      .filter(Boolean)
+  )).slice(0, 8);
+}
+
+function getCopywritingFields(response = {}) {
+  const candidates = [
+    ["copywriting", response.copywriting],
+    ["description", response.description],
+    ["desc", response.desc],
+    ["caption", response.caption],
+    ["content", response.content],
+    ["text", response.text],
+    ["title", response.title]
+  ];
+  let copywriting = "";
+  let source = "";
+  for (const [candidateSource, candidateValue] of candidates) {
+    const text = normalizeCopywritingText(candidateValue);
+    if (text) {
+      copywriting = text;
+      source = candidateSource;
+      break;
+    }
+  }
+  return {
+    copywriting,
+    copywritingTags: normalizeCopywritingTags(
+      response.copywritingTags || response.hashtags || response.tags
+    ),
+    copywritingLength: Array.from(copywriting).length,
+    copywritingSource: source
+  };
+}
+
 function buildLocalDemoResult(contentType, requestId) {
   const normalizedType = normalizeContentType(contentType) || "video";
   const isImage = normalizedType === "image";
+  const copywriting = getCopywritingFields({
+    copywriting: isImage
+      ? "这是一条用于联调的图片文案，真实 Provider 接入后会直接展示服务商返回的作品文案。"
+      : "这是一条用于联调的视频文案，解析媒体的同时自动整理标题、描述和标签。",
+    tags: ["媒体解析", "文案提取"]
+  });
   return {
     ok: true,
     provider: "mock-local",
     platform: "demo",
     contentType: normalizedType,
     title: isImage ? "演示图片" : "演示视频",
+    ...copywriting,
+    copywritingSource: "mock",
     mediaUrl: isImage ? DEMO_IMAGE_PATH : DEMO_MEDIA_PATH,
     mimeType: isImage ? "image/jpeg" : "video/mp4",
     size: 0,
@@ -195,6 +265,7 @@ Page({
   data: {
     inputText: "",
     parsing: false,
+    parseStage: 0,
     saving: false,
     status: "idle",
     errorTitle: "",
@@ -245,6 +316,25 @@ Page({
     });
   },
 
+  pasteFromClipboard() {
+    if (typeof wx.getClipboardData !== "function") {
+      wx.showToast({ title: "当前环境不支持一键粘贴", icon: "none" });
+      return;
+    }
+    wx.getClipboardData({
+      success: (response) => {
+        const text = String(response && response.data || "").trim().slice(0, MAX_INPUT_LENGTH);
+        if (!text) {
+          wx.showToast({ title: "剪贴板里没有可用文本", icon: "none" });
+          return;
+        }
+        this.setData({ inputText: text });
+        wx.showToast({ title: "已粘贴", icon: "success" });
+      },
+      fail: () => wx.showToast({ title: "读取剪贴板失败", icon: "none" })
+    });
+  },
+
   async parseMedia() {
     if (this.data.parsing) return;
     const text = String(this.data.inputText || "").trim();
@@ -255,6 +345,7 @@ Page({
 
     this.setData({
       parsing: true,
+      parseStage: 0,
       status: "parsing",
       errorTitle: "",
       errorMessage: "",
@@ -275,6 +366,8 @@ Page({
         this.showError(view.title, view.message, view.code);
         return;
       }
+
+      this.setData({ parseStage: 1 });
 
       const contentType = normalizeContentType(response.contentType);
       if (!contentType) {
@@ -311,6 +404,10 @@ Page({
         : (isLivePhoto ? mediaItems : []);
       const mediaCount = Number(response.mediaCount)
         || (isLivePhoto ? livePhotoItems.length : mediaItems.length || 1);
+      const copywriting = demoResult
+        ? getCopywritingFields(demoResult)
+        : getCopywritingFields(response);
+      this.setData({ parseStage: 2 });
       const result = Object.assign({}, response, {
         contentType,
         title: safeMessage(
@@ -325,11 +422,13 @@ Page({
         mediaItems,
         livePhotoItems,
         mediaCount,
+        ...copywriting,
         demo: Boolean(response.demo),
         isReal: !response.demo
       });
       this.setData({
         parsing: false,
+        parseStage: 3,
         status: "success",
         result,
         providerReady: true,
@@ -355,6 +454,7 @@ Page({
     const configurationError = errorCode === "PROVIDER_NOT_CONFIGURED";
     this.setData({
       parsing: false,
+      parseStage: 0,
       status: "error",
       errorTitle: title,
       errorMessage: message,
@@ -449,6 +549,23 @@ Page({
     }
   },
 
+  copyCopywriting() {
+    const text = String(this.data.result && this.data.result.copywriting || "").trim();
+    if (!text) {
+      wx.showToast({ title: "当前没有可复制的文案", icon: "none" });
+      return;
+    }
+    if (typeof wx.setClipboardData !== "function") {
+      wx.showToast({ title: "当前环境不支持复制", icon: "none" });
+      return;
+    }
+    wx.setClipboardData({
+      data: text,
+      success: () => wx.showToast({ title: "文案已复制", icon: "success" }),
+      fail: () => wx.showToast({ title: "复制失败，请重试", icon: "none" })
+    });
+  },
+
   saveVideo() {
     return this.saveMedia();
   },
@@ -456,6 +573,7 @@ Page({
   resetResult() {
     this.setData({
       status: "idle",
+      parseStage: 0,
       result: null,
       errorTitle: "",
       errorMessage: ""
@@ -473,6 +591,9 @@ Page({
 module.exports = {
   buildLocalDemoResult,
   normalizeContentType,
+  normalizeCopywritingText,
+  normalizeCopywritingTags,
+  getCopywritingFields,
   errorView,
   platformLabel
 };

@@ -72,12 +72,20 @@ function resolveProviderName() {
 function buildDemoResult(requestId, contentType = "video") {
   const normalizedType = normalizeContentType(contentType);
   const isImage = normalizedType === "image";
+  const copywriting = normalizeCopywritingFields({
+    copywriting: isImage
+      ? "这是一条用于联调的图片文案，真实 Provider 接入后会直接展示服务商返回的作品文案。"
+      : "这是一条用于联调的视频文案，解析媒体的同时自动整理标题、描述和标签。",
+    tags: ["媒体解析", "文案提取"]
+  });
   return success({
     provider: "mock",
     platform: "demo",
     contentType: normalizedType,
     title: isImage ? "演示图片" : "演示视频",
     author: "Mock Provider",
+    ...copywriting,
+    copywritingSource: "mock",
     coverUrl: "",
     primaryMedia: {
       type: normalizedType,
@@ -304,6 +312,68 @@ function normalizeLivePhotoItem(value) {
   };
 }
 
+function copywritingText(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map(copywritingText)
+      .filter(Boolean)
+      .join("\n")
+      .trim()
+      .slice(0, 2000);
+  }
+  if (value && typeof value === "object") {
+    return copywritingText(
+      value.text
+      || value.content
+      || value.value
+      || value.title
+      || value.description
+    );
+  }
+  return String(value || "").trim().slice(0, 2000);
+}
+
+function normalizeCopywritingTags(value) {
+  const values = Array.isArray(value)
+    ? value
+    : String(value || "").split(/[\s,，、#]+/u);
+  return Array.from(new Set(
+    values
+      .map((item) => String(item || "").trim().replace(/^#+/u, ""))
+      .filter(Boolean)
+  )).slice(0, 8);
+}
+
+function normalizeCopywritingFields(data = {}) {
+  const candidates = [
+    ["copywriting", data.copywriting],
+    ["description", data.description],
+    ["desc", data.desc],
+    ["caption", data.caption],
+    ["content", data.content],
+    ["text", data.text],
+    ["title", data.title]
+  ];
+  let copywriting = "";
+  let source = "";
+  for (const [candidateSource, candidateValue] of candidates) {
+    const text = copywritingText(candidateValue);
+    if (text) {
+      copywriting = text;
+      source = candidateSource;
+      break;
+    }
+  }
+  return {
+    copywriting,
+    copywritingTags: normalizeCopywritingTags(
+      data.copywritingTags || data.hashtags || data.tags
+    ),
+    copywritingLength: Array.from(copywriting).length,
+    copywritingSource: source
+  };
+}
+
 function detectPlatform(sharedUrl, data = {}) {
   const providerPlatform = String(
     data.platform || data.type || data.source || ""
@@ -366,6 +436,7 @@ function normalizeZhucekaResponse(payload, requestId, sharedUrl) {
   const title = String(data.title || "媒体解析结果").trim();
   const author = String(data.author || data.nickname || "").trim();
   const coverUrl = normalizeMediaUrl(data.cover);
+  const copywriting = normalizeCopywritingFields(data);
 
   if (livePhotoItems.length) {
     const first = livePhotoItems[0];
@@ -377,6 +448,7 @@ function normalizeZhucekaResponse(payload, requestId, sharedUrl) {
       title,
       author,
       coverUrl,
+      ...copywriting,
       primaryMedia: {
         type: "image",
         url: firstImageUrl,
@@ -403,6 +475,7 @@ function normalizeZhucekaResponse(payload, requestId, sharedUrl) {
       title,
       author,
       coverUrl,
+      ...copywriting,
       primaryMedia: {
         type: "video",
         url: videoUrl,
@@ -434,6 +507,7 @@ function normalizeZhucekaResponse(payload, requestId, sharedUrl) {
       title,
       author,
       coverUrl,
+      ...copywriting,
       primaryMedia: {
         type: "image",
         url: mediaItems[0].url,
@@ -590,5 +664,6 @@ module.exports = {
   requestJson,
   normalizeZhucekaResponse,
   normalizeLivePhotoItem,
+  normalizeCopywritingFields,
   parseWithZhuceka
 };

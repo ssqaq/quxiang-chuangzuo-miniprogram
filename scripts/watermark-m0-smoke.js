@@ -113,6 +113,8 @@ async function testRealProviderMappings() {
     msg: "解析成功",
     data: {
       title: "真实视频",
+      description: "这是服务商返回的真实作品文案。",
+      tags: ["旅行", "短视频"],
       author: "作者",
       platform: "douyin",
       cover: "https://cdn.example.com/cover.jpg",
@@ -124,6 +126,9 @@ async function testRealProviderMappings() {
   assert.strictEqual(video.provider, "zhuceka");
   assert.strictEqual(video.contentType, "video");
   assert.strictEqual(video.mediaUrl, "https://cdn.example.com/video.mp4");
+  assert.strictEqual(video.copywriting, "这是服务商返回的真实作品文案。");
+  assert.deepStrictEqual(video.copywritingTags, ["旅行", "短视频"]);
+  assert.strictEqual(video.copywritingSource, "description");
   assert.strictEqual(video.demo, false);
 
   const image = await runRealProviderCase({
@@ -277,6 +282,14 @@ function createPageHarness(handler) {
       events.push({ type: "save-image", options });
       options.success();
     },
+    getClipboardData(options) {
+      events.push({ type: "get-clipboard", options });
+      options.success({ data: "https://example.com/from-clipboard" });
+    },
+    setClipboardData(options) {
+      events.push({ type: "set-clipboard", options });
+      options.success();
+    },
     getImageInfo(options) {
       events.push({ type: "get-image-info", options });
       options.success({ path: "/tmp/local-image.jpg" });
@@ -329,6 +342,8 @@ async function testRealPageFlow() {
         platform: "douyin",
         contentType: "video",
         title: "真实视频",
+        copywriting: "这是一段可复制的真实文案。",
+        copywritingTags: ["真实结果"],
         coverUrl: "https://cdn.example.com/cover.jpg",
         mediaUrl: "https://cdn.example.com/video.mp4",
         demo: false
@@ -356,6 +371,10 @@ async function testRealPageFlow() {
   assert.strictEqual(harness.page.data.result.demo, false);
   assert.strictEqual(harness.page.data.result.isReal, true);
   assert.strictEqual(harness.page.data.result.platformLabel, "抖音");
+  assert.strictEqual(harness.page.data.result.copywriting, "这是一段可复制的真实文案。");
+  assert.strictEqual(harness.page.data.result.copywritingLength, 13);
+  harness.page.copyCopywriting();
+  assert.ok(harness.events.some((item) => item.type === "set-clipboard"));
   await harness.page.saveMedia();
   assert.ok(harness.events.some((item) => item.type === "save-video"));
 
@@ -392,6 +411,7 @@ async function testExplicitMockPageFlow() {
   assert.strictEqual(harness.page.data.status, "success");
   assert.strictEqual(harness.page.data.result.demo, true);
   assert.strictEqual(harness.page.data.result.contentType, "image");
+  assert.ok(harness.page.data.result.copywriting);
   assert.ok(harness.page.data.result.mediaUrl.endsWith("media-parser-demo.jpg"));
 }
 
@@ -415,6 +435,10 @@ function testPageMarkup() {
   assert.ok(!pageJs.includes("response = buildLocalDemoResult"));
   assert.ok(wxml.includes('wx:if="{{result.demo}}"'));
   assert.ok(wxml.includes("真实结果"));
+  assert.ok(wxml.includes("一键解析并提取"));
+  assert.ok(wxml.includes("copyCopywriting"));
+  assert.ok(wxml.includes("copywriting-card"));
+  assert.ok(wxml.includes("保存媒体"));
   assert.ok(!wxml.includes("选择演示类型"));
   assert.ok(!wxml.includes("真实平台解析服务尚未接入"));
   assert.ok(!wxml.includes("MEDIA PARSER · M0"));
@@ -424,6 +448,8 @@ function testPageMarkup() {
   assert.ok(!wxss.includes(".media-parser-kicker"));
   assert.ok(!wxss.includes(".provider-card"));
   assert.ok(!wxss.includes(".compliance-note"));
+  assert.ok(wxss.includes(".feature-option"));
+  assert.ok(wxss.includes(".copywriting-card"));
 }
 
 async function main() {

@@ -7,6 +7,8 @@ const cp = require("child_process");
 
 const root = path.resolve(__dirname, "..");
 const syncScript = path.join(root, "scripts", "sync-to-github.ps1");
+const versionScript = path.join(root, "scripts", "release-version.ps1");
+const versionConcurrencySmoke = path.join(root, "scripts", "version-concurrency-smoke.js");
 const packageScript = path.join(root, "scripts", "package-release.py");
 const installHooksScript = path.join(root, "scripts", "install-git-hooks.ps1");
 const installHooksCmd = path.join(root, "scripts", "install-git-hooks.cmd");
@@ -41,10 +43,15 @@ function testStaticContracts() {
   assertFileIncludes(syncScript, "[string[]]$IncludePath", "同步脚本参数");
   assertFileIncludes(syncScript, "FileShare]::None", "发布锁");
   assertFileIncludes(syncScript, "write-tree", "Git tree 校验");
-  assertFileIncludes(syncScript, "Assert-ReleaseState", "SHA/工作区校验");
-  assertFileIncludes(syncScript, "AllowEmptyString", "空工作区指纹校验");
+  assertFileIncludes(syncScript, "Assert-FileSnapshotStable", "SHA/工作区校验");
+  assertFileIncludes(syncScript, "Get-WorktreeSignature", "工作区指纹校验");
   assertFileIncludes(syncScript, "--source-tree", "从 Git tree 打包");
   assertFileIncludes(syncScript, "write-release-record.ps1", "自动发布记录");
+  assertFileIncludes(syncScript, "Get-NextPatchVersion", "自动补丁版本");
+  assertFileIncludes(syncScript, "worktree", "临时发布工作树");
+  assertFileIncludes(syncScript, "retryRemote", "远端并发重试");
+  assertFileIncludes(versionScript, "Get-VersionGroupPaths", "版本组处理器");
+  assertFileIncludes(versionConcurrencySmoke, "version concurrency smoke", "版本并发专项 smoke");
   assert.ok(
     !/Invoke-Git\s+-Arguments\s+@\(\s*"add"\s*,\s*"-A"/.test(syncContent),
     "同步脚本不能继续使用 git add -A"
@@ -121,6 +128,16 @@ function testReleaseRecord() {
         outputRoot,
         "-ChangedFile",
         "README.md",
+        "-BaseHead",
+        "fedcba9876543210fedcba9876543210fedcba98",
+        "-Attempt",
+        "2",
+        "-RetryCount",
+        "1",
+        "-GeneratedVersionPath",
+        "config.js",
+        "-ReleaseWorktree",
+        "C:\\temp\\release-worktree",
       ],
       { cwd: root }
     );
@@ -137,6 +154,11 @@ function testReleaseRecord() {
       .update(fs.readFileSync(packagePath))
       .digest("hex"));
     assert.deepStrictEqual(record.changedFiles, ["README.md"]);
+    assert.strictEqual(record.baseHead, "fedcba9876543210fedcba9876543210fedcba98");
+    assert.strictEqual(record.attempt, 2);
+    assert.strictEqual(record.retryCount, 1);
+    assert.deepStrictEqual(record.generatedVersionPaths, ["config.js"]);
+    assert.strictEqual(record.releaseWorktree, "C:\\temp\\release-worktree");
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }

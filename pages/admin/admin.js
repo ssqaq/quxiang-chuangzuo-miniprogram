@@ -112,6 +112,67 @@ function displayModelName(value) {
     : "未配置";
 }
 
+const MODEL_DISPLAY_ZH = Object.freeze({
+  "grok-imagine-video-1.5": "视频生成模型",
+  "grok-imagine-image-1.5": "图片生成模型",
+  "qwen3-vl-flash": "通义千问视觉模型",
+  "qwen-vl-max": "通义千问视觉模型"
+});
+
+const MODEL_ERROR_CODE_ZH = Object.freeze({
+  upstream_error: "上游请求错误",
+  upstream_unavailable: "上游服务不可用",
+  network_error: "网络连接错误",
+  timeout: "请求超时",
+  timed_out: "请求超时",
+  invalid_model_type: "模型类型无效",
+  invalid_request: "请求参数无效",
+  authentication_error: "身份验证失败",
+  unauthorized: "未授权请求",
+  forbidden: "没有访问权限",
+  rate_limit: "请求过于频繁",
+  unknown: "未知错误"
+});
+
+function displayModelNameZh(value, usageType = "") {
+  const raw = displayModelName(value);
+  if (MODEL_DISPLAY_ZH[raw]) return MODEL_DISPLAY_ZH[raw];
+  if (raw === "未配置") return raw;
+  const typeLabel = usageTypeLabel(usageType);
+  return typeLabel === "模型" ? "已配置模型" : `${typeLabel}模型`;
+}
+
+function modelErrorCodeLabel(value) {
+  const code = String(value == null ? "" : value).trim().toLowerCase();
+  if (!code || code === "unknown") return "未知错误";
+  if (MODEL_ERROR_CODE_ZH[code]) return MODEL_ERROR_CODE_ZH[code];
+  if (/upstream|provider|gateway/.test(code)) return "上游服务错误";
+  if (/network|connect|socket|dns/.test(code)) return "网络连接错误";
+  if (/timeout|deadline/.test(code)) return "请求超时";
+  if (/auth|credential|key/.test(code)) return "身份验证失败";
+  if (/invalid|missing|parameter|request/.test(code)) return "请求参数错误";
+  return "接口调用错误";
+}
+
+function modelErrorMessageLabel(value) {
+  const message = String(value == null ? "" : value).trim();
+  if (!message) return "未提供错误摘要";
+  if (/upstream request failed for details/i.test(message)) {
+    return "获取详情失败，请检查上游请求";
+  }
+  if (/upstream|provider|gateway/i.test(message)) {
+    return "上游服务返回错误，请检查请求参数";
+  }
+  if (/timeout|timed out|deadline/i.test(message)) {
+    return "请求超时，请稍后重试";
+  }
+  if (/network|connect|socket|dns/i.test(message)) {
+    return "网络连接失败，请检查网络或服务地址";
+  }
+  if (/[\u4e00-\u9fff]/.test(message)) return message;
+  return "上游服务返回错误，请检查请求参数";
+}
+
 function pickModelName(...values) {
   const value = values.find((item) => {
     const text = String(item == null ? "" : item).trim();
@@ -264,6 +325,9 @@ function formatUsageCounter(counter) {
 function emptyFailureStats() {
   return {
     total: 0,
+    totalCalls: 0,
+    success: 0,
+    successRate: 0,
     failureRate: 0,
     topFailureReasons: [],
     failedModels: [],
@@ -1162,6 +1226,7 @@ function formatUsageStats(result) {
       provider: item.provider || "未知 Provider",
       model: item.model || "未知模型",
       modelDisplay: displayModelName(item.model),
+      modelDisplayZh: displayModelNameZh(item.model, item.usageType),
       total: Number(item.total) || 0,
       failure: Number(item.failure) || 0,
       failureRate: Number(item.failureRate) || 0
@@ -1180,9 +1245,12 @@ function formatUsageStats(result) {
       provider: item.provider || "未知 Provider",
       model: item.model || "未知模型",
       modelDisplay: displayModelName(item.model),
+      modelDisplayZh: displayModelNameZh(item.model, item.usageType),
       requestId: item.requestId || "",
       errorCode: item.errorCode || "unknown",
+      errorCodeLabel: modelErrorCodeLabel(item.errorCode),
       errorMessage: String(item.errorMessage || "未提供错误摘要").slice(0, 500),
+      errorMessageZh: modelErrorMessageLabel(item.errorMessage),
       errorStatus: Number(item.errorStatus) || 0,
       retryable: Boolean(item.retryable),
       attempt: Math.max(1, Number(item.attempt) || 1),
@@ -1212,11 +1280,11 @@ function modelFailureReasonKey(item = {}) {
 
 function modelFailureReasonLabel(item = {}) {
   if (item.errorMessage && item.errorCode) {
-    return `${item.errorCode}：${item.errorMessage}`;
+    return `${modelErrorCodeLabel(item.errorCode)}：${modelErrorMessageLabel(item.errorMessage)}`;
   }
-  if (item.errorMessage) return item.errorMessage;
-  if (item.errorCode) return item.errorCode;
-  if (item.errorStatus) return `HTTP ${item.errorStatus}`;
+  if (item.errorMessage) return modelErrorMessageLabel(item.errorMessage);
+  if (item.errorCode) return modelErrorCodeLabel(item.errorCode);
+  if (item.errorStatus) return `状态码 ${item.errorStatus}`;
   return "未提供错误原因";
 }
 
@@ -1273,6 +1341,9 @@ function buildModelFailureView(stats, requestedMonth = "") {
     .map((item) => Object.assign({}, item, {
       userHash: item.userHash || "anonymous",
       modelDisplay: pickModelName(item.model, item.modelDisplay),
+      modelDisplayZh: displayModelNameZh(item.model, item.usageType),
+      errorCodeLabel: modelErrorCodeLabel(item.errorCode),
+      errorMessageZh: modelErrorMessageLabel(item.errorMessage),
       failureTone: modelFailureTone(item),
       failureReasonLabel: modelFailureReasonLabel(item)
     }))
@@ -1291,10 +1362,11 @@ function buildModelFailureView(stats, requestedMonth = "") {
         lastSeen: item.createdAt || "",
         usageType: item.usageType || "",
         usageTypeLabel: item.usageTypeLabel || usageTypeLabel(item.usageType),
-        provider: item.provider || "",
-        model: item.model || "",
-        modelDisplay: pickModelName(item.model, item.modelDisplay),
-        status: Number(item.errorStatus) || 0,
+         provider: item.provider || "",
+         model: item.model || "",
+         modelDisplay: pickModelName(item.model, item.modelDisplay),
+         modelDisplayZh: displayModelNameZh(item.model, item.usageType),
+         status: Number(item.errorStatus) || 0,
         failureTone: modelFailureTone(item)
       };
     }
@@ -1328,10 +1400,11 @@ function buildModelFailureView(stats, requestedMonth = "") {
       modelMap[modelKey] = {
         usageType: item.usageType || "unknown",
         usageTypeLabel: item.usageTypeLabel || usageTypeLabel(item.usageType),
-        provider: item.provider || "未知 Provider",
-        model: item.model || "未知模型",
-        modelDisplay: displayModelName(item.model),
-        failure: 0
+         provider: item.provider || "未知 Provider",
+         model: item.model || "未知模型",
+         modelDisplay: displayModelName(item.model),
+         modelDisplayZh: displayModelNameZh(item.model, item.usageType),
+         failure: 0
       };
     }
     modelMap[modelKey].failure += 1;
@@ -1340,6 +1413,7 @@ function buildModelFailureView(stats, requestedMonth = "") {
     .find((item) => item.monthKey === selectedMonth);
   const failureTotal = details.length;
   const total = Number(selectedMonthMeta && selectedMonthMeta.total) || failureTotal;
+  const success = Math.max(0, total - failureTotal);
   const topFailureReasons = Object.values(reasonMap)
     .map((item) => Object.assign({}, item, {
       rate: failureTotal ? Number((item.count / failureTotal * 100).toFixed(2)) : 0,
@@ -1369,6 +1443,9 @@ function buildModelFailureView(stats, requestedMonth = "") {
     monthOptions,
     monthIndex: Math.max(0, monthOptions.indexOf(selectedMonth)),
     total: failureTotal,
+    totalCalls: total,
+    success,
+    successRate: total ? Number((success / total * 100).toFixed(2)) : 0,
     failureRate: total ? Number((failureTotal / total * 100).toFixed(2)) : 0,
     topFailureReasons,
     failedModels,

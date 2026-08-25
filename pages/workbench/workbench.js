@@ -84,6 +84,8 @@ Page({
     authorQrPath: AUTHOR_QR_PATH,
     savingAuthorQr: false,
     contactAuthorExpanded: false,
+    authorQrPreviewVisible: false,
+    authorQrPreviewPath: AUTHOR_QR_PATH,
     entryModes: ENTRY_MODES,
     hasDraft: false,
     records: [],
@@ -674,32 +676,22 @@ Page({
       wx.showToast({ title: "当前环境不支持查看二维码", icon: "none" });
       return;
     }
-    if (typeof wx.getImageInfo !== "function" || typeof wx.previewImage !== "function") {
-      wx.showToast({ title: "当前环境不支持查看二维码", icon: "none" });
-      return;
-    }
-
-    wx.getImageInfo({
-      src: qrPath,
-      success: (image) => {
-        const previewPath = String(image && image.path || "").trim();
-        if (!previewPath) {
-          wx.showToast({ title: "二维码读取失败，请重试", icon: "none" });
-          return;
-        }
-        wx.previewImage({
-          current: previewPath,
-          urls: [previewPath],
-          fail: () => {
-            wx.showToast({ title: "二维码打开失败，请重试", icon: "none" });
-          }
-        });
-      },
-      fail: () => {
-        wx.showToast({ title: "二维码读取失败，请重试", icon: "none" });
-      }
+    this.setData({
+      authorQrPreviewPath: qrPath,
+      authorQrPreviewVisible: true
     });
   },
+
+  closeAuthorQrPreview() {
+    this.setData({ authorQrPreviewVisible: false });
+  },
+
+  onAuthorQrPreviewError() {
+    this.setData({ authorQrPreviewVisible: false });
+    wx.showToast({ title: "二维码加载失败，请重试", icon: "none" });
+  },
+
+  noop() {},
 
   handleAuthorQrSaveFailure(error) {
     const message = error && error.errMsg ? error.errMsg : "";

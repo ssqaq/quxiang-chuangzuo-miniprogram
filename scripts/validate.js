@@ -524,7 +524,7 @@ const adminStatusCheckStyle = adminWxss.match(/\.status-check-button\s*\{([^}]*)
 const adminMonitorToggleStyle = adminWxss.match(/\.monitor-toggle\s*\{([^}]*)\}/);
 const adminUsageCostItemStyle = adminWxss.match(/\.usage-cost-item\s*\{([^}]*)\}/);
 const adminUsageTypeCardStyle = adminWxss.match(/\.usage-type-card\s*\{([^}]*)\}/);
-const adminUsageFailureSummaryStyle = adminWxss.match(/\.usage-failure-summary-item\s*\{([^}]*)\}/);
+const adminUsageFailureSummaryStyle = adminWxss.match(/^\.usage-failure-summary-item\s*\{([^}]*)\}/m);
 const adminFaceProbeSummaryStyle = adminWxss.match(/\.auto-face-probe-summary-item\s*\{([^}]*)\}/);
 if (
   !adminWxml.includes("线上运行状态")
@@ -759,7 +759,7 @@ if (
   throw new Error("模型用量统计没有正确放在“今天”下面，或仍被运行监控旧状态控制。");
 }
 if (
-  !adminWxml.includes("模型调用统计")
+  !adminWxml.includes("模型调用失败统计")
   || !adminWxml.includes("失败原因前 5 名")
   || !adminWxml.includes("失败最多的模型")
   || !adminWxss.includes(".usage-failure-panel")
@@ -1082,16 +1082,18 @@ if (
   || !workbenchWxml.includes("保存二维码")
   || !workbenchJs.includes('AUTHOR_QR_PATH = "/assets/contact/author-wechat-qr.jpg"')
   || !workbenchJs.includes("previewAuthorQr()")
-  || !workbenchJs.includes("wx.previewImage")
-  || !workbenchJs.includes("current: previewPath")
-  || !workbenchJs.includes("urls: [previewPath]")
   || !workbenchJs.includes("saveAuthorQr()")
   || !workbenchJs.includes("wx.saveImageToPhotosAlbum")
-  || workbenchJs.includes("authorQrPreviewVisible")
-  || workbenchJs.includes("onAuthorQrPreviewLoad")
-  || workbenchJs.includes("onAuthorQrPreviewError")
-  || workbenchWxml.includes("author-qr-preview-mask")
-  || workbenchWxss.includes(".author-qr-preview-mask")
+  || !workbenchJs.includes("authorQrPreviewVisible: false")
+  || !workbenchJs.includes("authorQrPreviewPath: AUTHOR_QR_PATH")
+  || !workbenchJs.includes("closeAuthorQrPreview()")
+  || !workbenchJs.includes("onAuthorQrPreviewError()")
+  || !workbenchWxml.includes('wx:if="{{authorQrPreviewVisible}}"')
+  || !workbenchWxml.includes('class="author-qr-preview-mask"')
+  || !workbenchWxml.includes('class="author-qr-preview-panel"')
+  || !workbenchWxml.includes('bindtap="closeAuthorQrPreview"')
+  || !workbenchWxss.includes(".author-qr-preview-mask")
+  || !workbenchWxss.includes(".author-qr-preview-panel")
   || !contactAuthorCardStyle
   || !/margin-top:\s*16rpx/.test(contactAuthorCardStyle[1])
   || !contactAuthorQrStyle

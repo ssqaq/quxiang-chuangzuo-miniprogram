@@ -23,7 +23,17 @@ param(
 
     [string]$OutputRoot = "",
 
-    [string[]]$ChangedFile = @()
+    [string[]]$ChangedFile = @(),
+
+    [string]$BaseHead = "",
+
+    [int]$Attempt = 1,
+
+    [int]$RetryCount = 0,
+
+    [string[]]$GeneratedVersionPath = @(),
+
+    [string]$ReleaseWorktree = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -66,6 +76,11 @@ $record = [ordered]@{
     remote = $Remote
     generatedAt = (Get-Date).ToString("o")
     changedFiles = @($ChangedFile)
+    baseHead = $BaseHead
+    attempt = $Attempt
+    retryCount = $RetryCount
+    generatedVersionPaths = @($GeneratedVersionPath)
+    releaseWorktree = $ReleaseWorktree
 }
 $json = $record | ConvertTo-Json -Depth 5
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)

@@ -102,7 +102,7 @@ const failureIndex = wxml.indexOf('class="usage-failure-panel"');
   ["系统运行概览", monitorOverviewIndex],
   ["用户端日志", diagnosticLogsIndex],
   ["部署与探针", deploymentIndex],
-  ["模型调用统计", failureIndex]
+  ["模型调用失败统计", failureIndex]
 ].forEach(([label, index]) => {
   assert.notStrictEqual(index, -1, `管理员页缺少${label}区块`);
 });
@@ -110,7 +110,7 @@ assert.ok(
   monitorOverviewIndex < diagnosticLogsIndex
   && diagnosticLogsIndex < deploymentIndex
   && deploymentIndex < failureIndex,
-  "运行监控区块顺序应为：系统运行概览、用户端日志、部署与探针、模型调用统计"
+  "运行监控区块顺序应为：系统运行概览、用户端日志、部署与探针、模型调用失败统计"
 );
 assert.strictEqual(
   (wxml.match(/id="monitor-section-diagnosticLogs"/g) || []).length,
@@ -144,8 +144,8 @@ viewTree.slots.forEach((slot, index) => {
   assert.ok(wxml.includes(marker), `刷新、导出或月份选择事件被破坏：${marker}`);
 });
 
-const usageAlignmentStart = wxss.indexOf("/* 模型用量统计与模型调用统计的三项操作按同一组基准线对齐。 */");
-assert.notStrictEqual(usageAlignmentStart, -1, "缺少模型用量与模型调用统计的统一对齐规则");
+const usageAlignmentStart = wxss.indexOf("/* 模型用量统计与模型调用失败统计的三项操作按同一组基准线对齐。 */");
+assert.notStrictEqual(usageAlignmentStart, -1, "缺少模型用量与模型调用失败统计的统一对齐规则");
 const usageAlignmentBlock = wxss.slice(usageAlignmentStart);
 [
   ".usage-primary-actions,\n.usage-failure-actions",
@@ -164,11 +164,11 @@ const usageAlignmentBlock = wxss.slice(usageAlignmentStart);
   "gap: 8rpx",
   "border: 1rpx solid #bcd3f6"
 ].forEach((marker) => {
-  assert.ok(usageAlignmentBlock.includes(marker), `用量/模型调用统计对齐规则缺少：${marker}`);
+  assert.ok(usageAlignmentBlock.includes(marker), `用量/模型调用失败统计对齐规则缺少：${marker}`);
 });
 assert.ok(
   /\.usage-failure-head\s*\{\s*align-items:\s*center;\s*padding-right:\s*24rpx;/.test(wxss),
-  "模型调用统计标题行没有补齐与用户端日志相同的右侧基准线"
+  "模型调用失败统计标题行没有补齐与用户端日志相同的右侧基准线"
 );
 assert.ok(
   /\.auto-face-probe-history-card\s+\.admin-section-tools\s*\{\s*position:\s*relative;/.test(wxss),

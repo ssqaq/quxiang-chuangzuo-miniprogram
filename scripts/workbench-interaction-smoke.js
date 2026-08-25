@@ -5,7 +5,6 @@ const storage = {};
 let page = null;
 let redirectMode = "success";
 let imageInfoMode = "success";
-let previewImageMode = "success";
 
 global.getApp = () => ({
   globalData: {
@@ -123,37 +122,34 @@ async function main() {
   assert.ok(hasEvent("smoke-warn"));
 
   page.previewAuthorQr();
-  const qrPreviewEvent = events.find((item) => item.type === "previewImage");
-  assert.ok(qrPreviewEvent);
-  const qrInfoEvent = events.find((item) => item.type === "getImageInfo");
-  assert.ok(qrInfoEvent);
-  assert.strictEqual(qrInfoEvent.options.src, "/assets/contact/author-wechat-qr.jpg");
-  assert.strictEqual(qrPreviewEvent.options.current, "/tmp/author-wechat-qr.jpg");
-  assert.deepStrictEqual(
-    qrPreviewEvent.options.urls,
-    ["/tmp/author-wechat-qr.jpg"]
+  assert.strictEqual(page.data.authorQrPreviewVisible, true);
+  assert.strictEqual(
+    page.data.authorQrPreviewPath,
+    "/assets/contact/author-wechat-qr.jpg"
   );
+  assert.strictEqual(
+    events.some((item) => item.type === "previewImage"),
+    false
+  );
+  page.closeAuthorQrPreview();
+  assert.strictEqual(page.data.authorQrPreviewVisible, false);
 
-  imageInfoMode = "fail";
+  page.previewAuthorQr();
+  page.onAuthorQrPreviewError();
+  assert.ok(events.some((item) => (
+    item.type === "toast"
+    && item.options.title === "二维码加载失败，请重试"
+  )));
+  assert.strictEqual(page.data.authorQrPreviewVisible, false);
+
+  const originalQrPath = page.data.authorQrPath;
+  page.data.authorQrPath = "";
   page.previewAuthorQr();
   assert.ok(events.some((item) => (
     item.type === "toast"
-    && item.options.title === "二维码读取失败，请重试"
+    && item.options.title === "当前环境不支持查看二维码"
   )));
-  imageInfoMode = "empty";
-  page.previewAuthorQr();
-  assert.ok(events.filter((item) => (
-    item.type === "toast"
-    && item.options.title === "二维码读取失败，请重试"
-  )).length >= 2);
-  imageInfoMode = "success";
-  previewImageMode = "fail";
-  page.previewAuthorQr();
-  assert.ok(events.some((item) => (
-    item.type === "toast"
-    && item.options.title === "二维码打开失败，请重试"
-  )));
-  previewImageMode = "success";
+  page.data.authorQrPath = originalQrPath;
 
   page.saveAuthorQr();
   assert.ok(events.some((item) => (

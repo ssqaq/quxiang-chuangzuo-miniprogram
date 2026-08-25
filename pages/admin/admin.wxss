@@ -1415,8 +1415,151 @@ page {
 }
 
 .usage-failure-panel {
+  margin-top: 0;
+  padding-top: 0;
+}
+
+.model-call-stats-toggle {
+  margin-top: 22rpx;
+}
+
+.model-call-stats-content {
   margin-top: 18rpx;
-  padding-top: 2rpx;
+  padding: 24rpx;
+  border: 1rpx solid #dce4ef;
+  border-radius: 24rpx;
+  background: #ffffff;
+  box-shadow: 0 9rpx 24rpx rgba(35, 55, 86, 0.05);
+}
+
+.model-call-stats-toolbar {
+  display: flex;
+  min-width: 0;
+  justify-content: flex-end;
+  margin-bottom: 14rpx;
+}
+
+.model-call-stats-dashboard-hero {
+  padding: 24rpx;
+  border-radius: 22rpx;
+  color: #ffffff;
+  background: #17243a;
+  box-shadow: 0 12rpx 24rpx rgba(23, 36, 58, 0.16);
+}
+
+.model-call-stats-hero-label {
+  color: #b8c9e5;
+  font-size: 20rpx;
+  line-height: 28rpx;
+}
+
+.model-call-stats-hero-value {
+  margin-top: 6rpx;
+  color: #ffffff;
+  font-size: 58rpx;
+  font-weight: 900;
+  line-height: 66rpx;
+  letter-spacing: -1rpx;
+}
+
+.model-call-stats-hero-note {
+  margin-top: 6rpx;
+  color: #a9bddb;
+  font-size: 20rpx;
+  line-height: 28rpx;
+}
+
+.model-call-stats-kpis {
+  margin-top: 18rpx;
+  gap: 10rpx;
+}
+
+.model-call-stats-kpis .usage-failure-summary-item {
+  min-height: 118rpx;
+  padding: 16rpx 10rpx;
+  border-color: #d6e0ed;
+  border-radius: 18rpx;
+  background: #ffffff;
+}
+
+.model-call-stats-kpis .usage-failure-summary-item:nth-child(2) {
+  border-color: #bfe8d8;
+  background: #f2fbf7;
+}
+
+.model-call-stats-kpis .usage-failure-summary-item:nth-child(3) {
+  border-color: #ffd0d3;
+  background: #fff5f6;
+}
+
+.model-call-stats-kpis .usage-failure-summary-item > text:first-child {
+  color: #718098;
+  font-size: 18rpx;
+}
+
+.model-call-stats-kpis .usage-failure-summary-item > text:nth-child(2) {
+  color: #17243a;
+  font-size: 34rpx;
+  line-height: 40rpx;
+}
+
+.model-call-stats-kpis .usage-failure-summary-item:nth-child(2) > text:nth-child(2) {
+  color: #22946d;
+}
+
+.model-call-stats-kpis .usage-failure-summary-item:nth-child(3) > text:nth-child(2) {
+  color: #e5484d;
+}
+
+.model-call-stats-kpis .usage-failure-summary-item > text:last-child {
+  color: #8290a5;
+  font-size: 16rpx;
+}
+
+.model-call-stats-failed-model {
+  margin-top: 18rpx;
+  padding: 18rpx;
+  border: 1rpx solid #d6e0ed;
+  border-radius: 18rpx;
+  background: #ffffff;
+}
+
+.model-call-stats-failed-model .usage-failure-list-title {
+  margin-top: 0;
+}
+
+.model-call-stats-failed-model-main {
+  display: flex;
+  min-width: 0;
+  margin-top: 12rpx;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12rpx;
+}
+
+.model-call-stats-failed-model-main > view:first-child {
+  min-width: 0;
+  flex: 1;
+}
+
+.model-call-stats-failed-model-name {
+  overflow: hidden;
+  color: #17243a;
+  font-size: 24rpx;
+  font-weight: 900;
+  line-height: 32rpx;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-call-stats-failed-model-meta {
+  margin-top: 5rpx;
+  overflow: hidden;
+  color: #7d8a9e;
+  font-size: 18rpx;
+  line-height: 26rpx;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .usage-subsection-head {
@@ -1546,6 +1689,17 @@ page {
   min-width: 96rpx;
   padding: 0 12rpx;
   font-size: 18rpx;
+}
+
+@media (max-width: 560px) {
+  .model-call-stats-toolbar {
+    width: 100%;
+  }
+
+  .model-call-stats-toolbar .usage-failure-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
 }
 
 .usage-failure-summary {
@@ -4608,7 +4762,7 @@ page {
   }
 }
 
-/* 模型用量统计与模型调用统计的三项操作按同一组基准线对齐。 */
+/* 模型用量统计与模型调用失败统计的三项操作按同一组基准线对齐。 */
 .usage-primary-actions,
 .usage-failure-actions {
   align-items: center;

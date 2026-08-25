@@ -21,7 +21,7 @@ assert.ok(wxml.includes('<view class="media-parser-icon">析</view>'));
 assert.ok(wxml.includes('<view class="media-parser-title">免费去水印</view>'));
 assert.ok(
   wxml.includes(
-    '<view class="media-parser-description">版权归平台及作者所有，本程序不储存任何内容</view>'
+    '<view class="media-parser-description">版权归平台，程序不储存任何内容</view>'
   )
 );
 assert.ok(wxml.includes('<view class="common-feature-action">打开</view>'));

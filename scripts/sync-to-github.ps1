@@ -526,6 +526,7 @@ try {
             }
             Invoke-Git -Arguments @("update-ref", "refs/heads/$branch", $finalHead, $baseHead) | Write-Host
             Copy-GeneratedVersionFilesToMain -ReleaseWorktree $releaseWorktree -VersionPaths $versionPaths -InitialVersionSnapshot $initialVersionSnapshot -BaseHead $baseHead
+            Invoke-Git -Arguments @("read-tree", $finalHead) | Write-Host
 
             $manifestShaOutput = & python -c "from zipfile import ZipFile; import sys; m=ZipFile(sys.argv[1]).read('RELEASE-MANIFEST.txt').decode('utf-8'); print(next(line.split('：', 1)[1].strip() for line in m.splitlines() if line.startswith('源码内容 SHA256：')))" $releasePackage 2>&1
             if ($LASTEXITCODE -ne 0) {

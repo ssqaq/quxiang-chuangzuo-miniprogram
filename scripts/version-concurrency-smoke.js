@@ -74,6 +74,7 @@ function testSyncConcurrencyContracts() {
     "retryRemote",
     "MaxAttempts",
     "update-ref",
+    "read-tree",
     "origin/$branch",
     "Start-Sleep -Milliseconds 250",
     "release-reservations",
@@ -96,6 +97,10 @@ function testSyncConcurrencyContracts() {
   assert.ok(
     !/currentVersion\s*-\s*gt\s*baseVersion/.test(content),
     "版本分配不能被工作区版本覆盖"
+  );
+  assert.ok(
+    /update-ref[\s\S]{0,500}Copy-GeneratedVersionFilesToMain[\s\S]{0,300}"read-tree"/.test(content),
+    "推送成功后必须同步主工作区索引，且不能覆盖工作文件"
   );
 }
 

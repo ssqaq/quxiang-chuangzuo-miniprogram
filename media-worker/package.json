@@ -1,6 +1,6 @@
 {
   "name": "aips-apple-live-photo-worker",
-  "version": "0.36.0",
+  "version": "0.36.3",
   "private": true,
   "description": "圈像创作 Apple LIVP 媒体处理服务",
   "main": "server.js",

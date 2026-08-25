@@ -3299,9 +3299,52 @@ page {
   line-height: 32rpx;
 }
 
+.model-picker-search-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10rpx;
+  margin-top: 16rpx;
+  padding: 0 16rpx;
+  border: 1rpx solid #dce4ef;
+  border-radius: 12rpx;
+  background: #f8fafe;
+}
+
+.model-picker-search-input {
+  flex: 1;
+  min-width: 0;
+  height: 68rpx;
+  color: #24364f;
+  font-size: 20rpx;
+}
+
+.model-picker-search-clear {
+  flex: none;
+  color: #2f70d4;
+  font-size: 18rpx;
+  font-weight: 700;
+  line-height: 34rpx;
+}
+
+.model-picker-count {
+  padding: 12rpx 2rpx 4rpx;
+  color: #8a98ac;
+  font-size: 17rpx;
+  line-height: 26rpx;
+}
+
 .model-picker-list {
   max-height: 68vh;
   overflow-y: auto;
+}
+
+.model-picker-empty {
+  padding: 54rpx 20rpx;
+  color: #8a98ac;
+  font-size: 19rpx;
+  line-height: 30rpx;
+  text-align: center;
 }
 
 .model-picker-option {

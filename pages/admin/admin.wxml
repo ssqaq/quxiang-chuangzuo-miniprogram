@@ -185,7 +185,7 @@
           <view class="current-config-main">
             <view class="current-config-title">人脸识别模型</view>
             <view class="current-config-meta">
-              {{faceConfigSummary.model}}
+              {{currentConfigModels.face}}
             </view>
         </view>
         <view class="current-config-side">
@@ -206,7 +206,7 @@
           <view class="current-config-main">
             <view class="current-config-title">图片分析模型</view>
             <view class="current-config-meta">
-              {{analysisConfigSummary.model}}
+              {{currentConfigModels.analysis}}
             </view>
         </view>
         <view class="current-config-side">
@@ -227,7 +227,7 @@
           <view class="current-config-main">
             <view class="current-config-title">生图模型</view>
             <view class="current-config-meta">
-              {{form.image.model || '未填写'}}
+              {{currentConfigModels.image}}
             </view>
         </view>
         <view class="current-config-side">
@@ -248,7 +248,7 @@
           <view class="current-config-main">
             <view class="current-config-title">视频模型</view>
             <view class="current-config-meta">
-              {{form.video.model || '未填写'}}
+              {{currentConfigModels.video}}
             </view>
         </view>
         <view class="current-config-side">
@@ -430,7 +430,7 @@
           <view class="usage-failure-summary-item usage-failure-summary-model">
             <text>失败最多的模型</text>
             <text wx:if="{{modelFailureView.failedModels.length}}">
-              {{modelFailureView.failedModels[0].model}}
+              {{modelFailureView.failedModels[0].modelDisplay}}
             </text>
             <text wx:else>暂无失败</text>
           </view>
@@ -444,7 +444,7 @@
             </view>
             <view class="usage-failure-row-detail">
               <text>{{item.usageTypeLabel}}</text>
-              <text>{{item.model || '未知模型'}}</text>
+              <text>{{item.modelDisplay}}</text>
               <text wx:if="{{item.status}}">HTTP {{item.status}}</text>
               <text>{{item.retryable ? '可重试' : '不可重试'}}</text>
             </view>
@@ -476,7 +476,7 @@
           <view class="usage-failure-list-title">失败明细</view>
           <view wx:for="{{modelFailureView.details}}" wx:key="requestId" class="failure-detail-row">
             <view class="failure-detail-head">
-              <view class="failure-detail-title">{{item.createdAtText}} · {{item.usageTypeLabel}} · {{item.model}}</view>
+              <view class="failure-detail-title">{{item.createdAtText}} · {{item.usageTypeLabel}} · {{item.modelDisplay}}</view>
               <button class="copy-error-button" data-index="{{index}}" catchtap="copyModelFailure">复制错误</button>
             </view>
             <view class="failure-detail-meta">
@@ -518,7 +518,7 @@
       <view wx:if="{{usageStats.models.length}}" class="usage-model-list">
         <view wx:for="{{usageStats.models}}" wx:key="model" class="usage-model-row">
           <view class="usage-model-top">
-            <text>{{item.model}}</text>
+            <text>{{item.modelDisplay}}</text>
             <text>¥{{item.estimatedCostDisplay}} · {{item.total}} 次</text>
           </view>
           <view class="usage-user-detail">
@@ -667,7 +667,7 @@
               <text class="failure-type-tag is-{{item.failureTone}}">{{item.failureReasonLabel}}</text>
             </view>
             <view class="auto-face-detail-meta">
-              <text>{{item.usageTypeLabel}} · {{item.model}}</text>
+              <text>{{item.usageTypeLabel}} · {{item.modelDisplay}}</text>
               <text>{{item.errorCode}}</text>
               <text wx:if="{{item.errorStatus}}">HTTP {{item.errorStatus}}</text>
               <text wx:if="{{item.durationMs}}">用时 {{item.durationMs}}ms</text>
@@ -1175,19 +1175,43 @@
             </view>
             <view class="model-picker-close" bindtap="closeModelPicker">关闭</view>
           </view>
-          <scroll-view class="model-picker-list" scroll-y>
+          <view class="model-picker-search-row">
+            <input
+              class="model-picker-search-input"
+              value="{{modelPickerSearch}}"
+              placeholder="搜索模型名称"
+              confirm-type="search"
+              bindinput="onModelPickerSearchInput"
+            />
             <view
-              wx:for="{{modelPickerOptions}}"
-              wx:key="value"
-              class="model-picker-option"
-              data-type="{{modelPickerType}}"
-              data-value="{{item.value}}"
-              bindtap="selectModelOption"
+              wx:if="{{modelPickerSearch}}"
+              class="model-picker-search-clear"
+              bindtap="clearModelPickerSearch"
               hover-class="control-tap"
               role="button"
-            >
-              <text>{{item.label}}</text>
-              <text class="model-picker-arrow">›</text>
+            >清空</view>
+          </view>
+          <view class="model-picker-count">
+            {{modelPickerOptions.length}} / {{modelPickerAllOptions.length}} 个模型
+          </view>
+          <scroll-view class="model-picker-list" scroll-y>
+            <block wx:if="{{modelPickerOptions.length}}">
+              <view
+                wx:for="{{modelPickerOptions}}"
+                wx:key="value"
+                class="model-picker-option"
+                data-type="{{modelPickerType}}"
+                data-value="{{item.value}}"
+                bindtap="selectModelOption"
+                hover-class="control-tap"
+                role="button"
+              >
+                <text>{{item.label}}</text>
+                <text class="model-picker-arrow">›</text>
+              </view>
+            </block>
+            <view wx:else class="model-picker-empty">
+              {{modelPickerSearch ? '没有找到相关模型' : '没有可显示的模型'}}
             </view>
           </scroll-view>
         </view>

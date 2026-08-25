@@ -84,6 +84,51 @@ function usageTypeLabel(type) {
   return item ? item.title : "模型";
 }
 
+const MODEL_DISPLAY_EMPTY_VALUES = new Set([
+  "",
+  "未配置",
+  "未填写",
+  "未读取",
+  "未知",
+  "未知模型",
+  "暂无调用",
+  "unknown",
+  "null",
+  "undefined"
+]);
+
+function displayModelName(value) {
+  const text = String(value == null ? "" : value).trim();
+  return text && !MODEL_DISPLAY_EMPTY_VALUES.has(text.toLowerCase())
+    ? text.toLowerCase()
+    : "未配置";
+}
+
+function pickModelName(...values) {
+  const value = values.find((item) => {
+    const text = String(item == null ? "" : item).trim();
+    return text && !MODEL_DISPLAY_EMPTY_VALUES.has(text.toLowerCase());
+  });
+  return displayModelName(value);
+}
+
+function emptyCurrentConfigModels() {
+  return {
+    face: "未配置",
+    analysis: "未配置",
+    image: "未配置",
+    video: "未配置"
+  };
+}
+
+function buildCurrentConfigModels(form) {
+  const source = form || {};
+  return ["face", "analysis", "image", "video"].reduce((result, key) => {
+    result[key] = displayModelName(source[key] && source[key].model);
+    return result;
+  }, emptyCurrentConfigModels());
+}
+
 // 成本金额只展示到小数点后 4 位并直接截断，底层统计和 Excel 仍保留原值。
 function formatCostDisplay(value) {
   const amount = Math.max(0, Number(value) || 0);
@@ -164,7 +209,7 @@ function emptyDashboardStatus() {
 function emptyFaceConfigSummary() {
   return {
     provider: "未读取",
-    model: "未读取",
+    model: "未配置",
     ready: false
   };
 }
@@ -242,8 +287,8 @@ function emptyUsageStats() {
       total: 0,
       success: 0,
       failure: 0,
-      modelText: "暂无调用",
-      modelLines: ["暂无调用"]
+      modelText: "未配置",
+      modelLines: ["未配置"]
     })),
     daily: [],
     monthly: [],
@@ -735,7 +780,7 @@ function formatAutoFaceProbe(result, error = null) {
     cloudEnvConfigured: Boolean(runtime.cloudEnvConfigured),
     visionConfigured: Boolean(vision.configured),
     provider: vision.provider || "",
-    model: vision.model || "",
+    model: displayModelName(vision.model),
     durationMs: clientDurationMs,
     durationText: failed && !hasClientDuration && !hasServerDuration
       ? "未知"
@@ -756,7 +801,7 @@ function formatModelProbes(result, error = null) {
     type: item.type || "",
     typeLabel: item.typeLabel || usageTypeLabel(item.type),
     provider: item.provider || "未填写",
-    model: item.model || "未填写",
+    model: displayModelName(item.model),
     configured: Boolean(item.configured),
     ready: Boolean(item.ready),
     reachable: Boolean(item.reachable),
@@ -833,7 +878,7 @@ function formatAutoFaceProbeHistory(result) {
       nodeVersion: item.nodeVersion || "",
       visionConfigured: Boolean(item.visionConfigured),
       provider: item.provider || "未知",
-      model: item.model || "未知",
+      model: displayModelName(item.model),
       durationMs: Number(item.durationMs) || 0,
       durationText: `云函数 ${Number(item.durationMs) || 0} 毫秒`,
       errorCode: item.errorCode || "",
@@ -931,10 +976,7 @@ function buildFaceConfigSummary(
     || currentProbe.provider
     || latestHistory.provider
     || "未读取";
-  const model = face.model
-    || currentProbe.model
-    || latestHistory.model
-    || "未读取";
+  const model = pickModelName(face.model, currentProbe.model, latestHistory.model);
   const ready = Boolean(
     face.apiKeyConfigured
     || currentProbe.visionConfigured
@@ -950,7 +992,7 @@ function buildFaceConfigSummary(
 function emptyAnalysisConfigSummary() {
   return {
     provider: "未读取",
-    model: "未读取",
+    model: "未配置",
     ready: false
   };
 }
@@ -959,7 +1001,7 @@ function buildAnalysisConfigSummary(effective) {
   const analysis = effective && effective.analysis || {};
   return {
     provider: analysis.provider || "未读取",
-    model: analysis.model || "未读取",
+    model: displayModelName(analysis.model),
     ready: Boolean(
       analysis.apiKeyConfigured
       && analysis.provider
@@ -974,16 +1016,12 @@ function formatUsageStats(result) {
   const models = Array.isArray(source.models) ? source.models : [];
   const cards = USAGE_TYPE_META.map((meta) => {
     const counter = formatUsageCounter(summary[meta.key]);
-    const modelText = models
+    const modelNames = models
       .filter((item) => item.usageType === meta.key)
-      .map((item) => item.model || "未知模型")
+      .map((item) => displayModelName(item.model))
       .filter((item, index, list) => list.indexOf(item) === index)
-      .join("、") || "暂无调用";
-    const modelLines = models
-      .filter((item) => item.usageType === meta.key)
-      .map((item) => item.model || "未知模型")
-      .filter((item, index, list) => list.indexOf(item) === index);
-    if (!modelLines.length) modelLines.push("暂无调用");
+    const modelText = modelNames.join("、") || "未配置";
+    const modelLines = modelNames.length ? modelNames : ["未配置"];
     return Object.assign({}, meta, counter, { modelText, modelLines });
   });
   const daily = (Array.isArray(source.daily) ? source.daily : []).map((item) => ({
@@ -1042,6 +1080,7 @@ function formatUsageStats(result) {
     byType: item.byType || {}
   }));
   const formattedModels = models.map((item) => Object.assign({}, item, {
+    modelDisplay: displayModelName(item.model),
     estimatedCostDisplay: formatCostDisplay(item.estimatedCost),
     pricedCostDisplay: formatCostDisplay(item.pricedCost)
   }));
@@ -1078,6 +1117,7 @@ function formatUsageStats(result) {
       usageTypeLabel: item.usageTypeLabel || usageTypeLabel(item.usageType),
       provider: item.provider || "",
       model: item.model || "",
+      modelDisplay: displayModelName(item.model),
       status: Number(item.status) || 0,
       retryable: Boolean(item.retryable)
     })),
@@ -1089,6 +1129,7 @@ function formatUsageStats(result) {
       usageTypeLabel: item.usageTypeLabel || usageTypeLabel(item.usageType),
       provider: item.provider || "未知 Provider",
       model: item.model || "未知模型",
+      modelDisplay: displayModelName(item.model),
       total: Number(item.total) || 0,
       failure: Number(item.failure) || 0,
       failureRate: Number(item.failureRate) || 0
@@ -1106,6 +1147,7 @@ function formatUsageStats(result) {
       usageTypeLabel: item.usageTypeLabel || usageTypeLabel(item.usageType),
       provider: item.provider || "未知 Provider",
       model: item.model || "未知模型",
+      modelDisplay: displayModelName(item.model),
       requestId: item.requestId || "",
       errorCode: item.errorCode || "unknown",
       errorMessage: String(item.errorMessage || "未提供错误摘要").slice(0, 500),
@@ -1198,6 +1240,7 @@ function buildModelFailureView(stats, requestedMonth = "") {
     })
     .map((item) => Object.assign({}, item, {
       userHash: item.userHash || "anonymous",
+      modelDisplay: pickModelName(item.model, item.modelDisplay),
       failureTone: modelFailureTone(item),
       failureReasonLabel: modelFailureReasonLabel(item)
     }))
@@ -1218,6 +1261,7 @@ function buildModelFailureView(stats, requestedMonth = "") {
         usageTypeLabel: item.usageTypeLabel || usageTypeLabel(item.usageType),
         provider: item.provider || "",
         model: item.model || "",
+        modelDisplay: pickModelName(item.model, item.modelDisplay),
         status: Number(item.errorStatus) || 0,
         failureTone: modelFailureTone(item)
       };
@@ -1246,7 +1290,7 @@ function buildModelFailureView(stats, requestedMonth = "") {
     const modelKey = [
       item.usageType || "unknown",
       item.provider || "未知 Provider",
-      item.model || "未知模型"
+      displayModelName(item.model)
     ].join("|");
     if (!modelMap[modelKey]) {
       modelMap[modelKey] = {
@@ -1254,6 +1298,7 @@ function buildModelFailureView(stats, requestedMonth = "") {
         usageTypeLabel: item.usageTypeLabel || usageTypeLabel(item.usageType),
         provider: item.provider || "未知 Provider",
         model: item.model || "未知模型",
+        modelDisplay: displayModelName(item.model),
         failure: 0
       };
     }
@@ -1763,6 +1808,40 @@ function normalizeModelOptions(result) {
     .map((value) => ({ value, label: value }));
 }
 
+function filterModelOptions(options, search) {
+  const source = Array.isArray(options) ? options : [];
+  const keyword = String(search || "").trim().toLowerCase();
+  if (!keyword) return source.slice();
+  return source.filter((item) => String(item && (item.label || item.value) || "")
+    .toLowerCase()
+    .includes(keyword));
+}
+
+function formatModelConnectionFailure(typeLabel, result, error) {
+  const payload = result && typeof result === "object"
+    ? result
+    : error && error.payload && typeof error.payload === "object"
+      ? error.payload
+      : {};
+  const target = Array.isArray(payload.results) ? payload.results[0] : payload;
+  const message = String(
+    target && (target.message || target.error)
+      || error && error.message
+      || "连接测试未通过，请检查配置。"
+  ).trim();
+  const details = [];
+  const statusText = String(target && target.statusText || "").trim();
+  const httpStatus = Number(target && (target.httpStatus || target.status)) || 0;
+  if (statusText && statusText !== "正常" && !message.includes(statusText)) {
+    details.push(`状态：${statusText}`);
+  }
+  if (httpStatus && !message.includes(`HTTP ${httpStatus}`)) {
+    details.push(`HTTP：${httpStatus}`);
+  }
+  const safeMessage = safeCopyValue(message, "连接测试未通过，请检查配置。");
+  return [`${typeLabel}模型：${safeMessage}`].concat(details).join("\n");
+}
+
 function displayLog(item) {
   const value = item || {};
   return Object.assign({}, value, {
@@ -1847,10 +1926,13 @@ Page({
     modelPickerOpen: false,
     modelPickerType: "",
     modelPickerTitle: "",
+    modelPickerSearch: "",
+    modelPickerAllOptions: [],
     modelPickerOptions: [],
     refreshingAll: false,
     isAdmin: false,
     form: emptyForm(),
+    currentConfigModels: emptyCurrentConfigModels(),
     defaults: null,
     effective: null,
     deployment: null,
@@ -1978,6 +2060,7 @@ Page({
 
   buildAdminDerivedPatch(overrides = {}, moduleStates = this.data.moduleStates) {
     const hasOwnValue = (key) => Object.prototype.hasOwnProperty.call(overrides, key);
+    const form = hasOwnValue("form") ? overrides.form : this.data.form;
     const effective = hasOwnValue("effective") ? overrides.effective : this.data.effective;
     const usageStats = hasOwnValue("usageStats") ? overrides.usageStats : this.data.usageStats;
     const autoFaceProbe = hasOwnValue("autoFaceProbe")
@@ -1997,6 +2080,7 @@ Page({
       : this.data.modelFailureSelectedMonth;
     const userStats = hasOwnValue("userStats") ? overrides.userStats : this.data.userStats;
     return {
+      currentConfigModels: buildCurrentConfigModels(form),
       dashboardStatus: buildDashboardStatus(
         effective,
         usageStats,
@@ -2969,9 +3053,13 @@ Page({
     const section = event.currentTarget.dataset.section;
     const key = event.currentTarget.dataset.key;
     if (!section || !key) return;
-    this.setData({
+    const patch = {
       [`form.${section}.${key}`]: event.detail.value
-    });
+    };
+    if (key === "model") {
+      patch[`currentConfigModels.${section}`] = displayModelName(event.detail.value);
+    }
+    this.setData(patch);
   },
 
   onRetryChange(event) {
@@ -3411,11 +3499,11 @@ Page({
         ? result.results[0]
         : null;
       const ok = Boolean(target && target.status === "ok" && target.ready);
-      const message = target && target.message
-        ? target.message
-        : ok
-          ? "接口可访问，当前模型配置正常。"
-          : "连接测试未通过，请检查配置。";
+      const message = ok
+        ? target && target.message
+          ? target.message
+          : "接口可访问，当前模型配置正常。"
+        : formatModelConnectionFailure(typeLabel, result);
       this.setData({
         message: `${typeLabel}测试完成：${message}`
       });
@@ -3429,7 +3517,15 @@ Page({
         error,
         modelType
       });
-      this.showError("测试连接失败", error);
+      const message = formatModelConnectionFailure(typeLabel, null, error);
+      this.setData({
+        message: `${typeLabel}测试失败：${message}`
+      });
+      wx.showModal({
+        title: "连接失败",
+        content: message,
+        showCancel: false
+      });
     } finally {
       this.setData({
         modelActionType: "",
@@ -3473,6 +3569,8 @@ Page({
         modelPickerOpen: true,
         modelPickerType: modelType,
         modelPickerTitle: `${typeLabel}模型列表`,
+        modelPickerSearch: "",
+        modelPickerAllOptions: options,
         modelPickerOptions: options,
         message: `已读取 ${options.length} 个${typeLabel}模型。`
       });
@@ -3495,7 +3593,26 @@ Page({
       modelPickerOpen: false,
       modelPickerType: "",
       modelPickerTitle: "",
+      modelPickerSearch: "",
+      modelPickerAllOptions: [],
       modelPickerOptions: []
+    });
+  },
+
+  onModelPickerSearchInput(event) {
+    const search = String(event && event.detail && event.detail.value || "")
+      .slice(0, 64);
+    this.setData({
+      modelPickerSearch: search,
+      modelPickerOptions: filterModelOptions(this.data.modelPickerAllOptions, search)
+    });
+  },
+
+  clearModelPickerSearch() {
+    if (!this.data.modelPickerSearch) return;
+    this.setData({
+      modelPickerSearch: "",
+      modelPickerOptions: filterModelOptions(this.data.modelPickerAllOptions, "")
     });
   },
 
@@ -3513,9 +3630,12 @@ Page({
     if (!type || !value) return;
     this.setData({
       [`form.${type}.model`]: value,
+      [`currentConfigModels.${type}`]: displayModelName(value),
       modelPickerOpen: false,
       modelPickerType: "",
       modelPickerTitle: "",
+      modelPickerSearch: "",
+      modelPickerAllOptions: [],
       modelPickerOptions: [],
       message: `已选择${usageTypeLabel(type)}模型：${value}；点击“保存全部配置”后才会生效。`
     });

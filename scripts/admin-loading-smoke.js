@@ -5,6 +5,7 @@ const Module = require("module");
 
 let pageDefinition = null;
 let usageResolve = null;
+let probeFailure = false;
 
 const baseConfig = {
   effective: {
@@ -92,11 +93,14 @@ const cloudMock = {
       typeLabel: modelType,
       provider: modelConfig.provider,
       model: modelConfig.model,
-      ready: true,
+      ready: !probeFailure,
       reachable: true,
-      status: "ok",
-      statusText: "正常",
-      message: "接口可访问，当前模型配置正常。"
+      status: probeFailure ? "auth-failed" : "ok",
+      statusText: probeFailure ? "密钥异常" : "正常",
+      httpStatus: probeFailure ? 401 : 200,
+      message: probeFailure
+        ? "接口地址可访问，但 API Key 无效或没有权限。"
+        : "接口可访问，当前模型配置正常。"
     }]
   }),
   listModels: async () => ({
@@ -239,6 +243,25 @@ async function main() {
     "model-a",
     "model-b"
   ]);
+  page.onModelPickerSearchInput({
+    detail: { value: "MODEL-B" }
+  });
+  assert.deepStrictEqual(page.data.modelPickerOptions.map((item) => item.value), [
+    "model-b"
+  ]);
+  assert.strictEqual(page.data.modelPickerSearch, "MODEL-B");
+  page.clearModelPickerSearch();
+  assert.deepStrictEqual(page.data.modelPickerOptions.map((item) => item.value), [
+    "model-a",
+    "model-b"
+  ]);
+  probeFailure = true;
+  await page.testModelConnection({
+    currentTarget: { dataset: { modelType: "face" } }
+  });
+  assert.ok(page.data.message.includes("API Key 无效"));
+  assert.ok(page.data.message.includes("HTTP：401"));
+  probeFailure = false;
   page.selectModelOption({
     currentTarget: {
       dataset: {

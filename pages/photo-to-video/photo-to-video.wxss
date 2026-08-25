@@ -158,20 +158,6 @@ page {
   white-space: nowrap;
 }
 
-.device-photo-preview-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12rpx;
-  margin-top: 18rpx;
-}
-
-.device-photo-preview {
-  width: 132rpx;
-  height: 132rpx;
-  border-radius: 16rpx;
-  background: #edf1f6;
-}
-
 .device-photo-hint,
 .selection-summary,
 .progress-text {

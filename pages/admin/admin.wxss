@@ -561,7 +561,7 @@ page {
 
 .monitor-toggle-title {
   color: #17243a;
-  font-size: 24rpx;
+  font-size: 30rpx;
   font-weight: 800;
   line-height: 34rpx;
 }
@@ -569,7 +569,7 @@ page {
 .monitor-toggle-subtitle {
   margin-top: 3rpx;
   color: #7d8a9e;
-  font-size: 18rpx;
+  font-size: 22rpx;
   line-height: 27rpx;
 }
 
@@ -712,7 +712,7 @@ page {
   line-height: 26rpx;
 }
 
-.monitor-overview-stats text:last-child {
+.monitor-overview-value {
   margin-top: 6rpx;
   color: #ffffff;
   font-size: 30rpx;
@@ -776,7 +776,7 @@ page {
   min-width: 0;
   overflow: hidden;
   color: #1b2638;
-  font-size: 28rpx;
+  font-size: 30rpx;
   font-weight: 900;
   line-height: 36rpx;
   text-overflow: ellipsis;
@@ -788,7 +788,7 @@ page {
   margin: 5rpx 0 0 28rpx;
   overflow: hidden;
   color: #718096;
-  font-size: 19rpx;
+  font-size: 22rpx;
   line-height: 28rpx;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1030,8 +1030,19 @@ page {
 }
 
 .diagnostic-admin-section .admin-section-tools {
+  position: relative;
   width: 100%;
-  justify-content: flex-end;
+  justify-content: space-between;
+}
+
+.diagnostic-admin-section .admin-section-tools > .usage-refresh-button {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.diagnostic-admin-section .admin-section-tools > .config-state {
+  font-size: 20rpx;
 }
 
 .auto-face-probe-history-card .admin-section-tools,

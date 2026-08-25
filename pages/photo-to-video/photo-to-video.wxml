@@ -25,23 +25,17 @@
   <view class="card source-upload-card">
     <view class="section-title">1. 导入照片</view>
     <view class="section-subtitle">可从手机相册选择，也可以直接使用制作记录。</view>
-    <button class="primary-btn upload-main-button" bindtap="chooseDevicePhotos">
-      {{deviceRecords.length ? '重新选择照片' : '从手机相册选择'}}
-    </button>
-    <view wx:if="{{deviceRecords.length}}" class="device-photo-preview-list">
-      <image
-        wx:for="{{deviceRecords}}"
-        wx:key="id"
-        class="device-photo-preview"
-        src="{{item.displayURL || item.sourcePath || item.path}}"
-        mode="aspectFill"
-        data-id="{{item.id}}"
-        bindtap="previewRecord"
-      ></image>
-    </view>
+    <main-image-preview
+      wx:if="{{deviceRecords.length}}"
+      image="{{deviceRecords[0]}}"
+      hintText="单指拖动图片查看，双指可放大"
+    ></main-image-preview>
     <view wx:if="{{deviceRecords.length}}" class="device-photo-hint">
       已导入 {{deviceRecords.length}} 张照片，当前将处理这些照片。
     </view>
+    <button class="primary-btn upload-main-button" bindtap="chooseDevicePhotos">
+      {{deviceRecords.length ? '重新选择照片' : '从手机相册选择'}}
+    </button>
   </view>
 
   <view class="card">

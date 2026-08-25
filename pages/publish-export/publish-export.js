@@ -232,7 +232,7 @@ Page({
   },
 
   pickDevicePhotos(sourceType) {
-    const count = sourceType === "camera" ? 1 : 9;
+    const count = 1;
     const success = (result = {}) => {
       const files = Array.isArray(result.tempFiles)
         ? result.tempFiles

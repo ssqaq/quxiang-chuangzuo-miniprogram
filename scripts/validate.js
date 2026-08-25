@@ -35,6 +35,7 @@ const jsFiles = [
   "utils/image.js",
   "utils/publish-export-core.js",
   "utils/canvas-gesture.js",
+  "components/main-image-preview/main-image-preview.js",
   "utils/circle-gesture.js",
   "utils/publish-export.js",
   "utils/interaction-log.js",
@@ -96,7 +97,8 @@ const jsFiles = [
   "scripts/photo-to-video-session-smoke.js",
   "scripts/auto-face-probe-history-smoke.js",
   "scripts/publish-export-advanced-smoke.js",
-  "scripts/publish-export-cloud-smoke.js"
+  "scripts/publish-export-cloud-smoke.js",
+  "scripts/main-image-preview-smoke.js"
 ];
 const pythonFiles = ["scripts/package-release.py"];
 const powerShellFiles = [
@@ -203,6 +205,10 @@ const required = [
   "pages/index/index.wxml",
   "pages/index/index.wxss",
   "utils/canvas-gesture.js",
+  "components/main-image-preview/main-image-preview.js",
+  "components/main-image-preview/main-image-preview.json",
+  "components/main-image-preview/main-image-preview.wxml",
+  "components/main-image-preview/main-image-preview.wxss",
   "utils/circle-gesture.js",
   "utils/publish-export-core.js",
   "workers/publish-export-worker.js",
@@ -223,6 +229,7 @@ const required = [
   "scripts/auto-face-probe-history-smoke.js",
   "scripts/publish-export-advanced-smoke.js",
   "scripts/publish-export-cloud-smoke.js",
+  "scripts/main-image-preview-smoke.js",
   "scripts/database-indexes.json",
   "scripts/database-index-core.js",
   "scripts/database-index-smoke.js",

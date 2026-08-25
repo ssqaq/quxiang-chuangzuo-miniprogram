@@ -1,5 +1,4 @@
 const {
-  MAX_SCALE,
   MIN_SCALE,
   clampOffset,
   createPinchState,
@@ -133,6 +132,7 @@ Component({
         }, () => {
           if (!this.isActive(token)) return;
           this.resetGestureState();
+          this.resetView();
           this.measureViewport(token);
         });
       };
@@ -191,6 +191,12 @@ Component({
           viewportWidth: Math.max(1, Math.round(width)),
           viewportHeight: Math.max(1, Math.round(height))
         });
+        this._viewportRect = {
+          left: finite(rect && rect.left),
+          top: finite(rect && rect.top),
+          width: Math.max(1, Math.round(width)),
+          height: Math.max(1, Math.round(height))
+        };
       });
     },
 
@@ -210,7 +216,6 @@ Component({
       this._dragTouchId = null;
       this._dragStart = null;
       this._dragView = null;
-      this._gestureMoved = false;
     },
 
     getViewportLayout() {
@@ -381,6 +386,7 @@ Component({
     },
 
     onTouchEnd(event) {
+      const gestureMoved = this._gestureMoved;
       if (this._gestureMode === "pinch") {
         if (this.getEventTouches(event).length > 0) {
           this._pinchState = null;
@@ -389,19 +395,24 @@ Component({
           return;
         }
         this.resetGestureState();
+        this._gestureMoved = gestureMoved;
         return;
       }
       if (this._pinchAwaitingRelease) {
         if (!this.getEventTouches(event).length) {
           this.resetGestureState();
+          this._gestureMoved = gestureMoved;
         }
         return;
       }
       this.resetGestureState();
+      this._gestureMoved = gestureMoved;
     },
 
     onTouchCancel() {
+      const gestureMoved = this._gestureMoved;
       this.resetGestureState();
+      this._gestureMoved = gestureMoved;
     },
 
     onPreviewTap() {

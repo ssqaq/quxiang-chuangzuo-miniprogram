@@ -1,4 +1,7 @@
 {
   "navigationBarTitleText": "降低AI识别率再导出",
-  "enablePullDownRefresh": false
+  "enablePullDownRefresh": false,
+  "usingComponents": {
+    "main-image-preview": "/components/main-image-preview/main-image-preview"
+  }
 }

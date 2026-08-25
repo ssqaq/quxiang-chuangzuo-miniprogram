@@ -1122,7 +1122,7 @@
             aria-label="查看模型用量统计"
           >
             <text>今日成本</text>
-            <text>¥{{usageStats.today.estimatedCostDisplay}}</text>
+            <text class="monitor-overview-value">¥{{usageStats.today.estimatedCostDisplay}}</text>
           </view>
           <view
             class="monitor-overview-stat monitor-overview-stat-action"
@@ -1133,7 +1133,7 @@
             aria-label="查看错误日志"
           >
             <text>错误日志</text>
-            <text>{{diagnosticLogs.summary.errorCount || 0}}</text>
+            <text class="monitor-overview-value">{{diagnosticLogs.summary.errorCount || 0}}</text>
           </view>
           <view
             class="monitor-overview-stat monitor-overview-stat-action"
@@ -1144,7 +1144,7 @@
             aria-label="查看部署记录"
           >
             <text>部署记录</text>
-            <text>{{logs.length}}</text>
+            <text class="monitor-overview-value">{{logs.length}}</text>
           </view>
         </view>
       </view>

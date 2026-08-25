@@ -6,17 +6,11 @@
   <view class="card source-upload-card">
     <view class="section-title">1. 导入照片</view>
     <view class="section-subtitle">从手机相册选择照片导入</view>
-    <view wx:if="{{deviceRecords.length}}" class="device-photo-preview-list">
-      <image
-        wx:for="{{deviceRecords}}"
-        wx:key="id"
-        class="device-photo-preview"
-        src="{{item.path}}"
-        mode="aspectFill"
-        data-url="{{item.path}}"
-        bindtap="previewRecord"
-      ></image>
-    </view>
+    <main-image-preview
+      wx:if="{{deviceRecords.length}}"
+      image="{{deviceRecords[0]}}"
+      hintText="单指拖动图片查看，双指可放大"
+    ></main-image-preview>
     <view wx:if="{{deviceRecords.length}}" class="device-photo-hint">
       已导入 {{deviceRecords.length}} 张照片，当前将导出这些照片。
     </view>

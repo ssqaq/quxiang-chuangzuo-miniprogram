@@ -115,7 +115,8 @@ const jsFiles = [
   "scripts/publish-export-cloud-smoke.js",
   "scripts/main-image-preview-smoke.js",
   "scripts/image-preview-screenshot-smoke.js",
-  "scripts/qr-real-device-smoke.js"
+  "scripts/qr-real-device-smoke.js",
+  "scripts/deployment-script-smoke.js"
 ];
 const pythonFiles = ["scripts/package-release.py"];
 const powerShellFiles = [
@@ -282,6 +283,7 @@ const required = [
   "scripts/database-index-core.js",
   "scripts/database-index-smoke.js",
   "scripts/deploy-and-verify-api.ps1",
+  "scripts/deployment-script-smoke.js",
   "scripts/check-cloud-database-indexes.ps1",
   "scripts/cloud-database-index-manager/package.json",
   "scripts/cloud-database-index-manager/package-lock.json",

@@ -9,6 +9,10 @@ param(
 # Keep this file ASCII-only so Windows PowerShell 5.1 can parse it without BOM.
 $ErrorActionPreference = "Stop"
 
+if ($SkipRemoteNpmInstall) {
+  throw "-SkipRemoteNpmInstall is disabled because WechatIDE strips node_modules from cloud function packages. Re-run without this switch so dependencies are installed remotely."
+}
+
 function Find-WechatIde {
   param([string]$Preferred)
 
@@ -156,6 +160,113 @@ function Invoke-WechatIdeTool {
   return Resolve-ToolPayload -CliPath $CliPath -Response $response
 }
 
+function Get-ObjectPropertyValue {
+  param(
+    [object]$Value,
+    [string]$Name
+  )
+
+  if ($null -eq $Value) {
+    return $null
+  }
+  $property = $Value.PSObject.Properties[$Name]
+  if ($null -eq $property) {
+    return $null
+  }
+  return $property.Value
+}
+
+function Assert-CloudFunctionDeploymentResult {
+  param(
+    [object]$Payload,
+    [string]$FunctionName
+  )
+
+  if ($null -eq $Payload) {
+    throw "Cloud function deployment returned an empty result."
+  }
+  $functionResult = Get-ObjectPropertyValue -Value $Payload -Name $FunctionName
+  if ($null -eq $functionResult) {
+    throw "Cloud function deployment result is missing function entry: $FunctionName."
+  }
+  $errorResult = Get-ObjectPropertyValue -Value $functionResult -Name "error"
+  if ($null -ne $errorResult) {
+    $errorMessage = [string](Get-ObjectPropertyValue -Value $errorResult -Name "message")
+    if ([string]::IsNullOrWhiteSpace($errorMessage)) {
+      $errorMessage = [string]$errorResult
+    }
+    throw "Cloud function deployment failed: $errorMessage"
+  }
+  $filesCount = Get-ObjectPropertyValue -Value $functionResult -Name "filesCount"
+  $packSize = Get-ObjectPropertyValue -Value $functionResult -Name "packSize"
+  if ($null -ne $filesCount) {
+    Write-Host "Deployed files: $filesCount"
+  }
+  if ($null -ne $packSize) {
+    Write-Host "Deployment package size: $packSize"
+  }
+}
+
+function Get-CloudFunctionStatus {
+  param(
+    [string]$CliPath,
+    [string]$AppId,
+    [string]$EnvironmentId,
+    [string]$FunctionName
+  )
+
+  $payload = Invoke-WechatIdeTool -CliPath $CliPath -Arguments @(
+    "-c", $ClientName,
+    "cloud_fn_info",
+    "--appid", $AppId,
+    "--env", $EnvironmentId,
+    "--names", $FunctionName
+  )
+  $list = @(Get-ObjectPropertyValue -Value $payload -Name "list")
+  $function = @(
+    $list |
+      Where-Object { [string]$_.name -eq $FunctionName }
+  ) | Select-Object -First 1
+  if ($null -eq $function) {
+    throw "Cloud function status result is missing function: $FunctionName."
+  }
+  return [string]$function.status
+}
+
+function Wait-CloudFunctionReady {
+  param(
+    [string]$CliPath,
+    [string]$AppId,
+    [string]$EnvironmentId,
+    [string]$FunctionName,
+    [int]$Attempts = 60,
+    [int]$DelaySeconds = 2
+  )
+
+  $lastStatus = ""
+  for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
+    $status = Get-CloudFunctionStatus `
+      -CliPath $CliPath `
+      -AppId $AppId `
+      -EnvironmentId $EnvironmentId `
+      -FunctionName $FunctionName
+    if ($status -ne $lastStatus) {
+      Write-Host "Cloud function status: $status"
+      $lastStatus = $status
+    }
+    if ($status -eq "Active") {
+      return
+    }
+    if ($status -match "Failed|Error") {
+      throw "Cloud function entered a failed state: $status."
+    }
+    if ($attempt -lt $Attempts) {
+      Start-Sleep -Seconds $DelaySeconds
+    }
+  }
+  throw "Cloud function did not become Active within $($Attempts * $DelaySeconds) seconds. Last status: $lastStatus."
+}
+
 function Get-DeploymentResult {
   param(
     [string]$CliPath,
@@ -241,6 +352,7 @@ Write-Host "Cloud environment: $cloudEnvId"
 Write-Host "Cloud function: $functionName"
 Write-Host "Expected version: $appVersion"
 Write-Host "Expected image mode: $imageMode"
+Write-Host "Remote npm install: required"
 if ($expectedMarker) {
   Write-Host "Expected marker: $expectedMarker"
 }
@@ -282,18 +394,28 @@ try {
   Start-Sleep -Seconds 2
 
   Write-Host "4/5 Deploy cloud function"
+  Wait-CloudFunctionReady `
+    -CliPath $cli `
+    -AppId $appId `
+    -EnvironmentId $cloudEnvId `
+    -FunctionName $functionName
   $deployArguments = @(
     "-c", $ClientName,
     "cloud_fn_deploy",
     "--appid", $appId,
     "--env", $cloudEnvId,
-    "--path", $apiPath
+    "--path", $apiPath,
+    "--remote-npm-install"
   )
-  if (-not $SkipRemoteNpmInstall) {
-    $deployArguments += "--remote-npm-install"
-  }
-  Invoke-WechatIdeTool -CliPath $cli -Arguments $deployArguments | Out-Null
-  Start-Sleep -Seconds 3
+  $deployPayload = Invoke-WechatIdeTool -CliPath $cli -Arguments $deployArguments
+  Assert-CloudFunctionDeploymentResult `
+    -Payload $deployPayload `
+    -FunctionName $functionName
+  Wait-CloudFunctionReady `
+    -CliPath $cli `
+    -AppId $appId `
+    -EnvironmentId $cloudEnvId `
+    -FunctionName $functionName
 
   Write-Host "5/5 Verify online build"
   $deployment = Get-DeploymentResult `

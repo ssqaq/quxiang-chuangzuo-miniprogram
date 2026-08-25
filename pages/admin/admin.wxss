@@ -4863,6 +4863,499 @@ page {
 
 }
 
+/* 方案 10：模型用量统计采用移动端优先的信息层级。 */
+.usage-mobile-first-card {
+  padding: 0;
+  overflow: hidden;
+  border-color: #cfdaeb;
+  background: #edf2f8;
+  box-shadow: 0 16rpx 36rpx rgba(32, 55, 91, 0.1);
+}
+
+.usage-mobile-first-card.is-collapsed {
+  background: #315fd7;
+}
+
+.usage-mobile-first-card .usage-mobile-first-head {
+  display: flex;
+  padding: 28rpx 24rpx 24rpx;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 20rpx;
+  border-bottom: 0;
+  background: linear-gradient(145deg, #3566df 0%, #2f5bd0 100%);
+}
+
+.usage-mobile-first-card .usage-mobile-first-heading {
+  min-width: 0;
+  width: 100%;
+}
+
+.usage-mobile-first-card .usage-mobile-kicker {
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 17rpx;
+  font-weight: 800;
+  line-height: 24rpx;
+  letter-spacing: 2.2rpx;
+}
+
+.usage-mobile-first-card .admin-section-title {
+  margin-top: 5rpx;
+  color: #ffffff;
+  font-size: 34rpx;
+  font-weight: 900;
+  line-height: 44rpx;
+  letter-spacing: 0.5rpx;
+}
+
+.usage-mobile-first-card .admin-section-help {
+  margin-top: 5rpx;
+  color: rgba(255, 255, 255, 0.74);
+  font-size: 19rpx;
+  line-height: 29rpx;
+}
+
+.usage-mobile-first-card .usage-toolbar {
+  display: flex;
+  min-width: 0;
+  width: 100%;
+}
+
+.usage-mobile-first-card .usage-primary-actions {
+  display: flex;
+  min-width: 0;
+  width: 100%;
+  align-items: center;
+  justify-content: flex-start;
+  flex-wrap: nowrap;
+  gap: 10rpx;
+}
+
+.usage-mobile-first-card .usage-primary-actions > .usage-refresh-button,
+.usage-mobile-first-card .usage-primary-actions > .usage-export-button {
+  box-sizing: border-box;
+  display: flex;
+  height: 56rpx;
+  min-height: 56rpx;
+  margin: 0;
+  padding: 0 16rpx;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14rpx;
+  font-size: 19rpx;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.usage-mobile-first-card .usage-primary-actions > .usage-refresh-button {
+  width: 126rpx;
+  min-width: 126rpx;
+  border: 1rpx solid #ffffff;
+  color: #285bd2;
+  background: #ffffff;
+}
+
+.usage-mobile-first-card .usage-primary-actions > .usage-export-button {
+  width: 166rpx;
+  min-width: 166rpx;
+  border: 1rpx solid rgba(255, 255, 255, 0.5);
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.usage-mobile-first-card .usage-primary-actions > .admin-action-slot {
+  flex: 0 0 116rpx;
+  width: 116rpx;
+  min-width: 116rpx;
+  margin-left: auto;
+}
+
+.usage-mobile-first-card .usage-primary-actions .monitor-section-toggle-button {
+  box-sizing: border-box;
+  width: 116rpx;
+  min-width: 116rpx;
+  height: 56rpx;
+  min-height: 56rpx;
+  padding: 0 12rpx;
+  border: 1rpx solid rgba(255, 255, 255, 0.5);
+  border-radius: 14rpx;
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.12);
+  font-size: 19rpx;
+}
+
+.usage-mobile-first-card .usage-fold-body {
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 20rpx;
+  background: #edf2f8;
+}
+
+.usage-mobile-first-card .usage-message {
+  margin-top: 0;
+  margin-bottom: 16rpx;
+  border: 1rpx solid #d9e5f7;
+  background: #f7faff;
+}
+
+.usage-mobile-first-card .module-loading-placeholder {
+  padding: 0 0 2rpx;
+}
+
+.usage-mobile-first-card .usage-mobile-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12rpx;
+  margin-top: 0;
+}
+
+.usage-mobile-first-card .usage-mobile-summary-grid .usage-summary-item {
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: 138rpx;
+  padding: 18rpx 18rpx 16rpx;
+  border: 1rpx solid rgba(214, 224, 239, 0.72);
+  border-radius: 20rpx;
+  background: #ffffff;
+  box-shadow: 0 7rpx 18rpx rgba(48, 70, 105, 0.045);
+  text-align: left;
+}
+
+.usage-mobile-first-card .usage-mobile-summary-grid .usage-summary-item > text {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  color: #8190a7;
+  font-size: 18rpx;
+  line-height: 25rpx;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usage-mobile-first-card .usage-mobile-summary-grid .usage-summary-item > text:nth-child(2) {
+  margin-top: 5rpx;
+  color: #132744;
+  font-size: 34rpx;
+  font-weight: 900;
+  line-height: 42rpx;
+  letter-spacing: -0.6rpx;
+}
+
+.usage-mobile-first-card .usage-mobile-summary-grid .usage-summary-item > text:last-child {
+  margin-top: 4rpx;
+  color: #7e8da3;
+  font-size: 17rpx;
+  line-height: 24rpx;
+}
+
+.usage-mobile-first-card .usage-quick-action-card {
+  margin-top: 14rpx;
+  padding: 20rpx;
+  border: 1rpx solid rgba(214, 224, 239, 0.78);
+  border-radius: 20rpx;
+  background: #ffffff;
+  box-shadow: 0 7rpx 18rpx rgba(48, 70, 105, 0.045);
+}
+
+.usage-mobile-first-card .usage-quick-action-head {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16rpx;
+}
+
+.usage-mobile-first-card .usage-quick-action-kicker,
+.usage-mobile-first-card .usage-stat-section-kicker {
+  color: #8ba2c8;
+  font-size: 16rpx;
+  font-weight: 800;
+  line-height: 22rpx;
+  letter-spacing: 1.2rpx;
+}
+
+.usage-mobile-first-card .usage-quick-action-title {
+  margin-top: 4rpx;
+  color: #132744;
+  font-size: 25rpx;
+  font-weight: 900;
+  line-height: 34rpx;
+}
+
+.usage-mobile-first-card .usage-quick-action-status {
+  flex: none;
+  margin-top: 1rpx;
+  padding: 5rpx 10rpx;
+  border-radius: 999rpx;
+  color: #2f8a58;
+  background: #e6f7ed;
+  font-size: 16rpx;
+  font-weight: 800;
+  line-height: 22rpx;
+}
+
+.usage-mobile-first-card .usage-quick-action-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 9rpx;
+  margin-top: 18rpx;
+}
+
+.usage-mobile-first-card .usage-quick-action-item {
+  min-width: 0;
+  padding: 14rpx 8rpx 12rpx;
+  border: 1rpx solid #cddbf0;
+  border-radius: 14rpx;
+  background: #f7faff;
+  text-align: center;
+}
+
+.usage-mobile-first-card .usage-quick-action-item > text {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  color: #2756b9;
+  font-size: 23rpx;
+  font-weight: 900;
+  line-height: 30rpx;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usage-mobile-first-card .usage-quick-action-item > text:last-child {
+  margin-top: 2rpx;
+  color: #70819b;
+  font-size: 16rpx;
+  font-weight: 600;
+  line-height: 23rpx;
+}
+
+.usage-mobile-first-card .usage-mobile-section-list {
+  display: flex;
+  min-width: 0;
+  margin-top: 14rpx;
+  flex-direction: column;
+  gap: 12rpx;
+}
+
+.usage-mobile-first-card .usage-stat-section-card {
+  min-width: 0;
+  overflow: hidden;
+  border: 1rpx solid rgba(214, 224, 239, 0.78);
+  border-radius: 20rpx;
+  background: #ffffff;
+  box-shadow: 0 7rpx 18rpx rgba(48, 70, 105, 0.045);
+}
+
+.usage-mobile-first-card .usage-stat-section-card .usage-subsection-head {
+  box-sizing: border-box;
+  display: flex;
+  min-width: 0;
+  min-height: 94rpx;
+  margin: 0;
+  padding: 17rpx 18rpx;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14rpx;
+  border: 0;
+}
+
+.usage-mobile-first-card .usage-stat-section-copy {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.usage-mobile-first-card .usage-stat-section-card .usage-subsection-title,
+.usage-mobile-first-card .usage-stat-section-card .usage-daily-title {
+  min-width: 0;
+  margin: 3rpx 0 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  color: #142945;
+  font-size: 24rpx;
+  font-weight: 900;
+  line-height: 32rpx;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usage-mobile-first-card .usage-stat-section-card .admin-action-slot {
+  flex: 0 0 116rpx;
+  width: 116rpx;
+  min-width: 116rpx;
+}
+
+.usage-mobile-first-card .usage-stat-section-card .usage-subsection-toggle {
+  box-sizing: border-box;
+  display: inline-flex;
+  flex: 0 0 116rpx;
+  width: 116rpx;
+  min-width: 116rpx;
+  height: 60rpx;
+  min-height: 60rpx;
+  padding: 0 13rpx;
+  align-items: center;
+  justify-content: center;
+  gap: 7rpx;
+  border: 0;
+  border-radius: 14rpx;
+  color: #ffffff;
+  background: #4e77df;
+  box-shadow: 0 7rpx 14rpx rgba(64, 103, 199, 0.2);
+  font-size: 19rpx;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.usage-mobile-first-card .usage-stat-section-card .usage-subsection-chevron {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.usage-mobile-first-card .usage-stat-section-card .usage-subsection-body {
+  min-width: 0;
+  padding: 0 18rpx 16rpx;
+  border-top: 1rpx solid #edf1f6;
+}
+
+.usage-mobile-first-card .usage-model-list,
+.usage-mobile-first-card .usage-user-list,
+.usage-mobile-first-card .usage-monthly-list,
+.usage-mobile-first-card .usage-daily-list {
+  min-width: 0;
+  margin-top: 0;
+}
+
+.usage-mobile-first-card .usage-monthly-list,
+.usage-mobile-first-card .usage-daily-list {
+  max-height: 560rpx;
+}
+
+.usage-mobile-first-card .usage-model-row,
+.usage-mobile-first-card .usage-user-row,
+.usage-mobile-first-card .usage-monthly-row,
+.usage-mobile-first-card .usage-daily-row {
+  min-width: 0;
+  padding: 16rpx 0;
+}
+
+.usage-mobile-first-card .usage-model-top,
+.usage-mobile-first-card .usage-user-top,
+.usage-mobile-first-card .usage-daily-date,
+.usage-mobile-first-card .usage-daily-values {
+  min-width: 0;
+}
+
+.usage-mobile-first-card .usage-empty {
+  padding: 22rpx 0 6rpx;
+}
+
+@media (max-width: 360px) {
+  .usage-mobile-first-card .usage-mobile-first-head {
+    padding: 24rpx 18rpx 20rpx;
+    gap: 17rpx;
+  }
+
+  .usage-mobile-first-card .admin-section-title {
+    font-size: 31rpx;
+    line-height: 40rpx;
+  }
+
+  .usage-mobile-first-card .usage-primary-actions {
+    gap: 7rpx;
+  }
+
+  .usage-mobile-first-card .usage-primary-actions > .usage-refresh-button {
+    width: 116rpx;
+    min-width: 116rpx;
+    padding: 0 8rpx;
+  }
+
+  .usage-mobile-first-card .usage-primary-actions > .usage-export-button {
+    width: 148rpx;
+    min-width: 148rpx;
+    padding: 0 8rpx;
+  }
+
+  .usage-mobile-first-card .usage-primary-actions > .admin-action-slot,
+  .usage-mobile-first-card .usage-primary-actions .monitor-section-toggle-button {
+    width: 108rpx;
+    min-width: 108rpx;
+    flex-basis: 108rpx;
+  }
+
+  .usage-mobile-first-card .usage-fold-body {
+    padding: 14rpx;
+  }
+
+  .usage-mobile-first-card .usage-mobile-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10rpx;
+  }
+
+  .usage-mobile-first-card .usage-mobile-summary-grid .usage-summary-item {
+    min-height: 132rpx;
+    padding: 16rpx 14rpx 14rpx;
+  }
+
+  .usage-mobile-first-card .usage-mobile-summary-grid .usage-summary-item > text:nth-child(2) {
+    font-size: 30rpx;
+    line-height: 38rpx;
+  }
+
+  .usage-mobile-first-card .usage-quick-action-card {
+    padding: 17rpx 14rpx;
+  }
+
+  .usage-mobile-first-card .usage-quick-action-grid {
+    gap: 6rpx;
+  }
+
+  .usage-mobile-first-card .usage-quick-action-item {
+    padding-right: 5rpx;
+    padding-left: 5rpx;
+  }
+
+  .usage-mobile-first-card .usage-quick-action-item > text {
+    font-size: 21rpx;
+  }
+
+  .usage-mobile-first-card .usage-stat-section-card .usage-subsection-head {
+    padding-right: 14rpx;
+    padding-left: 14rpx;
+  }
+
+  .usage-mobile-first-card .usage-stat-section-card .usage-subsection-title,
+  .usage-mobile-first-card .usage-stat-section-card .usage-daily-title {
+    font-size: 22rpx;
+  }
+
+  .usage-mobile-first-card .usage-stat-section-card .admin-action-slot,
+  .usage-mobile-first-card .usage-stat-section-card .usage-subsection-toggle {
+    width: 108rpx;
+    min-width: 108rpx;
+    flex-basis: 108rpx;
+  }
+
+  .usage-mobile-first-card .usage-stat-section-card .usage-subsection-body {
+    padding-right: 14rpx;
+    padding-left: 14rpx;
+  }
+
+  .usage-mobile-first-card .usage-model-top,
+  .usage-mobile-first-card .usage-user-top {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 5rpx;
+  }
+
+  .usage-mobile-first-card .usage-user-top text:last-child,
+  .usage-mobile-first-card .usage-model-top text:last-child {
+    flex: none;
+  }
+}
+
 /* 所有“展开/收起”控件统一与用户端日志的右边界和视觉规格。 */
 .admin-action-slot {
   display: flex;

@@ -278,9 +278,10 @@
       </view>
     </view>
 
-    <view id="usage-section" class="card admin-section usage-section monitor-fold-card {{usageExpanded ? 'is-open' : 'is-collapsed'}}">
-      <view class="admin-section-head">
-        <view>
+    <view id="usage-section" class="card admin-section usage-section usage-mobile-first-card monitor-fold-card {{usageExpanded ? 'is-open' : 'is-collapsed'}}">
+      <view class="admin-section-head usage-mobile-first-head">
+        <view class="usage-mobile-first-heading">
+          <view class="usage-mobile-kicker">USAGE DASHBOARD</view>
           <view class="admin-section-title">模型用量统计</view>
           <view class="admin-section-help">按北京时间统计调用次数、Token、视频秒数和预计成本。最近更新 {{moduleStates.usage.updatedAtText}}</view>
         </view>
@@ -310,241 +311,234 @@
       </view>
 
       <view wx:if="{{usageExpanded}}" class="monitor-fold-body usage-fold-body {{moduleStates.usage.status === 'loading' ? 'is-loading' : ''}}">
-      <view wx:if="{{moduleStates.usage.status === 'loading'}}" class="usage-message">
-        正在读取模型用量和成本...
-      </view>
-      <view wx:if="{{moduleStates.usage.status === 'loading'}}" class="module-loading-placeholder">
-        <view class="admin-loading-skeleton admin-loading-skeleton-row"></view>
-        <view class="admin-loading-skeleton-grid">
-          <view class="admin-loading-skeleton admin-loading-skeleton-tile"></view>
-          <view class="admin-loading-skeleton admin-loading-skeleton-tile"></view>
-          <view class="admin-loading-skeleton admin-loading-skeleton-tile"></view>
+        <view wx:if="{{moduleStates.usage.status === 'loading'}}" class="usage-message">
+          正在读取模型用量和成本...
         </view>
-        <view class="admin-loading-skeleton admin-loading-skeleton-panel"></view>
-      </view>
-      <view wx:if="{{moduleStates.usage.status === 'failed'}}" class="usage-message is-warn">
-        {{moduleStates.usage.message || '模型用量和成本读取失败，请点击刷新统计。'}}
-      </view>
-      <view wx:if="{{usageStats.message}}" class="usage-message {{usageStats.unavailable ? 'is-warn' : ''}}">
-        {{usageStats.message}}
-      </view>
-
-      <view wx:if="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData)}}" class="usage-summary-grid">
-        <view class="usage-summary-item">
-          <text>今天</text>
-          <text>{{usageStats.today.total}}</text>
-          <text>成功 {{usageStats.today.success}} · 失败 {{usageStats.today.failure}}</text>
-        </view>
-        <view class="usage-summary-item">
-          <text>最近7天</text>
-          <text>{{usageStats.last7d.total}}</text>
-          <text>成功 {{usageStats.last7d.success}} · 失败 {{usageStats.last7d.failure}}</text>
-        </view>
-        <view class="usage-summary-item">
-          <text>最近30天</text>
-          <text>{{usageStats.last30d.total}}</text>
-          <text>成功 {{usageStats.last30d.success}} · 失败 {{usageStats.last30d.failure}}</text>
-        </view>
-      </view>
-
-      <view wx:if="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData)}}" class="usage-cost-summary">
-        <view class="usage-cost-item">
-          <text>今日预计成本</text>
-          <text>¥{{usageStats.today.estimatedCostDisplay}}</text>
-          <text class="usage-cost-meta-line">已计算 {{usageStats.today.pricedCount}} 次，共 {{usageStats.today.pricedCostDisplay}} 元</text>
-          <text class="usage-cost-meta-line">未计算 {{usageStats.today.unavailableCostCount}} 次</text>
-        </view>
-        <view class="usage-cost-item">
-          <text>最近7天预计成本</text>
-          <text>¥{{usageStats.last7d.estimatedCostDisplay}}</text>
-          <text class="usage-cost-meta-line">Token {{usageStats.last7d.totalTokens}}</text>
-          <text class="usage-cost-meta-line">视频 {{usageStats.last7d.videoDurationSeconds}} 秒</text>
-        </view>
-        <view class="usage-cost-item">
-          <text>最近30天预计成本</text>
-          <text>¥{{usageStats.last30d.estimatedCostDisplay}}</text>
-          <text class="usage-cost-meta-line">Token {{usageStats.last30d.totalTokens}}</text>
-          <text class="usage-cost-meta-line">视频 {{usageStats.last30d.videoDurationSeconds}} 秒</text>
-        </view>
-      </view>
-
-      <view wx:if="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData)}}" class="usage-type-grid">
-        <view wx:for="{{usageStats.cards}}" wx:key="key" class="usage-type-card usage-type-{{item.key}}">
-          <view class="usage-type-top">
-            <view class="usage-type-icon">{{item.icon}}</view>
-            <view class="usage-type-title">{{item.title}}</view>
+        <view wx:if="{{moduleStates.usage.status === 'loading'}}" class="module-loading-placeholder">
+          <view class="admin-loading-skeleton admin-loading-skeleton-row"></view>
+          <view class="admin-loading-skeleton-grid">
+            <view class="admin-loading-skeleton admin-loading-skeleton-tile"></view>
+            <view class="admin-loading-skeleton admin-loading-skeleton-tile"></view>
+            <view class="admin-loading-skeleton admin-loading-skeleton-tile"></view>
           </view>
-          <view class="usage-type-total">{{item.total}}</view>
-          <view class="usage-type-label">总调用次数</view>
-          <view class="usage-type-result">
-            <text>成功 {{item.success}}</text>
-            <text>失败 {{item.failure}}</text>
+          <view class="admin-loading-skeleton admin-loading-skeleton-panel"></view>
+        </view>
+        <view wx:if="{{moduleStates.usage.status === 'failed'}}" class="usage-message is-warn">
+          {{moduleStates.usage.message || '模型用量和成本读取失败，请点击刷新统计。'}}
+        </view>
+        <view wx:if="{{usageStats.message}}" class="usage-message {{usageStats.unavailable ? 'is-warn' : ''}}">
+          {{usageStats.message}}
+        </view>
+
+        <view wx:if="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData)}}" class="usage-summary-grid usage-mobile-summary-grid">
+          <view class="usage-summary-item">
+            <text>今日调用</text>
+            <text>{{usageStats.today.total}}</text>
+            <text>成功 {{usageStats.today.success}} · 失败 {{usageStats.today.failure}}</text>
           </view>
-          <view class="usage-model-text">
-            <text wx:for="{{item.modelLines}}" wx:key="*this" class="usage-model-line">{{item}}</text>
+          <view class="usage-summary-item">
+            <text>今日成本</text>
+            <text>¥{{usageStats.today.estimatedCostDisplay}}</text>
+            <text>今日实时估算</text>
+          </view>
+          <view class="usage-summary-item">
+            <text>Token</text>
+            <text>{{usageStats.last7d.totalTokens}}</text>
+            <text>最近 7 天合计</text>
+          </view>
+          <view class="usage-summary-item">
+            <text>视频时长</text>
+            <text>{{usageStats.last30d.videoDurationSeconds}}s</text>
+            <text>最近 30 天合计</text>
           </view>
         </view>
-      </view>
 
-      <view
-        wx:if="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData)}}"
-        class="usage-collapsed-statistics-card"
-      >
-        <view class="usage-subsection-head">
-          <view class="usage-subsection-title">按模型名称分组</view>
-          <view class="admin-action-slot">
-            <view
-              class="usage-subsection-toggle"
-              data-usage-section="models"
-              catchtap="toggleUsageSection"
-              hover-class="control-tap"
-              role="button"
-              aria-label="{{usageSections.models ? '收起按模型名称分组' : '展开按模型名称分组'}}"
-            >
-              <text>{{usageSections.models ? '收起' : '展开'}}</text>
-              <text class="usage-subsection-chevron {{usageSections.models ? 'is-open' : ''}}">⌄</text>
+        <view wx:if="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData)}}" class="usage-quick-action-card">
+          <view class="usage-quick-action-head">
+            <view>
+              <view class="usage-quick-action-kicker">QUICK ACTION</view>
+              <view class="usage-quick-action-title">常用统计入口</view>
+            </view>
+            <text class="usage-quick-action-status">已同步</text>
+          </view>
+          <view class="usage-quick-action-grid">
+            <view class="usage-quick-action-item">
+              <text>{{usageStats.today.total}}</text>
+              <text>今日调用</text>
+            </view>
+            <view class="usage-quick-action-item">
+              <text>¥{{usageStats.today.estimatedCostDisplay}}</text>
+              <text>今日成本</text>
+            </view>
+            <view class="usage-quick-action-item">
+              <text>{{usageStats.users.length}}</text>
+              <text>活跃用户</text>
             </view>
           </view>
         </view>
-      <view
-        wx:if="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData) && usageSections.models}}"
-        class="usage-subsection-body"
-      >
-      <view wx:if="{{usageStats.models.length}}" class="usage-model-list">
-        <view wx:for="{{usageStats.models}}" wx:key="model" class="usage-model-row">
-          <view class="usage-model-top">
-            <text>{{item.modelDisplay}}</text>
-            <text>¥{{item.estimatedCostDisplay}} · {{item.total}} 次</text>
-          </view>
-          <view class="usage-user-detail">
-            <text>{{item.usageType}}</text>
-            <text>成功 {{item.success}}</text>
-            <text>失败 {{item.failure}}</text>
-            <text>Token {{item.totalTokens}}</text>
-            <text>视频 {{item.videoDurationSeconds}} 秒</text>
-          </view>
-        </view>
-      </view>
-      <view wx:if="{{!usageStats.models.length}}" class="admin-empty usage-empty">还没有按模型分组的数据。</view>
-      </view>
 
-        <view class="usage-subsection-head">
-          <view class="usage-subsection-title">按用户统计</view>
-          <view class="admin-action-slot">
-            <view
-              class="usage-subsection-toggle"
-              data-usage-section="users"
-              catchtap="toggleUsageSection"
-              hover-class="control-tap"
-              role="button"
-              aria-label="{{usageSections.users ? '收起按用户统计' : '展开按用户统计'}}"
-            >
-              <text>{{usageSections.users ? '收起' : '展开'}}</text>
-              <text class="usage-subsection-chevron {{usageSections.users ? 'is-open' : ''}}">⌄</text>
+        <view wx:if="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData)}}" class="usage-mobile-section-list">
+          <view class="usage-stat-section-card">
+            <view class="usage-subsection-head">
+              <view class="usage-stat-section-copy">
+                <view class="usage-stat-section-kicker">MODEL GROUP</view>
+                <view class="usage-subsection-title">按模型名称分组</view>
+              </view>
+              <view class="admin-action-slot">
+                <view
+                  class="usage-subsection-toggle"
+                  data-usage-section="models"
+                  catchtap="toggleUsageSection"
+                  hover-class="control-tap"
+                  role="button"
+                  aria-label="{{usageSections.models ? '收起按模型名称分组' : '展开按模型名称分组'}}"
+                >
+                  <text>{{usageSections.models ? '收起' : '展开'}}</text>
+                  <text class="usage-subsection-chevron {{usageSections.models ? 'is-open' : ''}}">⌄</text>
+                </view>
+              </view>
+            </view>
+            <view wx:if="{{usageSections.models}}" class="usage-subsection-body">
+              <view wx:if="{{usageStats.models.length}}" class="usage-model-list">
+                <view wx:for="{{usageStats.models}}" wx:key="model" class="usage-model-row">
+                  <view class="usage-model-top">
+                    <text>{{item.modelDisplay}}</text>
+                    <text>¥{{item.estimatedCostDisplay}} · {{item.total}} 次</text>
+                  </view>
+                  <view class="usage-user-detail">
+                    <text>{{item.usageType}}</text>
+                    <text>成功 {{item.success}}</text>
+                    <text>失败 {{item.failure}}</text>
+                    <text>Token {{item.totalTokens}}</text>
+                    <text>视频 {{item.videoDurationSeconds}} 秒</text>
+                  </view>
+                </view>
+              </view>
+              <view wx:if="{{!usageStats.models.length}}" class="admin-empty usage-empty">还没有按模型分组的数据。</view>
+            </view>
+          </view>
+
+          <view class="usage-stat-section-card">
+            <view class="usage-subsection-head">
+              <view class="usage-stat-section-copy">
+                <view class="usage-stat-section-kicker">USER GROUP</view>
+                <view class="usage-subsection-title">按用户统计</view>
+              </view>
+              <view class="admin-action-slot">
+                <view
+                  class="usage-subsection-toggle"
+                  data-usage-section="users"
+                  catchtap="toggleUsageSection"
+                  hover-class="control-tap"
+                  role="button"
+                  aria-label="{{usageSections.users ? '收起按用户统计' : '展开按用户统计'}}"
+                >
+                  <text>{{usageSections.users ? '收起' : '展开'}}</text>
+                  <text class="usage-subsection-chevron {{usageSections.users ? 'is-open' : ''}}">⌄</text>
+                </view>
+              </view>
+            </view>
+            <view wx:if="{{usageSections.users}}" class="usage-subsection-body">
+              <view wx:if="{{usageStats.users.length}}" class="usage-user-list">
+                <view wx:for="{{usageStats.users}}" wx:key="userHash" class="usage-user-row">
+                  <view class="usage-user-top">
+                    <text>用户 {{item.userHash}}</text>
+                    <text>¥{{item.estimatedCostDisplay}} · {{item.total}} 次</text>
+                  </view>
+                  <view class="usage-user-detail">
+                    <text>图片 {{item.byType.analysis.total}}</text>
+                    <text>生图 {{item.byType.image.total}}</text>
+                    <text>人脸 {{item.byType.face.total}}</text>
+                    <text>视频 {{item.byType.video.total}}</text>
+                    <text>Token {{item.totalTokens}}</text>
+                    <text>视频 {{item.videoDurationSeconds}} 秒</text>
+                  </view>
+                </view>
+              </view>
+              <view wx:if="{{!usageStats.users.length}}" class="admin-empty usage-empty">还没有按用户统计的数据。</view>
+            </view>
+          </view>
+
+          <view class="usage-stat-section-card">
+            <view class="usage-subsection-head">
+              <view class="usage-stat-section-copy">
+                <view class="usage-stat-section-kicker">MONTHLY</view>
+                <view class="usage-subsection-title">按月份统计</view>
+              </view>
+              <view class="admin-action-slot">
+                <view
+                  class="usage-subsection-toggle"
+                  data-usage-section="monthly"
+                  catchtap="toggleUsageSection"
+                  hover-class="control-tap"
+                  role="button"
+                  aria-label="{{usageSections.monthly ? '收起按月份统计' : '展开按月份统计'}}"
+                >
+                  <text>{{usageSections.monthly ? '收起' : '展开'}}</text>
+                  <text class="usage-subsection-chevron {{usageSections.monthly ? 'is-open' : ''}}">⌄</text>
+                </view>
+              </view>
+            </view>
+            <view wx:if="{{usageSections.monthly}}" class="usage-subsection-body">
+              <scroll-view wx:if="{{usageStats.monthly.length}}" class="usage-monthly-list" scroll-y>
+                <view wx:for="{{usageStats.monthly}}" wx:key="monthKey" class="usage-monthly-row">
+                  <view class="usage-daily-date">
+                    <text>{{item.monthKey}}</text>
+                    <text>预计 ¥{{item.estimatedCostDisplay}} · {{item.total}} 次</text>
+                  </view>
+                  <view class="usage-daily-values">
+                    <text>图片 ¥{{item.analysis.estimatedCostDisplay}}</text>
+                    <text>人脸 ¥{{item.face.estimatedCostDisplay}}</text>
+                    <text>生图 ¥{{item.image.estimatedCostDisplay}}</text>
+                    <text>视频 ¥{{item.video.estimatedCostDisplay}}</text>
+                  </view>
+                  <view class="usage-daily-result">Token {{item.totalTokens}} · 视频 {{item.videoDurationSeconds}} 秒</view>
+                </view>
+              </scroll-view>
+              <view wx:if="{{!usageStats.monthly.length}}" class="admin-empty usage-empty">还没有月度统计数据。</view>
+            </view>
+          </view>
+
+          <view class="usage-stat-section-card">
+            <view class="usage-subsection-head">
+              <view class="usage-stat-section-copy">
+                <view class="usage-stat-section-kicker">DAILY DETAIL</view>
+                <view class="usage-subsection-title usage-daily-title">最近{{usageStats.days}}天每日明细</view>
+              </view>
+              <view class="admin-action-slot">
+                <view
+                  class="usage-subsection-toggle"
+                  data-usage-section="daily"
+                  catchtap="toggleUsageSection"
+                  hover-class="control-tap"
+                  role="button"
+                  aria-label="{{usageSections.daily ? '收起每日明细' : '展开每日明细'}}"
+                >
+                  <text>{{usageSections.daily ? '收起' : '展开'}}</text>
+                  <text class="usage-subsection-chevron {{usageSections.daily ? 'is-open' : ''}}">⌄</text>
+                </view>
+              </view>
+            </view>
+            <view wx:if="{{usageSections.daily}}" class="usage-subsection-body">
+              <scroll-view wx:if="{{usageStats.daily.length}}" class="usage-daily-list" scroll-y>
+                <view wx:for="{{usageStats.daily}}" wx:key="dateKey" class="usage-daily-row">
+                  <view class="usage-daily-date">
+                    <text>{{item.dateLabel}}</text>
+                    <text>合计 {{item.total}} 次</text>
+                  </view>
+                  <view class="usage-daily-values">
+                    <text>图片 {{item.analysis.total}}</text>
+                    <text>生图 {{item.image.total}}</text>
+                    <text>人脸 {{item.face.total}}</text>
+                    <text>视频 {{item.video.total}}</text>
+                  </view>
+                  <view class="usage-daily-result">成功 {{item.success}} · 失败 {{item.failure}}</view>
+                </view>
+              </scroll-view>
+              <view wx:if="{{!usageStats.daily.length}}" class="admin-empty usage-empty">还没有模型调用记录，部署后有调用就会自动统计。</view>
             </view>
           </view>
         </view>
-      <view
-        wx:if="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData) && usageSections.users}}"
-        class="usage-subsection-body"
-      >
-      <view wx:if="{{usageStats.users.length}}" class="usage-user-list">
-        <view wx:for="{{usageStats.users}}" wx:key="userHash" class="usage-user-row">
-          <view class="usage-user-top">
-            <text>用户 {{item.userHash}}</text>
-            <text>¥{{item.estimatedCostDisplay}} · {{item.total}} 次</text>
-          </view>
-          <view class="usage-user-detail">
-            <text>图片 {{item.byType.analysis.total}}</text>
-            <text>生图 {{item.byType.image.total}}</text>
-            <text>人脸 {{item.byType.face.total}}</text>
-            <text>视频 {{item.byType.video.total}}</text>
-            <text>Token {{item.totalTokens}}</text>
-            <text>视频 {{item.videoDurationSeconds}} 秒</text>
-          </view>
-        </view>
-      </view>
-      <view wx:if="{{!usageStats.users.length}}" class="admin-empty usage-empty">还没有按用户统计的数据。</view>
-      </view>
-
-        <view class="usage-subsection-head">
-          <view class="usage-subsection-title">按月份统计</view>
-          <view class="admin-action-slot">
-            <view
-              class="usage-subsection-toggle"
-              data-usage-section="monthly"
-              catchtap="toggleUsageSection"
-              hover-class="control-tap"
-              role="button"
-              aria-label="{{usageSections.monthly ? '收起按月份统计' : '展开按月份统计'}}"
-            >
-              <text>{{usageSections.monthly ? '收起' : '展开'}}</text>
-              <text class="usage-subsection-chevron {{usageSections.monthly ? 'is-open' : ''}}">⌄</text>
-            </view>
-          </view>
-        </view>
-      <view
-        wx:if="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData) && usageSections.monthly}}"
-        class="usage-subsection-body"
-      >
-      <scroll-view wx:if="{{usageStats.monthly.length}}" class="usage-monthly-list" scroll-y>
-        <view wx:for="{{usageStats.monthly}}" wx:key="monthKey" class="usage-monthly-row">
-          <view class="usage-daily-date">
-            <text>{{item.monthKey}}</text>
-            <text>预计 ¥{{item.estimatedCostDisplay}} · {{item.total}} 次</text>
-          </view>
-          <view class="usage-daily-values">
-            <text>图片 ¥{{item.analysis.estimatedCostDisplay}}</text>
-            <text>人脸 ¥{{item.face.estimatedCostDisplay}}</text>
-            <text>生图 ¥{{item.image.estimatedCostDisplay}}</text>
-            <text>视频 ¥{{item.video.estimatedCostDisplay}}</text>
-          </view>
-          <view class="usage-daily-result">Token {{item.totalTokens}} · 视频 {{item.videoDurationSeconds}} 秒</view>
-        </view>
-      </scroll-view>
-      <view wx:if="{{!usageStats.monthly.length}}" class="admin-empty usage-empty">还没有月度统计数据。</view>
-      </view>
-
-        <view class="usage-subsection-head">
-          <view class="usage-subsection-title usage-daily-title">最近{{usageStats.days}}天每日明细</view>
-          <view class="admin-action-slot">
-            <view
-              class="usage-subsection-toggle"
-              data-usage-section="daily"
-              catchtap="toggleUsageSection"
-              hover-class="control-tap"
-              role="button"
-              aria-label="{{usageSections.daily ? '收起每日明细' : '展开每日明细'}}"
-            >
-              <text>{{usageSections.daily ? '收起' : '展开'}}</text>
-              <text class="usage-subsection-chevron {{usageSections.daily ? 'is-open' : ''}}">⌄</text>
-            </view>
-          </view>
-        </view>
-      <view
-        wx:if="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData) && usageSections.daily}}"
-        class="usage-subsection-body"
-      >
-      <scroll-view wx:if="{{usageStats.daily.length}}" class="usage-daily-list" scroll-y>
-        <view wx:for="{{usageStats.daily}}" wx:key="dateKey" class="usage-daily-row">
-          <view class="usage-daily-date">
-            <text>{{item.dateLabel}}</text>
-            <text>合计 {{item.total}} 次</text>
-          </view>
-          <view class="usage-daily-values">
-            <text>图片 {{item.analysis.total}}</text>
-            <text>生图 {{item.image.total}}</text>
-            <text>人脸 {{item.face.total}}</text>
-            <text>视频 {{item.video.total}}</text>
-          </view>
-          <view class="usage-daily-result">成功 {{item.success}} · 失败 {{item.failure}}</view>
-        </view>
-      </scroll-view>
-      <view wx:if="{{!usageStats.daily.length}}" class="admin-empty usage-empty">还没有模型调用记录，部署后有调用就会自动统计。</view>
-      </view>
-
-
-      </view>
       </view>
     </view>
 

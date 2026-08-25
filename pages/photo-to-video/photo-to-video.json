@@ -2,6 +2,7 @@
   "navigationBarTitleText": "照片转动态视频",
   "enablePullDownRefresh": false,
   "usingComponents": {
-    "main-image-preview": "/components/main-image-preview/main-image-preview"
+    "main-image-preview": "/components/main-image-preview/main-image-preview",
+    "image-preview": "/components/image-preview/image-preview"
   }
 }

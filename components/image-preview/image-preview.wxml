@@ -1,0 +1,31 @@
+<view wx:if="{{visible}}" class="image-preview-mask" catchtap="close" catchtouchmove="noop">
+  <view
+    class="image-preview-panel"
+    style="width: {{panelWidth}}px;"
+    catchtap="noop"
+  >
+    <view class="image-preview-title">{{title}}</view>
+    <view
+      wx:if="{{!loadError}}"
+      class="image-preview-stage"
+      style="width: {{renderedWidth}}px; height: {{renderedHeight}}px;"
+    >
+      <image
+        class="image-preview-image"
+        src="{{src}}"
+        mode="scaleToFill"
+        style="width: {{renderedWidth}}px; height: {{renderedHeight}}px;"
+        show-menu-by-longpress="true"
+        binderror="onImageError"
+      ></image>
+    </view>
+    <view wx:else class="image-preview-error">图片加载失败，请关闭后重试</view>
+    <view class="image-preview-hint">{{hintText}}</view>
+    <button
+      class="secondary-btn image-preview-close"
+      bindtap="close"
+    >
+      关闭
+    </button>
+  </view>
+</view>

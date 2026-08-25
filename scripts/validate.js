@@ -37,7 +37,9 @@ const jsFiles = [
   "utils/image.js",
   "utils/publish-export-core.js",
   "utils/canvas-gesture.js",
+  "utils/image-preview.js",
   "components/main-image-preview/main-image-preview.js",
+  "components/image-preview/image-preview.js",
   "utils/circle-gesture.js",
   "utils/publish-export.js",
   "utils/interaction-log.js",
@@ -106,7 +108,9 @@ const jsFiles = [
   "scripts/auto-face-probe-history-smoke.js",
   "scripts/publish-export-advanced-smoke.js",
   "scripts/publish-export-cloud-smoke.js",
-  "scripts/main-image-preview-smoke.js"
+  "scripts/main-image-preview-smoke.js",
+  "scripts/image-preview-screenshot-smoke.js",
+  "scripts/qr-real-device-smoke.js"
 ];
 const pythonFiles = ["scripts/package-release.py"];
 const powerShellFiles = [
@@ -228,10 +232,15 @@ const required = [
   "pages/index/index.wxml",
   "pages/index/index.wxss",
   "utils/canvas-gesture.js",
+  "utils/image-preview.js",
   "components/main-image-preview/main-image-preview.js",
   "components/main-image-preview/main-image-preview.json",
   "components/main-image-preview/main-image-preview.wxml",
   "components/main-image-preview/main-image-preview.wxss",
+  "components/image-preview/image-preview.js",
+  "components/image-preview/image-preview.json",
+  "components/image-preview/image-preview.wxml",
+  "components/image-preview/image-preview.wxss",
   "utils/circle-gesture.js",
   "utils/publish-export-core.js",
   "workers/publish-export-worker.js",
@@ -258,6 +267,8 @@ const required = [
   "scripts/publish-export-advanced-smoke.js",
   "scripts/publish-export-cloud-smoke.js",
   "scripts/main-image-preview-smoke.js",
+  "scripts/image-preview-screenshot-smoke.js",
+  "scripts/qr-real-device-smoke.js",
   "scripts/database-indexes.json",
   "scripts/database-index-core.js",
   "scripts/database-index-smoke.js",
@@ -1088,20 +1099,17 @@ if (
   || !workbenchJs.includes("authorQrPreviewPath: AUTHOR_QR_PATH")
   || !workbenchJs.includes("closeAuthorQrPreview()")
   || !workbenchJs.includes("onAuthorQrPreviewError()")
-  || !workbenchWxml.includes('wx:if="{{authorQrPreviewVisible}}"')
-  || !workbenchWxml.includes('class="author-qr-preview-mask"')
-  || !workbenchWxml.includes('class="author-qr-preview-panel"')
-  || !workbenchWxml.includes('class="author-qr-preview-image-wrap"')
-  || !workbenchWxml.includes('bindtap="closeAuthorQrPreview"')
-  || !workbenchWxml.includes('mode="aspectFit"')
-  || !workbenchWxss.includes(".author-qr-preview-mask")
-  || !workbenchWxss.includes(".author-qr-preview-panel")
-  || !workbenchWxss.includes("align-items: center")
-  || !workbenchWxss.includes("padding: 24rpx 24rpx")
-  || !workbenchWxss.includes("height: 80%")
-  || !workbenchWxss.includes(".author-qr-preview-image-wrap")
-  || !workbenchWxss.includes("flex: 1")
-  || workbenchWxss.includes("height: 600rpx")
+  || !workbenchWxml.includes("<image-preview")
+  || !workbenchWxml.includes('visible="{{imagePreviewVisible}}"')
+  || !workbenchWxml.includes('src="{{imagePreviewPath}}"')
+  || !workbenchWxml.includes('bindclose="closeImagePreview"')
+  || !workbenchWxml.includes('binderror="onImagePreviewError"')
+  || !workbenchJs.includes("imagePreviewVisible: false")
+  || !workbenchJs.includes("imagePreviewPath: \"\"")
+  || !workbenchJs.includes("closeImagePreview()")
+  || !workbenchJs.includes("imagePreviewVisible: true")
+  || workbenchWxss.includes(".author-qr-preview-image")
+  || workbenchWxss.includes("height: 80%")
   || !contactAuthorCardStyle
   || !/margin-top:\s*16rpx/.test(contactAuthorCardStyle[1])
   || !contactAuthorQrStyle

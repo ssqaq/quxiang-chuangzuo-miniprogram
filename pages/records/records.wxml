@@ -52,4 +52,12 @@
       </view>
     </view>
   </view>
+  <image-preview
+    visible="{{imagePreviewVisible}}"
+    src="{{imagePreviewPath}}"
+    title="{{imagePreviewTitle}}"
+    hintText="长按图片可保存到相册"
+    bindclose="closeImagePreview"
+    binderror="onImagePreviewError"
+  ></image-preview>
 </view>

@@ -238,6 +238,9 @@ Page({
     progressValue: 0,
     progressText: "",
     failures: [],
+    imagePreviewVisible: false,
+    imagePreviewPath: "",
+    imagePreviewTitle: "导入照片",
     preview: {
       imagePath: "",
       videoPath: "",
@@ -853,6 +856,26 @@ Page({
       && event.currentTarget.dataset.id;
     const record = this.data.records.find((item) => item.id === id);
     if (record) this.selectPreviewRecord(record);
+  },
+
+  onMainImagePreview(event = {}) {
+    const detail = event.detail || {};
+    const url = detail.path || (this.data.preview && this.data.preview.imagePath) || "";
+    if (!url) return;
+    this.setDataIfActive({
+      imagePreviewVisible: true,
+      imagePreviewPath: url,
+      imagePreviewTitle: "导入照片"
+    });
+  },
+
+  closeImagePreview() {
+    this.setDataIfActive({ imagePreviewVisible: false });
+  },
+
+  onImagePreviewError() {
+    this.setDataIfActive({ imagePreviewVisible: false });
+    wx.showToast({ title: "图片加载失败，请重试", icon: "none" });
   },
 
   selectPreviewRecord(record) {

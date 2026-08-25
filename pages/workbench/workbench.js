@@ -86,6 +86,9 @@ Page({
     contactAuthorExpanded: false,
     authorQrPreviewVisible: false,
     authorQrPreviewPath: AUTHOR_QR_PATH,
+    imagePreviewVisible: false,
+    imagePreviewPath: "",
+    imagePreviewTitle: "图片预览",
     entryModes: ENTRY_MODES,
     hasDraft: false,
     records: [],
@@ -678,17 +681,47 @@ Page({
     }
     this.setData({
       authorQrPreviewPath: qrPath,
-      authorQrPreviewVisible: true
+      authorQrPreviewVisible: true,
+      imagePreviewPath: qrPath,
+      imagePreviewTitle: "二维码",
+      imagePreviewVisible: true
     });
   },
 
   closeAuthorQrPreview() {
-    this.setData({ authorQrPreviewVisible: false });
+    this.setData({
+      authorQrPreviewVisible: false,
+      imagePreviewVisible: false
+    });
   },
 
   onAuthorQrPreviewError() {
-    this.setData({ authorQrPreviewVisible: false });
+    this.setData({
+      authorQrPreviewVisible: false,
+      imagePreviewVisible: false
+    });
     wx.showToast({ title: "二维码加载失败，请重试", icon: "none" });
+  },
+
+  closeImagePreview() {
+    this.setData({
+      imagePreviewVisible: false,
+      authorQrPreviewVisible: false
+    });
+  },
+
+  onImagePreviewError() {
+    const isQrPreview = this.data.authorQrPreviewVisible
+      || this.data.imagePreviewTitle === "二维码";
+    if (isQrPreview) {
+      this.onAuthorQrPreviewError();
+      return;
+    }
+    this.setData({
+      imagePreviewVisible: false,
+      authorQrPreviewVisible: false
+    });
+    wx.showToast({ title: "图片加载失败，请重试", icon: "none" });
   },
 
   noop() {},
@@ -744,9 +777,10 @@ Page({
   previewRecord(event) {
     const url = event.currentTarget.dataset.url;
     if (url) {
-      wx.previewImage({
-        current: url,
-        urls: [url]
+      this.setData({
+        imagePreviewPath: url,
+        imagePreviewTitle: "制作记录",
+        imagePreviewVisible: true
       });
     }
   }

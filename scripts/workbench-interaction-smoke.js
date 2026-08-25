@@ -142,6 +142,20 @@ async function main() {
   )));
   assert.strictEqual(page.data.authorQrPreviewVisible, false);
 
+  page.previewRecord({
+    currentTarget: {
+      dataset: { url: "/tmp/record-image.jpg" }
+    }
+  });
+  assert.strictEqual(page.data.imagePreviewVisible, true);
+  assert.strictEqual(page.data.imagePreviewTitle, "制作记录");
+  page.onImagePreviewError();
+  assert.ok(events.some((item) => (
+    item.type === "toast"
+    && item.options.title === "图片加载失败，请重试"
+  )));
+  assert.strictEqual(page.data.imagePreviewVisible, false);
+
   const originalQrPath = page.data.authorQrPath;
   page.data.authorQrPath = "";
   page.previewAuthorQr();

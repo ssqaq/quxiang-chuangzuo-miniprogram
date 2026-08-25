@@ -77,6 +77,9 @@ Page({
     deviceRecords: [],
     records: [],
     selectedCount: 0,
+    imagePreviewVisible: false,
+    imagePreviewPath: "",
+    imagePreviewTitle: "制作记录",
     loading: false,
     refreshing: false,
     processing: false,
@@ -300,10 +303,31 @@ Page({
       && event.currentTarget.dataset
       && event.currentTarget.dataset.url;
     if (!url) return;
-    wx.previewImage({
-      current: url,
-      urls: [url]
+    this.setData({
+      imagePreviewVisible: true,
+      imagePreviewPath: url,
+      imagePreviewTitle: "制作记录"
     });
+  },
+
+  onMainImagePreview(event = {}) {
+    const detail = event.detail || {};
+    const url = detail.path || (this.data.deviceRecords[0] || {}).path || "";
+    if (!url) return;
+    this.setData({
+      imagePreviewVisible: true,
+      imagePreviewPath: url,
+      imagePreviewTitle: "导入照片"
+    });
+  },
+
+  closeImagePreview() {
+    this.setData({ imagePreviewVisible: false });
+  },
+
+  onImagePreviewError() {
+    this.setData({ imagePreviewVisible: false });
+    wx.showToast({ title: "图片加载失败，请重试", icon: "none" });
   },
 
   getSelectedRecords() {

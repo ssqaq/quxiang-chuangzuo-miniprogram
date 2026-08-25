@@ -10,6 +10,7 @@
       wx:if="{{deviceRecords.length}}"
       image="{{deviceRecords[0]}}"
       hintText="单指拖动图片查看，双指可放大"
+      bindpreview="onMainImagePreview"
     ></main-image-preview>
     <view wx:if="{{deviceRecords.length}}" class="device-photo-hint">
       已导入 {{deviceRecords.length}} 张照片，当前将导出这些照片。
@@ -257,4 +258,12 @@
     class="publish-export-canvas"
     style="width: {{canvasWidth}}px; height: {{canvasHeight}}px;"
   ></canvas>
+  <image-preview
+    visible="{{imagePreviewVisible}}"
+    src="{{imagePreviewPath}}"
+    title="{{imagePreviewTitle}}"
+    hintText="长按图片可保存到相册"
+    bindclose="closeImagePreview"
+    binderror="onImagePreviewError"
+  ></image-preview>
 </view>

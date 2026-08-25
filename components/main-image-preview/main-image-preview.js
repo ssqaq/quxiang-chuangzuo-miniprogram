@@ -421,13 +421,13 @@ Component({
         || this._gestureMoved
         || !this.data.imagePath
         || this.data.loadError
-        || typeof wx.previewImage !== "function"
       ) {
         return;
       }
-      wx.previewImage({
-        current: this.data.imagePath,
-        urls: [this.data.imagePath]
+      this.triggerEvent("preview", {
+        path: this.data.imagePath,
+        width: this.data.imageWidth,
+        height: this.data.imageHeight
       });
     },
 

@@ -260,30 +260,12 @@
     <view>版本 {{appVersion}} · {{cloudReady ? '云端已连接' : '本地预览模式'}}</view>
   </view>
 
-  <view
-    wx:if="{{authorQrPreviewVisible}}"
-    class="author-qr-preview-mask"
-    catchtap="closeAuthorQrPreview"
-    catchtouchmove="noop"
-  >
-    <view class="author-qr-preview-panel" catchtap="noop">
-      <view class="author-qr-preview-title">二维码</view>
-      <view class="author-qr-preview-image-wrap">
-        <image
-          class="author-qr-preview-image"
-          src="{{authorQrPreviewPath}}"
-          mode="aspectFit"
-          show-menu-by-longpress="true"
-          binderror="onAuthorQrPreviewError"
-        ></image>
-      </view>
-      <view class="author-qr-preview-hint">长按二维码可识别或添加好友</view>
-      <button
-        class="secondary-btn author-qr-preview-close"
-        bindtap="closeAuthorQrPreview"
-      >
-        关闭
-      </button>
-    </view>
-  </view>
+  <image-preview
+    visible="{{imagePreviewVisible}}"
+    src="{{imagePreviewPath}}"
+    title="{{imagePreviewTitle}}"
+    hintText="长按二维码可识别或保存图片"
+    bindclose="closeImagePreview"
+    binderror="onImagePreviewError"
+  ></image-preview>
 </view>

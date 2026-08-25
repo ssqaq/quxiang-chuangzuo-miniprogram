@@ -483,6 +483,9 @@ Page({
     canvasHeight: 0,
     imageWidth: 0,
     imageHeight: 0,
+    imagePreviewVisible: false,
+    imagePreviewPath: "",
+    imagePreviewTitle: "生成结果",
     canvasScale: 1,
     canvasOffsetX: 0,
     canvasOffsetY: 0,
@@ -2509,7 +2512,20 @@ Page({
   previewImage(event) {
     const url = event.currentTarget.dataset.url;
     if (!url) return;
-    wx.previewImage({ current: url, urls: [url] });
+    this.setData({
+      imagePreviewVisible: true,
+      imagePreviewPath: url,
+      imagePreviewTitle: "生成结果"
+    });
+  },
+
+  closeImagePreview() {
+    this.setData({ imagePreviewVisible: false });
+  },
+
+  onImagePreviewError() {
+    this.setData({ imagePreviewVisible: false });
+    wx.showToast({ title: "图片加载失败，请重试", icon: "none" });
   },
 
   showError(title, error) {

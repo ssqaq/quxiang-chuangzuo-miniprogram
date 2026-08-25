@@ -15,7 +15,10 @@ Page({
     loading: false,
     cloudReady: false,
     clearing: false,
-    removingId: ""
+    removingId: "",
+    imagePreviewVisible: false,
+    imagePreviewPath: "",
+    imagePreviewTitle: "制作记录"
   },
 
   onShow() {
@@ -82,7 +85,22 @@ Page({
 
   preview(event) {
     const url = event.currentTarget.dataset.url;
-    if (url) wx.previewImage({ current: url, urls: [url] });
+    if (url) {
+      this.setData({
+        imagePreviewVisible: true,
+        imagePreviewPath: url,
+        imagePreviewTitle: "制作记录"
+      });
+    }
+  },
+
+  closeImagePreview() {
+    this.setData({ imagePreviewVisible: false });
+  },
+
+  onImagePreviewError() {
+    this.setData({ imagePreviewVisible: false });
+    wx.showToast({ title: "图片加载失败，请重试", icon: "none" });
   },
 
   openRepair(event) {

@@ -1,4 +1,7 @@
 {
   "navigationBarTitleText": "制作记录",
-  "enablePullDownRefresh": true
+  "enablePullDownRefresh": true,
+  "usingComponents": {
+    "image-preview": "/components/image-preview/image-preview"
+  }
 }

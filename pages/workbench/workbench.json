@@ -1,4 +1,7 @@
 {
   "navigationBarTitleText": "",
-  "enablePullDownRefresh": false
+  "enablePullDownRefresh": false,
+  "usingComponents": {
+    "image-preview": "/components/image-preview/image-preview"
+  }
 }

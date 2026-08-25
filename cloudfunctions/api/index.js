@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.37.1";
-const API_BUILD_MARKER = "API_BUILD_TAG_20260825_ADMIN_BUTTONS_M0371";
+const API_BUILD_VERSION = "0.37.2";
+const API_BUILD_MARKER = "API_BUILD_TAG_20260825_ADMIN_FAILURE_ALIGN_M0372";
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
 const cloud = require("wx-server-sdk");
@@ -1286,7 +1286,7 @@ function resolveFaceConfig(overrides = {}) {
     provider: overrideString(source, "provider", vision.provider),
     baseUrl: overrideString(source, "baseUrl", vision.baseUrl),
     endpoint: overrideString(source, "endpoint", vision.endpoint),
-    apiKey: overrideString(source, "apiKey", vision.apiKey),
+    apiKey: normalizeApiKey(overrideString(source, "apiKey", vision.apiKey)),
     model,
     faceModel: model,
     timeoutMs: clampNumber(
@@ -1306,7 +1306,7 @@ function resolveAnalysisConfig(overrides = {}) {
     provider: overrideString(source, "provider", vision.provider),
     baseUrl: overrideString(source, "baseUrl", vision.baseUrl),
     endpoint: overrideString(source, "endpoint", vision.endpoint),
-    apiKey: overrideString(source, "apiKey", vision.apiKey),
+    apiKey: normalizeApiKey(overrideString(source, "apiKey", vision.apiKey)),
     model: overrideString(source, "model", vision.model || "qwen3-vl-flash"),
     timeoutMs: clampNumber(
       hasOwn(source, "timeoutMs") ? source.timeoutMs : vision.timeoutMs,
@@ -1364,6 +1364,36 @@ function overrideString(overrides, key, fallback) {
   return value || fallback;
 }
 
+function normalizeApiKey(value) {
+  let normalized = String(value === null || value === undefined ? "" : value).trim();
+  for (let index = 0; index < 2; index += 1) {
+    if (
+      normalized.length >= 2
+      && (
+        normalized.startsWith('"') && normalized.endsWith('"')
+        || normalized.startsWith("'") && normalized.endsWith("'")
+      )
+    ) {
+      normalized = normalized.slice(1, -1).trim();
+    }
+  }
+  normalized = normalized
+    .replace(/^api[-_\s]?key\s*[:=]\s*/i, "")
+    .replace(/^x-api-key\s*[:=]\s*/i, "")
+    .replace(/^bearer\s+/i, "")
+    .trim();
+  return normalized;
+}
+
+function apiKeyHeaders(apiKey) {
+  const normalized = normalizeApiKey(apiKey);
+  if (!normalized) return {};
+  return {
+    Authorization: `Bearer ${normalized}`,
+    "x-api-key": normalized
+  };
+}
+
 function overrideBoolean(overrides, key, fallback) {
   if (!overrides || !Object.prototype.hasOwnProperty.call(overrides, key)) return fallback;
   return Boolean(overrides[key]);
@@ -1383,7 +1413,9 @@ function resolveImageConfig(overrides = {}) {
       "https://api.openai.com/v1"
     )),
     endpoint: overrideString(image, "endpoint", env("AI_IMAGE_ENDPOINT")),
-    apiKey: overrideString(image, "apiKey", firstEnv(["AI_IMAGE_API_KEY", "AI_API_KEY"])),
+    apiKey: normalizeApiKey(
+      overrideString(image, "apiKey", firstEnv(["AI_IMAGE_API_KEY", "AI_API_KEY"]))
+    ),
     model: overrideString(image, "model", env("AI_IMAGE_MODEL", "gpt-image-2")),
     size: overrideString(image, "size", env("AI_IMAGE_SIZE", "1024x1024")),
     mode,
@@ -1412,7 +1444,9 @@ function resolveVideoConfig(overrides = {}) {
   const provider = overrideString(video, "provider", firstEnv(["AI_VIDEO_PROVIDER"]));
   const baseUrl = overrideString(video, "baseUrl", firstEnv(["AI_VIDEO_BASE_URL"]));
   const endpointValue = overrideString(video, "endpoint", env("AI_VIDEO_ENDPOINT"));
-  const apiKey = overrideString(video, "apiKey", firstEnv(["AI_VIDEO_API_KEY", "AI_VIDEO_KEY"]));
+  const apiKey = normalizeApiKey(
+    overrideString(video, "apiKey", firstEnv(["AI_VIDEO_API_KEY", "AI_VIDEO_KEY"]))
+  );
   const model = overrideString(video, "model", env("AI_VIDEO_MODEL", "grok-imagine-video-1.5"));
   return {
     provider,
@@ -4063,11 +4097,14 @@ async function requestJson(url, payload, apiKey, extraHeaders = {}, meta = {}) {
   const body = JSON.stringify(payload);
   const response = await requestWithRetry(url, {
     method: "POST",
-    headers: Object.assign({
-      "Content-Type": "application/json",
-      "Content-Length": Buffer.byteLength(body),
-      Authorization: `Bearer ${apiKey}`
-    }, extraHeaders)
+    headers: Object.assign(
+      {
+        "Content-Type": "application/json",
+        "Content-Length": Buffer.byteLength(body)
+      },
+      apiKeyHeaders(apiKey),
+      extraHeaders
+    )
   }, body, meta);
   if (response.status < 200 || response.status >= 300) {
     throw upstreamError(response);
@@ -4085,9 +4122,7 @@ async function requestJsonMethod(
 ) {
   const hasBody = payload !== null && payload !== undefined;
   const body = hasBody ? JSON.stringify(payload) : null;
-  const headers = Object.assign({
-    Authorization: `Bearer ${apiKey}`
-  }, extraHeaders);
+  const headers = Object.assign(apiKeyHeaders(apiKey), extraHeaders);
   if (hasBody) {
     headers["Content-Type"] = "application/json";
     headers["Content-Length"] = Buffer.byteLength(body);
@@ -4440,16 +4475,32 @@ function normalizeRuntimePatch(input = {}) {
   const imagePricing = {};
   const videoPricing = {};
   faceKeys.forEach((key) => {
-    if (hasOwn(faceSource, key)) faceConfig[key] = faceSource[key];
+    if (hasOwn(faceSource, key)) {
+      faceConfig[key] = key === "apiKey"
+        ? normalizeApiKey(faceSource[key])
+        : faceSource[key];
+    }
   });
   faceKeys.forEach((key) => {
-    if (hasOwn(analysisSource, key)) analysis[key] = analysisSource[key];
+    if (hasOwn(analysisSource, key)) {
+      analysis[key] = key === "apiKey"
+        ? normalizeApiKey(analysisSource[key])
+        : analysisSource[key];
+    }
   });
   imageKeys.forEach((key) => {
-    if (hasOwn(imageSource, key)) image[key] = imageSource[key];
+    if (hasOwn(imageSource, key)) {
+      image[key] = key === "apiKey"
+        ? normalizeApiKey(imageSource[key])
+        : imageSource[key];
+    }
   });
   videoKeys.forEach((key) => {
-    if (hasOwn(videoSource, key)) video[key] = videoSource[key];
+    if (hasOwn(videoSource, key)) {
+      video[key] = key === "apiKey"
+        ? normalizeApiKey(videoSource[key])
+        : videoSource[key];
+    }
   });
   pointsKeys.forEach((key) => {
     if (hasOwn(pointsSource, key)) points[key] = pointsSource[key];
@@ -5172,6 +5223,36 @@ function modelProbeStatusText(status) {
   }[status] || "需要处理";
 }
 
+function modelProbeUpstreamDetail(response) {
+  const payload = response && response.json && typeof response.json === "object"
+    ? response.json
+    : {};
+  const error = payload.error;
+  const code = typeof error === "object" && error
+    ? error.code
+    : payload.code;
+  const message = typeof error === "object" && error
+    ? error.message
+    : typeof error === "string"
+      ? error
+      : payload.message;
+  return sanitizeFailureMessage(
+    [code, message]
+      .map((item) => String(item || "").trim())
+      .filter(Boolean)
+      .join("："),
+    160
+  );
+}
+
+function modelProbeUpstreamMessage(response, fallback) {
+  const status = Number(response && response.status) || 0;
+  const detail = modelProbeUpstreamDetail(response);
+  if (status && detail) return `${fallback}（HTTP ${status}：${detail}）`;
+  if (status) return `${fallback}（HTTP ${status}）`;
+  return fallback;
+}
+
 function modelProbeUrl(modelConfig) {
   if (modelConfig && modelConfig.baseUrl) {
     return endpoint(modelConfig.baseUrl, "models");
@@ -5262,10 +5343,10 @@ async function probeOneModel(type, modelConfig, options = {}) {
   try {
     const response = await requestOnce(url, {
       method: "GET",
-      headers: {
-        Accept: "application/json",
-        Authorization: `Bearer ${config.apiKey}`
-      },
+      headers: Object.assign(
+        { Accept: "application/json" },
+        apiKeyHeaders(config.apiKey)
+      ),
       timeoutMs: Math.min(
         15000,
         Math.max(3000, Number(config.timeoutMs) || 10000)
@@ -5321,7 +5402,10 @@ async function probeOneModel(type, modelConfig, options = {}) {
         statusText: modelProbeStatusText("auth-failed"),
         httpStatus: status,
         durationMs,
-        message: "接口地址可访问，但 API Key 无效或没有权限。"
+        message: modelProbeUpstreamMessage(
+          response,
+          "接口地址可访问，但 API Key 无效或没有权限"
+        )
       });
     }
     if (status === 404 || status === 405) {
@@ -5331,7 +5415,10 @@ async function probeOneModel(type, modelConfig, options = {}) {
         statusText: modelProbeStatusText("endpoint-not-supported"),
         httpStatus: status,
         durationMs,
-        message: "服务地址可访问，但没有提供 GET /models；请确认地址是否为兼容接口根地址。"
+        message: modelProbeUpstreamMessage(
+          response,
+          "服务地址可访问，但没有提供 GET /models；请确认地址是否为兼容接口根地址"
+        )
       });
     }
     return Object.assign(base, {
@@ -5340,7 +5427,10 @@ async function probeOneModel(type, modelConfig, options = {}) {
       statusText: modelProbeStatusText("upstream-error"),
       httpStatus: status,
       durationMs,
-      message: `接口返回 HTTP ${status}，请检查服务状态。`
+      message: modelProbeUpstreamMessage(
+        response,
+        "接口返回异常，请检查服务状态"
+      )
     });
   } catch (error) {
     return Object.assign(base, {
@@ -6534,7 +6624,7 @@ async function requestImageEdits(
     headers: {
       "Content-Type": multipart.contentType,
       "Content-Length": multipart.body.length,
-      Authorization: `Bearer ${apiKey}`,
+      ...apiKeyHeaders(apiKey),
       "Idempotency-Key": requestId
     }
   }, multipart.body, {
@@ -10437,6 +10527,8 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     resolveVisionConfig,
     resolveFaceConfig,
     resolveAnalysisConfig,
+    normalizeApiKey,
+    apiKeyHeaders,
     visionConfigForAction,
     resolveImageConfig,
     resolveEffectiveConfigs,

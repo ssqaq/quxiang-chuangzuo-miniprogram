@@ -137,6 +137,10 @@ const usageAlignmentBlock = wxss.slice(usageAlignmentStart);
 ].forEach((marker) => {
   assert.ok(usageAlignmentBlock.includes(marker), `用量/失败情况对齐规则缺少：${marker}`);
 });
+assert.ok(
+  /\.usage-failure-head\s*\{\s*align-items:\s*center;\s*padding-right:\s*24rpx;/.test(wxss),
+  "失败情况标题行没有补齐与用户端日志相同的右侧基准线"
+);
 
 assert.strictEqual(
   (wxss.match(/(?:^|\n)\.admin-action-slot\s*\{/g) || []).length,

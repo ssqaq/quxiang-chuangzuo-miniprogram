@@ -1470,6 +1470,7 @@ page {
 
 .usage-failure-head {
   align-items: center;
+  padding-right: 24rpx;
 }
 
 .usage-failure-actions {

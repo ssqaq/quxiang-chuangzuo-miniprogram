@@ -4233,6 +4233,11 @@ Page({
     return this.runModelProbe("");
   },
 
+  refreshModelProbeResults() {
+    if (this.data.modelProbing) return;
+    return this.runModelProbe("");
+  },
+
   probeSingleModel(event) {
     const modelType = String(
       event && event.currentTarget && event.currentTarget.dataset.modelType || ""

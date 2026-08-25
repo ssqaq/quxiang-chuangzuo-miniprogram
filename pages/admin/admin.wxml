@@ -1715,7 +1715,16 @@
             <view class="admin-section-title">四套模型接口探测</view>
             <view class="admin-section-help">只检查线上接口、密钥和模型配置，不会消耗生图或视频额度。</view>
           </view>
-          <text class="{{modelProbes.status === 'ok' ? 'log-ok' : 'log-warn'}}">{{modelProbes.statusText}}</text>
+          <view class="model-probe-tools">
+            <text class="{{modelProbes.status === 'ok' ? 'log-ok' : 'log-warn'}}">{{modelProbes.statusText}}</text>
+            <button
+              class="usage-refresh-button model-probe-refresh-button"
+              bindtap="refreshModelProbeResults"
+              disabled="{{modelProbing}}"
+              hover-class="control-tap"
+              aria-label="刷新模型探测结果"
+            >{{modelProbing ? '探测中' : '刷新探测'}}</button>
+          </view>
         </view>
         <view class="deployment-grid">
           <view><text>云函数版本</text><text>{{modelProbes.buildVersion || '未知'}}</text></view>

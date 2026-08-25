@@ -3948,6 +3948,18 @@ page {
   margin-top: 0;
 }
 
+.model-probe-tools {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10rpx;
+}
+
+.model-probe-refresh-button {
+  width: 160rpx;
+  min-width: 160rpx;
+}
+
 .model-probe-list {
   margin-top: 16rpx;
 }

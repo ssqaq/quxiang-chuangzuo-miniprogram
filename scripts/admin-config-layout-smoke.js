@@ -85,6 +85,21 @@ assert.ok(
     && wxss.includes(".config-editor-focus-help {"),
   "当前配置定位提示样式缺失"
 );
+assert.ok(
+  wxml.includes('bindtap="refreshModelProbeResults"')
+    && wxml.includes("刷新探测"),
+  "模型探测结果缺少就地刷新按钮"
+);
+assert.ok(
+  js.includes("refreshModelProbeResults()")
+    && js.includes('return this.runModelProbe("");'),
+  "模型探测刷新按钮没有复用全量探测流程"
+);
+assert.ok(
+  wxss.includes(".model-probe-tools {")
+    && wxss.includes(".model-probe-refresh-button {"),
+  "模型探测刷新按钮样式缺失"
+);
 
 const toggleStart = js.indexOf("toggleConfigSection(event)");
 const toggleEnd = js.indexOf("closeConfigSection()", toggleStart);

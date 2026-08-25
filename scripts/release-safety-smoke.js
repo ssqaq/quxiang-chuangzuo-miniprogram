@@ -8,6 +8,9 @@ const cp = require("child_process");
 const root = path.resolve(__dirname, "..");
 const syncScript = path.join(root, "scripts", "sync-to-github.ps1");
 const packageScript = path.join(root, "scripts", "package-release.py");
+const installHooksScript = path.join(root, "scripts", "install-git-hooks.ps1");
+const installHooksCmd = path.join(root, "scripts", "install-git-hooks.cmd");
+const releaseRecordScript = path.join(root, "scripts", "write-release-record.ps1");
 const preCommitHook = path.join(root, ".githooks", "pre-commit");
 const postCommitHook = path.join(root, ".githooks", "post-commit");
 
@@ -39,14 +42,104 @@ function testStaticContracts() {
   assertFileIncludes(syncScript, "FileShare]::None", "发布锁");
   assertFileIncludes(syncScript, "write-tree", "Git tree 校验");
   assertFileIncludes(syncScript, "Assert-ReleaseState", "SHA/工作区校验");
+  assertFileIncludes(syncScript, "AllowEmptyString", "空工作区指纹校验");
   assertFileIncludes(syncScript, "--source-tree", "从 Git tree 打包");
+  assertFileIncludes(syncScript, "write-release-record.ps1", "自动发布记录");
   assert.ok(
     !/Invoke-Git\s+-Arguments\s+@\(\s*"add"\s*,\s*"-A"/.test(syncContent),
     "同步脚本不能继续使用 git add -A"
   );
+  assertFileIncludes(installHooksScript, "core.hooksPath", "hooks 一键安装");
+  assertFileIncludes(installHooksScript, ".githooks", "hooks 目录校验");
+  assertFileIncludes(installHooksCmd, "install-git-hooks.ps1", "hooks 一键入口");
+  assertFileIncludes(releaseRecordScript, "packageSha256", "发布记录包指纹");
   assertFileIncludes(preCommitHook, "禁止直接在 main 提交", "main 提交保护");
   assertFileIncludes(postCommitHook, "main 只能由受控同步脚本提交", "main 推送保护");
   assertFileIncludes(packageScript, "源码内容 SHA256", "发布清单源码指纹");
+  assertFileIncludes(packageScript, "scripts/install-git-hooks.ps1", "发布包包含 hooks 安装器");
+}
+
+function testInstallHooks() {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "install-hooks-smoke-"));
+  const hooksRoot = path.join(tempRoot, ".githooks");
+  const scriptsRoot = path.join(tempRoot, "scripts");
+  try {
+    assertCommandOk(run("git", ["init", "-b", "main", tempRoot]), "初始化 hooks 测试仓库");
+    fs.mkdirSync(hooksRoot, { recursive: true });
+    fs.mkdirSync(scriptsRoot, { recursive: true });
+    fs.copyFileSync(preCommitHook, path.join(hooksRoot, "pre-commit"));
+    fs.copyFileSync(postCommitHook, path.join(hooksRoot, "post-commit"));
+    fs.copyFileSync(installHooksScript, path.join(scriptsRoot, "install-git-hooks.ps1"));
+
+    const installer = path.join(scriptsRoot, "install-git-hooks.ps1");
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const result = run(
+        "pwsh",
+        ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", installer],
+        { cwd: tempRoot }
+      );
+      assertCommandOk(result, `安装 Git hooks（第 ${attempt + 1} 次）`);
+    }
+    const configured = run("git", ["config", "--local", "--get", "core.hooksPath"], {
+      cwd: tempRoot,
+    });
+    assertCommandOk(configured, "读取 hooks 配置");
+    assert.strictEqual(configured.stdout.trim(), ".githooks", "hooks 路径配置错误");
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+}
+
+function testReleaseRecord() {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "release-record-smoke-"));
+  const packagePath = path.join(tempRoot, "release.zip");
+  const outputRoot = path.join(tempRoot, "records");
+  const commitSha = "0123456789abcdef0123456789abcdef01234567";
+  const treeSha = "abcdef0123456789abcdef0123456789abcdef01";
+  const sourceSha = "a".repeat(64);
+  try {
+    fs.writeFileSync(packagePath, Buffer.from("release record smoke\n"));
+    const result = run(
+      "pwsh",
+      [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        releaseRecordScript,
+        "-Version",
+        "0.0.1",
+        "-CommitSha",
+        commitSha,
+        "-TreeSha",
+        treeSha,
+        "-SourceSha256",
+        sourceSha,
+        "-PackagePath",
+        packagePath,
+        "-OutputRoot",
+        outputRoot,
+        "-ChangedFile",
+        "README.md",
+      ],
+      { cwd: root }
+    );
+    assertCommandOk(result, "生成发布记录");
+    const files = fs.readdirSync(outputRoot).filter((name) => name.endsWith(".json"));
+    assert.strictEqual(files.length, 1, "发布记录文件数量错误");
+    const record = JSON.parse(
+      fs.readFileSync(path.join(outputRoot, files[0]), "utf8")
+    );
+    assert.strictEqual(record.commitSha, commitSha);
+    assert.strictEqual(record.treeSha, treeSha);
+    assert.strictEqual(record.sourceSha256, sourceSha);
+    assert.strictEqual(record.packageSha256, crypto.createHash("sha256")
+      .update(fs.readFileSync(packagePath))
+      .digest("hex"));
+    assert.deepStrictEqual(record.changedFiles, ["README.md"]);
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
 }
 
 function testMainHookRejectsDirectCommit() {
@@ -176,20 +269,26 @@ function testPackageManifest() {
       "HEAD",
       "--",
       "scripts/release-safety-smoke.js",
+      "scripts/install-git-hooks.ps1",
+      "scripts/install-git-hooks.cmd",
+      "scripts/write-release-record.ps1",
     ]);
     assertCommandOk(trackedAtHead, "检查 smoke 是否已提交");
+    const trackedFiles = trackedAtHead.stdout
+      .split(/\r?\n/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+    const allReleaseSafetyFilesTracked = trackedFiles.length === 4;
 
     const packageArgs = [
       packageScript,
       "--commit-sha",
-      trackedAtHead.stdout.trim() ? head.stdout.trim() : "工作区未提交",
-      "--tree-sha",
-      tree.stdout.trim(),
+      allReleaseSafetyFilesTracked ? head.stdout.trim() : "工作区未提交",
       "--output",
       output,
     ];
-    if (trackedAtHead.stdout.trim()) {
-      packageArgs.splice(1, 0, "--source-tree", head.stdout.trim());
+    if (allReleaseSafetyFilesTracked) {
+      packageArgs.splice(1, 0, "--source-tree", head.stdout.trim(), "--tree-sha", tree.stdout.trim());
     }
 
     const result = run(
@@ -214,17 +313,19 @@ function testPackageManifest() {
     );
     assertCommandOk(unzip, "读取发布清单");
     const manifest = Buffer.from(unzip.stdout.trim(), "base64").toString("utf8");
-    const expectedCommit = trackedAtHead.stdout.trim()
+    const expectedCommit = allReleaseSafetyFilesTracked
       ? head.stdout.trim()
       : "工作区未提交";
     assert.ok(
       manifest.includes(`提交 SHA：${expectedCommit}`),
       "发布清单缺少最终提交 SHA"
     );
-    assert.ok(
-      manifest.includes(`Git tree SHA：${tree.stdout.trim()}`),
-      "发布清单缺少 Git tree SHA"
-    );
+    if (allReleaseSafetyFilesTracked) {
+      assert.ok(
+        manifest.includes(`Git tree SHA：${tree.stdout.trim()}`),
+        "发布清单缺少 Git tree SHA"
+      );
+    }
     assert.ok(
       /源码内容 SHA256：[0-9a-f]{64}/.test(manifest),
       "发布清单缺少源码内容 SHA256"
@@ -244,6 +345,8 @@ function testSourceFingerprintAlgorithm() {
 
 function main() {
   testStaticContracts();
+  testInstallHooks();
+  testReleaseRecord();
   testMainHookRejectsDirectCommit();
   testExclusiveLockPrimitive();
   testWorktreeCannotPublishMain();

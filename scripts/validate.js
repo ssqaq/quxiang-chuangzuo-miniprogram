@@ -109,7 +109,9 @@ const powerShellFiles = [
   "scripts/init-cloud-database.ps1",
   "scripts/refresh-preview.ps1",
   "scripts/sync-to-github.ps1",
-  "scripts/check-cloud-database-indexes.ps1"
+  "scripts/check-cloud-database-indexes.ps1",
+  "scripts/install-git-hooks.ps1",
+  "scripts/write-release-record.ps1"
 ];
 
 for (const relative of jsonFiles) {
@@ -185,6 +187,9 @@ const required = [
   "utils/points-ui.js",
   "scripts/refresh-preview.ps1",
   "scripts/sync-to-github.ps1",
+  "scripts/install-git-hooks.ps1",
+  "scripts/install-git-hooks.cmd",
+  "scripts/write-release-record.ps1",
   "一键刷新预览.cmd",
   "pages/publish-export/publish-export.js",
   "pages/publish-export/publish-export.json",

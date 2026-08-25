@@ -494,6 +494,36 @@ D:\aips小程序\wechat-miniapp-release-v版本.zip
 打包前后如果 HEAD、tree SHA 或工作区状态变化，脚本会判定有并行任务插入并立即停止。
 发布包里的 `RELEASE-MANIFEST.txt` 会记录最终 commit SHA、Git tree SHA 和源码内容 SHA256。
 
+### 一键安装 Git hooks
+
+换电脑或重新克隆仓库后，在项目根目录双击下面这个文件即可：
+
+```text
+D:\aips小程序\wechat-miniapp\scripts\install-git-hooks.cmd
+```
+
+也可以在 PowerShell 执行：
+
+```powershell
+Set-Location "D:\aips小程序\wechat-miniapp"
+& .\scripts\install-git-hooks.ps1
+```
+
+脚本会检查 `.githooks\pre-commit` 和 `.githooks\post-commit`，再把当前仓库的
+`core.hooksPath` 设置为 `.githooks`。如果本机已经配置了其他 hooks 路径，默认拒绝覆盖；
+确认后可执行 `& .\scripts\install-git-hooks.ps1 -Force`。
+
+### 自动发布记录
+
+每次正式包推送完成并确认本地 `HEAD` 与 `origin/main` 一致后，发布脚本会自动在项目目录外生成一份 JSON：
+
+```text
+D:\aips小程序\wechat-miniapp-release-records\release-v版本-提交号.json
+```
+
+记录包含版本号、最终 commit SHA、Git tree SHA、源码内容 SHA256、正式 ZIP 的 SHA256、
+包大小、发布时间和本次变更文件。记录放在项目目录外，避免写回源码后改变正式包指纹。
+
 ### 自动同步
 
 当前采用“改完并验证后立即同步”，不依赖 Windows 每 10 分钟轮询任务。
@@ -524,7 +554,8 @@ git clone https://github.com/ssqaq/quxiang-chuangzuo-miniprogram.git `
 3. 在云函数后台重新配置 API Key 等环境变量；
 4. 在 `cloudfunctions\api` 中安装依赖；
 5. 重新部署 `api` 云函数；
-6. 按上面的方式配置仓库的 `core.hooksPath`，并使用同步脚本完成首次提交。
+6. 双击 `scripts\install-git-hooks.cmd` 安装 hooks；
+7. 使用同步脚本完成首次提交。
 
 ### 常见故障
 

@@ -13,6 +13,7 @@ $logRoot = Join-Path (Split-Path $repoRoot -Parent) "wechat-miniapp-sync-logs"
 $logFile = Join-Path $logRoot ("sync-{0}.log" -f (Get-Date -Format "yyyy-MM-dd"))
 $lockPath = Join-Path (Split-Path $repoRoot -Parent) "$repoName-release.lock"
 $packageScript = Join-Path $repoRoot "scripts/package-release.py"
+$releaseRecordScript = Join-Path $repoRoot "scripts/write-release-record.ps1"
 
 function Invoke-Git {
     param(
@@ -184,10 +185,10 @@ function Get-CommitMetadata {
 
 function Assert-ReleaseState {
     param(
-        [Parameter(Mandatory = $true)][string]$ExpectedHead,
-        [Parameter(Mandatory = $true)][string]$ExpectedTree,
-        [Parameter(Mandatory = $true)][string]$ExpectedWorktree,
-        [Parameter(Mandatory = $true)][string]$Stage
+        [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$ExpectedHead,
+        [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$ExpectedTree,
+        [Parameter(Mandatory = $true)][AllowEmptyString()][string]$ExpectedWorktree,
+        [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$Stage
     )
 
     $actualHead = Get-GitValue -Arguments @("rev-parse", "HEAD")
@@ -367,6 +368,26 @@ try {
     $remoteHead = Get-GitValue -Arguments @("rev-parse", "origin/$branch")
     if ($remoteHead -ne $finalHead) {
         throw "推送后远端 SHA 不一致：本地 $finalHead，远端 $remoteHead。"
+    }
+    if (-not (Test-Path -LiteralPath $releaseRecordScript -PathType Leaf)) {
+        throw "已推送但找不到发布记录脚本：$releaseRecordScript"
+    }
+    $manifestShaOutput = & python -c "from zipfile import ZipFile; import sys; m=ZipFile(sys.argv[1]).read('RELEASE-MANIFEST.txt').decode('utf-8'); print(next(line.split('：', 1)[1].strip() for line in m.splitlines() if line.startswith('源码内容 SHA256：')))" $releasePackage 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw "已推送但无法读取正式包源码 SHA256：$($manifestShaOutput -join "`n")"
+    }
+    $manifestSourceSha = ($manifestShaOutput -join "`n").Trim()
+    Write-Host "生成自动发布记录"
+    & $releaseRecordScript `
+        -Version $version `
+        -CommitSha $finalHead `
+        -TreeSha $finalTree `
+        -SourceSha256 $manifestSourceSha `
+        -PackagePath $releasePackage `
+        -Remote "origin/$branch" `
+        -ChangedFile $includePaths
+    if ($LASTEXITCODE -ne 0) {
+        throw "已推送但发布记录生成失败，请检查项目外的发布记录目录。"
     }
     Write-Host "同步完成：$commitMessage"
     Write-Host "本地 HEAD 与 origin/$branch 一致：$finalHead"

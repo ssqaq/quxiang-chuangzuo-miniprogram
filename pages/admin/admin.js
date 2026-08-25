@@ -2989,6 +2989,7 @@ Page({
       "form.analysis.provider": face.provider || "",
       "form.analysis.baseUrl": face.baseUrl || "",
       "form.analysis.endpoint": face.endpoint || "",
+      "form.analysis.apiKey": face.apiKey || "",
       "form.analysis.model": face.model || "",
       "form.analysis.timeoutMs": String(face.timeoutMs || "30000"),
       message: "已复制人脸配置到图片分析；点击“保存全部配置”后才会生效。"

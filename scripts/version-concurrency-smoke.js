@@ -89,6 +89,14 @@ function testSyncConcurrencyContracts() {
     content.includes('push origin "HEAD:$branch"'),
     "推送必须从临时发布工作树快进到 main"
   );
+  assert.ok(
+    !content.includes("采用工作区已明确升级版本"),
+    "版本必须严格从 origin/main 自动递增，不能采用工作区手写版本"
+  );
+  assert.ok(
+    !/currentVersion\s*-\s*gt\s*baseVersion/.test(content),
+    "版本分配不能被工作区版本覆盖"
+  );
 }
 
 function main() {

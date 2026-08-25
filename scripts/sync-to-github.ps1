@@ -423,22 +423,6 @@ try {
                 throw "远端基线 config.js 没有找到 appVersion。"
             }
             $targetVersion = Get-NextPatchVersion -BaseVersion $baseVersionMatch.Groups[1].Value
-            $currentConfigPath = Join-Path $repoRoot "config.js"
-            $currentConfigText = Get-Content -LiteralPath $currentConfigPath -Raw
-            $currentVersionMatch = [regex]::Match($currentConfigText, 'appVersion:\s*"([^"]+)"')
-            if ($currentVersionMatch.Success -and ($includePaths -contains "config.js")) {
-                try {
-                    $currentVersion = [version]$currentVersionMatch.Groups[1].Value
-                    $baseVersion = [version]$baseVersionMatch.Groups[1].Value
-                    if ($currentVersion -gt $baseVersion) {
-                        $targetVersion = $currentVersionMatch.Groups[1].Value
-                        Write-Host "采用工作区已明确升级版本：$targetVersion（远端基线：$($baseVersionMatch.Groups[1].Value)）"
-                    }
-                }
-                catch {
-                    throw "工作区 config.js 的 appVersion 不是合法三段式版本：$($currentVersionMatch.Groups[1].Value)"
-                }
-            }
             $versionPaths = Get-VersionGroupPaths -SourceRoot $releaseWorktree
             $initialVersionSnapshot = Get-FileSnapshot -Paths $versionPaths
             Copy-SnapshotToWorktree -TargetRoot $releaseWorktree -Snapshot $initialSnapshot

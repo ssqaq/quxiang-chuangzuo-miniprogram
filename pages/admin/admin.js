@@ -2,6 +2,175 @@ const config = require("../../config");
 const cloud = require("../../services/cloud");
 const diagnosticLog = require("../../utils/diagnostic-log");
 
+const IMAGE_QUALITY_OPTIONS = Object.freeze([
+  { value: "1K", label: "1K" },
+  { value: "2K", label: "2K" },
+  { value: "4K", label: "4K" }
+]);
+const IMAGE_SIZE_OPTIONS = Object.freeze([
+  { value: "1080x1440", label: "照片：1080×1440" },
+  { value: "1242x1660", label: "照片：1242×1660" },
+  { value: "1080x1920", label: "抖音视频封面：1080×1920" }
+]);
+const VIDEO_QUALITY_OPTIONS = Object.freeze([
+  { value: "480p", label: "480p" },
+  { value: "720p", label: "720p" },
+  { value: "1080p", label: "1080p" }
+]);
+
+function normalizeAdminImageResolution(value, fallback = "1K") {
+  const text = String(value || "").trim().toUpperCase();
+  if (["1K", "2K", "4K"].includes(text)) return text;
+  const match = text.match(/(\d{3,5})\s*[X×]\s*(\d{3,5})/);
+  if (match) {
+    const longest = Math.max(Number(match[1]), Number(match[2]));
+    if (longest <= 1536) return "1K";
+    if (longest <= 3072) return "2K";
+    return "4K";
+  }
+  return ["1K", "2K", "4K"].includes(String(fallback)) ? String(fallback) : "1K";
+}
+
+function adminImageSizeValue(value) {
+  const text = String(value || "").trim().toLowerCase().replace("×", "x");
+  return IMAGE_SIZE_OPTIONS.some((item) => item.value === text) ? text : "";
+}
+
+function buildAdminImageSizeOptions(value) {
+  const raw = String(value || "").trim().toLowerCase().replace("×", "x");
+  if (!raw || adminImageSizeValue(raw)) return IMAGE_SIZE_OPTIONS.slice();
+  return [
+    { value: raw, label: `兼容旧尺寸：${raw}` }
+  ].concat(IMAGE_SIZE_OPTIONS);
+}
+
+function normalizeAdminVideoResolution(value, fallback = "720p") {
+  const text = String(value || "").trim().toLowerCase();
+  if (["480p", "720p", "1080p"].includes(text)) return text;
+  const match = text.match(/(480|720|1080)/);
+  if (match) return `${match[1]}p`;
+  return ["480p", "720p", "1080p"].includes(String(fallback))
+    ? String(fallback)
+    : "720p";
+}
+
+function normalizeAdminCapabilityValues(type, values) {
+  const source = Array.isArray(values) ? values : [values];
+  const output = [];
+  source.forEach((value) => {
+    if (value === null || value === undefined) return;
+    if (Array.isArray(value)) {
+      normalizeAdminCapabilityValues(type, value).forEach((item) => output.push(item));
+      return;
+    }
+    if (typeof value === "object") {
+      Object.keys(value).forEach((key) => {
+        normalizeAdminCapabilityValues(type, value[key]).forEach((item) => output.push(item));
+      });
+      return;
+    }
+    const text = String(value);
+    if (type === "image") {
+      (text.match(/(?:1|2|4)\s*K\b|\b\d{3,5}\s*[x×]\s*\d{3,5}\b/ig) || [])
+        .forEach((item) => output.push(normalizeAdminImageResolution(item, "")));
+    } else {
+      (text.match(/\b(?:480|720|1080)\s*p?\b/ig) || [])
+        .forEach((item) => output.push(normalizeAdminVideoResolution(item, "")));
+    }
+  });
+  const order = type === "image" ? ["1K", "2K", "4K"] : ["480p", "720p", "1080p"];
+  return order.filter((item) => output.includes(item));
+}
+
+function knownAdminCapabilities(type, form) {
+  const source = form && form[type] ? form[type] : {};
+  const model = String(source.model || "").trim().toLowerCase();
+  const provider = String(source.provider || "").trim().toLowerCase();
+  if (type === "image" && (
+    model === "image2超分高质量1-4k"
+    || /image2.*(?:1-4k|超分)/i.test(model)
+    || provider === "pandatk"
+    || provider === "panda"
+  )) {
+    return ["1K", "2K", "4K"];
+  }
+  if (type === "video" && (
+    model === "grok-imagine-video-1.5"
+    || provider === "lingyun"
+    || provider === "凌云"
+  )) {
+    return ["480p", "720p", "1080p"];
+  }
+  return [];
+}
+
+function buildAdminQualityOptions(type, capabilities, form) {
+  const upstreamValues = normalizeAdminCapabilityValues(
+    type,
+    capabilities && capabilities.resolutions
+  );
+  const values = upstreamValues.length ? upstreamValues : knownAdminCapabilities(type, form);
+  const all = type === "image" ? IMAGE_QUALITY_OPTIONS : VIDEO_QUALITY_OPTIONS;
+  return {
+    options: values.length
+      ? all.filter((item) => values.includes(item.value))
+      : all.slice(),
+    source: upstreamValues.length
+      ? "upstream"
+      : knownAdminCapabilities(type, form).length
+        ? "known-model-rule"
+        : "custom"
+  };
+}
+
+function pickerIndex(options, value, fallback = 0) {
+  const index = (Array.isArray(options) ? options : []).findIndex(
+    (item) => item && item.value === value
+  );
+  return index >= 0 ? index : fallback;
+}
+
+function buildQualityPickerState(form, capabilityPayload = {}) {
+  const image = form && form.image ? form.image : {};
+  const video = form && form.video ? form.video : {};
+  const imageCapability = capabilityPayload.image || {};
+  const videoCapability = capabilityPayload.video || {};
+  const imageQuality = buildAdminQualityOptions("image", imageCapability, form);
+  const videoQuality = buildAdminQualityOptions("video", videoCapability, form);
+  const imageQualityValue = normalizeAdminImageResolution(
+    image.resolution || image.size,
+    "1K"
+  );
+  const videoQualityValue = normalizeAdminVideoResolution(video.resolution, "720p");
+  const imageSizeOptions = buildAdminImageSizeOptions(image.size || "1080x1440");
+  const imageSizeValue = String(image.size || "").trim().toLowerCase().replace("×", "x")
+    || "1080x1440";
+  return {
+    imageQualityOptions: imageQuality.options,
+    imageQualityIndex: pickerIndex(
+      imageQuality.options,
+      imageQualityValue,
+      0
+    ),
+    imageSizeOptions,
+    imageSizeIndex: pickerIndex(imageSizeOptions, imageSizeValue, 0),
+    videoQualityOptions: videoQuality.options,
+    videoQualityIndex: pickerIndex(videoQuality.options, videoQualityValue, 1),
+    imageCapabilitySource: imageQuality.source,
+    videoCapabilitySource: videoQuality.source,
+    imageCapabilityNotice: imageQuality.source === "upstream"
+      ? "已按上游返回的生图能力显示选项。"
+      : imageQuality.source === "known-model-rule"
+        ? "已识别熊猫 image2，支持 1K、2K、4K。"
+        : "暂未识别上游能力，保留三档选项；未知模型请以实际上游支持为准。",
+    videoCapabilityNotice: videoQuality.source === "upstream"
+      ? "已按上游返回的视频能力显示选项。"
+      : videoQuality.source === "known-model-rule"
+        ? "已识别 Grok 视频模型，支持 480p、720p、1080p。"
+        : "暂未识别上游能力，保留三档选项；未知模型请以实际上游支持为准。"
+  };
+}
+
 function emptyForm() {
   return {
     face: {
@@ -27,10 +196,12 @@ function emptyForm() {
       apiKey: "",
       model: "",
       mode: "generations",
-      size: "1024x1024",
+      size: "1080x1440",
+      resolution: "1K",
       timeoutMs: "90000",
       maxRetries: "2",
-      retryEnabled: false
+      retryEnabled: true,
+      retryPreferenceVersion: 1
     },
     video: {
       provider: "",
@@ -173,11 +344,16 @@ function modelErrorMessageLabel(value) {
   return "上游服务返回错误，请检查请求参数";
 }
 
-function pickModelName(...values) {
-  const value = values.find((item) => {
+function pickModelName() {
+  let value = "";
+  for (let index = 0; index < arguments.length; index += 1) {
+    const item = arguments[index];
     const text = String(item == null ? "" : item).trim();
-    return text && !MODEL_DISPLAY_EMPTY_VALUES.has(text.toLowerCase());
-  });
+    if (text && !MODEL_DISPLAY_EMPTY_VALUES.has(text.toLowerCase())) {
+      value = item;
+      break;
+    }
+  }
   return displayModelName(value);
 }
 
@@ -214,6 +390,18 @@ const CONFIG_SECTION_TITLES = Object.freeze({
   costs: "模型成本配置",
   users: "用户统计"
 });
+const MODEL_CONFIG_SECTIONS = Object.freeze([
+  "face",
+  "analysis",
+  "image",
+  "video"
+]);
+
+function configEditorSelector(section) {
+  return MODEL_CONFIG_SECTIONS.indexOf(section) >= 0
+    ? `#config-editor-${section}`
+    : "#config-editor";
+}
 
 const MONITOR_SECTION_KEYS = Object.freeze([
   "autoFaceFailure",
@@ -1542,7 +1730,10 @@ function formatUserSignupTrend(items = []) {
       count: Math.max(0, Number(item && item.count) || 0)
     };
   });
-  const maxCount = Math.max(0, ...days.map((item) => item.count));
+  let maxCount = 0;
+  days.forEach((item) => {
+    maxCount = Math.max(maxCount, item.count);
+  });
   return days.map((item) => Object.assign({}, item, {
     barPercent: item.count && maxCount
       ? Math.max(14, Math.round(item.count / maxCount * 100))
@@ -1632,7 +1823,10 @@ function buildCostTrend(usageStats) {
       costDisplay: formatCostDisplay(costByDate[dateKey])
     });
   }
-  const maxCost = Math.max(0, ...days.map((item) => item.cost));
+  let maxCost = 0;
+  days.forEach((item) => {
+    maxCost = Math.max(maxCost, item.cost);
+  });
   const normalizedDays = days.map((item) => Object.assign({}, item, {
     barPercent: maxCost ? Math.round(item.cost / maxCost * 100) : 0
   }));
@@ -1752,10 +1946,17 @@ function formFromConfig(result) {
       apiKey: image.apiKey || "",
       model: image.model || "",
       mode: image.mode || "generations",
-      size: image.size || "1024x1024",
+      size: image.size || "1080x1440",
+      resolution: normalizeAdminImageResolution(
+        image.resolution || image.size,
+        "1K"
+      ),
       timeoutMs: String(image.timeoutMs || 90000),
       maxRetries: String(image.maxRetries || 0),
-      retryEnabled: Boolean(image.retryEnabled)
+      retryEnabled: image.retryEnabled === undefined
+        ? true
+        : Boolean(image.retryEnabled),
+      retryPreferenceVersion: 1
     },
     video: {
       provider: video.provider || "",
@@ -1831,9 +2032,14 @@ function formToConfig(form) {
       model: String(form.image.model || "").trim(),
       mode: String(form.image.mode || "").trim().toLowerCase(),
       size: String(form.image.size || "").trim(),
+      resolution: normalizeAdminImageResolution(
+        form.image.resolution || form.image.size,
+        "1K"
+      ),
       timeoutMs: Number(form.image.timeoutMs || 0),
       maxRetries: Number(form.image.maxRetries || 0),
-      retryEnabled: Boolean(form.image.retryEnabled)
+      retryEnabled: Boolean(form.image.retryEnabled),
+      retryPreferenceVersion: 1
     },
     video: {
       provider: String(form.video.provider || "").trim(),
@@ -2062,6 +2268,20 @@ Page({
     refreshingAll: false,
     isAdmin: false,
     form: emptyForm(),
+    imageQualityOptions: IMAGE_QUALITY_OPTIONS.slice(),
+    imageQualityIndex: 0,
+    imageSizeOptions: IMAGE_SIZE_OPTIONS.slice(),
+    imageSizeIndex: 0,
+    videoQualityOptions: VIDEO_QUALITY_OPTIONS.slice(),
+    videoQualityIndex: 1,
+    imageCapabilitySource: "known-model-rule",
+    videoCapabilitySource: "known-model-rule",
+    imageCapabilityNotice: "生图清晰度由 1K、2K、4K 控制，尺寸只控制画面比例。",
+    videoCapabilityNotice: "视频清晰度由上游模型能力决定。",
+    modelCapabilityProfiles: {
+      image: {},
+      video: {}
+    },
     currentConfigModels: emptyCurrentConfigModels(),
     defaults: null,
     effective: null,
@@ -2490,17 +2710,18 @@ Page({
       );
       if (!this.isCurrentAdminLoad(token)) return;
       const effective = result && result.effective ? result.effective : null;
+      const form = formFromConfig(result);
       const moduleStates = loadingAdminModuleStates(this.data.moduleStates);
-      const basePatch = {
+      const basePatch = Object.assign({
         loading: false,
         isAdmin: true,
         canRetry: false,
-        form: formFromConfig(result),
+        form,
         defaults: result.defaults || null,
         effective,
         moduleStates,
         message: ""
-      };
+      }, buildQualityPickerState(form));
       Object.assign(basePatch, this.buildAdminDerivedPatch(basePatch, moduleStates));
       this.setData(basePatch);
       diagnosticLog.info("admin", "config-loaded", "管理员配置读取完成", {
@@ -3025,11 +3246,12 @@ Page({
         if (!this.isCurrentAdminLoad(token) || !this.data.isAdmin) {
           return { ok: false, stale: true };
         }
-        const patch = {
-          form: formFromConfig(result),
+        const form = formFromConfig(result);
+        const patch = Object.assign({
+          form,
           defaults: result.defaults || null,
           effective: result.effective || null
-        };
+        }, buildQualityPickerState(form));
         Object.assign(patch, this.buildAdminDerivedPatch(patch, this.data.moduleStates));
         this.setData(patch);
         return { ok: true };
@@ -3096,7 +3318,11 @@ Page({
         { label: "部署日志" }
       )
     ];
-    const [configResult, ...parts] = await Promise.all([configTask, ...moduleTasks]);
+    const allTasks = moduleTasks.slice();
+    allTasks.unshift(configTask);
+    const results = await Promise.all(allTasks);
+    const configResult = results[0];
+    const parts = results.slice(1);
     if (
       !this.isCurrentAdminLoad(token)
       || configResult.stale
@@ -3188,7 +3414,76 @@ Page({
     if (key === "model") {
       patch[`currentConfigModels.${section}`] = displayModelName(event.detail.value);
     }
+    if (
+      (section === "image" || section === "video")
+      && (key === "model" || key === "provider")
+    ) {
+      const nextForm = Object.assign({}, this.data.form, {
+        [section]: Object.assign({}, this.data.form[section], {
+          [key]: event.detail.value
+        })
+      });
+      const profiles = this.data.modelCapabilityProfiles
+        && this.data.modelCapabilityProfiles[section]
+        ? this.data.modelCapabilityProfiles[section]
+        : {};
+      const profile = profiles[String(nextForm[section].model || "").trim()];
+      const capabilityPayload = {};
+      capabilityPayload[section] = profile || {};
+      Object.assign(patch, buildQualityPickerState(nextForm, capabilityPayload));
+    }
     this.setData(patch);
+  },
+
+  onImageQualityChange(event) {
+    const index = Math.max(0, Number(event && event.detail && event.detail.value) || 0);
+    const option = this.data.imageQualityOptions[index] || IMAGE_QUALITY_OPTIONS[0];
+    const nextForm = Object.assign({}, this.data.form, {
+      image: Object.assign({}, this.data.form.image, {
+        resolution: option.value
+      })
+    });
+    this.setData(Object.assign({
+      "form.image.resolution": option.value
+    }, buildQualityPickerState(nextForm, {
+      image: this.data.modelCapabilityProfiles.image
+        && this.data.modelCapabilityProfiles.image[nextForm.image.model]
+        || {}
+    })));
+  },
+
+  onImageSizeChange(event) {
+    const index = Math.max(0, Number(event && event.detail && event.detail.value) || 0);
+    const option = this.data.imageSizeOptions[index] || IMAGE_SIZE_OPTIONS[0];
+    const nextForm = Object.assign({}, this.data.form, {
+      image: Object.assign({}, this.data.form.image, {
+        size: option.value
+      })
+    });
+    this.setData(Object.assign({
+      "form.image.size": option.value
+    }, buildQualityPickerState(nextForm, {
+      image: this.data.modelCapabilityProfiles.image
+        && this.data.modelCapabilityProfiles.image[nextForm.image.model]
+        || {}
+    })));
+  },
+
+  onVideoQualityChange(event) {
+    const index = Math.max(0, Number(event && event.detail && event.detail.value) || 1);
+    const option = this.data.videoQualityOptions[index] || VIDEO_QUALITY_OPTIONS[1];
+    const nextForm = Object.assign({}, this.data.form, {
+      video: Object.assign({}, this.data.form.video, {
+        resolution: option.value
+      })
+    });
+    this.setData(Object.assign({
+      "form.video.resolution": option.value
+    }, buildQualityPickerState(nextForm, {
+      video: this.data.modelCapabilityProfiles.video
+        && this.data.modelCapabilityProfiles.video[nextForm.video.model]
+        || {}
+    })));
   },
 
   onRetryChange(event) {
@@ -3228,7 +3523,7 @@ Page({
       }
       if (nextSection && typeof wx.pageScrollTo === "function") {
         wx.pageScrollTo({
-          selector: "#config-editor",
+          selector: configEditorSelector(nextSection),
           duration: 220
         });
       }
@@ -3516,12 +3811,13 @@ Page({
     try {
       const result = await cloud.saveAdminConfig(formToConfig(this.data.form));
       const effective = result.effective || null;
-      const patch = {
-        form: formFromConfig(result),
+      const form = formFromConfig(result);
+      const patch = Object.assign({
+        form,
         effective,
         saving: false,
         message: `配置已保存，第 ${result.version || 0} 版；正在自动测试四套模型...`
-      };
+      }, buildQualityPickerState(form));
       Object.assign(patch, this.buildAdminDerivedPatch(patch, this.data.moduleStates));
       this.setData(patch);
       diagnosticLog.info("admin", "config-saved", "管理员配置保存完成", {
@@ -3541,18 +3837,22 @@ Page({
     this.setData({ checking: true, message: "" });
     try {
       const probeStartedAt = Date.now();
-      const [result, probeResult] = await Promise.all([
+      const deploymentResults = await Promise.all([
         cloud.checkDeployment(),
         cloud.probeAutoFace().catch((error) => ({ __probeError: error }))
       ]);
+      const result = deploymentResults[0];
+      const probeResult = deploymentResults[1];
       const probeError = probeResult && probeResult.__probeError;
       if (probeResult && !probeError) {
         probeResult.clientDurationMs = Math.max(0, Date.now() - probeStartedAt);
       }
-      const [logs, probeHistoryResult] = await Promise.all([
+      const deploymentLogResults = await Promise.all([
         cloud.listDeploymentLogs(),
         cloud.getAutoFaceProbeHistory().catch((error) => ({ __historyError: error }))
       ]);
+      const logs = deploymentLogResults[0];
+      const probeHistoryResult = deploymentLogResults[1];
       const historyError = probeHistoryResult && probeHistoryResult.__historyError;
       const historyUnavailable = Boolean(
         historyError
@@ -3710,15 +4010,30 @@ Page({
         });
         throw error;
       }
-      this.setData({
+      const modelCapabilityProfiles = Object.assign(
+        {},
+        this.data.modelCapabilityProfiles || {},
+        {
+          [modelType]: result.modelCapabilities || {}
+        }
+      );
+      const currentModel = String(
+        this.data.form[modelType] && this.data.form[modelType].model || ""
+      ).trim();
+      const capabilityPayload = {};
+      capabilityPayload[modelType] = result.capabilities
+        || modelCapabilityProfiles[modelType][currentModel]
+        || {};
+      this.setData(Object.assign({
         modelPickerOpen: true,
         modelPickerType: modelType,
         modelPickerTitle: `${typeLabel}模型列表`,
         modelPickerSearch: "",
         modelPickerAllOptions: options,
         modelPickerOptions: options,
+        modelCapabilityProfiles,
         message: `已读取 ${options.length} 个${typeLabel}模型。`
-      });
+      }, buildQualityPickerState(this.data.form, capabilityPayload)));
     } catch (error) {
       diagnosticLog.error("admin", "model-list-failed", `${typeLabel}模型列表读取失败`, {
         error,
@@ -3773,7 +4088,18 @@ Page({
         : ""
     ).trim();
     if (!type || !value) return;
-    this.setData({
+    const nextForm = Object.assign({}, this.data.form, {
+      [type]: Object.assign({}, this.data.form[type], {
+        model: value
+      })
+    });
+    const profile = this.data.modelCapabilityProfiles
+      && this.data.modelCapabilityProfiles[type]
+      && this.data.modelCapabilityProfiles[type][value]
+      || {};
+    const capabilityPayload = {};
+    capabilityPayload[type] = profile;
+    this.setData(Object.assign({
       [`form.${type}.model`]: value,
       [`currentConfigModels.${type}`]: displayModelName(value),
       modelPickerOpen: false,
@@ -3783,7 +4109,7 @@ Page({
       modelPickerAllOptions: [],
       modelPickerOptions: [],
       message: `已选择${usageTypeLabel(type)}模型：${value}；点击“保存全部配置”后才会生效。`
-    });
+    }, buildQualityPickerState(nextForm, capabilityPayload)));
     wx.showToast({ title: "模型已填入", icon: "success" });
   },
 

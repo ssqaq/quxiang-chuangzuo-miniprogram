@@ -54,10 +54,13 @@ const jsFiles = [
   "pages/photo-guide/photo-guide.js",
   "pages/points/points.js",
   "pages/admin/admin.js",
+  "scripts/admin-runtime-compat-smoke.js",
   "scripts/admin-loading-smoke.js",
   "scripts/admin-layout-state-smoke.js",
   "scripts/admin-usage-entry-smoke.js",
   "scripts/admin-responsive-smoke.js",
+  "scripts/admin-config-layout-smoke.js",
+  "scripts/image-quality-smoke.js",
   "scripts/release-safety-smoke.js",
   "pages/index/index.js",
   "pages/records/records.js",
@@ -224,9 +227,12 @@ const required = [
   "pages/admin/admin.wxml",
   "pages/admin/admin.wxss",
   "scripts/admin-loading-smoke.js",
+  "scripts/admin-runtime-compat-smoke.js",
   "scripts/admin-layout-state-smoke.js",
   "scripts/admin-usage-entry-smoke.js",
   "scripts/admin-responsive-smoke.js",
+  "scripts/admin-config-layout-smoke.js",
+  "scripts/image-quality-smoke.js",
   "scripts/release-safety-smoke.js",
   "scripts/diagnostic-admin-logs-smoke.js",
   "pages/index/index.wxml",
@@ -751,23 +757,44 @@ if (
 ) {
   throw new Error("模型成本、按用户/模型、月度统计或 Excel 导出功能不完整。");
 }
+if (
+  /function\s+\w+\s*\([^)]*\.\.\./.test(adminJs)
+  || /Math\.max\([^;\n]*\.\.\./.test(adminJs)
+  || /\b(?:const|let|var)\s*\[[^\]]*\.\.\.[^\]]*\]\s*=/.test(adminJs)
+  || /Promise\.all\(\[[^\]]*\.\.\./s.test(adminJs)
+  || !adminJs.includes("const allTasks = moduleTasks.slice();")
+  || !adminJs.includes("const parts = results.slice(1);")
+) {
+  throw new Error("管理员页包含会触发微信开发者工具缺失 SWC iterable helper 的语法。");
+}
 const todaySectionIndex = adminWxml.indexOf('<view class="overview-section today-section">');
+const currentConfigHeadingIndex = adminWxml.indexOf('<view class="overview-heading">当前配置</view>');
 const usageSectionIndex = adminWxml.indexOf('<view id="usage-section"');
-const configEditorIndex = adminWxml.indexOf('<view wx:if="{{activeConfigSection}}" id="config-editor"');
+const configEditorIndex = adminWxml.indexOf('id="config-editor" class="card config-editor"');
 const monitorToggleIndex = adminWxml.indexOf('class="monitor-toggle ');
 const usageBeforeMonitor = usageSectionIndex >= 0
   && monitorToggleIndex >= 0
   && usageSectionIndex < monitorToggleIndex;
 if (
   todaySectionIndex < 0
-  || usageSectionIndex <= todaySectionIndex
-  || configEditorIndex <= usageSectionIndex
+  || currentConfigHeadingIndex <= todaySectionIndex
+  || configEditorIndex <= currentConfigHeadingIndex
+  || usageSectionIndex <= configEditorIndex
   || !usageBeforeMonitor
+  || !adminWxml.includes('id="config-editor-face"')
+  || !adminWxml.includes('id="config-editor-analysis"')
+  || !adminWxml.includes('id="config-editor-image"')
+  || !adminWxml.includes('id="config-editor-video"')
+  || (adminWxml.match(/class="config-editor-focus-tip"/g) || []).length !== 5
+  || !adminWxss.includes(".config-editor-focus-tip")
+  || !adminWxss.includes(".config-editor-focus-dot")
+  || !adminJs.includes("function configEditorSelector(section)")
+  || !adminJs.includes("selector: configEditorSelector(nextSection)")
   || adminWxml.includes("monitor-section-usage")
   || adminWxml.includes("monitorSections.usage")
   || !adminWxml.includes('catchtap="toggleUsageCard"')
 ) {
-  throw new Error("模型用量统计没有正确放在“今天”下面，或仍被运行监控旧状态控制。");
+  throw new Error("管理员页面配置入口或区块顺序不正确：四个模型应就地展开，其他配置应在模型用量统计之前。");
 }
 if (
   !adminWxml.includes("模型调用失败统计")

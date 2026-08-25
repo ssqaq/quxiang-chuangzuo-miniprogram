@@ -213,6 +213,70 @@
           <text class="current-config-arrow">›</text>
         </view>
       </view>
+      <view wx:if="{{activeConfigSection === 'face'}}" id="config-editor-face" class="card config-editor config-editor-inline">
+        <view class="config-editor-head">
+          <view>
+            <view class="config-editor-kicker">正在配置</view>
+            <view class="config-editor-title">{{activeConfigTitle}}</view>
+          </view>
+          <view class="config-close-button" bindtap="closeConfigSection" hover-class="control-tap" role="button" aria-label="收起配置">收起</view>
+        </view>
+        <view class="config-editor-focus-tip">
+          <view class="config-editor-focus-dot"></view>
+          <view class="config-editor-focus-copy">
+            <view class="config-editor-focus-label">当前正在配置</view>
+            <view class="config-editor-focus-name">{{activeConfigTitle}}</view>
+          </view>
+          <view class="config-editor-focus-help">下面的修改只作用于这一项</view>
+        </view>
+        <view class="config-editor-body">
+          <view class="config-helper">API Key 可在这里新增或修改，保存后同步到管理员配置；测试和获取模型会优先使用当前填写内容。</view>
+          <view class="config-model-actions">
+            <view
+              class="config-model-button config-model-test"
+              data-model-type="face"
+              bindtap="testModelConnection"
+              hover-class="control-tap"
+              role="button"
+              aria-label="测试人脸识别模型连接"
+            >{{modelActionType === 'face' && modelActionKind === 'test' ? '测试中...' : '测试连接'}}</view>
+            <view
+              class="config-model-button config-model-list"
+              data-model-type="face"
+              bindtap="getModelOptions"
+              hover-class="control-tap"
+              role="button"
+              aria-label="获取人脸识别模型列表"
+            >{{modelActionType === 'face' && modelActionKind === 'list' ? '读取中...' : '获取模型'}}</view>
+          </view>
+          <view class="admin-grid">
+            <view class="admin-field"><text>服务商</text><input value="{{form.face.provider}}" data-section="face" data-key="provider" bindinput="onInput" /></view>
+            <view class="admin-field"><text>使用的模型</text><input value="{{form.face.model}}" data-section="face" data-key="model" bindinput="onInput" /></view>
+            <view class="admin-field admin-field-wide"><text>接口地址</text><input value="{{form.face.baseUrl}}" data-section="face" data-key="baseUrl" bindinput="onInput" /></view>
+            <view class="admin-field admin-field-wide"><text>API Key</text><input value="{{form.face.apiKey}}" data-section="face" data-key="apiKey" placeholder="填写后可测试并保存" bindinput="onInput" /></view>
+            <view class="admin-field"><text>超时毫秒</text><input type="number" value="{{form.face.timeoutMs}}" data-section="face" data-key="timeoutMs" bindinput="onInput" /></view>
+          </view>
+        </view>
+        <view wx:if="{{activeConfigSection !== 'users'}}" class="admin-actions">
+          <view
+            class="admin-action-button primary-btn admin-save-button {{saving ? 'is-disabled' : ''}}"
+            bindtap="saveConfig"
+            hover-class="control-tap"
+            role="button"
+            aria-label="保存全部配置"
+          >
+            {{saving ? '保存中...' : '保存全部配置'}}
+          </view>
+          <view
+            class="admin-action-button secondary-btn admin-close-button"
+            bindtap="closeConfigSection"
+            hover-class="control-tap"
+            role="button"
+            aria-label="暂不修改并收起"
+          >暂不修改</view>
+        </view>
+      </view>
+
       <view
         class="current-config-row {{entryHealth.analysis.abnormal ? 'is-abnormal' : ''}}"
         data-section="analysis"
@@ -234,6 +298,77 @@
           <text class="current-config-arrow">›</text>
         </view>
       </view>
+      <view wx:if="{{activeConfigSection === 'analysis'}}" id="config-editor-analysis" class="card config-editor config-editor-inline">
+        <view class="config-editor-head">
+          <view>
+            <view class="config-editor-kicker">正在配置</view>
+            <view class="config-editor-title">{{activeConfigTitle}}</view>
+          </view>
+          <view class="config-close-button" bindtap="closeConfigSection" hover-class="control-tap" role="button" aria-label="收起配置">收起</view>
+        </view>
+        <view class="config-editor-focus-tip">
+          <view class="config-editor-focus-dot"></view>
+          <view class="config-editor-focus-copy">
+            <view class="config-editor-focus-label">当前正在配置</view>
+            <view class="config-editor-focus-name">{{activeConfigTitle}}</view>
+          </view>
+          <view class="config-editor-focus-help">下面的修改只作用于这一项</view>
+        </view>
+        <view class="config-editor-body">
+          <view class="config-helper">图片分析模型独立保存服务商、接口地址、API Key、使用的模型和超时；测试和获取模型会优先使用当前填写内容。</view>
+          <view class="config-editor-tools config-model-actions">
+            <view
+              class="config-tool-button"
+              bindtap="copyFaceConfigToAnalysis"
+              hover-class="control-tap"
+              role="button"
+              aria-label="复制人脸识别配置到图片分析"
+            >复制人脸配置</view>
+            <view
+              class="config-model-button config-model-test"
+              data-model-type="analysis"
+              bindtap="testModelConnection"
+              hover-class="control-tap"
+              role="button"
+              aria-label="测试图片分析模型连接"
+            >{{modelActionType === 'analysis' && modelActionKind === 'test' ? '测试中...' : '测试连接'}}</view>
+            <view
+              class="config-model-button config-model-list"
+              data-model-type="analysis"
+              bindtap="getModelOptions"
+              hover-class="control-tap"
+              role="button"
+              aria-label="获取图片分析模型列表"
+            >{{modelActionType === 'analysis' && modelActionKind === 'list' ? '读取中...' : '获取模型'}}</view>
+          </view>
+          <view class="admin-grid">
+            <view class="admin-field"><text>服务商</text><input value="{{form.analysis.provider}}" data-section="analysis" data-key="provider" bindinput="onInput" /></view>
+            <view class="admin-field"><text>使用的模型</text><input value="{{form.analysis.model}}" data-section="analysis" data-key="model" bindinput="onInput" /></view>
+            <view class="admin-field admin-field-wide"><text>接口地址</text><input value="{{form.analysis.baseUrl}}" data-section="analysis" data-key="baseUrl" bindinput="onInput" /></view>
+            <view class="admin-field admin-field-wide"><text>API Key</text><input value="{{form.analysis.apiKey}}" data-section="analysis" data-key="apiKey" placeholder="填写后可测试并保存" bindinput="onInput" /></view>
+            <view class="admin-field"><text>超时毫秒</text><input type="number" value="{{form.analysis.timeoutMs}}" data-section="analysis" data-key="timeoutMs" bindinput="onInput" /></view>
+          </view>
+        </view>
+        <view wx:if="{{activeConfigSection !== 'users'}}" class="admin-actions">
+          <view
+            class="admin-action-button primary-btn admin-save-button {{saving ? 'is-disabled' : ''}}"
+            bindtap="saveConfig"
+            hover-class="control-tap"
+            role="button"
+            aria-label="保存全部配置"
+          >
+            {{saving ? '保存中...' : '保存全部配置'}}
+          </view>
+          <view
+            class="admin-action-button secondary-btn admin-close-button"
+            bindtap="closeConfigSection"
+            hover-class="control-tap"
+            role="button"
+            aria-label="暂不修改并收起"
+          >暂不修改</view>
+        </view>
+      </view>
+
       <view
         class="current-config-row {{entryHealth.image.abnormal ? 'is-abnormal' : ''}}"
         data-section="image"
@@ -255,6 +390,101 @@
           <text class="current-config-arrow">›</text>
         </view>
       </view>
+      <view wx:if="{{activeConfigSection === 'image'}}" id="config-editor-image" class="card config-editor config-editor-inline">
+        <view class="config-editor-head">
+          <view>
+            <view class="config-editor-kicker">正在配置</view>
+            <view class="config-editor-title">{{activeConfigTitle}}</view>
+          </view>
+          <view class="config-close-button" bindtap="closeConfigSection" hover-class="control-tap" role="button" aria-label="收起配置">收起</view>
+        </view>
+        <view class="config-editor-focus-tip">
+          <view class="config-editor-focus-dot"></view>
+          <view class="config-editor-focus-copy">
+            <view class="config-editor-focus-label">当前正在配置</view>
+            <view class="config-editor-focus-name">{{activeConfigTitle}}</view>
+          </view>
+          <view class="config-editor-focus-help">下面的修改只作用于这一项</view>
+        </view>
+        <view class="config-editor-body">
+          <view class="config-helper">API Key 可在这里新增或修改，保存后同步到管理员配置；输入框会直接显示当前密钥内容，请仅在管理员环境操作。</view>
+          <view class="config-model-actions">
+            <view
+              class="config-model-button config-model-test"
+              data-model-type="image"
+              bindtap="testModelConnection"
+              hover-class="control-tap"
+              role="button"
+              aria-label="测试生图模型连接"
+            >{{modelActionType === 'image' && modelActionKind === 'test' ? '测试中...' : '测试连接'}}</view>
+            <view
+              class="config-model-button config-model-list"
+              data-model-type="image"
+              bindtap="getModelOptions"
+              hover-class="control-tap"
+              role="button"
+              aria-label="获取生图模型列表"
+            >{{modelActionType === 'image' && modelActionKind === 'list' ? '读取中...' : '获取模型'}}</view>
+          </view>
+          <view class="admin-grid">
+            <view class="admin-field"><text>服务商</text><input value="{{form.image.provider}}" data-section="image" data-key="provider" bindinput="onInput" /></view>
+            <view class="admin-field"><text>使用的模型</text><input value="{{form.image.model}}" data-section="image" data-key="model" bindinput="onInput" /></view>
+            <view class="admin-field admin-field-wide"><text>接口地址</text><input value="{{form.image.baseUrl}}" data-section="image" data-key="baseUrl" bindinput="onInput" /></view>
+            <view class="admin-field admin-field-wide"><text>API Key</text><input value="{{form.image.apiKey}}" data-section="image" data-key="apiKey" placeholder="填写后可测试并保存" bindinput="onInput" /></view>
+            <view class="admin-field"><text>模式</text><input value="{{form.image.mode}}" data-section="image" data-key="mode" placeholder="generations / edits" bindinput="onInput" /></view>
+          <view class="admin-field">
+            <text>清晰度</text>
+            <picker
+              mode="selector"
+              range="{{imageQualityOptions}}"
+              range-key="label"
+              value="{{imageQualityIndex}}"
+              bindchange="onImageQualityChange"
+            >
+              <view class="admin-picker">{{imageQualityOptions[imageQualityIndex].label}}</view>
+            </picker>
+          </view>
+          <view class="admin-field">
+            <text>尺寸比例</text>
+            <picker
+              mode="selector"
+              range="{{imageSizeOptions}}"
+              range-key="label"
+              value="{{imageSizeIndex}}"
+              bindchange="onImageSizeChange"
+            >
+              <view class="admin-picker">{{imageSizeOptions[imageSizeIndex].label}}</view>
+            </picker>
+          </view>
+          <view class="admin-field"><text>超时毫秒</text><input type="number" value="{{form.image.timeoutMs}}" data-section="image" data-key="timeoutMs" bindinput="onInput" /></view>
+          <view class="admin-field"><text>最大重试</text><input type="number" value="{{form.image.maxRetries}}" data-section="image" data-key="maxRetries" bindinput="onInput" /></view>
+        </view>
+        <view class="config-helper">{{imageCapabilityNotice}}</view>
+          <label class="admin-checkbox-row">
+            <checkbox value="enabled" checked="{{form.image.retryEnabled}}" bindchange="onRetryChange" color="#245fd4"></checkbox>
+            <text>允许生图上游请求自动重试</text>
+          </label>
+        </view>
+        <view wx:if="{{activeConfigSection !== 'users'}}" class="admin-actions">
+          <view
+            class="admin-action-button primary-btn admin-save-button {{saving ? 'is-disabled' : ''}}"
+            bindtap="saveConfig"
+            hover-class="control-tap"
+            role="button"
+            aria-label="保存全部配置"
+          >
+            {{saving ? '保存中...' : '保存全部配置'}}
+          </view>
+          <view
+            class="admin-action-button secondary-btn admin-close-button"
+            bindtap="closeConfigSection"
+            hover-class="control-tap"
+            role="button"
+            aria-label="暂不修改并收起"
+          >暂不修改</view>
+        </view>
+      </view>
+
       <view
         class="current-config-row {{entryHealth.video.abnormal ? 'is-abnormal' : ''}}"
         data-section="video"
@@ -276,7 +506,453 @@
           <text class="current-config-arrow">›</text>
         </view>
       </view>
+      <view wx:if="{{activeConfigSection === 'video'}}" id="config-editor-video" class="card config-editor config-editor-inline">
+        <view class="config-editor-head">
+          <view>
+            <view class="config-editor-kicker">正在配置</view>
+            <view class="config-editor-title">{{activeConfigTitle}}</view>
+          </view>
+          <view class="config-close-button" bindtap="closeConfigSection" hover-class="control-tap" role="button" aria-label="收起配置">收起</view>
+        </view>
+        <view class="config-editor-focus-tip">
+          <view class="config-editor-focus-dot"></view>
+          <view class="config-editor-focus-copy">
+            <view class="config-editor-focus-label">当前正在配置</view>
+            <view class="config-editor-focus-name">{{activeConfigTitle}}</view>
+          </view>
+          <view class="config-editor-focus-help">下面的修改只作用于这一项</view>
+        </view>
+        <view class="config-editor-body">
+          <view class="config-helper">创建任务只发一次，查询任务按配置轮询；API Key 可在这里新增或修改并保存到管理员配置。</view>
+          <view class="config-model-actions">
+            <view
+              class="config-model-button config-model-test"
+              data-model-type="video"
+              bindtap="testModelConnection"
+              hover-class="control-tap"
+              role="button"
+              aria-label="测试视频模型连接"
+            >{{modelActionType === 'video' && modelActionKind === 'test' ? '测试中...' : '测试连接'}}</view>
+            <view
+              class="config-model-button config-model-list"
+              data-model-type="video"
+              bindtap="getModelOptions"
+              hover-class="control-tap"
+              role="button"
+              aria-label="获取视频模型列表"
+            >{{modelActionType === 'video' && modelActionKind === 'list' ? '读取中...' : '获取模型'}}</view>
+          </view>
+          <view class="admin-grid">
+            <view class="admin-field"><text>服务商</text><input value="{{form.video.provider}}" data-section="video" data-key="provider" bindinput="onInput" /></view>
+            <view class="admin-field"><text>使用的模型</text><input value="{{form.video.model}}" data-section="video" data-key="model" bindinput="onInput" /></view>
+            <view class="admin-field admin-field-wide"><text>接口地址</text><input value="{{form.video.baseUrl}}" data-section="video" data-key="baseUrl" bindinput="onInput" /></view>
+            <view class="admin-field admin-field-wide"><text>API Key</text><input value="{{form.video.apiKey}}" data-section="video" data-key="apiKey" placeholder="填写后可测试并保存" bindinput="onInput" /></view>
+            <view class="admin-field admin-field-wide"><text>创建路径</text><input value="{{form.video.createPath}}" data-section="video" data-key="createPath" bindinput="onInput" /></view>
+            <view class="admin-field admin-field-wide"><text>查询路径</text><input value="{{form.video.queryPath}}" data-section="video" data-key="queryPath" bindinput="onInput" /></view>
+          <view class="admin-field">
+            <text>清晰度</text>
+            <picker
+              mode="selector"
+              range="{{videoQualityOptions}}"
+              range-key="label"
+              value="{{videoQualityIndex}}"
+              bindchange="onVideoQualityChange"
+            >
+              <view class="admin-picker">{{videoQualityOptions[videoQualityIndex].label}}</view>
+            </picker>
+          </view>
+          <view class="admin-field"><text>宽高比（可空）</text><input value="{{form.video.aspectRatio}}" data-section="video" data-key="aspectRatio" bindinput="onInput" /></view>
+          <view class="admin-field"><text>超时毫秒</text><input type="number" value="{{form.video.timeoutMs}}" data-section="video" data-key="timeoutMs" bindinput="onInput" /></view>
+        </view>
+        <view class="config-helper">{{videoCapabilityNotice}}</view>
+        </view>
+        <view wx:if="{{activeConfigSection !== 'users'}}" class="admin-actions">
+          <view
+            class="admin-action-button primary-btn admin-save-button {{saving ? 'is-disabled' : ''}}"
+            bindtap="saveConfig"
+            hover-class="control-tap"
+            role="button"
+            aria-label="保存全部配置"
+          >
+            {{saving ? '保存中...' : '保存全部配置'}}
+          </view>
+          <view
+            class="admin-action-button secondary-btn admin-close-button"
+            bindtap="closeConfigSection"
+            hover-class="control-tap"
+            role="button"
+            aria-label="暂不修改并收起"
+          >暂不修改</view>
+        </view>
+      </view>
+
     </view>
+
+
+    <view wx:if="{{activeConfigSection === 'points' || activeConfigSection === 'costs' || activeConfigSection === 'users'}}" id="config-editor" class="card config-editor">
+      <view class="config-editor-head">
+        <view>
+          <view class="config-editor-kicker">正在配置</view>
+          <view class="config-editor-title">{{activeConfigTitle}}</view>
+        </view>
+        <view class="config-close-button" bindtap="closeConfigSection" hover-class="control-tap" role="button" aria-label="收起配置">收起</view>
+      </view>
+
+
+
+
+
+
+
+
+
+      <view class="config-editor-focus-tip">
+        <view class="config-editor-focus-dot"></view>
+        <view class="config-editor-focus-copy">
+          <view class="config-editor-focus-label">当前正在配置</view>
+          <view class="config-editor-focus-name">{{activeConfigTitle}}</view>
+        </view>
+        <view class="config-editor-focus-help">下面的修改只作用于这一项</view>
+      </view>
+
+      <view wx:if="{{activeConfigSection === 'points'}}" class="config-editor-body">
+        <view class="config-helper">活动日期按上海时间判断，积分在提交任务时扣除。</view>
+        <view class="admin-grid">
+          <view class="admin-field"><text>每日免费次数</text><input type="number" value="{{form.points.dailyFreeLimit}}" data-section="points" data-key="dailyFreeLimit" bindinput="onInput" /></view>
+          <view class="admin-field"><text>生图积分</text><input type="number" value="{{form.points.imageCost}}" data-section="points" data-key="imageCost" bindinput="onInput" /></view>
+          <view class="admin-field"><text>视频积分</text><input type="number" value="{{form.points.videoCost}}" data-section="points" data-key="videoCost" bindinput="onInput" /></view>
+          <view class="admin-field"><text>每日签到积分</text><input type="number" value="{{form.points.checkinPoints}}" data-section="points" data-key="checkinPoints" bindinput="onInput" /></view>
+          <view class="admin-field"><text>连续奖励积分</text><input type="number" value="{{form.points.streakBonus}}" data-section="points" data-key="streakBonus" bindinput="onInput" /></view>
+          <view class="admin-field"><text>连续奖励天数</text><input type="number" value="{{form.points.streakDays}}" data-section="points" data-key="streakDays" bindinput="onInput" /></view>
+          <view class="admin-field"><text>活动开始日期</text><input value="{{form.points.promoStartDate}}" data-section="points" data-key="promoStartDate" placeholder="2026-08-23" bindinput="onInput" /></view>
+          <view class="admin-field"><text>活动结束日期</text><input value="{{form.points.promoEndDate}}" data-section="points" data-key="promoEndDate" placeholder="2026-08-24" bindinput="onInput" /></view>
+          <view class="admin-field admin-field-wide"><text>时区</text><input value="{{form.points.timeZone}}" data-section="points" data-key="timeZone" placeholder="Asia/Shanghai" bindinput="onInput" /></view>
+        </view>
+      </view>
+
+      <view wx:if="{{activeConfigSection === 'costs'}}" class="config-editor-body">
+        <view class="config-helper">模型成本配置（人民币）用于计算预计花费。</view>
+        <view class="admin-grid">
+          <view class="admin-field"><text>人脸输入 / 百万Token</text><input type="digit" value="{{form.costs.faceInputPerMillionTokens}}" data-section="costs" data-key="faceInputPerMillionTokens" bindinput="onInput" /></view>
+          <view class="admin-field"><text>人脸输出 / 百万Token</text><input type="digit" value="{{form.costs.faceOutputPerMillionTokens}}" data-section="costs" data-key="faceOutputPerMillionTokens" bindinput="onInput" /></view>
+          <view class="admin-field"><text>图片分析输入 / 百万Token</text><input type="digit" value="{{form.costs.analysisInputPerMillionTokens}}" data-section="costs" data-key="analysisInputPerMillionTokens" bindinput="onInput" /></view>
+          <view class="admin-field"><text>图片分析输出 / 百万Token</text><input type="digit" value="{{form.costs.analysisOutputPerMillionTokens}}" data-section="costs" data-key="analysisOutputPerMillionTokens" bindinput="onInput" /></view>
+          <view class="admin-field"><text>生图 1K / 张</text><input type="digit" value="{{form.costs.image1K}}" data-section="costs" data-key="image1K" bindinput="onInput" /></view>
+          <view class="admin-field"><text>生图 2K / 张</text><input type="digit" value="{{form.costs.image2K}}" data-section="costs" data-key="image2K" bindinput="onInput" /></view>
+          <view class="admin-field"><text>生图 4K / 张</text><input type="digit" value="{{form.costs.image4K}}" data-section="costs" data-key="image4K" bindinput="onInput" /></view>
+          <view class="admin-field"><text>视频 480p / 秒</text><input type="digit" value="{{form.costs.video480p}}" data-section="costs" data-key="video480p" bindinput="onInput" /></view>
+          <view class="admin-field"><text>视频 720p / 秒</text><input type="digit" value="{{form.costs.video720p}}" data-section="costs" data-key="video720p" bindinput="onInput" /></view>
+          <view class="admin-field"><text>视频 1080p / 秒</text><input type="digit" value="{{form.costs.video1080p}}" data-section="costs" data-key="video1080p" bindinput="onInput" /></view>
+          <view class="admin-field"><text>视频默认秒数</text><input type="digit" value="{{form.costs.videoDefaultDuration}}" data-section="costs" data-key="videoDefaultDuration" bindinput="onInput" /></view>
+        </view>
+        <view class="cost-trend-panel">
+          <view class="cost-trend-heading">
+            <view>
+              <view class="cost-trend-title">最近7天成本</view>
+              <view class="cost-trend-total">合计 ¥{{costTrend.totalCostDisplay}}</view>
+            </view>
+            <view class="config-state {{moduleStates.usage.status === 'failed' ? 'is-off' : 'is-ready'}}">
+              {{moduleStates.usage.label}}
+            </view>
+          </view>
+          <view wx:if="{{moduleStates.usage.status === 'loading'}}" class="usage-message">
+            正在读取最近7天成本...
+          </view>
+          <view wx:elif="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData) && costTrend.hasCost}}" class="cost-chart">
+            <view wx:for="{{costTrend.days}}" wx:key="dateKey" class="cost-chart-item">
+              <view class="cost-chart-value">¥{{item.costDisplay}}</view>
+              <view class="cost-chart-track">
+                <view class="cost-chart-bar" style="height: {{item.barPercent}}%;"></view>
+              </view>
+              <view class="cost-chart-date">{{item.label}}</view>
+            </view>
+          </view>
+          <view wx:elif="{{moduleStates.usage.status === 'ready' || moduleStates.usage.hasData}}" class="cost-empty">最近7天没有消费，成本为 0 元。</view>
+        </view>
+      </view>
+
+      <view wx:if="{{activeConfigSection === 'users'}}" class="config-editor-body">
+        <view class="user-stats-d-head">
+          <view>
+            <view class="user-stats-d-kicker">已完善资料</view>
+            <view class="user-stats-d-title">用户统计</view>
+          </view>
+          <view class="user-stats-d-actions">
+            <button
+              class="usage-refresh-button user-stats-d-action"
+              bindtap="refreshUserStats"
+              loading="{{userStatsLoading}}"
+              disabled="{{userStatsLoading}}"
+            >{{userStatsLoading ? '刷新中' : '刷新'}}</button>
+            <button
+              class="usage-export-button user-stats-d-action"
+              bindtap="exportUserStats"
+              loading="{{userStatsExporting}}"
+              disabled="{{userStatsExporting}}"
+            >{{userStatsExporting ? '生成中' : '导出'}}</button>
+          </view>
+        </view>
+        <view class="user-stats-d-helper">
+          这里显示已保存个人资料的用户，不是小程序访问人数。
+        </view>
+        <view class="user-stats-filter-panel">
+          <view class="user-stats-search-row">
+            <view class="user-stats-search-box">
+              <text class="user-stats-search-icon">⌕</text>
+              <input
+                class="user-stats-search-input"
+                value="{{userSearchInput}}"
+                maxlength="32"
+                placeholder="搜索昵称或匿名编号"
+                confirm-type="search"
+                bindinput="onUserSearchInput"
+                bindconfirm="applyUserSearch"
+              />
+            </view>
+            <view
+              class="user-stats-search-action"
+              bindtap="applyUserSearch"
+              hover-class="control-tap"
+              role="button"
+              aria-label="搜索用户"
+            >搜索</view>
+            <view
+              wx:if="{{userSearchInput || userSearch}}"
+              class="user-stats-search-clear"
+              bindtap="clearUserSearch"
+              hover-class="control-tap"
+              role="button"
+              aria-label="清空用户搜索"
+            >清空</view>
+          </view>
+          <view class="user-stats-filter-label">注册时间</view>
+          <view class="user-stats-date-filter">
+            <view
+              wx:for="{{userDateRanges}}"
+              wx:key="value"
+              class="user-stats-date-option {{userDateRange === item.value ? 'is-active' : ''}}"
+              data-range="{{item.value}}"
+              bindtap="selectUserDateRange"
+              hover-class="control-tap"
+              role="button"
+              aria-label="查看{{item.label}}注册用户"
+            >{{item.label}}</view>
+          </view>
+          <view wx:if="{{userDateRange === 'custom'}}" class="user-custom-date-row">
+            <picker
+              class="user-custom-date-picker"
+              mode="date"
+              value="{{userCustomStartDate}}"
+              end="{{userTodayKey}}"
+              bindchange="onUserCustomStartChange"
+            >
+              <view class="user-custom-date-value">
+                <text>开始日期</text>
+                <text>{{userCustomStartDate}}</text>
+              </view>
+            </picker>
+            <text class="user-custom-date-separator">至</text>
+            <picker
+              class="user-custom-date-picker"
+              mode="date"
+              value="{{userCustomEndDate}}"
+              end="{{userTodayKey}}"
+              bindchange="onUserCustomEndChange"
+            >
+              <view class="user-custom-date-value">
+                <text>结束日期</text>
+                <text>{{userCustomEndDate}}</text>
+              </view>
+            </picker>
+          </view>
+          <view class="user-stats-filter-label">用户性别</view>
+          <view class="user-stats-gender-filter">
+            <view
+              wx:for="{{userGenders}}"
+              wx:key="value"
+              class="user-stats-gender-option {{userGender === item.value ? 'is-active' : ''}}"
+              data-gender="{{item.value}}"
+              bindtap="selectUserGender"
+              hover-class="control-tap"
+              role="button"
+              aria-label="只看{{item.label}}用户"
+            >{{item.label}}</view>
+          </view>
+        </view>
+        <view class="user-stats-d-state-row">
+          <view class="config-state {{moduleStates.users.status === 'failed' ? 'is-off' : 'is-ready'}}">
+            {{moduleStates.users.label}}
+          </view>
+          <text>用户身份已隐藏，只显示匿名编号</text>
+        </view>
+        <view wx:if="{{moduleStates.users.status === 'loading'}}" class="usage-message">
+          正在读取用户统计...
+        </view>
+        <view wx:if="{{moduleStates.users.status === 'failed'}}" class="usage-message is-warn">
+          {{moduleStates.users.message || '用户统计读取失败，请点击刷新。'}}
+        </view>
+        <view wx:if="{{userStats.message}}" class="usage-message {{userStats.unavailable ? 'is-warn' : ''}}">
+          {{userStats.message}}
+        </view>
+        <view wx:if="{{moduleStates.users.status === 'ready' || moduleStates.users.hasData}}" class="user-stats-d-overview">
+          <view class="user-stats-d-total">
+            <text class="user-stats-d-total-value">{{userStats.total}}</text>
+            <!-- 兼容旧完整校验：总用户 -->
+            <text class="user-stats-d-total-label">已完善资料的用户</text>
+          </view>
+          <view
+            class="user-stats-d-donut"
+            style="background: conic-gradient(#df6f9a 0 {{userStats.femaleRatio}}%, #78a9ff {{userStats.femaleRatio}}% 100%);"
+          >
+            <view class="user-stats-d-donut-center">
+              <text class="user-stats-d-donut-value">{{userStats.femaleRatio}}%</text>
+              <text class="user-stats-d-donut-label">女性占比</text>
+            </view>
+          </view>
+        </view>
+        <view wx:if="{{moduleStates.users.status === 'ready' || moduleStates.users.hasData}}" class="user-stats-d-gender-grid">
+          <view class="user-stats-d-gender-card is-male">
+            <view class="user-stats-d-gender-icon">♂</view>
+            <text class="user-stats-d-gender-value">{{userStats.maleCount}}</text>
+            <text class="user-stats-d-gender-label">男性 · {{userStats.maleRatio}}%</text>
+          </view>
+          <view class="user-stats-d-gender-card is-female">
+            <view class="user-stats-d-gender-icon">♀</view>
+            <text class="user-stats-d-gender-value">{{userStats.femaleCount}}</text>
+            <text class="user-stats-d-gender-label">女性 · {{userStats.femaleRatio}}%</text>
+          </view>
+        </view>
+        <view wx:if="{{moduleStates.users.status === 'ready' || moduleStates.users.hasData}}" class="user-signup-trend">
+          <view class="user-signup-trend-head">
+            <view>
+              <view class="user-signup-trend-title">最近7天新增用户</view>
+              <view class="user-signup-trend-help">按完善资料的日期统计</view>
+            </view>
+            <text>共 {{userStats.signupTrendTotal}} 人</text>
+          </view>
+          <view class="user-signup-trend-chart">
+            <view wx:for="{{userStats.signupTrend}}" wx:key="dateKey" class="user-signup-trend-day">
+              <view class="user-signup-trend-bar-area">
+                <text class="user-signup-trend-count">{{item.count}}</text>
+                <view
+                  class="user-signup-trend-bar {{item.count ? '' : 'is-zero'}}"
+                  style="height: {{item.barPercent}}%;"
+                ></view>
+              </view>
+              <text class="user-signup-trend-label">{{item.label}}</text>
+            </view>
+          </view>
+        </view>
+        <view
+          wx:if="{{moduleStates.users.status === 'ready' || moduleStates.users.hasData}}"
+          class="user-stats-d-list-title"
+        >
+          用户明细 · {{userStats.total}}人
+        </view>
+        <view wx:if="{{(moduleStates.users.status === 'ready' || moduleStates.users.hasData) && userStats.users.length}}" class="admin-user-list user-stats-d-user-list">
+          <view
+            wx:for="{{userStats.users}}"
+            wx:key="userHash"
+            class="admin-user-row user-stats-d-user-row"
+            data-index="{{index}}"
+            bindtap="openUserDetail"
+            hover-class="control-tap"
+            role="button"
+            aria-label="查看{{item.nickname}}的用户详情"
+          >
+            <image wx:if="{{item.avatarUrl}}" class="admin-user-avatar" src="{{item.avatarUrl}}" mode="aspectFill"></image>
+            <view wx:else class="admin-user-avatar admin-user-avatar-empty">人</view>
+            <view class="admin-user-copy">
+              <view class="admin-user-name">{{item.nickname}}</view>
+              <view class="admin-user-meta">{{item.genderText}} · {{item.createdAtText}}</view>
+              <view class="admin-user-id">编号 {{item.userHash}}</view>
+            </view>
+            <view class="admin-user-side">
+              <view class="admin-user-gender gender-{{item.gender}}">{{item.genderText}}</view>
+              <text class="admin-user-detail-arrow">›</text>
+            </view>
+          </view>
+        </view>
+        <view wx:elif="{{moduleStates.users.status === 'ready' || moduleStates.users.hasData}}" class="admin-empty">没有符合条件的用户。</view>
+        <button
+          wx:if="{{userStats.nextOffset !== null}}"
+          class="user-load-more"
+          bindtap="loadMoreUsers"
+          loading="{{userStatsLoading}}"
+          disabled="{{userStatsLoading}}"
+        >{{userStatsLoading ? '加载中...' : '继续加载20条'}}</button>
+        <view
+          wx:if="{{userDetailVisible && selectedUserDetail}}"
+          class="user-detail-mask"
+          bindtap="closeUserDetail"
+          catchtouchmove="stopUserDetailTap"
+        >
+          <view class="user-detail-sheet" catchtap="stopUserDetailTap">
+            <view class="user-detail-handle"></view>
+            <view class="user-detail-head">
+              <view>
+                <view class="user-detail-kicker">用户详情</view>
+                <view class="user-detail-title">已完善资料</view>
+              </view>
+              <view
+                class="user-detail-close"
+                bindtap="closeUserDetail"
+                hover-class="control-tap"
+                role="button"
+                aria-label="关闭用户详情"
+              >×</view>
+            </view>
+            <view class="user-detail-profile">
+              <image
+                wx:if="{{selectedUserDetail.avatarUrl}}"
+                class="user-detail-avatar"
+                src="{{selectedUserDetail.avatarUrl}}"
+                mode="aspectFill"
+              ></image>
+              <view wx:else class="user-detail-avatar user-detail-avatar-empty">人</view>
+              <view class="user-detail-profile-copy">
+                <view class="user-detail-name">{{selectedUserDetail.nickname}}</view>
+                <view class="admin-user-gender gender-{{selectedUserDetail.gender}}">{{selectedUserDetail.genderText}}</view>
+              </view>
+            </view>
+            <view class="user-detail-fields">
+              <view class="user-detail-field">
+                <text>匿名编号</text>
+                <text>{{selectedUserDetail.userHash}}</text>
+              </view>
+              <view class="user-detail-field">
+                <text>首次完善资料</text>
+                <text>{{selectedUserDetail.createdAtText}}</text>
+              </view>
+              <view class="user-detail-field">
+                <text>最近修改时间</text>
+                <text>{{selectedUserDetail.updatedAtText}}</text>
+              </view>
+            </view>
+            <view class="user-detail-privacy">用户身份已隐藏，这里不会显示原始 OpenID。</view>
+          </view>
+        </view>
+      </view>
+
+      <view wx:if="{{activeConfigSection !== 'users'}}" class="admin-actions">
+        <view
+          class="admin-action-button primary-btn admin-save-button {{saving ? 'is-disabled' : ''}}"
+          bindtap="saveConfig"
+          hover-class="control-tap"
+          role="button"
+          aria-label="保存全部配置"
+        >
+          {{saving ? '保存中...' : '保存全部配置'}}
+        </view>
+        <view
+          class="admin-action-button secondary-btn admin-close-button"
+          bindtap="closeConfigSection"
+          hover-class="control-tap"
+          role="button"
+          aria-label="暂不修改并收起"
+        >暂不修改</view>
+      </view>
+      </view>
 
     <view id="usage-section" class="card admin-section usage-section usage-mobile-first-card monitor-fold-card {{usageExpanded ? 'is-open' : 'is-collapsed'}}">
       <view class="admin-section-head usage-mobile-first-head">
@@ -1233,488 +1909,6 @@
         <view wx:else class="admin-empty usage-empty">这个用户当前月份没有失败明细。</view>
       </view>
     </view>
-
-    <view wx:if="{{activeConfigSection}}" id="config-editor" class="card config-editor">
-      <view class="config-editor-head">
-        <view>
-          <view class="config-editor-kicker">正在配置</view>
-          <view class="config-editor-title">{{activeConfigTitle}}</view>
-        </view>
-        <view class="config-close-button" bindtap="closeConfigSection" hover-class="control-tap" role="button" aria-label="收起配置">收起</view>
-      </view>
-
-      <view wx:if="{{activeConfigSection === 'face'}}" class="config-editor-body">
-        <view class="config-helper">API Key 可在这里新增或修改，保存后同步到管理员配置；测试和获取模型会优先使用当前填写内容。</view>
-        <view class="config-model-actions">
-          <view
-            class="config-model-button config-model-test"
-            data-model-type="face"
-            bindtap="testModelConnection"
-            hover-class="control-tap"
-            role="button"
-            aria-label="测试人脸识别模型连接"
-          >{{modelActionType === 'face' && modelActionKind === 'test' ? '测试中...' : '测试连接'}}</view>
-          <view
-            class="config-model-button config-model-list"
-            data-model-type="face"
-            bindtap="getModelOptions"
-            hover-class="control-tap"
-            role="button"
-            aria-label="获取人脸识别模型列表"
-          >{{modelActionType === 'face' && modelActionKind === 'list' ? '读取中...' : '获取模型'}}</view>
-        </view>
-        <view class="admin-grid">
-          <view class="admin-field"><text>服务商</text><input value="{{form.face.provider}}" data-section="face" data-key="provider" bindinput="onInput" /></view>
-          <view class="admin-field"><text>使用的模型</text><input value="{{form.face.model}}" data-section="face" data-key="model" bindinput="onInput" /></view>
-          <view class="admin-field admin-field-wide"><text>接口地址</text><input value="{{form.face.baseUrl}}" data-section="face" data-key="baseUrl" bindinput="onInput" /></view>
-          <view class="admin-field admin-field-wide"><text>API Key</text><input value="{{form.face.apiKey}}" data-section="face" data-key="apiKey" placeholder="填写后可测试并保存" bindinput="onInput" /></view>
-          <view class="admin-field"><text>超时毫秒</text><input type="number" value="{{form.face.timeoutMs}}" data-section="face" data-key="timeoutMs" bindinput="onInput" /></view>
-        </view>
-      </view>
-
-      <view wx:if="{{activeConfigSection === 'analysis'}}" class="config-editor-body">
-        <view class="config-helper">图片分析模型独立保存服务商、接口地址、API Key、使用的模型和超时；测试和获取模型会优先使用当前填写内容。</view>
-        <view class="config-editor-tools config-model-actions">
-          <view
-            class="config-tool-button"
-            bindtap="copyFaceConfigToAnalysis"
-            hover-class="control-tap"
-            role="button"
-            aria-label="复制人脸识别配置到图片分析"
-          >复制人脸配置</view>
-          <view
-            class="config-model-button config-model-test"
-            data-model-type="analysis"
-            bindtap="testModelConnection"
-            hover-class="control-tap"
-            role="button"
-            aria-label="测试图片分析模型连接"
-          >{{modelActionType === 'analysis' && modelActionKind === 'test' ? '测试中...' : '测试连接'}}</view>
-          <view
-            class="config-model-button config-model-list"
-            data-model-type="analysis"
-            bindtap="getModelOptions"
-            hover-class="control-tap"
-            role="button"
-            aria-label="获取图片分析模型列表"
-          >{{modelActionType === 'analysis' && modelActionKind === 'list' ? '读取中...' : '获取模型'}}</view>
-        </view>
-        <view class="admin-grid">
-          <view class="admin-field"><text>服务商</text><input value="{{form.analysis.provider}}" data-section="analysis" data-key="provider" bindinput="onInput" /></view>
-          <view class="admin-field"><text>使用的模型</text><input value="{{form.analysis.model}}" data-section="analysis" data-key="model" bindinput="onInput" /></view>
-          <view class="admin-field admin-field-wide"><text>接口地址</text><input value="{{form.analysis.baseUrl}}" data-section="analysis" data-key="baseUrl" bindinput="onInput" /></view>
-          <view class="admin-field admin-field-wide"><text>API Key</text><input value="{{form.analysis.apiKey}}" data-section="analysis" data-key="apiKey" placeholder="填写后可测试并保存" bindinput="onInput" /></view>
-          <view class="admin-field"><text>超时毫秒</text><input type="number" value="{{form.analysis.timeoutMs}}" data-section="analysis" data-key="timeoutMs" bindinput="onInput" /></view>
-        </view>
-      </view>
-
-      <view wx:if="{{activeConfigSection === 'image'}}" class="config-editor-body">
-        <view class="config-helper">API Key 可在这里新增或修改，保存后同步到管理员配置；输入框会直接显示当前密钥内容，请仅在管理员环境操作。</view>
-        <view class="config-model-actions">
-          <view
-            class="config-model-button config-model-test"
-            data-model-type="image"
-            bindtap="testModelConnection"
-            hover-class="control-tap"
-            role="button"
-            aria-label="测试生图模型连接"
-          >{{modelActionType === 'image' && modelActionKind === 'test' ? '测试中...' : '测试连接'}}</view>
-          <view
-            class="config-model-button config-model-list"
-            data-model-type="image"
-            bindtap="getModelOptions"
-            hover-class="control-tap"
-            role="button"
-            aria-label="获取生图模型列表"
-          >{{modelActionType === 'image' && modelActionKind === 'list' ? '读取中...' : '获取模型'}}</view>
-        </view>
-        <view class="admin-grid">
-          <view class="admin-field"><text>服务商</text><input value="{{form.image.provider}}" data-section="image" data-key="provider" bindinput="onInput" /></view>
-          <view class="admin-field"><text>使用的模型</text><input value="{{form.image.model}}" data-section="image" data-key="model" bindinput="onInput" /></view>
-          <view class="admin-field admin-field-wide"><text>接口地址</text><input value="{{form.image.baseUrl}}" data-section="image" data-key="baseUrl" bindinput="onInput" /></view>
-          <view class="admin-field admin-field-wide"><text>API Key</text><input value="{{form.image.apiKey}}" data-section="image" data-key="apiKey" placeholder="填写后可测试并保存" bindinput="onInput" /></view>
-          <view class="admin-field"><text>模式</text><input value="{{form.image.mode}}" data-section="image" data-key="mode" placeholder="generations / edits" bindinput="onInput" /></view>
-          <view class="admin-field"><text>尺寸</text><input value="{{form.image.size}}" data-section="image" data-key="size" placeholder="1024x1024" bindinput="onInput" /></view>
-          <view class="admin-field"><text>超时毫秒</text><input type="number" value="{{form.image.timeoutMs}}" data-section="image" data-key="timeoutMs" bindinput="onInput" /></view>
-          <view class="admin-field"><text>最大重试</text><input type="number" value="{{form.image.maxRetries}}" data-section="image" data-key="maxRetries" bindinput="onInput" /></view>
-        </view>
-        <label class="admin-checkbox-row">
-          <checkbox value="enabled" checked="{{form.image.retryEnabled}}" bindchange="onRetryChange" color="#245fd4"></checkbox>
-          <text>允许生图上游请求自动重试</text>
-        </label>
-      </view>
-
-      <view wx:if="{{activeConfigSection === 'video'}}" class="config-editor-body">
-        <view class="config-helper">创建任务只发一次，查询任务按配置轮询；API Key 可在这里新增或修改并保存到管理员配置。</view>
-        <view class="config-model-actions">
-          <view
-            class="config-model-button config-model-test"
-            data-model-type="video"
-            bindtap="testModelConnection"
-            hover-class="control-tap"
-            role="button"
-            aria-label="测试视频模型连接"
-          >{{modelActionType === 'video' && modelActionKind === 'test' ? '测试中...' : '测试连接'}}</view>
-          <view
-            class="config-model-button config-model-list"
-            data-model-type="video"
-            bindtap="getModelOptions"
-            hover-class="control-tap"
-            role="button"
-            aria-label="获取视频模型列表"
-          >{{modelActionType === 'video' && modelActionKind === 'list' ? '读取中...' : '获取模型'}}</view>
-        </view>
-        <view class="admin-grid">
-          <view class="admin-field"><text>服务商</text><input value="{{form.video.provider}}" data-section="video" data-key="provider" bindinput="onInput" /></view>
-          <view class="admin-field"><text>使用的模型</text><input value="{{form.video.model}}" data-section="video" data-key="model" bindinput="onInput" /></view>
-          <view class="admin-field admin-field-wide"><text>接口地址</text><input value="{{form.video.baseUrl}}" data-section="video" data-key="baseUrl" bindinput="onInput" /></view>
-          <view class="admin-field admin-field-wide"><text>API Key</text><input value="{{form.video.apiKey}}" data-section="video" data-key="apiKey" placeholder="填写后可测试并保存" bindinput="onInput" /></view>
-          <view class="admin-field admin-field-wide"><text>创建路径</text><input value="{{form.video.createPath}}" data-section="video" data-key="createPath" bindinput="onInput" /></view>
-          <view class="admin-field admin-field-wide"><text>查询路径</text><input value="{{form.video.queryPath}}" data-section="video" data-key="queryPath" bindinput="onInput" /></view>
-          <view class="admin-field"><text>清晰度</text><input value="{{form.video.resolution}}" data-section="video" data-key="resolution" bindinput="onInput" /></view>
-          <view class="admin-field"><text>宽高比（可空）</text><input value="{{form.video.aspectRatio}}" data-section="video" data-key="aspectRatio" bindinput="onInput" /></view>
-          <view class="admin-field"><text>超时毫秒</text><input type="number" value="{{form.video.timeoutMs}}" data-section="video" data-key="timeoutMs" bindinput="onInput" /></view>
-        </view>
-      </view>
-
-      <view wx:if="{{activeConfigSection === 'points'}}" class="config-editor-body">
-        <view class="config-helper">活动日期按上海时间判断，积分在提交任务时扣除。</view>
-        <view class="admin-grid">
-          <view class="admin-field"><text>每日免费次数</text><input type="number" value="{{form.points.dailyFreeLimit}}" data-section="points" data-key="dailyFreeLimit" bindinput="onInput" /></view>
-          <view class="admin-field"><text>生图积分</text><input type="number" value="{{form.points.imageCost}}" data-section="points" data-key="imageCost" bindinput="onInput" /></view>
-          <view class="admin-field"><text>视频积分</text><input type="number" value="{{form.points.videoCost}}" data-section="points" data-key="videoCost" bindinput="onInput" /></view>
-          <view class="admin-field"><text>每日签到积分</text><input type="number" value="{{form.points.checkinPoints}}" data-section="points" data-key="checkinPoints" bindinput="onInput" /></view>
-          <view class="admin-field"><text>连续奖励积分</text><input type="number" value="{{form.points.streakBonus}}" data-section="points" data-key="streakBonus" bindinput="onInput" /></view>
-          <view class="admin-field"><text>连续奖励天数</text><input type="number" value="{{form.points.streakDays}}" data-section="points" data-key="streakDays" bindinput="onInput" /></view>
-          <view class="admin-field"><text>活动开始日期</text><input value="{{form.points.promoStartDate}}" data-section="points" data-key="promoStartDate" placeholder="2026-08-23" bindinput="onInput" /></view>
-          <view class="admin-field"><text>活动结束日期</text><input value="{{form.points.promoEndDate}}" data-section="points" data-key="promoEndDate" placeholder="2026-08-24" bindinput="onInput" /></view>
-          <view class="admin-field admin-field-wide"><text>时区</text><input value="{{form.points.timeZone}}" data-section="points" data-key="timeZone" placeholder="Asia/Shanghai" bindinput="onInput" /></view>
-        </view>
-      </view>
-
-      <view wx:if="{{activeConfigSection === 'costs'}}" class="config-editor-body">
-        <view class="config-helper">模型成本配置（人民币）用于计算预计花费。</view>
-        <view class="admin-grid">
-          <view class="admin-field"><text>人脸输入 / 百万Token</text><input type="digit" value="{{form.costs.faceInputPerMillionTokens}}" data-section="costs" data-key="faceInputPerMillionTokens" bindinput="onInput" /></view>
-          <view class="admin-field"><text>人脸输出 / 百万Token</text><input type="digit" value="{{form.costs.faceOutputPerMillionTokens}}" data-section="costs" data-key="faceOutputPerMillionTokens" bindinput="onInput" /></view>
-          <view class="admin-field"><text>图片分析输入 / 百万Token</text><input type="digit" value="{{form.costs.analysisInputPerMillionTokens}}" data-section="costs" data-key="analysisInputPerMillionTokens" bindinput="onInput" /></view>
-          <view class="admin-field"><text>图片分析输出 / 百万Token</text><input type="digit" value="{{form.costs.analysisOutputPerMillionTokens}}" data-section="costs" data-key="analysisOutputPerMillionTokens" bindinput="onInput" /></view>
-          <view class="admin-field"><text>生图 1K / 张</text><input type="digit" value="{{form.costs.image1K}}" data-section="costs" data-key="image1K" bindinput="onInput" /></view>
-          <view class="admin-field"><text>生图 2K / 张</text><input type="digit" value="{{form.costs.image2K}}" data-section="costs" data-key="image2K" bindinput="onInput" /></view>
-          <view class="admin-field"><text>生图 4K / 张</text><input type="digit" value="{{form.costs.image4K}}" data-section="costs" data-key="image4K" bindinput="onInput" /></view>
-          <view class="admin-field"><text>视频 480p / 秒</text><input type="digit" value="{{form.costs.video480p}}" data-section="costs" data-key="video480p" bindinput="onInput" /></view>
-          <view class="admin-field"><text>视频 720p / 秒</text><input type="digit" value="{{form.costs.video720p}}" data-section="costs" data-key="video720p" bindinput="onInput" /></view>
-          <view class="admin-field"><text>视频 1080p / 秒</text><input type="digit" value="{{form.costs.video1080p}}" data-section="costs" data-key="video1080p" bindinput="onInput" /></view>
-          <view class="admin-field"><text>视频默认秒数</text><input type="digit" value="{{form.costs.videoDefaultDuration}}" data-section="costs" data-key="videoDefaultDuration" bindinput="onInput" /></view>
-        </view>
-        <view class="cost-trend-panel">
-          <view class="cost-trend-heading">
-            <view>
-              <view class="cost-trend-title">最近7天成本</view>
-              <view class="cost-trend-total">合计 ¥{{costTrend.totalCostDisplay}}</view>
-            </view>
-            <view class="config-state {{moduleStates.usage.status === 'failed' ? 'is-off' : 'is-ready'}}">
-              {{moduleStates.usage.label}}
-            </view>
-          </view>
-          <view wx:if="{{moduleStates.usage.status === 'loading'}}" class="usage-message">
-            正在读取最近7天成本...
-          </view>
-          <view wx:elif="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData) && costTrend.hasCost}}" class="cost-chart">
-            <view wx:for="{{costTrend.days}}" wx:key="dateKey" class="cost-chart-item">
-              <view class="cost-chart-value">¥{{item.costDisplay}}</view>
-              <view class="cost-chart-track">
-                <view class="cost-chart-bar" style="height: {{item.barPercent}}%;"></view>
-              </view>
-              <view class="cost-chart-date">{{item.label}}</view>
-            </view>
-          </view>
-          <view wx:elif="{{moduleStates.usage.status === 'ready' || moduleStates.usage.hasData}}" class="cost-empty">最近7天没有消费，成本为 0 元。</view>
-        </view>
-      </view>
-
-      <view wx:if="{{activeConfigSection === 'users'}}" class="config-editor-body">
-        <view class="user-stats-d-head">
-          <view>
-            <view class="user-stats-d-kicker">已完善资料</view>
-            <view class="user-stats-d-title">用户统计</view>
-          </view>
-          <view class="user-stats-d-actions">
-            <button
-              class="usage-refresh-button user-stats-d-action"
-              bindtap="refreshUserStats"
-              loading="{{userStatsLoading}}"
-              disabled="{{userStatsLoading}}"
-            >{{userStatsLoading ? '刷新中' : '刷新'}}</button>
-            <button
-              class="usage-export-button user-stats-d-action"
-              bindtap="exportUserStats"
-              loading="{{userStatsExporting}}"
-              disabled="{{userStatsExporting}}"
-            >{{userStatsExporting ? '生成中' : '导出'}}</button>
-          </view>
-        </view>
-        <view class="user-stats-d-helper">
-          这里显示已保存个人资料的用户，不是小程序访问人数。
-        </view>
-        <view class="user-stats-filter-panel">
-          <view class="user-stats-search-row">
-            <view class="user-stats-search-box">
-              <text class="user-stats-search-icon">⌕</text>
-              <input
-                class="user-stats-search-input"
-                value="{{userSearchInput}}"
-                maxlength="32"
-                placeholder="搜索昵称或匿名编号"
-                confirm-type="search"
-                bindinput="onUserSearchInput"
-                bindconfirm="applyUserSearch"
-              />
-            </view>
-            <view
-              class="user-stats-search-action"
-              bindtap="applyUserSearch"
-              hover-class="control-tap"
-              role="button"
-              aria-label="搜索用户"
-            >搜索</view>
-            <view
-              wx:if="{{userSearchInput || userSearch}}"
-              class="user-stats-search-clear"
-              bindtap="clearUserSearch"
-              hover-class="control-tap"
-              role="button"
-              aria-label="清空用户搜索"
-            >清空</view>
-          </view>
-          <view class="user-stats-filter-label">注册时间</view>
-          <view class="user-stats-date-filter">
-            <view
-              wx:for="{{userDateRanges}}"
-              wx:key="value"
-              class="user-stats-date-option {{userDateRange === item.value ? 'is-active' : ''}}"
-              data-range="{{item.value}}"
-              bindtap="selectUserDateRange"
-              hover-class="control-tap"
-              role="button"
-              aria-label="查看{{item.label}}注册用户"
-            >{{item.label}}</view>
-          </view>
-          <view wx:if="{{userDateRange === 'custom'}}" class="user-custom-date-row">
-            <picker
-              class="user-custom-date-picker"
-              mode="date"
-              value="{{userCustomStartDate}}"
-              end="{{userTodayKey}}"
-              bindchange="onUserCustomStartChange"
-            >
-              <view class="user-custom-date-value">
-                <text>开始日期</text>
-                <text>{{userCustomStartDate}}</text>
-              </view>
-            </picker>
-            <text class="user-custom-date-separator">至</text>
-            <picker
-              class="user-custom-date-picker"
-              mode="date"
-              value="{{userCustomEndDate}}"
-              end="{{userTodayKey}}"
-              bindchange="onUserCustomEndChange"
-            >
-              <view class="user-custom-date-value">
-                <text>结束日期</text>
-                <text>{{userCustomEndDate}}</text>
-              </view>
-            </picker>
-          </view>
-          <view class="user-stats-filter-label">用户性别</view>
-          <view class="user-stats-gender-filter">
-            <view
-              wx:for="{{userGenders}}"
-              wx:key="value"
-              class="user-stats-gender-option {{userGender === item.value ? 'is-active' : ''}}"
-              data-gender="{{item.value}}"
-              bindtap="selectUserGender"
-              hover-class="control-tap"
-              role="button"
-              aria-label="只看{{item.label}}用户"
-            >{{item.label}}</view>
-          </view>
-        </view>
-        <view class="user-stats-d-state-row">
-          <view class="config-state {{moduleStates.users.status === 'failed' ? 'is-off' : 'is-ready'}}">
-            {{moduleStates.users.label}}
-          </view>
-          <text>用户身份已隐藏，只显示匿名编号</text>
-        </view>
-        <view wx:if="{{moduleStates.users.status === 'loading'}}" class="usage-message">
-          正在读取用户统计...
-        </view>
-        <view wx:if="{{moduleStates.users.status === 'failed'}}" class="usage-message is-warn">
-          {{moduleStates.users.message || '用户统计读取失败，请点击刷新。'}}
-        </view>
-        <view wx:if="{{userStats.message}}" class="usage-message {{userStats.unavailable ? 'is-warn' : ''}}">
-          {{userStats.message}}
-        </view>
-        <view wx:if="{{moduleStates.users.status === 'ready' || moduleStates.users.hasData}}" class="user-stats-d-overview">
-          <view class="user-stats-d-total">
-            <text class="user-stats-d-total-value">{{userStats.total}}</text>
-            <!-- 兼容旧完整校验：总用户 -->
-            <text class="user-stats-d-total-label">已完善资料的用户</text>
-          </view>
-          <view
-            class="user-stats-d-donut"
-            style="background: conic-gradient(#df6f9a 0 {{userStats.femaleRatio}}%, #78a9ff {{userStats.femaleRatio}}% 100%);"
-          >
-            <view class="user-stats-d-donut-center">
-              <text class="user-stats-d-donut-value">{{userStats.femaleRatio}}%</text>
-              <text class="user-stats-d-donut-label">女性占比</text>
-            </view>
-          </view>
-        </view>
-        <view wx:if="{{moduleStates.users.status === 'ready' || moduleStates.users.hasData}}" class="user-stats-d-gender-grid">
-          <view class="user-stats-d-gender-card is-male">
-            <view class="user-stats-d-gender-icon">♂</view>
-            <text class="user-stats-d-gender-value">{{userStats.maleCount}}</text>
-            <text class="user-stats-d-gender-label">男性 · {{userStats.maleRatio}}%</text>
-          </view>
-          <view class="user-stats-d-gender-card is-female">
-            <view class="user-stats-d-gender-icon">♀</view>
-            <text class="user-stats-d-gender-value">{{userStats.femaleCount}}</text>
-            <text class="user-stats-d-gender-label">女性 · {{userStats.femaleRatio}}%</text>
-          </view>
-        </view>
-        <view wx:if="{{moduleStates.users.status === 'ready' || moduleStates.users.hasData}}" class="user-signup-trend">
-          <view class="user-signup-trend-head">
-            <view>
-              <view class="user-signup-trend-title">最近7天新增用户</view>
-              <view class="user-signup-trend-help">按完善资料的日期统计</view>
-            </view>
-            <text>共 {{userStats.signupTrendTotal}} 人</text>
-          </view>
-          <view class="user-signup-trend-chart">
-            <view wx:for="{{userStats.signupTrend}}" wx:key="dateKey" class="user-signup-trend-day">
-              <view class="user-signup-trend-bar-area">
-                <text class="user-signup-trend-count">{{item.count}}</text>
-                <view
-                  class="user-signup-trend-bar {{item.count ? '' : 'is-zero'}}"
-                  style="height: {{item.barPercent}}%;"
-                ></view>
-              </view>
-              <text class="user-signup-trend-label">{{item.label}}</text>
-            </view>
-          </view>
-        </view>
-        <view
-          wx:if="{{moduleStates.users.status === 'ready' || moduleStates.users.hasData}}"
-          class="user-stats-d-list-title"
-        >
-          用户明细 · {{userStats.total}}人
-        </view>
-        <view wx:if="{{(moduleStates.users.status === 'ready' || moduleStates.users.hasData) && userStats.users.length}}" class="admin-user-list user-stats-d-user-list">
-          <view
-            wx:for="{{userStats.users}}"
-            wx:key="userHash"
-            class="admin-user-row user-stats-d-user-row"
-            data-index="{{index}}"
-            bindtap="openUserDetail"
-            hover-class="control-tap"
-            role="button"
-            aria-label="查看{{item.nickname}}的用户详情"
-          >
-            <image wx:if="{{item.avatarUrl}}" class="admin-user-avatar" src="{{item.avatarUrl}}" mode="aspectFill"></image>
-            <view wx:else class="admin-user-avatar admin-user-avatar-empty">人</view>
-            <view class="admin-user-copy">
-              <view class="admin-user-name">{{item.nickname}}</view>
-              <view class="admin-user-meta">{{item.genderText}} · {{item.createdAtText}}</view>
-              <view class="admin-user-id">编号 {{item.userHash}}</view>
-            </view>
-            <view class="admin-user-side">
-              <view class="admin-user-gender gender-{{item.gender}}">{{item.genderText}}</view>
-              <text class="admin-user-detail-arrow">›</text>
-            </view>
-          </view>
-        </view>
-        <view wx:elif="{{moduleStates.users.status === 'ready' || moduleStates.users.hasData}}" class="admin-empty">没有符合条件的用户。</view>
-        <button
-          wx:if="{{userStats.nextOffset !== null}}"
-          class="user-load-more"
-          bindtap="loadMoreUsers"
-          loading="{{userStatsLoading}}"
-          disabled="{{userStatsLoading}}"
-        >{{userStatsLoading ? '加载中...' : '继续加载20条'}}</button>
-        <view
-          wx:if="{{userDetailVisible && selectedUserDetail}}"
-          class="user-detail-mask"
-          bindtap="closeUserDetail"
-          catchtouchmove="stopUserDetailTap"
-        >
-          <view class="user-detail-sheet" catchtap="stopUserDetailTap">
-            <view class="user-detail-handle"></view>
-            <view class="user-detail-head">
-              <view>
-                <view class="user-detail-kicker">用户详情</view>
-                <view class="user-detail-title">已完善资料</view>
-              </view>
-              <view
-                class="user-detail-close"
-                bindtap="closeUserDetail"
-                hover-class="control-tap"
-                role="button"
-                aria-label="关闭用户详情"
-              >×</view>
-            </view>
-            <view class="user-detail-profile">
-              <image
-                wx:if="{{selectedUserDetail.avatarUrl}}"
-                class="user-detail-avatar"
-                src="{{selectedUserDetail.avatarUrl}}"
-                mode="aspectFill"
-              ></image>
-              <view wx:else class="user-detail-avatar user-detail-avatar-empty">人</view>
-              <view class="user-detail-profile-copy">
-                <view class="user-detail-name">{{selectedUserDetail.nickname}}</view>
-                <view class="admin-user-gender gender-{{selectedUserDetail.gender}}">{{selectedUserDetail.genderText}}</view>
-              </view>
-            </view>
-            <view class="user-detail-fields">
-              <view class="user-detail-field">
-                <text>匿名编号</text>
-                <text>{{selectedUserDetail.userHash}}</text>
-              </view>
-              <view class="user-detail-field">
-                <text>首次完善资料</text>
-                <text>{{selectedUserDetail.createdAtText}}</text>
-              </view>
-              <view class="user-detail-field">
-                <text>最近修改时间</text>
-                <text>{{selectedUserDetail.updatedAtText}}</text>
-              </view>
-            </view>
-            <view class="user-detail-privacy">用户身份已隐藏，这里不会显示原始 OpenID。</view>
-          </view>
-        </view>
-      </view>
-
-      <view wx:if="{{activeConfigSection !== 'users'}}" class="admin-actions">
-        <view
-          class="admin-action-button primary-btn admin-save-button {{saving ? 'is-disabled' : ''}}"
-          bindtap="saveConfig"
-          hover-class="control-tap"
-          role="button"
-          aria-label="保存全部配置"
-        >
-          {{saving ? '保存中...' : '保存全部配置'}}
-        </view>
-        <view
-          class="admin-action-button secondary-btn admin-close-button"
-          bindtap="closeConfigSection"
-          hover-class="control-tap"
-          role="button"
-          aria-label="暂不修改并收起"
-        >暂不修改</view>
-      </view>
-      </view>
 
       <view
         wx:if="{{modelPickerOpen}}"

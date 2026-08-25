@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.40.22";
-const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V04022";
+const API_BUILD_VERSION = "0.40.23";
+const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V04023";
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
 const cloud = require("wx-server-sdk");
@@ -1094,6 +1094,17 @@ const {
 const DEFAULT_RETRY_STATUSES = new Set([408, 409, 425, 429, 500, 502, 503, 504]);
 const ADMIN_RUNTIME_CONFIG_COLLECTION = "admin_runtime_config";
 const ADMIN_RUNTIME_CONFIG_ID = "global";
+const IMAGE_RETRY_PREFERENCE_VERSION = 1;
+const IMAGE_QUALITY_LONG_EDGES = Object.freeze({
+  "1K": 1024,
+  "2K": 2048,
+  "4K": 4096
+});
+const IMAGE_SIZE_PRESETS = Object.freeze([
+  "1080x1440",
+  "1242x1660",
+  "1080x1920"
+]);
 const ADMIN_DEPLOYMENT_LOG_COLLECTION = "admin_deployment_logs";
 const MODEL_USAGE_EVENT_COLLECTION = "model_usage_events";
 const MODEL_USAGE_TIME_ZONE = "Asia/Shanghai";
@@ -1399,9 +1410,32 @@ function overrideBoolean(overrides, key, fallback) {
   return Boolean(overrides[key]);
 }
 
+function imageRetryPreferenceVersion(image) {
+  return Number(image && image.retryPreferenceVersion) === IMAGE_RETRY_PREFERENCE_VERSION
+    ? IMAGE_RETRY_PREFERENCE_VERSION
+    : 0;
+}
+
+function resolveImageRetryEnabled(image) {
+  if (
+    image
+    && Object.prototype.hasOwnProperty.call(image, "retryEnabled")
+    && imageRetryPreferenceVersion(image) === 0
+  ) {
+    // 旧版本曾经把默认值写成 false。没有新版本标记的记录一律按新默认值开启，
+    // 新版管理员保存后会写入 retryPreferenceVersion，用户手动关闭才能保持 false。
+    return true;
+  }
+  return overrideBoolean(image, "retryEnabled", imageRetryEnabled());
+}
+
 function resolveImageConfig(overrides = {}) {
   const image = overrides && overrides.image ? overrides.image : overrides;
   const mode = overrideString(image, "mode", env("AI_IMAGE_MODE", "generations")).toLowerCase();
+  const size = overrideString(image, "size", env("AI_IMAGE_SIZE", "1024x1024"));
+  const resolution = hasOwn(image, "resolution")
+    ? normalizeImageResolution(image.resolution, normalizeImageResolution(size, "1K"))
+    : normalizeImageResolution(size, "1K");
   return {
     provider: overrideString(
       image,
@@ -1417,7 +1451,9 @@ function resolveImageConfig(overrides = {}) {
       overrideString(image, "apiKey", firstEnv(["AI_IMAGE_API_KEY", "AI_API_KEY"]))
     ),
     model: overrideString(image, "model", env("AI_IMAGE_MODEL", "gpt-image-2")),
-    size: overrideString(image, "size", env("AI_IMAGE_SIZE", "1024x1024")),
+    size,
+    resolution,
+    legacySizeOnly: !hasOwn(image, "resolution"),
     mode,
     timeoutMs: clampNumber(
       image && Object.prototype.hasOwnProperty.call(image, "timeoutMs")
@@ -1435,7 +1471,8 @@ function resolveImageConfig(overrides = {}) {
       0,
       5
     ),
-    retryEnabled: overrideBoolean(image, "retryEnabled", imageRetryEnabled())
+    retryEnabled: resolveImageRetryEnabled(image),
+    retryPreferenceVersion: imageRetryPreferenceVersion(image)
   };
 }
 
@@ -1457,7 +1494,10 @@ function resolveVideoConfig(overrides = {}) {
     model,
     createPath: overrideString(video, "createPath", env("AI_VIDEO_CREATE_PATH", "/v1/videos/generations")),
     queryPath: overrideString(video, "queryPath", env("AI_VIDEO_QUERY_PATH", "/v1/videos/{taskId}")),
-    resolution: overrideString(video, "resolution", env("AI_VIDEO_RESOLUTION", "720p")),
+    resolution: normalizeVideoResolution(
+      overrideString(video, "resolution", env("AI_VIDEO_RESOLUTION", "720p")),
+      "720p"
+    ),
     aspectRatio: overrideString(video, "aspectRatio", env("AI_VIDEO_ASPECT_RATIO", "")),
     prompt: env(
       "AI_VIDEO_PROMPT",
@@ -1636,6 +1676,109 @@ function normalizeImageResolution(value, fallback = "1K") {
   return ["1K", "2K", "4K"].includes(String(fallback)) ? String(fallback) : "1K";
 }
 
+function parseImageSize(value) {
+  const match = String(value || "")
+    .trim()
+    .toLowerCase()
+    .match(/^(\d{2,5})\s*[x×]\s*(\d{2,5})$/);
+  if (!match) return null;
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width < 2 || height < 2) {
+    return null;
+  }
+  return { width, height };
+}
+
+function imageSizePreset(value) {
+  const dimensions = parseImageSize(value);
+  if (!dimensions) return "";
+  const normalized = `${dimensions.width}x${dimensions.height}`;
+  return IMAGE_SIZE_PRESETS.includes(normalized)
+    ? normalized
+    : "";
+}
+
+function normalizeImageSizePreset(value, fallback = IMAGE_SIZE_PRESETS[0]) {
+  const direct = imageSizePreset(value);
+  if (direct) return direct;
+  const dimensions = parseImageSize(value);
+  if (!dimensions) return imageSizePreset(fallback) || IMAGE_SIZE_PRESETS[0];
+  const sourceRatio = dimensions.width / dimensions.height;
+  let best = IMAGE_SIZE_PRESETS[0];
+  let bestDistance = Number.POSITIVE_INFINITY;
+  IMAGE_SIZE_PRESETS.forEach((preset) => {
+    const presetDimensions = parseImageSize(preset);
+    const distance = Math.abs(sourceRatio - presetDimensions.width / presetDimensions.height);
+    if (distance < bestDistance) {
+      best = preset;
+      bestDistance = distance;
+    }
+  });
+  return best;
+}
+
+function buildImageOutputSize(resolution, sizePreset) {
+  const normalizedResolution = normalizeImageResolution(resolution, "1K");
+  const preset = normalizeImageSizePreset(sizePreset);
+  const dimensions = parseImageSize(preset);
+  const longEdge = IMAGE_QUALITY_LONG_EDGES[normalizedResolution]
+    || IMAGE_QUALITY_LONG_EDGES["1K"];
+  const sourceLongEdge = Math.max(dimensions.width, dimensions.height);
+  const scale = longEdge / sourceLongEdge;
+  const roundEven = (value) => Math.max(2, Math.round(value / 2) * 2);
+  return `${roundEven(dimensions.width * scale)}x${roundEven(dimensions.height * scale)}`;
+}
+
+function resolveImageOutputSize(imageConfig = {}, requestedSize = "") {
+  const config = imageConfig && typeof imageConfig === "object" ? imageConfig : {};
+  const rawSize = String(config.size || requestedSize || "").trim();
+  const dimensions = parseImageSize(rawSize);
+  if (!dimensions) {
+    return rawSize || buildImageOutputSize(config.resolution, IMAGE_SIZE_PRESETS[0]);
+  }
+  if (config.legacySizeOnly || !imageSizePreset(rawSize)) {
+    return `${dimensions.width}x${dimensions.height}`;
+  }
+  return buildImageOutputSize(config.resolution, rawSize);
+}
+
+function buildImageGenerationPayload(payload = {}, imageConfig = resolveImageConfig()) {
+  const config = imageConfig && typeof imageConfig === "object" ? imageConfig : {};
+  const prompt = `${String(payload.prompt || "").trim()}${
+    payload.negativePrompt ? `\n\n负面约束：${String(payload.negativePrompt).trim()}` : ""
+  }`;
+  return {
+    model: String(config.model || payload.model || "").trim(),
+    prompt,
+    size: resolveImageOutputSize(config, payload.size),
+    quality: "auto",
+    n: 1
+  };
+}
+
+function buildImageEditFields(payload = {}, imageConfig = resolveImageConfig(), references = []) {
+  const config = imageConfig && typeof imageConfig === "object" ? imageConfig : {};
+  const fields = [
+    { name: "model", value: String(config.model || "").trim() },
+    { name: "prompt", value: String(payload.prompt || "").trim() },
+    {
+      name: "size",
+      value: resolveImageOutputSize(config, payload.size)
+    },
+    { name: "quality", value: "auto" },
+    {
+      name: "reference_manifest",
+      value: JSON.stringify((Array.isArray(references) ? references : []).map((item) => ({
+        role: item.role,
+        index: item.index
+      })))
+    }
+  ];
+  if (payload.n) fields.push({ name: "n", value: String(payload.n) });
+  return fields;
+}
+
 function normalizeVideoResolution(value, fallback = "720p") {
   const text = String(value || "").trim().toLowerCase();
   if (text === "480p" || text === "720p" || text === "1080p") return text;
@@ -1645,6 +1788,106 @@ function normalizeVideoResolution(value, fallback = "720p") {
   return ["480p", "720p", "1080p"].includes(String(fallback))
     ? String(fallback)
     : "720p";
+}
+
+function normalizeCapabilityValues(type, values) {
+  const source = Array.isArray(values) ? values : [values];
+  const normalized = [];
+  source.forEach((value) => {
+    if (value === null || value === undefined) return;
+    if (Array.isArray(value)) {
+      normalized.push(...normalizeCapabilityValues(type, value));
+      return;
+    }
+    if (typeof value === "object") {
+      Object.keys(value).forEach((key) => {
+        normalized.push(...normalizeCapabilityValues(type, value[key]));
+      });
+      return;
+    }
+    const text = String(value);
+    if (type === "image") {
+      const matches = text.match(/(?:1|2|4)\s*K\b|\b\d{3,5}\s*[x×]\s*\d{3,5}\b/ig) || [];
+      matches.forEach((item) => {
+        const resolution = normalizeImageResolution(item, "");
+        if (resolution) normalized.push(resolution);
+      });
+    } else if (type === "video") {
+      const matches = text.match(/\b(?:480|720|1080)\s*p?\b/ig) || [];
+      matches.forEach((item) => {
+        const resolution = normalizeVideoResolution(item, "");
+        if (resolution) normalized.push(resolution);
+      });
+    }
+  });
+  const order = type === "image" ? ["1K", "2K", "4K"] : ["480p", "720p", "1080p"];
+  return order.filter((item) => normalized.includes(item));
+}
+
+function upstreamCapabilityValues(type, payload, modelEntry) {
+  const keys = [
+    "capabilities",
+    "supported_capabilities",
+    "resolutions",
+    "resolution",
+    "qualities",
+    "quality",
+    "supported_resolutions",
+    "supported_qualities",
+    "supported_sizes",
+    "sizes",
+    "size"
+  ];
+  const candidates = [];
+  [modelEntry, payload].forEach((source) => {
+    if (!source || typeof source !== "object") return;
+    keys.forEach((key) => {
+      if (hasOwn(source, key)) candidates.push(source[key]);
+    });
+  });
+  return normalizeCapabilityValues(type, candidates);
+}
+
+function knownModelCapabilityValues(type, modelConfig = {}) {
+  const model = String(modelConfig.model || "").trim().toLowerCase();
+  const provider = String(modelConfig.provider || "").trim().toLowerCase();
+  if (type === "image" && (
+    model === "image2超分高质量1-4k".toLowerCase()
+    || /image2.*(?:1-4k|超分)/i.test(model)
+    || provider === "pandatk"
+    || provider === "panda"
+  )) {
+    return ["1K", "2K", "4K"];
+  }
+  if (type === "video" && (
+    model === "grok-imagine-video-1.5"
+    || provider === "lingyun"
+    || provider === "凌云"
+  )) {
+    return ["480p", "720p", "1080p"];
+  }
+  return [];
+}
+
+function modelCapabilities(type, modelConfig = {}, payload = {}, modelEntry = null) {
+  const upstream = upstreamCapabilityValues(type, payload, modelEntry);
+  if (upstream.length) {
+    return {
+      source: "upstream",
+      resolutions: upstream
+    };
+  }
+  const known = knownModelCapabilityValues(type, modelConfig);
+  if (known.length) {
+    return {
+      source: "known-model-rule",
+      resolutions: known
+    };
+  }
+  return {
+    source: "custom",
+    resolutions: []
+  };
 }
 
 function roundCost(value) {
@@ -1850,7 +2093,7 @@ function maxRetries() {
 }
 
 function imageRetryEnabled() {
-  return boolEnv("AI_IMAGE_RETRY_ENABLED", false);
+  return boolEnv("AI_IMAGE_RETRY_ENABLED", true);
 }
 
 function sleep(ms) {
@@ -4093,6 +4336,27 @@ function upstreamError(response, fallback = "上游接口请求失败") {
   return error;
 }
 
+function imageUpstreamError(response, fallback = "生图接口请求失败") {
+  const error = upstreamError(response, fallback);
+  const raw = [
+    error.message,
+    response && response.raw,
+    response && response.json ? JSON.stringify(response.json) : ""
+  ].join(" ");
+  const mentionsUnsupported = /(?:unsupported|not\s+support(?:ed)?|invalid|unknown|不支持|无效|未知)/i.test(raw);
+  const parameter = /quality|清晰度/i.test(raw)
+    ? "quality=auto"
+    : /(?:^|[^a-z])(size|resolution)|尺寸|分辨率/i.test(raw)
+      ? "size"
+      : "";
+  if (error.status >= 400 && error.status < 500 && mentionsUnsupported && parameter) {
+    error.code = "IMAGE_PARAMETER_UNSUPPORTED";
+    error.retryable = false;
+    error.message = `当前生图上游不支持 ${parameter} 参数，请切换兼容模型或检查上游接口文档。上游返回：${error.message}`;
+  }
+  return error;
+}
+
 async function requestJson(url, payload, apiKey, extraHeaders = {}, meta = {}) {
   const body = JSON.stringify(payload);
   const response = await requestWithRetry(url, {
@@ -4107,7 +4371,9 @@ async function requestJson(url, payload, apiKey, extraHeaders = {}, meta = {}) {
     )
   }, body, meta);
   if (response.status < 200 || response.status >= 300) {
-    throw upstreamError(response);
+    throw meta.imageGeneration
+      ? imageUpstreamError(response)
+      : upstreamError(response);
   }
   return response.json || {};
 }
@@ -4132,7 +4398,9 @@ async function requestJsonMethod(
     headers
   }, body, meta);
   if (response.status < 200 || response.status >= 300) {
-    throw upstreamError(response);
+    throw meta.imageGeneration
+      ? imageUpstreamError(response)
+      : upstreamError(response);
   }
   return response.json || {};
 }
@@ -4422,9 +4690,11 @@ function normalizeRuntimePatch(input = {}) {
     "model",
     "mode",
     "size",
+    "resolution",
     "timeoutMs",
     "maxRetries",
-    "retryEnabled"
+    "retryEnabled",
+    "retryPreferenceVersion"
   ];
   const videoKeys = [
     "provider",
@@ -4626,6 +4896,7 @@ function validateRuntimePatch(patch) {
     ["image.provider", image.provider],
     ["image.model", image.model],
     ["image.size", image.size],
+    ["image.resolution", image.resolution],
     ["video.provider", video.provider],
     ["video.model", video.model],
     ["video.resolution", video.resolution],
@@ -4633,6 +4904,13 @@ function validateRuntimePatch(patch) {
   ].forEach(([field, value]) => {
     if (value !== undefined && String(value).length > 120) errors.push(`${field} 长度不能超过 120`);
   });
+  if (
+    image.resolution !== undefined
+    && image.resolution !== ""
+    && !["1K", "2K", "4K"].includes(normalizeImageResolution(image.resolution, ""))
+  ) {
+    errors.push("image.resolution 只能是 1K、2K 或 4K");
+  }
   [
     ["points.dailyFreeLimit", points.dailyFreeLimit, 0, 100],
     ["points.imageCost", points.imageCost, 0, 100000],
@@ -4737,6 +5015,30 @@ function mergeRuntimeConfig(current, patch) {
   };
 }
 
+function migrateLegacyImageRetryConfig(runtime, rawConfig) {
+  const normalized = runtime && typeof runtime === "object"
+    ? runtime
+    : normalizeRuntimePatch(rawConfig);
+  const rawImage = rawConfig && rawConfig.image && typeof rawConfig.image === "object"
+    ? rawConfig.image
+    : null;
+  if (!rawImage || imageRetryPreferenceVersion(rawImage) === IMAGE_RETRY_PREFERENCE_VERSION) {
+    return {
+      value: normalized,
+      migrated: false
+    };
+  }
+  return {
+    value: Object.assign({}, normalized, {
+      image: Object.assign({}, normalized.image || {}, {
+        retryEnabled: true,
+        retryPreferenceVersion: IMAGE_RETRY_PREFERENCE_VERSION
+      })
+    }),
+    migrated: true
+  };
+}
+
 function redactConfig(config, defaults) {
   const face = config.face || {};
   const analysis = config.analysis || {};
@@ -4771,9 +5073,14 @@ function redactConfig(config, defaults) {
       model: image.model || "",
       mode: image.mode || "",
       size: image.size || "",
+      resolution: normalizeImageResolution(
+        image.resolution || image.size,
+        "1K"
+      ),
       timeoutMs: Number(image.timeoutMs || 0),
       maxRetries: Number(image.maxRetries || 0),
       retryEnabled: Boolean(image.retryEnabled),
+      retryPreferenceVersion: imageRetryPreferenceVersion(image),
       apiKeyConfigured: Boolean(defaults.image.apiKey)
     },
     video: {
@@ -4832,11 +5139,34 @@ async function loadAdminRuntimeConfig(force = false) {
       .collection(ADMIN_RUNTIME_CONFIG_COLLECTION)
       .doc(ADMIN_RUNTIME_CONFIG_ID)
       .get();
-    const value = result && result.data
-      ? Object.assign(normalizeRuntimePatch(result.data), {
-          version: Number(result.data.version) || 0,
-          updatedAt: result.data.updatedAt || "",
-          updatedBy: result.data.updatedBy || ""
+    const rawConfig = result && result.data ? result.data : null;
+    const normalized = rawConfig ? normalizeRuntimePatch(rawConfig) : null;
+    const migration = migrateLegacyImageRetryConfig(normalized, rawConfig);
+    if (migration.migrated && process.env.WECHAT_MINIAPP_TEST !== "1") {
+      try {
+        await db
+          .collection(ADMIN_RUNTIME_CONFIG_COLLECTION)
+          .doc(ADMIN_RUNTIME_CONFIG_ID)
+          .update({
+            data: {
+              image: migration.value.image
+            }
+          });
+        log("info", "admin.runtime-config.retry-default-migrated", {
+          version: Number(rawConfig.version) || 0
+        });
+      } catch (migrationError) {
+        // 当前请求仍使用迁移后的值，写回失败时下一次冷启动还会幂等重试。
+        log("warn", "admin.runtime-config.retry-default-migration-failed", {
+          error: migrationError && migrationError.message
+        });
+      }
+    }
+    const value = rawConfig
+      ? Object.assign(migration.value, {
+          version: Number(rawConfig.version) || 0,
+          updatedAt: rawConfig.updatedAt || "",
+          updatedBy: rawConfig.updatedBy || ""
         })
       : null;
     adminRuntimeCache = {
@@ -5083,6 +5413,9 @@ async function initializeDatabase(context) {
 async function saveAdminConfig(event, context) {
   if (!isAdminContext(context)) return adminForbidden();
   const patch = normalizeRuntimePatch(event && event.config);
+  if (hasOwn(patch.image, "retryEnabled")) {
+    patch.image.retryPreferenceVersion = IMAGE_RETRY_PREFERENCE_VERSION;
+  }
   const errors = validateRuntimePatch(patch);
   if (errors.length) return fail(errors.join("；"), "ADMIN_CONFIG_INVALID", { fields: errors });
   const current = await loadAdminRuntimeConfig(true);
@@ -5295,6 +5628,56 @@ function listedModelIds(payload) {
     .map((item) => String(item));
 }
 
+function listedModelEntries(payload) {
+  const data = payload && Array.isArray(payload.data)
+    ? payload.data
+    : payload && Array.isArray(payload.models)
+      ? payload.models
+      : payload && payload.result && Array.isArray(payload.result.data)
+        ? payload.result.data
+        : null;
+  if (!data) return null;
+  return data
+    .map((item) => {
+      if (typeof item === "string") {
+        return { id: String(item) };
+      }
+      if (!item || typeof item !== "object") return null;
+      const id = item.id || item.model || item.name;
+      if (!id) return null;
+      const entry = { id: String(id) };
+      [
+        "name",
+        "model",
+        "capabilities",
+        "supported_capabilities",
+        "resolutions",
+        "resolution",
+        "qualities",
+        "quality",
+        "supported_resolutions",
+        "supported_qualities",
+        "supported_sizes",
+        "sizes",
+        "size"
+      ].forEach((key) => {
+        if (hasOwn(item, key)) entry[key] = item[key];
+      });
+      return entry;
+    })
+    .filter(Boolean);
+}
+
+function modelCapabilityMap(type, modelConfig, entries) {
+  const map = {};
+  (Array.isArray(entries) ? entries : []).forEach((entry) => {
+    const id = String(entry && entry.id || "").trim();
+    if (!id) return;
+    map[id] = modelCapabilities(type, Object.assign({}, modelConfig, { model: id }), {}, entry);
+  });
+  return map;
+}
+
 async function probeOneModel(type, modelConfig, options = {}) {
   const startedAt = Date.now();
   const label = modelUsageTypeLabel(type);
@@ -5323,6 +5706,8 @@ async function probeOneModel(type, modelConfig, options = {}) {
     checkedAt: new Date().toISOString(),
     endpoint: "",
     models: [],
+    modelCapabilities: {},
+    capabilities: modelCapabilities(type, config),
     message: configured
       ? ""
       : requireModel
@@ -5356,8 +5741,9 @@ async function probeOneModel(type, modelConfig, options = {}) {
     const status = Number(response.status) || 0;
     const reachable = status > 0;
     if (status >= 200 && status < 300) {
-      const ids = listedModelIds(response.json);
-      if (!ids) {
+      const entries = listedModelEntries(response.json);
+      const ids = entries ? entries.map((item) => item.id) : null;
+      if (!entries) {
         return Object.assign(base, {
           reachable: true,
           status: "endpoint-not-supported",
@@ -5367,6 +5753,11 @@ async function probeOneModel(type, modelConfig, options = {}) {
           message: "接口可以访问，但返回内容不是标准模型列表，请人工确认兼容方式。"
         });
       }
+      const selectedEntry = entries.find((item) => (
+        String(item.id || "").trim().toLowerCase() === String(model || "").trim().toLowerCase()
+      ));
+      const capabilities = modelCapabilities(type, config, response.json, selectedEntry);
+      const capabilitiesByModel = modelCapabilityMap(type, config, entries);
       if (!requireModel) {
         return Object.assign(base, {
           ready: true,
@@ -5376,6 +5767,8 @@ async function probeOneModel(type, modelConfig, options = {}) {
           httpStatus: status,
           durationMs,
           models: ids,
+          modelCapabilities: capabilitiesByModel,
+          capabilities,
           message: `接口可访问，已读取 ${ids.length} 个模型。`
         });
       }
@@ -5390,6 +5783,8 @@ async function probeOneModel(type, modelConfig, options = {}) {
         statusText: modelProbeStatusText(modelListed ? "ok" : "model-not-listed"),
         httpStatus: status,
         durationMs,
+        modelCapabilities: capabilitiesByModel,
+        capabilities,
         message: modelListed
           ? "接口可访问，当前模型配置正常。"
           : `接口可访问，但模型列表里没有 ${model}。`
@@ -5521,6 +5916,11 @@ async function listModels(event, context) {
     durationMs: result.durationMs,
     endpoint: result.endpoint,
     models: result.models || [],
+    modelCapabilities: result.modelCapabilities || {},
+    capabilities: result.capabilities || {
+      source: "custom",
+      resolutions: []
+    },
     message: result.message || ""
   });
 }
@@ -6579,19 +6979,7 @@ async function requestImageEdits(
   const mainMime = detectMime(mainBuffer);
   const maskMime = detectMime(maskBuffer);
   const referenceField = env("AI_IMAGE_REFERENCE_FIELD", "image[]");
-  const fields = [
-    { name: "model", value: imageConfig.model },
-    { name: "prompt", value: String(payload.prompt || "").trim() },
-    { name: "size", value: imageConfig.size || payload.size },
-    {
-      name: "reference_manifest",
-      value: JSON.stringify(references.map((item) => ({
-        role: item.role,
-        index: item.index
-      })))
-    }
-  ];
-  if (payload.n) fields.push({ name: "n", value: String(payload.n) });
+  const fields = buildImageEditFields(payload, imageConfig, references);
 
   const files = [
     {
@@ -6638,10 +7026,10 @@ async function requestImageEdits(
     timeoutMs: imageConfig.timeoutMs,
     costs,
     userHash,
-    imageResolution: imageConfig.size || payload.size
+    imageResolution: imageConfig.resolution || payload.size
   });
   if (response.status < 200 || response.status >= 300) {
-    throw upstreamError(response, "图片编辑接口请求失败");
+    throw imageUpstreamError(response, "图片编辑接口请求失败");
   }
   return response.json || {};
 }
@@ -8768,10 +9156,10 @@ async function generate(event, context) {
 
   const requestId = event.requestId;
   const model = imageConfig.model;
-  const size = imageConfig.size || payload.size;
-  const prompt = `${String(payload.prompt).trim()}${
-    payload.negativePrompt ? `\n\n负面约束：${String(payload.negativePrompt).trim()}` : ""
-  }`;
+  const imageRequest = buildImageGenerationPayload(payload, imageConfig);
+  const size = imageRequest.size;
+  const prompt = imageRequest.prompt;
+  const resolution = imageConfig.resolution || normalizeImageResolution(size, "1K");
   const existingRecord = await findGenerationRecord(openid, requestId);
   if (existingRecord) {
     log("info", "generation.idempotent_hit", {
@@ -8823,12 +9211,7 @@ async function generate(event, context) {
     claimed = true;
     let response;
     const url = imageConfig.endpoint || endpoint(imageConfig.baseUrl, "images/generations");
-    const body = {
-      model,
-      prompt,
-      size,
-      n: 1
-    };
+    const body = imageRequest;
     response = await requestJson(url, body, apiKey, {
       "Idempotency-Key": requestId
     }, {
@@ -8842,7 +9225,7 @@ async function generate(event, context) {
       timeoutMs: imageConfig.timeoutMs,
       costs,
       userHash: usageUserHash(openid),
-      imageResolution: size
+      imageResolution: resolution
     });
     const image = extractImageItem(response);
     if (!image) {
@@ -8872,6 +9255,8 @@ async function generate(event, context) {
       model,
       createdAt,
       size,
+      resolution,
+      quality: imageRequest.quality,
       imageMode: mode,
       requestId,
       quotaUsed: billing.quota.freeUsed,
@@ -9067,10 +9452,15 @@ async function repairImage(event, context) {
     const actualPrompt = `${repairPrompt}${
       negativePrompt ? `\n\n负面约束：${negativePrompt}` : ""
     }`;
+    const repairSize = resolveImageOutputSize(imageConfig, payload.size);
+    const repairResolution = imageConfig.resolution
+      || normalizeImageResolution(repairSize, "1K");
     log("info", "repair.start", {
       requestId,
       parentRecordId,
       revisionNumber: chainSlot.revisionNumber,
+      size: repairSize,
+      resolution: repairResolution,
       faceRefs: faceFileIDs.length,
       wardrobeRefs: wardrobeFileIDs.length,
       backgroundRefs: backgroundFileIDs.length
@@ -9084,7 +9474,7 @@ async function repairImage(event, context) {
         wardrobeFileIDs,
         backgroundFileIDs,
         prompt: actualPrompt,
-        size: imageConfig.size || payload.size,
+        size: repairSize,
         __action: "repairImage"
       },
       imageConfig.apiKey,
@@ -9125,7 +9515,9 @@ async function repairImage(event, context) {
       tempFileURL: tempFileURL || "",
       model: imageConfig.model,
       createdAt,
-      size: imageConfig.size || payload.size || "1024x1024",
+      size: repairSize,
+      resolution: repairResolution,
+      quality: "auto",
       imageMode: "edits",
       generationType: "repair",
       parentRecordId,
@@ -10529,6 +10921,7 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     resolveAnalysisConfig,
     normalizeApiKey,
     apiKeyHeaders,
+    imageUpstreamError,
     visionConfigForAction,
     resolveImageConfig,
     resolveEffectiveConfigs,
@@ -10539,7 +10932,12 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     resolvePointsConfig,
     resolveCostConfig,
     normalizeImageResolution,
+    buildImageOutputSize,
+    resolveImageOutputSize,
+    buildImageGenerationPayload,
+    buildImageEditFields,
     normalizeVideoResolution,
+    modelCapabilities,
     extractModelUsage,
     extractVideoDuration,
     buildUsageBilling,
@@ -10640,6 +11038,9 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     isAdminContext,
     usageUserHash,
     normalizeRuntimePatch,
+    imageRetryPreferenceVersion,
+    resolveImageRetryEnabled,
+    migrateLegacyImageRetryConfig,
     validateRuntimePatch,
     mergeRuntimeConfig,
     getAdminStatus,

@@ -452,9 +452,69 @@ page {
 }
 
 .config-editor {
-  margin-top: 22rpx;
+  margin-top: 8rpx;
+  margin-bottom: 22rpx;
   padding: 24rpx;
   border-color: #cad8eb;
+}
+
+.config-editor-inline {
+  margin-top: -4rpx;
+  margin-bottom: 18rpx;
+  padding: 20rpx;
+}
+
+.config-editor-focus-tip {
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+  margin-top: 18rpx;
+  padding: 16rpx 18rpx;
+  border: 1rpx solid #b9cef6;
+  border-radius: 16rpx;
+  background: #f2f6ff;
+  color: #29487e;
+}
+
+.config-editor-focus-dot {
+  flex: none;
+  width: 14rpx;
+  height: 14rpx;
+  border-radius: 50%;
+  background: #2d6cdf;
+  box-shadow: 0 0 0 6rpx rgba(45, 108, 223, 0.12);
+}
+
+.config-editor-focus-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.config-editor-focus-label {
+  color: #5573a9;
+  font-size: 18rpx;
+  font-weight: 700;
+  line-height: 24rpx;
+}
+
+.config-editor-focus-name {
+  margin-top: 2rpx;
+  overflow: hidden;
+  color: #172f5a;
+  font-size: 25rpx;
+  font-weight: 800;
+  line-height: 34rpx;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.config-editor-focus-help {
+  flex: none;
+  max-width: 230rpx;
+  color: #6b80a6;
+  font-size: 18rpx;
+  line-height: 26rpx;
+  text-align: right;
 }
 
 .config-editor-head {
@@ -900,6 +960,14 @@ page {
 }
 
 @media (max-width: 560px) {
+  .config-editor-focus-tip {
+    align-items: flex-start;
+  }
+
+  .config-editor-focus-help {
+    max-width: 180rpx;
+  }
+
   .monitor-toggle {
     align-items: flex-start;
   }
@@ -3778,6 +3846,38 @@ page {
   color: #1d2433;
   background: #fbfcfe;
   font-size: 23rpx;
+}
+
+.admin-field picker {
+  display: block;
+  width: 100%;
+}
+
+.admin-picker {
+  box-sizing: border-box;
+  display: flex;
+  width: 100%;
+  height: 70rpx;
+  min-height: 70rpx;
+  padding: 0 48rpx 0 16rpx;
+  align-items: center;
+  overflow: hidden;
+  border: 1rpx solid #dfe6ef;
+  border-radius: 14rpx;
+  color: #1d2433;
+  background:
+    linear-gradient(135deg, transparent 50%, #6f829e 50%) right 22rpx center / 12rpx 12rpx no-repeat,
+    linear-gradient(45deg, #6f829e 50%, transparent 50%) right 14rpx center / 12rpx 12rpx no-repeat,
+    #fbfcfe;
+  font-size: 23rpx;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-picker:active {
+  border-color: #83a9e4;
+  background-color: #f3f7ff;
 }
 
 .admin-checkbox-row {

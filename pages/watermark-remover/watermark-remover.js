@@ -1,6 +1,7 @@
 const DEMO_MEDIA_PATH = "/assets/media/media-parser-demo.mp4";
 const DEMO_IMAGE_PATH = "/assets/media/media-parser-demo.jpg";
 const MAX_INPUT_LENGTH = 4096;
+const COPYWRITING_COLLAPSE_THRESHOLD = 120;
 
 function createRequestId() {
   return `media-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 10)}`;
@@ -85,6 +86,26 @@ function getCopywritingFields(response = {}) {
     copywritingLength: Array.from(copywriting).length,
     copywritingSource: source || (title ? "title" : "")
   };
+}
+
+function formatCopywritingTags(tags) {
+  return normalizeCopywritingTags(tags)
+    .map((tag) => `#${tag}`)
+    .join(" ");
+}
+
+function buildCompleteCopywriting(result = {}) {
+  const title = normalizeCopywritingText(result.copywritingTitle);
+  const body = normalizeCopywritingText(result.copywritingBody);
+  const tagText = formatCopywritingTags(result.copywritingTags);
+  return [
+    title,
+    body && body !== title ? body : "",
+    tagText
+  ]
+    .filter(Boolean)
+    .join("\n")
+    .trim();
 }
 
 function buildLocalDemoResult(contentType, requestId) {
@@ -285,6 +306,7 @@ Page({
     retryCount: 0,
     parseStage: 0,
     saving: false,
+    copywritingExpanded: false,
     status: "idle",
     errorTitle: "",
     errorMessage: "",
@@ -366,6 +388,7 @@ Page({
       retrying: false,
       retryCount: 0,
       parseStage: 0,
+      copywritingExpanded: false,
       status: "parsing",
       errorTitle: "",
       errorMessage: "",
@@ -464,6 +487,11 @@ Page({
         livePhotoItems,
         mediaCount,
         ...copywriting,
+        copywritingBodyLength: Array.from(copywriting.copywritingBody || "").length,
+        copywritingBodyCollapsible: (
+          Array.from(copywriting.copywritingBody || "").length
+          > COPYWRITING_COLLAPSE_THRESHOLD
+        ),
         demo: Boolean(response.demo),
         isReal: !response.demo
       });
@@ -471,6 +499,7 @@ Page({
         parsing: false,
         retrying: false,
         parseStage: 3,
+        copywritingExpanded: false,
         status: "success",
         result,
         providerReady: true,
@@ -498,6 +527,7 @@ Page({
       parsing: false,
       retrying: false,
       parseStage: 0,
+      copywritingExpanded: false,
       status: "error",
       errorTitle: title,
       errorMessage: message,
@@ -592,10 +622,10 @@ Page({
     }
   },
 
-  copyCopywriting() {
-    const text = String(this.data.result && this.data.result.copywriting || "").trim();
-    if (!text) {
-      wx.showToast({ title: "当前没有可复制的文案", icon: "none" });
+  copyText(text, successTitle, emptyTitle) {
+    const normalized = String(text || "").trim();
+    if (!normalized) {
+      wx.showToast({ title: emptyTitle, icon: "none" });
       return;
     }
     if (typeof wx.setClipboardData !== "function") {
@@ -603,9 +633,45 @@ Page({
       return;
     }
     wx.setClipboardData({
-      data: text,
-      success: () => wx.showToast({ title: "文案已复制", icon: "success" }),
+      data: normalized,
+      success: () => wx.showToast({ title: successTitle, icon: "success" }),
       fail: () => wx.showToast({ title: "复制失败，请重试", icon: "none" })
+    });
+  },
+
+  copyCopywriting() {
+    const text = buildCompleteCopywriting(this.data.result || {});
+    if (!text) {
+      wx.showToast({ title: "当前没有可复制的文案", icon: "none" });
+      return;
+    }
+    this.copyText(text, "全文已复制", "当前没有可复制的文案");
+  },
+
+  copyCopywritingTitle() {
+    const result = this.data.result || {};
+    this.copyText(result.copywritingTitle, "标题已复制", "当前没有标题");
+  },
+
+  copyCopywritingBody() {
+    const result = this.data.result || {};
+    this.copyText(result.copywritingBody, "正文已复制", "当前没有正文");
+  },
+
+  copyCopywritingTags() {
+    const result = this.data.result || {};
+    this.copyText(
+      formatCopywritingTags(result.copywritingTags),
+      "标签已复制",
+      "当前没有标签"
+    );
+  },
+
+  toggleCopywritingExpanded() {
+    const result = this.data.result || {};
+    if (!result.copywritingBodyCollapsible) return;
+    this.setData({
+      copywritingExpanded: !this.data.copywritingExpanded
     });
   },
 
@@ -619,6 +685,7 @@ Page({
       retrying: false,
       retryCount: 0,
       parseStage: 0,
+      copywritingExpanded: false,
       result: null,
       errorTitle: "",
       errorMessage: ""
@@ -638,6 +705,8 @@ module.exports = {
   normalizeContentType,
   normalizeCopywritingText,
   normalizeCopywritingTags,
+  formatCopywritingTags,
+  buildCompleteCopywriting,
   getCopywritingFields,
   errorView,
   platformLabel

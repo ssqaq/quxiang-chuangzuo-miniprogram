@@ -380,7 +380,11 @@ async function testRealPageFlow() {
   assert.strictEqual(harness.page.data.result.copywriting, "真实视频\n这是一段可复制的真实文案。");
   assert.strictEqual(harness.page.data.result.copywritingLength, 18);
   harness.page.copyCopywriting();
-  assert.ok(harness.events.some((item) => item.type === "set-clipboard"));
+  const fullCopy = harness.events.filter((item) => item.type === "set-clipboard").pop();
+  assert.strictEqual(
+    fullCopy.options.data,
+    "真实视频\n这是一段可复制的真实文案。\n#真实结果"
+  );
   await harness.page.saveMedia();
   assert.ok(harness.events.some((item) => item.type === "save-video"));
 
@@ -398,6 +402,48 @@ async function testRealPageFlow() {
   assert.strictEqual(harness.page.data.status, "error");
   assert.strictEqual(harness.page.data.result, null);
   assert.strictEqual(parseCalls, 0);
+}
+
+async function testCopywritingActions() {
+  const longBody = "长正文内容".repeat(32);
+  const harness = createPageHarness((data) => {
+    if (data.action === "health") {
+      return { ok: true, mode: "real", configured: true };
+    }
+    return {
+      ok: true,
+      contentType: "video",
+      title: "分区复制标题",
+      copywritingBody: longBody,
+      copywritingTags: ["旅行", "#短视频", "旅行"],
+      mediaUrl: "https://cdn.example.com/copywriting-actions.mp4",
+      demo: false
+    };
+  });
+  await harness.page.onLoad();
+  harness.page.onInput({ detail: { value: "分享 https://example.com/copywriting-actions" } });
+  await harness.page.parseMedia();
+
+  assert.strictEqual(harness.page.data.result.copywritingBodyCollapsible, true);
+  assert.strictEqual(harness.page.data.copywritingExpanded, false);
+  harness.page.toggleCopywritingExpanded();
+  assert.strictEqual(harness.page.data.copywritingExpanded, true);
+  harness.page.toggleCopywritingExpanded();
+  assert.strictEqual(harness.page.data.copywritingExpanded, false);
+
+  harness.page.copyCopywritingTitle();
+  harness.page.copyCopywritingBody();
+  harness.page.copyCopywritingTags();
+  harness.page.copyCopywriting();
+  const copied = harness.events
+    .filter((item) => item.type === "set-clipboard")
+    .map((item) => item.options.data);
+  assert.deepStrictEqual(copied, [
+    "分区复制标题",
+    longBody,
+    "#旅行 #短视频",
+    `分区复制标题\n${longBody}\n#旅行 #短视频`
+  ]);
 }
 
 async function testPageRetryOnce() {
@@ -473,6 +519,13 @@ function testPageMarkup() {
   assert.ok(wxml.includes("真实结果"));
   assert.ok(wxml.includes("一键解析并提取"));
   assert.ok(wxml.includes("copyCopywriting"));
+  assert.ok(wxml.includes("copyCopywritingTitle"));
+  assert.ok(wxml.includes("copyCopywritingBody"));
+  assert.ok(wxml.includes("copyCopywritingTags"));
+  assert.ok(wxml.includes("toggleCopywritingExpanded"));
+  assert.ok(wxml.includes("复制标题"));
+  assert.ok(wxml.includes("复制正文"));
+  assert.ok(wxml.includes("复制标签"));
   assert.ok(wxml.includes("copywriting-card"));
   assert.ok(wxml.includes("保存媒体"));
   assert.ok(!wxml.includes("选择演示类型"));
@@ -486,6 +539,8 @@ function testPageMarkup() {
   assert.ok(!wxss.includes(".compliance-note"));
   assert.ok(wxss.includes(".feature-option"));
   assert.ok(wxss.includes(".copywriting-card"));
+  assert.ok(wxss.includes(".copywriting-action"));
+  assert.ok(wxss.includes(".copywriting-body-collapsed"));
 }
 
 async function main() {
@@ -495,6 +550,7 @@ async function main() {
   await testRealProviderFailures();
   testProviderRedirectSafety();
   await testRealPageFlow();
+  await testCopywritingActions();
   await testPageRetryOnce();
   await testExplicitMockPageFlow();
   testPageMarkup();

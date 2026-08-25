@@ -161,17 +161,44 @@
         <button class="copy-button" bindtap="copyCopywriting">复制文案</button>
       </view>
       <view class="copywriting-section">
-        <view class="copywriting-label">标题</view>
+        <view class="copywriting-section-head">
+          <view class="copywriting-label">标题</view>
+          <button
+            wx:if="{{result.copywritingTitle}}"
+            class="copywriting-action"
+            bindtap="copyCopywritingTitle"
+          >复制标题</button>
+        </view>
         <view wx:if="{{result.copywritingTitle}}" class="copywriting-body copywriting-title-body">{{result.copywritingTitle}}</view>
         <view wx:else class="copywriting-empty">未提取到标题。</view>
       </view>
       <view class="copywriting-section">
-        <view class="copywriting-label">正文</view>
-        <view wx:if="{{result.copywritingBody}}" class="copywriting-body">{{result.copywritingBody}}</view>
+        <view class="copywriting-section-head">
+          <view class="copywriting-label">正文</view>
+          <view wx:if="{{result.copywritingBody}}" class="copywriting-actions">
+            <button class="copywriting-action" bindtap="copyCopywritingBody">复制正文</button>
+            <button
+              wx:if="{{result.copywritingBodyCollapsible}}"
+              class="copywriting-action copywriting-toggle"
+              bindtap="toggleCopywritingExpanded"
+            >{{copywritingExpanded ? '收起' : '展开'}}</button>
+          </view>
+        </view>
+        <view
+          wx:if="{{result.copywritingBody}}"
+          class="copywriting-body{{result.copywritingBodyCollapsible && !copywritingExpanded ? ' copywriting-body-collapsed' : ''}}"
+        >{{result.copywritingBody}}</view>
         <view wx:else class="copywriting-empty">服务商暂未返回正文文案。</view>
       </view>
       <view class="copywriting-section">
-        <view class="copywriting-label">标签</view>
+        <view class="copywriting-section-head">
+          <view class="copywriting-label">标签</view>
+          <button
+            wx:if="{{result.copywritingTags.length}}"
+            class="copywriting-action"
+            bindtap="copyCopywritingTags"
+          >复制标签</button>
+        </view>
         <view wx:if="{{result.copywritingTags.length}}" class="copywriting-tag-box">
           <text wx:for="{{result.copywritingTags}}" wx:key="*this" class="copywriting-tag-chip">#{{item}}</text>
         </view>
@@ -179,7 +206,7 @@
       </view>
       <view class="copywriting-footer">
         <text>{{result.copywritingLength || 0}} 字</text>
-        <text>复制按钮会复制标题、正文和标签</text>
+        <text>可分区复制，也可一键复制全文</text>
       </view>
     </view>
 

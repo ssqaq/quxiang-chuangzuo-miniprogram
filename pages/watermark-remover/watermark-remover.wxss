@@ -537,12 +537,51 @@
   margin-top: 16rpx;
 }
 
+.copywriting-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 48rpx;
+}
+
 .copywriting-label {
-  margin-bottom: 7rpx;
   color: #6b85a7;
   font-size: 20rpx;
   font-weight: 800;
   line-height: 28rpx;
+}
+
+.copywriting-actions {
+  display: flex;
+  align-items: center;
+}
+
+.copywriting-action {
+  width: auto;
+  min-width: 0;
+  height: 44rpx;
+  margin: 0;
+  padding: 0 13rpx;
+  border: 0;
+  border-radius: 999rpx;
+  color: #3976c8;
+  background: #e9f3ff;
+  font-size: 18rpx;
+  font-weight: 700;
+  line-height: 44rpx;
+}
+
+.copywriting-action + .copywriting-action {
+  margin-left: 8rpx;
+}
+
+.copywriting-action::after {
+  border: 0;
+}
+
+.copywriting-toggle {
+  color: #6a81a0;
+  background: #eef3f9;
 }
 
 .copy-button {
@@ -566,6 +605,11 @@
   word-break: break-all;
 }
 
+.copywriting-body-collapsed {
+  max-height: 180rpx;
+  overflow: hidden;
+}
+
 .copywriting-empty {
   color: #8da0b9;
 }
@@ -579,6 +623,7 @@
   flex-wrap: wrap;
   gap: 10rpx;
   min-height: 56rpx;
+  margin-top: 14rpx;
   padding: 10rpx 12rpx;
   box-sizing: border-box;
   border: 1rpx solid #e0eaf7;
@@ -637,6 +682,7 @@
 .secondary-btn:not([disabled]):active,
 .paste-button:active,
 .copy-button:active,
+.copywriting-action:active,
 .bottom-link:active {
   opacity: 0.76;
 }

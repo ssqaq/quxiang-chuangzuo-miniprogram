@@ -193,6 +193,33 @@
   background: #edf0ff;
 }
 
+.media-play-icon {
+  width: 0;
+  height: 0;
+  margin-left: 3rpx;
+  border-top: 7rpx solid transparent;
+  border-bottom: 7rpx solid transparent;
+  border-left: 11rpx solid currentColor;
+}
+
+.copy-lines-icon {
+  display: flex;
+  width: 20rpx;
+  flex-direction: column;
+  gap: 3rpx;
+}
+
+.copy-line {
+  width: 20rpx;
+  height: 2rpx;
+  border-radius: 2rpx;
+  background: currentColor;
+}
+
+.copy-line-short {
+  width: 14rpx;
+}
+
 .feature-copy {
   min-width: 0;
   flex: 1;
@@ -244,6 +271,14 @@
   line-height: 88rpx;
 }
 
+.parse-button {
+  position: relative;
+  box-sizing: border-box;
+  padding-right: 72rpx;
+  padding-left: 72rpx;
+  text-align: center;
+}
+
 .primary-btn::after {
   border: 0;
 }
@@ -254,9 +289,14 @@
 }
 
 .button-arrow {
-  margin-left: 8rpx;
+  position: absolute;
+  top: 50%;
+  right: 30rpx;
+  margin-left: 0;
   font-size: 29rpx;
   font-weight: 500;
+  line-height: 1;
+  transform: translateY(-50%);
 }
 
 .page-note {

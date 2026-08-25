@@ -31,7 +31,9 @@
 
     <view class="feature-row">
       <view class="feature-option">
-        <view class="feature-icon feature-icon-media">媒</view>
+        <view class="feature-icon feature-icon-media">
+          <view class="media-play-icon"></view>
+        </view>
         <view class="feature-copy">
           <view class="feature-title">解析高清媒体</view>
           <view class="feature-subtitle">视频 / 图片 / 实况</view>
@@ -39,7 +41,13 @@
         <view class="feature-check">✓</view>
       </view>
       <view class="feature-option">
-        <view class="feature-icon feature-icon-copy">文</view>
+        <view class="feature-icon feature-icon-copy">
+          <view class="copy-lines-icon">
+            <view class="copy-line"></view>
+            <view class="copy-line"></view>
+            <view class="copy-line copy-line-short"></view>
+          </view>
+        </view>
         <view class="feature-copy">
           <view class="feature-title">提取作品文案</view>
           <view class="feature-subtitle">标题 / 正文 / 标签</view>

@@ -2,6 +2,7 @@ const DEMO_MEDIA_PATH = "/assets/media/media-parser-demo.mp4";
 const DEMO_IMAGE_PATH = "/assets/media/media-parser-demo.jpg";
 const MAX_INPUT_LENGTH = 4096;
 const COPYWRITING_COLLAPSE_THRESHOLD = 120;
+const COPY_FEEDBACK_DURATION_MS = 1500;
 
 function createRequestId() {
   return `media-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 10)}`;
@@ -307,6 +308,7 @@ Page({
     parseStage: 0,
     saving: false,
     copywritingExpanded: false,
+    copiedTarget: "",
     status: "idle",
     errorTitle: "",
     errorMessage: "",
@@ -318,6 +320,10 @@ Page({
 
   onLoad() {
     return this.checkProviderHealth();
+  },
+
+  onUnload() {
+    this.clearCopyFeedbackTimer();
   },
 
   async checkProviderHealth() {
@@ -383,12 +389,14 @@ Page({
       return;
     }
 
+    this.clearCopyFeedbackTimer();
     this.setData({
       parsing: true,
       retrying: false,
       retryCount: 0,
       parseStage: 0,
       copywritingExpanded: false,
+      copiedTarget: "",
       status: "parsing",
       errorTitle: "",
       errorMessage: "",
@@ -500,6 +508,7 @@ Page({
         retrying: false,
         parseStage: 3,
         copywritingExpanded: false,
+        copiedTarget: "",
         status: "success",
         result,
         providerReady: true,
@@ -528,6 +537,7 @@ Page({
       retrying: false,
       parseStage: 0,
       copywritingExpanded: false,
+      copiedTarget: "",
       status: "error",
       errorTitle: title,
       errorMessage: message,
@@ -622,7 +632,28 @@ Page({
     }
   },
 
-  copyText(text, successTitle, emptyTitle) {
+  clearCopyFeedbackTimer() {
+    if (!this.copyFeedbackTimer) return;
+    clearTimeout(this.copyFeedbackTimer);
+    this.copyFeedbackTimer = null;
+  },
+
+  showCopyFeedback(target) {
+    this.clearCopyFeedbackTimer();
+    this.setData({ copiedTarget: target });
+    this.copyFeedbackTimer = setTimeout(() => {
+      this.copyFeedbackTimer = null;
+      this.setData({ copiedTarget: "" });
+    }, COPY_FEEDBACK_DURATION_MS);
+    if (
+      this.copyFeedbackTimer
+      && typeof this.copyFeedbackTimer.unref === "function"
+    ) {
+      this.copyFeedbackTimer.unref();
+    }
+  },
+
+  copyText(text, successTitle, emptyTitle, target) {
     const normalized = String(text || "").trim();
     if (!normalized) {
       wx.showToast({ title: emptyTitle, icon: "none" });
@@ -634,7 +665,10 @@ Page({
     }
     wx.setClipboardData({
       data: normalized,
-      success: () => wx.showToast({ title: successTitle, icon: "success" }),
+      success: () => {
+        this.showCopyFeedback(target);
+        wx.showToast({ title: successTitle, icon: "success" });
+      },
       fail: () => wx.showToast({ title: "复制失败，请重试", icon: "none" })
     });
   },
@@ -645,17 +679,17 @@ Page({
       wx.showToast({ title: "当前没有可复制的文案", icon: "none" });
       return;
     }
-    this.copyText(text, "全文已复制", "当前没有可复制的文案");
+    this.copyText(text, "全文已复制", "当前没有可复制的文案", "all");
   },
 
   copyCopywritingTitle() {
     const result = this.data.result || {};
-    this.copyText(result.copywritingTitle, "标题已复制", "当前没有标题");
+    this.copyText(result.copywritingTitle, "标题已复制", "当前没有标题", "title");
   },
 
   copyCopywritingBody() {
     const result = this.data.result || {};
-    this.copyText(result.copywritingBody, "正文已复制", "当前没有正文");
+    this.copyText(result.copywritingBody, "正文已复制", "当前没有正文", "body");
   },
 
   copyCopywritingTags() {
@@ -663,7 +697,8 @@ Page({
     this.copyText(
       formatCopywritingTags(result.copywritingTags),
       "标签已复制",
-      "当前没有标签"
+      "当前没有标签",
+      "tags"
     );
   },
 
@@ -680,12 +715,14 @@ Page({
   },
 
   resetResult() {
+    this.clearCopyFeedbackTimer();
     this.setData({
       status: "idle",
       retrying: false,
       retryCount: 0,
       parseStage: 0,
       copywritingExpanded: false,
+      copiedTarget: "",
       result: null,
       errorTitle: "",
       errorMessage: ""

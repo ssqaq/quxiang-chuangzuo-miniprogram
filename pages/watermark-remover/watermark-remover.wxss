@@ -558,7 +558,7 @@
 
 .copywriting-action {
   width: auto;
-  min-width: 0;
+  min-width: 98rpx;
   height: 44rpx;
   margin: 0;
   padding: 0 13rpx;
@@ -580,13 +580,20 @@
 }
 
 .copywriting-toggle {
+  min-width: 72rpx;
   color: #6a81a0;
   background: #eef3f9;
 }
 
 .copy-button {
+  min-width: 120rpx;
   height: 60rpx;
   line-height: 60rpx;
+}
+
+.copy-feedback-active {
+  color: #16835a;
+  background: #dff6e9;
 }
 
 .copywriting-body,
@@ -608,6 +615,39 @@
 .copywriting-body-collapsed {
   max-height: 180rpx;
   overflow: hidden;
+}
+
+.copywriting-body-shell {
+  position: relative;
+  margin-top: 14rpx;
+}
+
+.copywriting-body-in-shell {
+  margin-top: 0;
+}
+
+.copywriting-fade {
+  position: absolute;
+  right: 1rpx;
+  bottom: 1rpx;
+  left: 1rpx;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  height: 104rpx;
+  padding-bottom: 13rpx;
+  box-sizing: border-box;
+  border-radius: 0 0 13rpx 13rpx;
+  color: #3976c8;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.94) 48%,
+    #edf5ff 100%
+  );
+  font-size: 19rpx;
+  font-weight: 800;
+  line-height: 30rpx;
 }
 
 .copywriting-empty {
@@ -683,6 +723,7 @@
 .paste-button:active,
 .copy-button:active,
 .copywriting-action:active,
+.copywriting-fade:active,
 .bottom-link:active {
   opacity: 0.76;
 }

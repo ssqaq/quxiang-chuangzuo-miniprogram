@@ -432,9 +432,13 @@ async function testCopywritingActions() {
   assert.strictEqual(harness.page.data.copywritingExpanded, false);
 
   harness.page.copyCopywritingTitle();
+  assert.strictEqual(harness.page.data.copiedTarget, "title");
   harness.page.copyCopywritingBody();
+  assert.strictEqual(harness.page.data.copiedTarget, "body");
   harness.page.copyCopywritingTags();
+  assert.strictEqual(harness.page.data.copiedTarget, "tags");
   harness.page.copyCopywriting();
+  assert.strictEqual(harness.page.data.copiedTarget, "all");
   const copied = harness.events
     .filter((item) => item.type === "set-clipboard")
     .map((item) => item.options.data);
@@ -444,6 +448,7 @@ async function testCopywritingActions() {
     "#旅行 #短视频",
     `分区复制标题\n${longBody}\n#旅行 #短视频`
   ]);
+  harness.page.onUnload();
 }
 
 async function testPageRetryOnce() {
@@ -526,6 +531,12 @@ function testPageMarkup() {
   assert.ok(wxml.includes("复制标题"));
   assert.ok(wxml.includes("复制正文"));
   assert.ok(wxml.includes("复制标签"));
+  assert.ok(wxml.includes("copiedTarget === 'all'"));
+  assert.ok(wxml.includes("copiedTarget === 'title'"));
+  assert.ok(wxml.includes("copiedTarget === 'body'"));
+  assert.ok(wxml.includes("copiedTarget === 'tags'"));
+  assert.ok(wxml.includes("展开查看全部"));
+  assert.ok(wxml.includes("copywriting-fade"));
   assert.ok(wxml.includes("copywriting-card"));
   assert.ok(wxml.includes("保存媒体"));
   assert.ok(!wxml.includes("选择演示类型"));
@@ -541,6 +552,8 @@ function testPageMarkup() {
   assert.ok(wxss.includes(".copywriting-card"));
   assert.ok(wxss.includes(".copywriting-action"));
   assert.ok(wxss.includes(".copywriting-body-collapsed"));
+  assert.ok(wxss.includes(".copy-feedback-active"));
+  assert.ok(wxss.includes(".copywriting-fade"));
 }
 
 async function main() {

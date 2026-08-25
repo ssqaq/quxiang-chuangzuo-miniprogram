@@ -51,6 +51,35 @@ assert.strictEqual(
   "generations",
   "纯文字请求仍允许走 generations"
 );
+assert.strictEqual(
+  test.classifyImageEditResponse({
+    status: 400,
+    json: {
+      error: {
+        code: "INVALID_IMAGE_EDIT",
+        message: "mask compositing is disabled because the VPS does not process image pixels"
+      }
+    }
+  }).code,
+  "image-edit-unsupported",
+  "mask compositing disabled 必须归类为上游能力不支持"
+);
+assert.strictEqual(
+  test.classifyImageEditResponse({
+    status: 404,
+    json: { error: { message: "images/edits endpoint not found" } }
+  }).code,
+  "image-edit-endpoint-invalid",
+  "编辑路径不存在必须归类为 endpoint 错误"
+);
+assert.strictEqual(
+  test.classifyImageEditResponse({
+    status: 400,
+    json: { error: { message: "model gpt-image-2 does not support image edits" } }
+  }).code,
+  "image-edit-model-unsupported",
+  "模型不支持 edits 必须单独归类"
+);
 
 async function withServer(handler, callback) {
   const server = http.createServer(handler);
@@ -154,6 +183,84 @@ async function main() {
   assert.ok(requests[0].body.includes('name="mask"; filename="mask.png"'));
   assert.ok(requests[0].body.includes('name="image[]"; filename="face-1.png"'));
 
+  const capabilityRequests = [];
+  const originalEditEndpointAfterSuccess = process.env.AI_IMAGE_EDIT_ENDPOINT;
+  wxCloud.downloadFile = async ({ fileID }) => ({
+    fileContent: Buffer.from(`asset:${fileID}`)
+  });
+  try {
+    await withServer((request, response) => {
+      const chunks = [];
+      request.on("data", (chunk) => chunks.push(chunk));
+      request.on("end", () => {
+        capabilityRequests.push({
+          method: request.method,
+          path: request.url,
+          headers: request.headers,
+          body: Buffer.concat(chunks).toString("utf8")
+        });
+        response.statusCode = 400;
+        response.setHeader("Content-Type", "application/json");
+        response.end(JSON.stringify({
+          error: {
+            code: "INVALID_IMAGE_EDIT",
+            message: "mask compositing is disabled because the VPS does not process image pixels"
+          }
+        }));
+      });
+    }, async (url) => {
+      process.env.AI_IMAGE_EDIT_ENDPOINT = url;
+      const imageConfig = test.resolveImageConfig({
+        image: {
+          mode: "edits",
+          baseUrl: url,
+          model: "smoke-edit-model",
+          compatibilityMode: true,
+          timeoutMs: 5000,
+          retryEnabled: true,
+          maxRetries: 2,
+          retryPreferenceVersion: 1
+        }
+      });
+      let failure = null;
+      try {
+        await test.requestImageEdits(
+          {
+            mainFileID: "main-file",
+            maskFileID: "mask-file",
+            faceFileIDs: ["face-file"],
+            prompt: "只改红圈",
+            size: "1024x1024"
+          },
+          "smoke-image-key",
+          "smoke-routing-capability-error",
+          imageConfig,
+          {},
+          "smoke-user"
+        );
+      } catch (error) {
+        failure = error;
+      }
+      assert.ok(failure, "上游 mask 能力错误必须向上抛出");
+      assert.strictEqual(failure.code, "image-edit-unsupported");
+      assert.strictEqual(failure.retryable, false);
+      assert.ok(String(failure.message).includes("不支持 mask 合成"));
+    });
+  } finally {
+    wxCloud.downloadFile = originalDownloadFile;
+    if (originalEditEndpointAfterSuccess === undefined) {
+      delete process.env.AI_IMAGE_EDIT_ENDPOINT;
+    } else {
+      process.env.AI_IMAGE_EDIT_ENDPOINT = originalEditEndpointAfterSuccess;
+    }
+  }
+  assert.strictEqual(capabilityRequests.length, 1, "能力不支持错误不能重试");
+  assert.strictEqual(capabilityRequests[0].method, "POST");
+  assert.ok(!String(capabilityRequests[0].path).includes("generations"));
+  assert.ok(capabilityRequests[0].body.includes('name="image"; filename="main.png"'));
+  assert.ok(capabilityRequests[0].body.includes('name="mask"; filename="mask.png"'));
+  assert.ok(capabilityRequests[0].body.includes('name="image[]"; filename="face-1.png"'));
+
   console.log("image edit routing smoke: OK");
   console.log(JSON.stringify({
     forcedMode: test.resolveGenerationMode(
@@ -161,7 +268,9 @@ async function main() {
       { mode: "generations" }
     ),
     missingCode: missing.errorCode,
-    multipartRequests: requests.length
+    multipartRequests: requests.length,
+    capabilityErrorCode: "image-edit-unsupported",
+    capabilityRequests: capabilityRequests.length
   }));
 }
 

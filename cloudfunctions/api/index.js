@@ -1,6 +1,12 @@
-const API_BUILD_VERSION = "0.40.36";
-const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V04036";
+const API_BUILD_VERSION = "0.40.37";
+const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V04037";
 const DEFAULT_IMAGE_MODE = "edits";
+const IMAGE_EDIT_ERROR_CODES = Object.freeze([
+  "image-edit-unsupported",
+  "image-edit-endpoint-invalid",
+  "image-edit-model-unsupported",
+  "image-edit-upstream-error"
+]);
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
 const cloud = require("wx-server-sdk");
@@ -2246,6 +2252,146 @@ function safeUrl(value) {
   }
 }
 
+function resolveImageEditEndpoint(imageConfig = {}) {
+  const configured = env("AI_IMAGE_EDIT_ENDPOINT").trim();
+  if (configured) {
+    return {
+      url: configured,
+      source: "AI_IMAGE_EDIT_ENDPOINT",
+      configured: true
+    };
+  }
+  const baseUrl = String(imageConfig && imageConfig.baseUrl || "").trim();
+  if (!baseUrl) {
+    const error = new Error("未配置图片编辑 endpoint 或 AI_IMAGE_BASE_URL。");
+    error.code = "image-edit-endpoint-invalid";
+    error.retryable = false;
+    throw error;
+  }
+  try {
+    return {
+      url: endpoint(baseUrl, "images/edits"),
+      source: "AI_IMAGE_BASE_URL/images/edits",
+      configured: false
+    };
+  } catch (error) {
+    error.code = "image-edit-endpoint-invalid";
+    error.retryable = false;
+    throw error;
+  }
+}
+
+function safeEndpointUrl(baseUrl, configured, path) {
+  try {
+    return safeUrl(configured || endpoint(baseUrl, path));
+  } catch (_) {
+    return "";
+  }
+}
+
+function imageEditResponseDetails(response = {}) {
+  const payload = response && response.json && typeof response.json === "object"
+    ? response.json
+    : {};
+  const nestedError = payload && payload.error && typeof payload.error === "object"
+    ? payload.error
+    : {};
+  const upstreamCode = String(
+    nestedError.code
+      || nestedError.type
+      || payload.code
+      || payload.error_code
+      || ""
+  ).trim();
+  const message = String(
+    nestedError.message
+      || payload.message
+      || (response && response.raw)
+      || ""
+  ).trim();
+  return {
+    status: Math.max(0, Number(response && response.status) || 0),
+    upstreamCode,
+    message,
+    searchText: `${upstreamCode} ${message}`.toLowerCase()
+  };
+}
+
+function classifyImageEditResponse(response = {}) {
+  const details = imageEditResponseDetails(response);
+  const text = details.searchText;
+  const endpointInvalid = (
+    details.status === 404
+    || details.status === 405
+    || /(?:endpoint|route|path).*(?:not found|invalid|unsupported|不存在|无效|不支持)/i.test(text)
+    || /(?:not found|不存在).*(?:images?\/edits|edit(?:s|ing)?)/i.test(text)
+    || /(?:images?\/edits|edit(?:s|ing)?).*(?:not found|不存在)/i.test(text)
+    || /method\s+not\s+allowed|unknown\s+endpoint|invalid_endpoint|endpoint_not_found/i.test(text)
+  );
+  const modelUnsupported = (
+    /(?:unsupported|invalid|unknown|not found|unavailable|does not support|不支持|无效|未知|不存在).*(?:model|模型)/i.test(text)
+    || /(?:model|模型).*(?:unsupported|invalid|unknown|not found|unavailable|does not support|不支持|无效|未知|不存在)/i.test(text)
+    || /model[_-]?(?:not[_-]?found|unsupported|unavailable)/i.test(text)
+  );
+  const imageCapabilityUnsupported = (
+    /mask\s+compositing\s+is\s+disabled/i.test(text)
+    || /does\s+not\s+process\s+image(?:\s+pixels?)?/i.test(text)
+    || /image\s*(?:edit(?:ing)?|pixel(?:s)?|compositing).*(?:disabled|unsupported|not\s+supported)/i.test(text)
+    || /(?:mask|蒙版|遮罩).*(?:compositing|合成).*(?:disabled|unsupported|not\s+supported|不支持|关闭)/i.test(text)
+    || /(?:not\s+supported|unsupported|不支持).*(?:mask|蒙版|遮罩|image\s*edit|图片编辑)/i.test(text)
+  );
+  let code = "image-edit-upstream-error";
+  if (endpointInvalid) code = "image-edit-endpoint-invalid";
+  else if (modelUnsupported) code = "image-edit-model-unsupported";
+  else if (imageCapabilityUnsupported) code = "image-edit-unsupported";
+  const retryable = code === "image-edit-upstream-error"
+    ? shouldRetryStatus(details.status)
+    : false;
+  return {
+    code,
+    retryable,
+    status: details.status,
+    upstreamCode: details.upstreamCode
+      ? normalizeFailureCode(details.upstreamCode, details.status)
+      : "",
+    upstreamMessage: sanitizeFailureMessage(details.message || "未提供上游错误"),
+    message: sanitizeFailureMessage(details.message || "未提供上游错误")
+  };
+}
+
+function imageEditErrorMessage(classification) {
+  const item = classification && typeof classification === "object"
+    ? classification
+    : {};
+  const upstream = item.upstreamMessage
+    ? `上游返回：${item.upstreamMessage}`
+    : "";
+  const prefix = item.code === "image-edit-unsupported"
+    ? "当前图片编辑服务不支持 mask 合成，请更换支持图片编辑和 mask 的 VPS/模型。"
+    : item.code === "image-edit-endpoint-invalid"
+      ? "图片编辑 endpoint 配置无效，请检查 AI_IMAGE_EDIT_ENDPOINT 或 AI_IMAGE_BASE_URL。"
+      : item.code === "image-edit-model-unsupported"
+        ? "当前图片编辑模型不支持 edits，请更换支持图片编辑的模型。"
+        : "图片编辑上游服务返回错误，请检查 provider、endpoint 和 model。";
+  return upstream ? `${prefix}${upstream}` : prefix;
+}
+
+function imageEditMultipartSummary(fields = [], files = [], mainField = "image", maskField = "mask") {
+  const fileItems = Array.isArray(files) ? files : [];
+  const fieldItems = Array.isArray(fields) ? fields : [];
+  return {
+    textFields: fieldItems.map((field) => String(field && field.name || "")).filter(Boolean),
+    fileFields: fileItems.map((file) => String(file && file.name || "")).filter(Boolean),
+    hasMainImage: fileItems.some((file) => String(file && file.name || "") === mainField),
+    hasMask: fileItems.some((file) => String(file && file.name || "") === maskField),
+    referenceCount: Math.max(
+      0,
+      fileItems.filter((file) => String(file && file.name || "") !== mainField
+        && String(file && file.name || "") !== maskField).length
+    )
+  };
+}
+
 function sanitize(value, depth = 0) {
   if (depth > 3) return "[truncated]";
   if (value === null || value === undefined) return value;
@@ -3353,20 +3499,25 @@ function failureReasonLabel(event = {}) {
 function failureDetailsFromResponse(response = {}, retryable = false) {
   const payload = response && response.json ? response.json : {};
   const nestedError = payload && payload.error;
+  const imageEdit = response && response.imageEditClassification;
   return {
     errorCode: normalizeFailureCode(
-      (nestedError && (nestedError.code || nestedError.type))
+      (imageEdit && imageEdit.code)
+        || (nestedError && (nestedError.code || nestedError.type))
         || (payload && (payload.code || payload.error_code)),
       response && response.status
     ),
     errorMessage: sanitizeFailureMessage(
-      (nestedError && nestedError.message)
+      (imageEdit && imageEdit.message)
+        || (nestedError && nestedError.message)
         || (payload && payload.message)
         || (response && response.raw)
         || ""
     ),
     errorStatus: Math.max(0, Number(response && response.status) || 0),
-    retryable: Boolean(retryable),
+    retryable: imageEdit
+      ? Boolean(imageEdit.retryable)
+      : Boolean(retryable),
     failedAt: new Date()
   };
 }
@@ -4369,10 +4520,18 @@ async function requestWithRetry(url, options = {}, body = null, meta = {}) {
         body
       );
       const durationMs = Date.now() - startedAt;
-      const retryable = retryStatuses
-        ? retryStatuses.has(Number(response.status))
-        : shouldRetryStatus(response.status);
       const success = response.status >= 200 && response.status < 300;
+      const imageEditClassification = !success && meta.imageEdit
+        ? classifyImageEditResponse(response)
+        : null;
+      if (imageEditClassification) {
+        response.imageEditClassification = imageEditClassification;
+      }
+      const retryable = imageEditClassification
+        ? imageEditClassification.retryable
+        : (retryStatuses
+          ? retryStatuses.has(Number(response.status))
+          : shouldRetryStatus(response.status));
       const shouldRetry = !success && retryable && attempt < maxAttempts;
       if (!shouldRetry) {
         const billing = buildUsageBilling(
@@ -4402,7 +4561,14 @@ async function requestWithRetry(url, options = {}, body = null, meta = {}) {
         durationMs,
         endpoint: safeUrl(url),
         retryable,
-        imageGeneration
+        imageGeneration,
+        ...(imageEditClassification
+          ? {
+              imageEditErrorCode: imageEditClassification.code,
+              upstreamErrorCode: imageEditClassification.upstreamCode,
+              upstreamErrorMessage: imageEditClassification.upstreamMessage
+            }
+          : {})
       });
       if (!retryable || attempt >= maxAttempts) {
         if (retryable && attempt > 1) response.retryExhausted = true;
@@ -4480,8 +4646,18 @@ function upstreamError(response, fallback = "上游接口请求失败") {
   return error;
 }
 
-function imageUpstreamError(response, fallback = "生图接口请求失败") {
+function imageUpstreamError(response, fallback = "生图接口请求失败", options = {}) {
   const error = upstreamError(response, fallback);
+  if (options && options.imageEdit) {
+    const classification = response && response.imageEditClassification
+      ? response.imageEditClassification
+      : classifyImageEditResponse(response);
+    error.code = classification.code;
+    error.retryable = Boolean(classification.retryable);
+    error.imageEditClassification = classification;
+    error.message = imageEditErrorMessage(classification);
+    return error;
+  }
   const raw = [
     error.message,
     response && response.raw,
@@ -6166,6 +6342,20 @@ async function checkDeployment(event, context) {
   if (!isAdminContext(context)) return adminForbidden();
   const configs = await resolveEffectiveConfigs();
   const runtime = await loadAdminRuntimeConfig();
+  let imageEditEndpoint = {
+    url: "",
+    source: "invalid",
+    configured: false
+  };
+  try {
+    imageEditEndpoint = resolveImageEditEndpoint(configs.image);
+  } catch (error) {
+    log("warn", "admin.deployment.image-edit-endpoint-invalid", {
+      requestId: event && event.requestId,
+      errorCode: error && error.code,
+      message: error && error.message
+    });
+  }
   const faceReady = Boolean(
     configs.face.apiKey
     && (configs.face.baseUrl || configs.face.endpoint)
@@ -6203,6 +6393,13 @@ async function checkDeployment(event, context) {
       provider: configs.image.provider || "",
       model: configs.image.model || "",
       mode: configs.image.mode || DEFAULT_IMAGE_MODE,
+      generationEndpoint: safeEndpointUrl(
+        configs.image.baseUrl,
+        configs.image.endpoint,
+        "images/generations"
+      ),
+      editEndpoint: safeUrl(imageEditEndpoint.url),
+      editEndpointSource: imageEditEndpoint.source,
       apiKeyConfigured: Boolean(configs.image.apiKey)
     },
     video: {
@@ -7705,17 +7902,19 @@ async function requestImageEdits(
   const mainMime = detectMime(mainBuffer);
   const maskMime = detectMime(maskBuffer);
   const referenceField = env("AI_IMAGE_REFERENCE_FIELD", "image[]");
+  const mainField = env("AI_IMAGE_MAIN_FIELD", "image");
+  const maskField = env("AI_IMAGE_MASK_FIELD", "mask");
   const fields = buildImageEditFields(payload, imageConfig, references);
 
   const files = [
     {
-      name: env("AI_IMAGE_MAIN_FIELD", "image"),
+      name: mainField,
       filename: `main.${imageExtension(mainMime)}`,
       mime: mainMime,
       buffer: mainBuffer
     },
     {
-      name: env("AI_IMAGE_MASK_FIELD", "mask"),
+      name: maskField,
       filename: "mask.png",
       mime: maskMime,
       buffer: maskBuffer
@@ -7732,7 +7931,30 @@ async function requestImageEdits(
   });
 
   const multipart = createMultipart(fields, files);
-  const url = env("AI_IMAGE_EDIT_ENDPOINT") || endpoint(imageConfig.baseUrl, "images/edits");
+  const endpointInfo = resolveImageEditEndpoint(imageConfig);
+  const url = endpointInfo.url;
+  const multipartSummary = imageEditMultipartSummary(
+    fields,
+    files,
+    mainField,
+    maskField
+  );
+  log("info", "image-edit.request", {
+    requestId,
+    provider: imageConfig.provider || "",
+    model: imageConfig.model || "",
+    endpoint: safeUrl(url),
+    endpointSource: endpointInfo.source,
+    generationEndpoint: safeEndpointUrl(
+      imageConfig.baseUrl,
+      imageConfig.endpoint,
+      "images/generations"
+    ),
+    multipart: multipartSummary,
+    mainImagePresent: Boolean(mainBuffer && mainBuffer.length),
+    maskPresent: Boolean(maskBuffer && maskBuffer.length),
+    referenceCount: referenceBuffers.length
+  });
   const response = await requestWithRetry(url, {
     method: "POST",
     headers: {
@@ -7747,6 +7969,7 @@ async function requestImageEdits(
     provider: imageConfig.provider || "",
     model: imageConfig.model || "",
     imageGeneration: true,
+    imageEdit: true,
     allowRetry: imageConfig.retryEnabled,
     maxAttempts: imageConfig.retryEnabled ? imageConfig.maxRetries + 1 : 1,
     timeoutMs: imageConfig.timeoutMs,
@@ -7755,8 +7978,32 @@ async function requestImageEdits(
     imageResolution: imageConfig.resolution || payload.size
   });
   if (response.status < 200 || response.status >= 300) {
-    throw imageUpstreamError(response, "图片编辑接口请求失败");
+    const classification = response.imageEditClassification
+      || classifyImageEditResponse(response);
+    log("error", "image-edit.upstream-error", {
+      requestId,
+      provider: imageConfig.provider || "",
+      model: imageConfig.model || "",
+      endpoint: safeUrl(url),
+      status: response.status,
+      classification: classification.code,
+      upstreamCode: classification.upstreamCode,
+      upstreamMessage: classification.upstreamMessage,
+      retryable: classification.retryable,
+      multipart: multipartSummary
+    });
+    throw imageUpstreamError(response, "图片编辑接口请求失败", {
+      imageEdit: true
+    });
   }
+  log("info", "image-edit.success", {
+    requestId,
+    provider: imageConfig.provider || "",
+    model: imageConfig.model || "",
+    endpoint: safeUrl(url),
+    status: response.status,
+    multipart: multipartSummary
+  });
   return response.json || {};
 }
 
@@ -11633,7 +11880,8 @@ exports.main = async (event = {}, context) => {
     const status = Number(error && error.status) || null;
     const message = error && error.message ? error.message : String(error);
     let errorCode = error && error.code ? error.code : "server-error";
-    if (errorCode !== "retry-exhausted") {
+    const preserveSpecificCode = IMAGE_EDIT_ERROR_CODES.includes(errorCode);
+    if (errorCode !== "retry-exhausted" && !preserveSpecificCode) {
       if (status === 401 || status === 403) errorCode = "authentication-failed";
       else if (status === 429) errorCode = "rate-limited";
       else if (status >= 500) errorCode = "upstream-unavailable";
@@ -11664,7 +11912,8 @@ exports.main = async (event = {}, context) => {
     return fail(contextualMessage, errorCode, {
       requestId,
       status,
-      retryable: ["timeout", "rate-limited", "upstream-unavailable", "retry-exhausted"].includes(errorCode),
+      retryable: Boolean(error && error.retryable)
+        || ["timeout", "rate-limited", "upstream-unavailable", "retry-exhausted"].includes(errorCode),
       ...(modelType ? { modelType, modelTypeLabel } : {})
     });
   }
@@ -11695,6 +11944,10 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     resolveAnalysisConfig,
     normalizeApiKey,
     apiKeyHeaders,
+    resolveImageEditEndpoint,
+    classifyImageEditResponse,
+    imageEditErrorMessage,
+    imageEditMultipartSummary,
     imageUpstreamError,
     visionConfigForAction,
     resolveImageConfig,

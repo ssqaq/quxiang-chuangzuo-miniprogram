@@ -65,7 +65,11 @@ const GENERATION_ASSET_ERROR_MESSAGES = {
   PROJECT_STATE_CHANGED: "操作状态已变化，请重新圈选后再生成",
   MAIN_FILE_MISSING: "主图文件缺失，请重新上传后重试",
   MASK_FILE_MISSING: "红圈遮罩未生成，请重新圈选后重试",
-  "missing-edit-asset": "编辑素材不完整，请重新上传主图并圈选区域"
+  "missing-edit-asset": "编辑素材不完整，请重新上传主图并圈选区域",
+  "image-edit-unsupported": "当前图片编辑服务不支持红圈 mask 合成，请更换支持图片编辑的 VPS 或模型",
+  "image-edit-endpoint-invalid": "图片编辑接口地址配置无效，请检查 VPS 的 edits 地址",
+  "image-edit-model-unsupported": "当前图片编辑模型不支持 edits，请更换支持图片编辑的模型",
+  "image-edit-upstream-error": "图片编辑上游服务异常，请检查 provider、endpoint 和 model"
 };
 
 function createClientRequestId() {

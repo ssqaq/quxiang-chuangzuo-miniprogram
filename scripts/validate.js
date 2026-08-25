@@ -626,6 +626,13 @@ if (
 ) {
   throw new Error("四个模型配置区的字段中文名称或 Endpoint 删除不完整。");
 }
+const adminApiKeyInputs = adminWxml.match(/<input[^>]*data-key="apiKey"[^>]*>/g) || [];
+if (
+  adminApiKeyInputs.length !== 4
+  || adminApiKeyInputs.some((input) => /\bpassword\b/.test(input))
+) {
+  throw new Error("四个 API Key 输入框必须统一使用明文显示。");
+}
 if (
   !clientCloudJs.includes('action: "getModelUsageStats"')
   || !adminJs.includes("cloud.getModelUsageStats(30)")

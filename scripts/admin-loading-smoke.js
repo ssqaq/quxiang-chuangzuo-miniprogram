@@ -282,6 +282,8 @@ async function main() {
   assert.strictEqual(page.data.modelPickerSearch, "MODEL-B");
   page.clearModelPickerSearch();
   assert.deepStrictEqual(page.data.modelPickerOptions.map((item) => item.value), [
+    "model-2",
+    "model-10",
     "model-a",
     "model-b"
   ]);

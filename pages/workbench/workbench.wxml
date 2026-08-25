@@ -187,7 +187,7 @@
     hover-start-time="0"
     hover-stay-time="70"
   >
-    <view class="media-parser-icon">析</view>
+    <view class="media-parser-icon">印</view>
     <view class="media-parser-copy">
       <view class="media-parser-title">免费去水印</view>
       <view class="media-parser-description">版权归平台，程序不储存任何内容</view>

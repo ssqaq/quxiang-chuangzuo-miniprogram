@@ -17,7 +17,7 @@ assert.ok(
     'class="card media-parser-entry common-feature-row home-feature-card workbench-link-card"'
   )
 );
-assert.ok(wxml.includes('<view class="media-parser-icon">析</view>'));
+assert.ok(wxml.includes('<view class="media-parser-icon">印</view>'));
 assert.ok(wxml.includes('<view class="media-parser-title">免费去水印</view>'));
 assert.ok(
   wxml.includes(

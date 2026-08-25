@@ -42,10 +42,13 @@ const usageAlignmentBlock = wxss.slice(usageAlignmentStart);
   ".usage-primary-actions > .usage-export-button,\n.usage-failure-actions > .model-failure-export-button",
   "flex: 0 0 176rpx",
   ".usage-primary-actions > .monitor-section-toggle-button,\n.usage-failure-actions > .usage-subsection-toggle",
-  "flex: 0 0 96rpx",
-  "height: 54rpx",
+  "flex: 0 0 116rpx",
+  "height: 60rpx",
   "font-size: 20rpx",
-  "border-radius: 14rpx"
+  "border-radius: 16rpx",
+  "gap: 8rpx",
+  ".monitor-section-toggle-button,\n.usage-subsection-toggle",
+  "border: 1rpx solid #bcd3f6"
 ].forEach((marker) => {
   assert.ok(usageAlignmentBlock.includes(marker), `用量/失败情况对齐规则缺少：${marker}`);
 });

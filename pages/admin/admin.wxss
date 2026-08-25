@@ -4683,13 +4683,13 @@ page {
 .usage-primary-actions > .monitor-section-toggle-button,
 .usage-failure-actions > .usage-subsection-toggle {
   box-sizing: border-box;
-  flex: 0 0 96rpx;
-  width: 96rpx;
-  min-width: 96rpx;
-  height: 54rpx;
-  min-height: 54rpx;
-  padding: 0 12rpx;
-  gap: 5rpx;
+  flex: 0 0 116rpx;
+  width: 116rpx;
+  min-width: 116rpx;
+  height: 60rpx;
+  min-height: 60rpx;
+  padding: 0 14rpx;
+  gap: 8rpx;
   font-size: 20rpx;
   font-weight: 800;
 }
@@ -4701,7 +4701,10 @@ page {
 .usage-failure-actions > .model-failure-export-button,
 .usage-failure-actions > .usage-subsection-toggle {
   margin: 0;
-  border-radius: 14rpx;
+  border-color: #bcd3f6;
+  border-radius: 16rpx;
+  color: #246ee9;
+  background: #edf4ff;
   font-size: 20rpx;
   font-weight: 800;
   line-height: 1;
@@ -4714,7 +4717,7 @@ page {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0 8rpx;
+  padding: 0 14rpx;
 }
 
 .usage-failure-actions > picker {
@@ -4763,8 +4766,39 @@ page {
   }
 
   .usage-primary-actions > .monitor-section-toggle-button {
-    flex: 0 0 96rpx;
-    width: 96rpx;
-    min-width: 96rpx;
+    flex: 0 0 116rpx;
+    width: 116rpx;
+    min-width: 116rpx;
   }
+}
+
+/* 所有“展开/收起”控件统一复用运行监控的视觉规格。 */
+.monitor-section-toggle-button,
+.usage-subsection-toggle {
+  box-sizing: border-box;
+  width: 116rpx;
+  min-width: 116rpx;
+  height: 60rpx;
+  min-height: 60rpx;
+  padding: 0 14rpx;
+  gap: 8rpx;
+  border: 1rpx solid #bcd3f6;
+  border-radius: 16rpx;
+  color: #246ee9;
+  background: #edf4ff;
+  font-size: 20rpx;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.monitor-section-chevron,
+.usage-subsection-chevron {
+  display: inline-flex;
+  min-width: 20rpx;
+  min-height: 20rpx;
+  align-items: center;
+  justify-content: center;
+  font-size: 26rpx;
+  line-height: 1;
 }

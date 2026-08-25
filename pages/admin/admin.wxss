@@ -542,7 +542,7 @@ page {
   width: 100%;
   min-height: 88rpx;
   margin: 22rpx 0 0;
-  padding: 18rpx 22rpx;
+  padding: 18rpx 24rpx;
   align-items: center;
   justify-content: space-between;
   gap: 20rpx;
@@ -571,13 +571,6 @@ page {
   color: #7d8a9e;
   font-size: 18rpx;
   line-height: 27rpx;
-}
-
-.monitor-toggle-arrow {
-  flex: none;
-  color: #6480a8;
-  font-size: 34rpx;
-  line-height: 40rpx;
 }
 
 .monitor-content {
@@ -617,44 +610,6 @@ page {
   font-weight: 700;
   line-height: 1;
   white-space: nowrap;
-}
-
-.monitor-filter-button {
-  display: flex;
-  min-width: 100rpx;
-  min-height: 52rpx;
-  padding: 0 12rpx;
-  align-items: center;
-  justify-content: center;
-  border: 1rpx solid #ead9ad;
-  border-radius: 14rpx;
-  color: #8c6a21;
-  background: #fffaf0;
-  font-size: 18rpx;
-  font-weight: 700;
-  line-height: 1;
-  white-space: nowrap;
-}
-
-.monitor-filter-button.is-active {
-  border-color: #c7424e;
-  color: #ffffff;
-  background: #c7424e;
-}
-
-.monitor-toggle-arrow {
-  display: flex;
-  width: 48rpx;
-  min-height: 52rpx;
-  align-items: center;
-  justify-content: center;
-  border: 1rpx solid #dbe5f2;
-  border-radius: 14rpx;
-  color: #2869d7;
-  background: #ffffff;
-  font-size: 30rpx;
-  font-weight: 800;
-  line-height: 1;
 }
 
 .monitor-overview-card {
@@ -919,10 +874,6 @@ page {
 
   .monitor-all-button {
     min-width: 78rpx;
-  }
-
-  .monitor-toggle-arrow {
-    width: 44rpx;
   }
 
   .monitor-overview-card {
@@ -3564,6 +3515,7 @@ page {
   align-items: flex-start;
   justify-content: space-between;
   gap: 14rpx;
+  font-size: 22rpx;
 }
 
 .auto-face-probe-history-top view {
@@ -3575,13 +3527,13 @@ page {
 
 .auto-face-probe-history-time {
   color: #7a879a;
-  font-size: 19rpx;
+  font-size: 22rpx;
 }
 
 .auto-face-probe-history-duration {
   flex: none;
   color: #2f659d;
-  font-size: 20rpx;
+  font-size: 22rpx;
   font-weight: 700;
 }
 
@@ -3590,8 +3542,8 @@ page {
   margin-top: 6rpx;
   overflow: hidden;
   color: #7a879a;
-  font-size: 19rpx;
-  line-height: 28rpx;
+  font-size: 20rpx;
+  line-height: 30rpx;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -4030,7 +3982,6 @@ page {
 .usage-export-button,
 .monitor-section-toggle-button,
 .monitor-all-button,
-.monitor-filter-button,
 .usage-subsection-toggle,
 .model-probe-single-button {
   border-radius: var(--admin-radius-control);

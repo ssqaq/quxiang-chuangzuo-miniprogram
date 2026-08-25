@@ -316,7 +316,7 @@
         {{usageStats.message}}
       </view>
 
-      <view wx:if="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData) && !monitorOnlyAbnormal}}" class="usage-summary-grid">
+      <view wx:if="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData)}}" class="usage-summary-grid">
         <view class="usage-summary-item">
           <text>今天</text>
           <text>{{usageStats.today.total}}</text>
@@ -334,7 +334,7 @@
         </view>
       </view>
 
-      <view wx:if="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData) && !monitorOnlyAbnormal}}" class="usage-cost-summary">
+      <view wx:if="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData)}}" class="usage-cost-summary">
         <view class="usage-cost-item">
           <text>今日预计成本</text>
           <text>¥{{usageStats.today.estimatedCostDisplay}}</text>
@@ -355,7 +355,7 @@
         </view>
       </view>
 
-      <view wx:if="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData) && !monitorOnlyAbnormal}}" class="usage-type-grid">
+      <view wx:if="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData)}}" class="usage-type-grid">
         <view wx:for="{{usageStats.cards}}" wx:key="key" class="usage-type-card usage-type-{{item.key}}">
           <view class="usage-type-top">
             <view class="usage-type-icon">{{item.icon}}</view>
@@ -483,7 +483,7 @@
       </view>
 
       <view
-        wx:if="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData) && !monitorOnlyAbnormal}}"
+        wx:if="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData)}}"
         class="usage-collapsed-statistics-card"
       >
         <view class="usage-subsection-head">
@@ -501,7 +501,7 @@
           </view>
         </view>
       <view
-        wx:if="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData) && !monitorOnlyAbnormal && usageSections.models}}"
+        wx:if="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData) && usageSections.models}}"
         class="usage-subsection-body"
       >
       <view wx:if="{{usageStats.models.length}}" class="usage-model-list">
@@ -537,7 +537,7 @@
           </view>
         </view>
       <view
-        wx:if="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData) && !monitorOnlyAbnormal && usageSections.users}}"
+        wx:if="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData) && usageSections.users}}"
         class="usage-subsection-body"
       >
       <view wx:if="{{usageStats.users.length}}" class="usage-user-list">
@@ -574,7 +574,7 @@
           </view>
         </view>
       <view
-        wx:if="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData) && !monitorOnlyAbnormal && usageSections.monthly}}"
+        wx:if="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData) && usageSections.monthly}}"
         class="usage-subsection-body"
       >
       <scroll-view wx:if="{{usageStats.monthly.length}}" class="usage-monthly-list" scroll-y>
@@ -610,7 +610,7 @@
           </view>
         </view>
       <view
-        wx:if="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData) && !monitorOnlyAbnormal && usageSections.daily}}"
+        wx:if="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData) && usageSections.daily}}"
         class="usage-subsection-body"
       >
       <scroll-view wx:if="{{usageStats.daily.length}}" class="usage-daily-list" scroll-y>
@@ -1097,30 +1097,10 @@
         </view>
       </view>
       <view class="monitor-toggle-actions">
-        <view
-          class="monitor-filter-button {{monitorOnlyAbnormal ? 'is-active' : ''}}"
-          catchtap="toggleMonitorOnlyAbnormal"
-          hover-class="control-tap"
-          role="button"
-          aria-label="{{monitorOnlyAbnormal ? '查看全部监控内容' : '只看异常内容'}}"
-        >{{monitorOnlyAbnormal ? '看全部' : '只看异常'}}</view>
-        <view
-          class="monitor-all-button"
-          data-expanded="1"
-          catchtap="setAllMonitorSections"
-          hover-class="control-tap"
-          role="button"
-          aria-label="全部展开监控模块"
-        >全展开</view>
-        <view
-          class="monitor-all-button"
-          data-expanded="0"
-          catchtap="setAllMonitorSections"
-          hover-class="control-tap"
-          role="button"
-          aria-label="全部收起监控模块"
-        >全收起</view>
-        <text class="monitor-toggle-arrow">{{monitorExpanded ? '⌃' : '⌄'}}</text>
+        <view class="monitor-section-toggle-button">
+          <text>{{monitorExpanded ? '收起' : '展开'}}</text>
+          <text class="monitor-section-chevron {{monitorExpanded ? 'is-open' : ''}}">⌄</text>
+        </view>
       </view>
     </view>
 

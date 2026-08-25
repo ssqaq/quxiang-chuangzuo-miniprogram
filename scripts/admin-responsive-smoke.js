@@ -7,6 +7,7 @@ const path = require("path");
 const root = path.resolve(__dirname, "..");
 const wxss = fs.readFileSync(path.join(root, "pages/admin/admin.wxss"), "utf8");
 const wxml = fs.readFileSync(path.join(root, "pages/admin/admin.wxml"), "utf8");
+const adminJs = fs.readFileSync(path.join(root, "pages/admin/admin.js"), "utf8");
 
 function mediaBlock(startMarker, endMarker) {
   const start = wxss.indexOf(startMarker);
@@ -22,6 +23,13 @@ assert.ok(wxss.includes("border-radius: var(--admin-radius-control)"), "操作�
 assert.ok(wxml.includes("class=\"quick-launch-grid\""), "快捷入口结构缺失");
 assert.ok(wxml.includes("class=\"monitor-section-toggle-button\""), "展开按钮结构缺失");
 assert.ok(!wxml.includes("class=\"usage-secondary-actions\""), "模型用量顶部仍然存在多余辅助按钮组");
+assert.ok(wxml.includes("class=\"monitor-toggle-actions\""), "运行监控操作区缺失");
+assert.ok(!wxml.includes("monitor-filter-button"), "运行监控仍保留异常筛选按钮");
+assert.ok(!wxml.includes("setAllMonitorSections"), "运行监控仍保留全部展开/收起事件");
+assert.ok(!wxml.includes("monitor-toggle-arrow"), "运行监控仍保留旧箭头结构");
+assert.ok(!adminJs.includes("monitorOnlyAbnormal"), "异常筛选状态仍残留");
+assert.ok(!adminJs.includes("setAllMonitorSections"), "全部展开/收起方法仍残留");
+assert.ok(!adminJs.includes("toggleMonitorOnlyAbnormal"), "异常筛选方法仍残留");
 
 const usageAlignmentStart = wxss.indexOf("/* 模型用量统计与失败情况的三项操作按同一组基准线对齐。 */");
 assert.notStrictEqual(usageAlignmentStart, -1, "缺少模型用量与失败情况的统一对齐规则");

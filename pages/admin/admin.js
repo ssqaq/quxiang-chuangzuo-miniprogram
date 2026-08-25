@@ -1910,8 +1910,7 @@ Page({
     },
     usageSections: defaultUsageSections(),
     autoFaceFailureSections: defaultAutoFaceFailureSections(),
-    deploymentSections: defaultDeploymentSections(),
-    monitorOnlyAbnormal: false
+    deploymentSections: defaultDeploymentSections()
   },
 
   onLoad() {
@@ -2127,7 +2126,7 @@ Page({
           offset: 0,
           limit: 20,
           hours: this.data.diagnosticHours,
-          level: this.data.monitorOnlyAbnormal ? "abnormal" : this.data.diagnosticLevel,
+          level: this.data.diagnosticLevel,
           category: this.data.diagnosticCategory,
           userHash: this.data.diagnosticUserHash
         }),
@@ -2655,7 +2654,7 @@ Page({
         offset: offset || 0,
         limit: 20,
         hours: this.data.diagnosticHours,
-        level: this.data.monitorOnlyAbnormal ? "abnormal" : this.data.diagnosticLevel,
+        level: this.data.diagnosticLevel,
         category: this.data.diagnosticCategory,
         userHash: this.data.diagnosticUserHash
       }),
@@ -2810,7 +2809,7 @@ Page({
           offset: 0,
           limit: 20,
           hours: this.data.diagnosticHours,
-          level: this.data.monitorOnlyAbnormal ? "abnormal" : this.data.diagnosticLevel,
+          level: this.data.diagnosticLevel,
           category: this.data.diagnosticCategory,
           userHash: this.data.diagnosticUserHash
         }),
@@ -3032,25 +3031,6 @@ Page({
     }, () => this.persistMonitorLayout());
   },
 
-  setAllMonitorSections(event) {
-    const expanded = Number(
-      event && event.currentTarget && event.currentTarget.dataset
-        ? event.currentTarget.dataset.expanded
-        : 0
-    ) === 1;
-    const patch = {};
-    MONITOR_SECTION_KEYS.forEach((section) => {
-      patch[`monitorSections.${section}`] = expanded;
-    });
-    AUTO_FACE_FAILURE_SECTION_KEYS.forEach((section) => {
-      patch[`autoFaceFailureSections.${section}`] = expanded;
-    });
-    DEPLOYMENT_SECTION_KEYS.forEach((section) => {
-      patch[`deploymentSections.${section}`] = expanded;
-    });
-    this.setData(patch, () => this.persistMonitorLayout());
-  },
-
   setAllUsageSections(event) {
     const expanded = Number(
       event && event.currentTarget && event.currentTarget.dataset
@@ -3122,8 +3102,7 @@ Page({
       activeConfigSection: storedActiveConfigSection,
       activeConfigTitle: storedActiveConfigSection
         ? CONFIG_SECTION_TITLES[storedActiveConfigSection]
-        : "",
-      monitorOnlyAbnormal: Boolean(stored.monitorOnlyAbnormal)
+        : ""
     });
   },
 
@@ -3172,8 +3151,7 @@ Page({
         deploymentSections: Object.assign({}, this.data.deploymentSections),
         activeConfigSection: CONFIG_SECTION_TITLES[this.data.activeConfigSection]
           ? this.data.activeConfigSection
-          : "",
-        monitorOnlyAbnormal: Boolean(this.data.monitorOnlyAbnormal)
+          : ""
       });
     } catch (error) {
       // 本地缓存不可用时不影响管理页继续使用。
@@ -3254,19 +3232,6 @@ Page({
           duration: 220
         });
       }
-    });
-  },
-
-  toggleMonitorOnlyAbnormal() {
-    this.setData({
-      monitorOnlyAbnormal: !this.data.monitorOnlyAbnormal,
-      monitorExpanded: true,
-      "monitorSections.diagnosticLogs": true,
-      usageExpanded: true,
-      "usageSections.failure": true
-    }, () => {
-      this.persistMonitorLayout();
-      this.refreshDiagnosticLogs(true);
     });
   },
 

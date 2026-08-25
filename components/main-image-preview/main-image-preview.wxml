@@ -1,0 +1,29 @@
+<view wx:if="{{visible}}" class="main-image-preview-card">
+  <view
+    class="main-image-preview-viewport"
+    style="width: {{viewportWidth}}px; height: {{viewportHeight}}px;"
+    catchtouchstart="onTouchStart"
+    catchtouchmove="onTouchMove"
+    catchtouchend="onTouchEnd"
+    catchtouchcancel="onTouchCancel"
+    catchtap="onPreviewTap"
+  >
+    <view
+      class="main-image-preview-stage"
+      style="width: {{viewportWidth}}px; height: {{viewportHeight}}px; transform: translate({{offsetX}}px, {{offsetY}}px) scale({{scale}});"
+    >
+      <image
+        wx:if="{{imagePath && !loadError}}"
+        class="main-image-preview-image"
+        src="{{imagePath}}"
+        mode="scaleToFill"
+        style="width: {{viewportWidth}}px; height: {{viewportHeight}}px;"
+        binderror="onImageError"
+      ></image>
+      <view wx:else class="main-image-preview-placeholder">
+        {{imagePath ? '图片加载失败' : '暂无图片'}}
+      </view>
+    </view>
+  </view>
+  <view class="main-image-preview-tip">{{hintText}}</view>
+</view>

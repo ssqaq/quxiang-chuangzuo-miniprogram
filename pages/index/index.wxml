@@ -142,7 +142,7 @@
             </view>
           </view>
         </view>
-        <textarea class="asset-note" data-index="{{index}}" value="{{item.note}}" maxlength="-1" placeholder="备注：正脸、妆容、肤色等" bindinput="onFaceNoteInput"></textarea>
+        <textarea class="asset-note" data-index="{{index}}" value="{{item.note}}" maxlength="-1" auto-height="{{true}}" adjust-position="{{true}}" cursor-spacing="24" placeholder="备注：正脸、妆容、肤色等" bindinput="onFaceNoteInput"></textarea>
       </view>
     </view>
 
@@ -171,7 +171,7 @@
             </view>
           </view>
         </view>
-        <textarea class="asset-note" data-index="{{index}}" value="{{item.note}}" maxlength="-1" placeholder="备注：颜色、材质、保留细节" bindinput="onWardrobeNoteInput"></textarea>
+        <textarea class="asset-note" data-index="{{index}}" value="{{item.note}}" maxlength="-1" auto-height="{{true}}" adjust-position="{{true}}" cursor-spacing="24" placeholder="备注：颜色、材质、保留细节" bindinput="onWardrobeNoteInput"></textarea>
       </view>
     </view>
 
@@ -188,7 +188,7 @@
             </view>
           </view>
         </view>
-        <textarea class="asset-note" data-index="{{index}}" value="{{item.note}}" maxlength="-1" placeholder="备注：空间、材质、色调、氛围" bindinput="onBackgroundNoteInput"></textarea>
+        <textarea class="asset-note" data-index="{{index}}" value="{{item.note}}" maxlength="-1" auto-height="{{true}}" adjust-position="{{true}}" cursor-spacing="24" placeholder="备注：空间、材质、色调、氛围" bindinput="onBackgroundNoteInput"></textarea>
       </view>
     </view>
   </view>
@@ -252,15 +252,15 @@
       </view>
     </view>
     <view class="field-label">场景</view>
-    <textarea class="textarea compact-area" data-field="sceneDescription" value="{{project.sceneDescription}}" placeholder="请描述原图的场景地点、背景环境、时间氛围、拍摄设备感、图片画质、是否手机拍摄、是否普通生活照，以及哪些场景内容必须保持原样。" bindinput="onDescriptionInput"></textarea>
+    <textarea class="textarea compact-area" data-field="sceneDescription" value="{{project.sceneDescription}}" maxlength="-1" auto-height="{{true}}" adjust-position="{{true}}" cursor-spacing="24" placeholder="请描述原图的场景地点、背景环境、时间氛围、拍摄设备感、图片画质、是否手机拍摄、是否普通生活照，以及哪些场景内容必须保持原样。" bindinput="onDescriptionInput"></textarea>
     <view class="field-label">姿态</view>
-    <textarea class="textarea compact-area" data-field="poseDescription" value="{{project.poseDescription}}" placeholder="请描述原图中人物的身体姿势、手部动作、头部角度、肩颈姿态、与镜头距离、身体朝向，并说明原动作和红圈外身体部分需要完全不变。" bindinput="onDescriptionInput"></textarea>
+    <textarea class="textarea compact-area" data-field="poseDescription" value="{{project.poseDescription}}" maxlength="-1" auto-height="{{true}}" adjust-position="{{true}}" cursor-spacing="24" placeholder="请描述原图中人物的身体姿势、手部动作、头部角度、肩颈姿态、与镜头距离、身体朝向，并说明原动作和红圈外身体部分需要完全不变。" bindinput="onDescriptionInput"></textarea>
     <view class="field-label">面部朝向</view>
-    <textarea class="textarea compact-area" data-field="faceDirectionDescription" value="{{project.faceDirectionDescription}}" placeholder="请描述原图中红圈内原先的面部朝向、头部角度、眼神方向、视线落点、表情情绪、嘴唇状态和眉眼状态；替换后仍要匹配这些原图条件。" bindinput="onDescriptionInput"></textarea>
+    <textarea class="textarea compact-area" data-field="faceDirectionDescription" value="{{project.faceDirectionDescription}}" maxlength="-1" auto-height="{{true}}" adjust-position="{{true}}" cursor-spacing="24" placeholder="请描述原图中红圈内原先的面部朝向、头部角度、眼神方向、视线落点、表情情绪、嘴唇状态和眉眼状态；替换后仍要匹配这些原图条件。" bindinput="onDescriptionInput"></textarea>
     <view class="field-label">光影、妆容与画质</view>
-    <textarea class="textarea compact-area" data-field="lightingMakeupDescription" value="{{project.lightingMakeupDescription}}" placeholder="请具体描述原图红圈内面部光影：光线颜色/色温，来自画面哪一侧，落在额头、鼻梁、脸颊、下巴等位置；阴影在眼窝、鼻翼、下颌或颈部哪里，高光和肤色反射如何；同时写妆容浓淡、皮肤纹理、清晰度、噪点、压缩痕迹和普通手机拍摄画质。" bindinput="onDescriptionInput"></textarea>
+    <textarea class="textarea compact-area" data-field="lightingMakeupDescription" value="{{project.lightingMakeupDescription}}" maxlength="-1" auto-height="{{true}}" adjust-position="{{true}}" cursor-spacing="24" placeholder="请具体描述原图红圈内面部光影：光线颜色/色温，来自画面哪一侧，落在额头、鼻梁、脸颊、下巴等位置；阴影在眼窝、鼻翼、下颌或颈部哪里，高光和肤色反射如何；同时写妆容浓淡、皮肤纹理、清晰度、噪点、压缩痕迹和普通手机拍摄画质。" bindinput="onDescriptionInput"></textarea>
     <view class="field-label">背景</view>
-    <textarea class="textarea compact-area" data-field="backgroundDescription" value="{{project.backgroundDescription}}" placeholder="请描述需要保留或参考的背景环境：场景地点、空间层次、墙面或地面材质、主色调、光线氛围，以及背景中必须保持不变的内容。" bindinput="onDescriptionInput"></textarea>
+    <textarea class="textarea compact-area" data-field="backgroundDescription" value="{{project.backgroundDescription}}" maxlength="-1" auto-height="{{true}}" adjust-position="{{true}}" cursor-spacing="24" placeholder="请描述需要保留或参考的背景环境：场景地点、空间层次、墙面或地面材质、主色调、光线氛围，以及背景中必须保持不变的内容。" bindinput="onDescriptionInput"></textarea>
     <view class="lock-panel">
       <view class="lock-panel-head">
         <view class="lock-panel-copy" bindtap="toggleLockPanel">
@@ -295,6 +295,9 @@
           class="textarea custom-lock-area"
           value="{{customLockText}}"
           maxlength="500"
+          auto-height="{{true}}"
+          adjust-position="{{true}}"
+          cursor-spacing="24"
           placeholder="添加其他要保留的内容，例如：手机壳、耳环、衣领。每行填写一项。"
           bindinput="onCustomLockInput"
         ></textarea>

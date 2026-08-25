@@ -83,6 +83,7 @@ const jsFiles = [
   "scripts/canvas-gesture-smoke.js",
   "scripts/index-canvas-touch-smoke.js",
   "scripts/page-scroll-lock-smoke.js",
+  "scripts/real-device-textarea-smoke.js",
   "scripts/circle-gesture-smoke.js",
   "scripts/auto-face-fallback-smoke.js",
   "scripts/cloud-error-propagation-smoke.js",

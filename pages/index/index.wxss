@@ -364,7 +364,6 @@
 .asset-note {
   display: block;
   width: 100%;
-  height: 104rpx;
   min-height: 104rpx;
   margin-top: 12rpx;
   padding: 12rpx 14rpx;
@@ -406,7 +405,6 @@
 }
 
 .compact-area {
-  height: 230rpx;
   min-height: 230rpx;
   line-height: 38rpx;
 }
@@ -539,7 +537,6 @@
 }
 
 .custom-lock-area {
-  height: 180rpx;
   min-height: 180rpx;
   margin-top: 18rpx;
   line-height: 38rpx;

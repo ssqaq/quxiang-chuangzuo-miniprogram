@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.39.1";
-const API_BUILD_MARKER = "API_BUILD_TAG_20260825_ZHUCEKA_PROVIDER_M0390";
+const API_BUILD_VERSION = "0.39.2";
+const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0392";
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
 const cloud = require("wx-server-sdk");

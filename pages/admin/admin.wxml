@@ -124,6 +124,17 @@
         <view class="quick-launch-state">{{entryHealth.video.label}}</view>
       </view>
       <view
+        class="quick-launch quick-usage {{usageExpanded ? 'is-active' : ''}} {{entryHealth.usage.abnormal ? 'is-abnormal' : ''}}"
+        bindtap="jumpToUsageSection"
+        hover-class="control-tap"
+        role="button"
+        aria-label="打开模型用量统计"
+      >
+        <view class="quick-launch-icon">量</view>
+        <view class="quick-launch-name">用量</view>
+        <view class="quick-launch-state">{{entryHealth.usage.label}}</view>
+      </view>
+      <view
         class="quick-launch quick-points {{activeConfigSection === 'points' ? 'is-active' : ''}} {{entryHealth.points.abnormal ? 'is-abnormal' : ''}}"
         data-section="points"
         bindtap="toggleConfigSection"
@@ -158,17 +169,6 @@
         <view class="quick-launch-icon">人</view>
         <view class="quick-launch-name">用户</view>
         <view class="quick-launch-state">{{entryHealth.users.label}}</view>
-      </view>
-      <view
-        class="quick-launch quick-usage {{usageExpanded ? 'is-active' : ''}} {{entryHealth.usage.abnormal ? 'is-abnormal' : ''}}"
-        bindtap="jumpToUsageSection"
-        hover-class="control-tap"
-        role="button"
-        aria-label="打开模型用量统计"
-      >
-        <view class="quick-launch-icon">量</view>
-        <view class="quick-launch-name">用量</view>
-        <view class="quick-launch-state">{{entryHealth.usage.label}}</view>
       </view>
     </view>
 

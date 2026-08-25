@@ -57,6 +57,16 @@ const GENERATION_PHASES = [
   { key: "generate", label: "AI生成" },
   { key: "save", label: "保存记录" }
 ];
+const GENERATION_ASSET_ERROR_MESSAGES = {
+  MAIN_IMAGE_MISSING: "主图缺失，请重新上传",
+  MASK_CIRCLE_MISSING: "请先在主图上圈选区域",
+  MASK_EXPORT_FAILED: "红圈导出失败，请重试",
+  MASK_UPLOAD_FAILED: "红圈上传失败，请检查网络后重试",
+  PROJECT_STATE_CHANGED: "操作状态已变化，请重新圈选后再生成",
+  MAIN_FILE_MISSING: "主图文件缺失，请重新上传后重试",
+  MASK_FILE_MISSING: "红圈遮罩未生成，请重新圈选后重试",
+  "missing-edit-asset": "编辑素材不完整，请重新上传主图并圈选区域"
+};
 
 function createClientRequestId() {
   return `mini-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
@@ -208,6 +218,63 @@ function assetIdentity(asset) {
     asset.width || 0,
     asset.height || 0
   ].join("|");
+}
+
+function getStableMainImageKey(image) {
+  if (!image || typeof image !== "object") return "";
+  const stableKey = String(image.stableKey || "").trim();
+  if (stableKey) return stableKey;
+  const path = String(image.path || "").trim();
+  if (path) return path;
+  return [
+    image.originalName || image.name || "",
+    image.originalSize || image.size || 0,
+    image.originalWidth || image.width || 0,
+    image.originalHeight || image.height || 0
+  ].join("|");
+}
+
+function serializeMaskCircle(circle) {
+  if (!circle || typeof circle !== "object") return "";
+  try {
+    return JSON.stringify(circle);
+  } catch (_) {
+    return String(circle);
+  }
+}
+
+function redactAssetID(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  return text.length <= 8 ? "***" : `…${text.slice(-8)}`;
+}
+
+function createGenerationAssetError(code, cause) {
+  const error = new Error(
+    GENERATION_ASSET_ERROR_MESSAGES[code] || String(code || "素材准备失败")
+  );
+  error.code = code;
+  if (cause) error.cause = cause;
+  return error;
+}
+
+function getGenerationErrorMessage(error, fallbackMessage) {
+  const payload = error && error.payload && typeof error.payload === "object"
+    ? error.payload
+    : {};
+  const code = String(
+    payload.errorCode
+      || payload.code
+      || (error && (error.code || error.errCode))
+      || ""
+  ).trim();
+  return GENERATION_ASSET_ERROR_MESSAGES[code]
+    || payload.message
+    || payload.error
+    || (error && error.errMsg)
+    || (error && error.message)
+    || fallbackMessage
+    || "请稍后重试";
 }
 
 function clone(value) {
@@ -1000,6 +1067,7 @@ Page({
       });
       const mainImage = {
         id: `main-${Date.now()}`,
+        stableKey: `main-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`,
         name: file.name || basename(file.tempFilePath),
         path: prepared.path,
         type: prepared.type,
@@ -1987,10 +2055,25 @@ Page({
   },
 
   validateStep(step) {
-    const project = this.data.project;
+    const project = this.data.project || {};
+    const faceRefs = Array.isArray(project.faceRefs) ? project.faceRefs : [];
+    if (step === 4) {
+      diagnosticLog.info("generation", "validate-step4", "开始检查生图素材", {
+        step: "validate",
+        hasMainImage: Boolean(project.mainImage),
+        hasMaskCircle: Boolean(project.maskCircle),
+        faceReferenceCount: faceRefs.length,
+        hasMaskFileID: Boolean(String(project.maskFileID || "").trim())
+      });
+    }
     if (step === 0 && !project.mainImage) return "请先上传主图";
     if (step === 1 && !project.maskCircle) return "请在主图上拖动圈选区域";
-    if (step === 2 && !project.faceRefs.length) return "至少添加 1 张人脸参考图";
+    if (step === 2 && !faceRefs.length) return "至少添加 1 张人脸参考图";
+    if (step === 4) {
+      if (!project.mainImage) return "请先上传主图";
+      if (!project.maskCircle) return "请先在主图上圈选区域";
+      if (!faceRefs.length) return "至少添加 1 张人脸参考图";
+    }
     return "";
   },
 
@@ -2144,32 +2227,129 @@ Page({
   },
 
   async prepareMaskAsset(project) {
-    if (!project || !project.mainImage || !project.maskCircle) return project;
-    if (project.maskFileID) return project;
-    const maskPath = await exportMaskFile(
-      this,
-      project.maskCircle,
-      project.mainImage.width,
-      project.mainImage.height
-    );
-    const uploaded = await this.ensureUploaded({
-      path: maskPath,
-      name: `${basename(project.mainImage.path)}-mask.png`,
-      type: "image/png",
-      width: project.mainImage.width,
-      height: project.mainImage.height,
-      compressionChecked: true,
-      isMask: true
-    }, "masks", { skipCompression: true });
-    project.maskFileID = uploaded.fileID;
+    diagnosticLog.info("upload", "mask-prepare-start", "开始准备红圈遮罩", {
+      step: "prepare-mask",
+      hasMainImage: Boolean(project && project.mainImage),
+      hasMaskCircle: Boolean(project && project.maskCircle),
+      hasMaskFileID: Boolean(project && String(project.maskFileID || "").trim()),
+      maskFileID: redactAssetID(project && project.maskFileID)
+    });
+    if (!project || !project.mainImage) {
+      const error = createGenerationAssetError("MAIN_IMAGE_MISSING");
+      diagnosticLog.warn("upload", "mask-prepare-blocked", "缺少主图，停止准备红圈遮罩", {
+        step: "prepare-mask",
+        code: error.code,
+        error
+      });
+      throw error;
+    }
+    if (!project.maskCircle) {
+      const error = createGenerationAssetError("MASK_CIRCLE_MISSING");
+      diagnosticLog.warn("upload", "mask-prepare-blocked", "缺少红圈，停止准备红圈遮罩", {
+        step: "prepare-mask",
+        code: error.code,
+        error
+      });
+      throw error;
+    }
+    const existingMaskFileID = String(project.maskFileID || "").trim();
+    if (existingMaskFileID) {
+      project.maskFileID = existingMaskFileID;
+      diagnosticLog.info("upload", "mask-prepare-reused", "复用当前红圈遮罩", {
+        step: "prepare-mask",
+        hasMaskFileID: true,
+        maskFileID: redactAssetID(existingMaskFileID)
+      });
+      return project;
+    }
+
+    let maskPath;
+    try {
+      maskPath = await exportMaskFile(
+        this,
+        project.maskCircle,
+        project.mainImage.width,
+        project.mainImage.height
+      );
+      diagnosticLog.info("upload", "mask-export-success", "红圈遮罩导出完成", {
+        step: "prepare-mask",
+        hasMaskPath: Boolean(maskPath),
+        hasMaskCircle: true
+      });
+      if (!maskPath) {
+        throw createGenerationAssetError("MASK_EXPORT_FAILED");
+      }
+    } catch (cause) {
+      const error = cause && cause.code === "MASK_EXPORT_FAILED"
+        ? cause
+        : createGenerationAssetError("MASK_EXPORT_FAILED", cause);
+      diagnosticLog.error("upload", "mask-export-failed", "红圈遮罩导出失败", {
+        step: "prepare-mask",
+        code: error.code,
+        error
+      });
+      throw error;
+    }
+
+    let uploaded;
+    try {
+      uploaded = await this.ensureUploaded({
+        path: maskPath,
+        name: `${basename(project.mainImage.path)}-mask.png`,
+        type: "image/png",
+        width: project.mainImage.width,
+        height: project.mainImage.height,
+        compressionChecked: true,
+        isMask: true
+      }, "masks", { skipCompression: true });
+    } catch (cause) {
+      const error = createGenerationAssetError("MASK_UPLOAD_FAILED", cause);
+      diagnosticLog.error("upload", "mask-upload-failed", "红圈遮罩上传失败", {
+        step: "prepare-mask",
+        code: error.code,
+        error
+      });
+      throw error;
+    }
+    const maskFileID = String(uploaded && uploaded.fileID || "").trim();
+    diagnosticLog.info("upload", "mask-upload-result", "红圈遮罩上传返回", {
+      step: "prepare-mask",
+      hasUploadedAsset: Boolean(uploaded),
+      hasMaskFileID: Boolean(maskFileID),
+      maskFileID: redactAssetID(maskFileID)
+    });
+    if (!maskFileID) {
+      const error = createGenerationAssetError("MASK_UPLOAD_FAILED");
+      diagnosticLog.error("upload", "mask-upload-empty", "红圈遮罩上传未返回 fileID", {
+        step: "prepare-mask",
+        code: error.code,
+        error
+      });
+      throw error;
+    }
+    project.maskFileID = maskFileID;
+    diagnosticLog.info("upload", "mask-prepare-success", "红圈遮罩准备完成", {
+      step: "prepare-mask",
+      hasMaskFileID: true,
+      maskFileID: redactAssetID(maskFileID)
+    });
     return project;
   },
 
   async prepareCloudAssets(options = {}) {
     const project = clone(options.project || this.data.project);
+    const snapshot = {
+      mainImageKey: getStableMainImageKey(project.mainImage),
+      maskCircle: serializeMaskCircle(project.maskCircle)
+    };
     diagnosticLog.info("upload", "assets-prepare-start", "开始准备云端素材", {
       step: "prepare-assets",
       includeMask: Boolean(options.includeMask),
+      hasMainImage: Boolean(project.mainImage),
+      hasMaskCircle: Boolean(project.maskCircle),
+      hasMaskFileID: Boolean(String(project.maskFileID || "").trim()),
+      mainFileID: redactAssetID(project.mainImage && project.mainImage.fileID),
+      maskFileID: redactAssetID(project.maskFileID),
       faceReferenceCount: project.faceRefs.length,
       wardrobeReferenceCount: project.wardrobeRefs.length,
       backgroundReferenceCount: project.backgroundRefs.length
@@ -2187,6 +2367,25 @@ Page({
     if (options.includeMask) {
       await this.prepareMaskAsset(project);
     }
+    const currentProject = this.data.project || {};
+    const currentMainImageKey = getStableMainImageKey(currentProject.mainImage);
+    const currentMaskCircle = serializeMaskCircle(currentProject.maskCircle);
+    if (
+      currentMainImageKey !== snapshot.mainImageKey
+      || currentMaskCircle !== snapshot.maskCircle
+    ) {
+      const error = createGenerationAssetError("PROJECT_STATE_CHANGED");
+      diagnosticLog.warn("upload", "assets-prepare-stale", "素材准备期间页面状态发生变化", {
+        step: "prepare-assets",
+        code: error.code,
+        snapshotHasMainImage: Boolean(snapshot.mainImageKey),
+        currentHasMainImage: Boolean(currentMainImageKey),
+        snapshotHasMaskCircle: Boolean(snapshot.maskCircle),
+        currentHasMaskCircle: Boolean(currentMaskCircle),
+        error
+      });
+      throw error;
+    }
     this.setData({ project });
     storage.saveProject(project);
     diagnosticLog.info("upload", "assets-prepare-success", "云端素材准备完成", {
@@ -2194,6 +2393,8 @@ Page({
       includeMask: Boolean(options.includeMask),
       mainUploaded: Boolean(project.mainImage && project.mainImage.fileID),
       maskUploaded: Boolean(project.maskFileID),
+      mainFileID: redactAssetID(project.mainImage && project.mainImage.fileID),
+      maskFileID: redactAssetID(project.maskFileID),
       faceReferenceCount: project.faceRefs.filter((item) => item.fileID).length,
       wardrobeReferenceCount: project.wardrobeRefs.filter((item) => item.fileID).length,
       backgroundReferenceCount: project.backgroundRefs.filter((item) => item.fileID).length
@@ -2388,6 +2589,36 @@ Page({
         wardrobeReferenceCount: project.wardrobeRefs.length,
         backgroundReferenceCount: project.backgroundRefs.length
       });
+      const mainFileID = String(project.mainImage && project.mainImage.fileID || "").trim();
+      const maskFileID = String(project.maskFileID || "").trim();
+      diagnosticLog.info("generation", "asset-gate", "生图前素材硬闸门检查完成", {
+        step: "generate",
+        requestId,
+        generationMode,
+        hasMainImage: Boolean(project.mainImage),
+        hasMaskCircle: Boolean(project.maskCircle),
+        hasMainFileID: Boolean(mainFileID),
+        hasMaskFileID: Boolean(maskFileID),
+        mainFileID: redactAssetID(mainFileID),
+        maskFileID: redactAssetID(maskFileID),
+        faceReferenceCount: project.faceRefs.length
+      });
+      if (!mainFileID) {
+        throw createGenerationAssetError("MAIN_FILE_MISSING");
+      }
+      if (generationMode === "edits" && !maskFileID) {
+        throw createGenerationAssetError("MASK_FILE_MISSING");
+      }
+      diagnosticLog.info("generation", "generate-call", "即将调用 cloud.generateImage", {
+        step: "generate",
+        requestId,
+        generationMode,
+        hasMainFileID: true,
+        hasMaskFileID: generationMode === "edits" ? true : Boolean(maskFileID),
+        mainFileID: redactAssetID(mainFileID),
+        maskFileID: redactAssetID(maskFileID),
+        faceReferenceCount: project.faceRefs.length
+      });
       const result = await cloud.generateImage(
         {
           generationType: "normal",
@@ -2395,8 +2626,8 @@ Page({
           projectName: project.projectName,
           prompt: submittedPrompt,
           negativePrompt: project.negativePrompt,
-          mainFileID: project.mainImage && project.mainImage.fileID,
-          maskFileID: project.maskFileID || "",
+          mainFileID,
+          maskFileID,
           maskGeometry: project.maskCircle || {},
           assetRegistrationVersion: 1,
           faceFileIDs: project.faceRefs.map((item) => item.fileID).filter(Boolean),
@@ -2556,10 +2787,7 @@ Page({
 
   showError(title, error) {
     const payload = error && error.payload;
-    const message = (payload && (payload.message || payload.error)) ||
-      (error && error.errMsg) ||
-      (error && error.message) ||
-      "请稍后重试";
+    const message = getGenerationErrorMessage(error, "请稍后重试");
     const requestId = payload && payload.requestId;
     diagnosticLog.error("page", "operation-failed", title, {
       requestId,

@@ -9,7 +9,6 @@
   padding: 12rpx 4rpx 22rpx;
 }
 
-.media-parser-kicker,
 .result-kicker {
   color: #5576c9;
   font-size: 20rpx;
@@ -18,7 +17,7 @@
 }
 
 .media-parser-heading {
-  margin-top: 12rpx;
+  margin-top: 0;
   color: #25334a;
   font-size: 48rpx;
   font-weight: 800;
@@ -34,8 +33,7 @@
 
 .input-card,
 .state-card,
-.result-card,
-.provider-card {
+.result-card {
   border: 1rpx solid #e5eaf2;
   border-radius: 24rpx;
   background: #ffffff;
@@ -44,7 +42,6 @@
 
 .section-label,
 .result-title,
-.provider-title,
 .state-title {
   color: #2d3c55;
   font-size: 28rpx;
@@ -53,7 +50,6 @@
 }
 
 .state-text,
-.provider-text,
 .result-hint {
   margin-top: 7rpx;
   color: #77859a;
@@ -177,8 +173,7 @@
   justify-content: space-between;
 }
 
-.result-heading-copy,
-.provider-copy {
+.result-heading-copy {
   min-width: 0;
 }
 
@@ -259,46 +254,8 @@
   background: #f4f6fa;
 }
 
-.provider-card {
-  display: flex;
-  align-items: flex-start;
-  margin-top: 18rpx;
-  padding: 18rpx 22rpx;
-}
-
-.provider-copy {
-  flex: 1;
-}
-
-.provider-dot {
-  flex: none;
-  width: 16rpx;
-  height: 16rpx;
-  margin: 10rpx 14rpx 0 0;
-  border-radius: 50%;
-}
-
-.provider-ready {
-  background: #39aa76;
-  box-shadow: 0 0 0 6rpx rgba(57, 170, 118, 0.12);
-}
-
-.provider-pending {
-  background: #d69b3f;
-  box-shadow: 0 0 0 6rpx rgba(214, 155, 63, 0.12);
-}
-
 .bottom-link {
   margin-top: 28rpx;
-  text-align: center;
-}
-
-.compliance-note {
-  margin-top: 18rpx;
-  padding: 0 8rpx;
-  color: #909cad;
-  font-size: 20rpx;
-  line-height: 32rpx;
   text-align: center;
 }
 

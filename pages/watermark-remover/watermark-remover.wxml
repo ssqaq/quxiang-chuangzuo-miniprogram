@@ -1,6 +1,5 @@
 <view class="media-parser-page">
   <view class="media-parser-hero">
-    <view class="media-parser-kicker">MEDIA PARSER</view>
     <view class="media-parser-heading">解析视频或图片</view>
     <view class="media-parser-subheading">粘贴平台分享链接或分享文本，实际支持范围以解析结果为准。</view>
   </view>
@@ -94,14 +93,5 @@
     <button class="secondary-btn reset-button" bindtap="resetResult">重新解析</button>
   </view>
 
-  <view wx:if="{{providerMessage}}" class="provider-card">
-    <view class="provider-dot {{providerReady ? 'provider-ready' : 'provider-pending'}}"></view>
-    <view class="provider-copy">
-      <view class="provider-title">{{providerTitle}}</view>
-      <view class="provider-text">{{providerMessage}}</view>
-    </view>
-  </view>
-
-  <view class="compliance-note">仅处理本人发布或已获授权的内容，请勿用于侵犯他人权益或绕过平台限制。</view>
   <view class="bottom-link" bindtap="backToWorkbench">返回工作台</view>
 </view>

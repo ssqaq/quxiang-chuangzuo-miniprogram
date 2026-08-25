@@ -389,6 +389,10 @@ function testPageMarkup() {
     path.join(root, "pages/watermark-remover/watermark-remover.wxml"),
     "utf8"
   );
+  const wxss = fs.readFileSync(
+    path.join(root, "pages/watermark-remover/watermark-remover.wxss"),
+    "utf8"
+  );
   assert.ok(pageJs.includes('action: "health"'));
   assert.ok(pageJs.includes('action: "parse"'));
   assert.ok(!pageJs.includes("localFallback"));
@@ -399,6 +403,12 @@ function testPageMarkup() {
   assert.ok(!wxml.includes("选择演示类型"));
   assert.ok(!wxml.includes("真实平台解析服务尚未接入"));
   assert.ok(!wxml.includes("MEDIA PARSER · M0"));
+  assert.ok(!wxml.includes("MEDIA PARSER"));
+  assert.ok(!wxml.includes("provider-card"));
+  assert.ok(!wxml.includes("仅处理本人发布或已获授权的内容"));
+  assert.ok(!wxss.includes(".media-parser-kicker"));
+  assert.ok(!wxss.includes(".provider-card"));
+  assert.ok(!wxss.includes(".compliance-note"));
 }
 
 async function main() {

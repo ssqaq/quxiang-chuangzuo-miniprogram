@@ -986,7 +986,6 @@ function formatAutoFaceProbeHistory(result) {
 
 function buildDashboardStatus(
   effective,
-  usageStats,
   autoFaceProbe,
   autoFaceProbeHistory
 ) {
@@ -1025,10 +1024,6 @@ function buildDashboardStatus(
     : latestHistory && latestHistory.durationText
       ? latestHistory.durationText.replace(/^云函数\s*/, "")
       : "未检查";
-  const todayFailure = Number(
-    usageStats && usageStats.today && usageStats.today.failure
-  ) || 0;
-
   if (!configReady) {
     return {
       tone: "warn",
@@ -1045,8 +1040,8 @@ function buildDashboardStatus(
   }
   if (probeStatus === "ok") {
     return {
-      tone: todayFailure > 0 ? "warn" : "ok",
-      title: todayFailure > 0 ? "运行正常，有失败" : "全部正常",
+      tone: "ok",
+      title: "全部正常",
       probeDurationText
     };
   }
@@ -2218,7 +2213,6 @@ Page({
       currentConfigModels: buildCurrentConfigModels(form),
       dashboardStatus: buildDashboardStatus(
         effective,
-        usageStats,
         autoFaceProbe,
         autoFaceProbeHistory
       ),
@@ -3565,7 +3559,6 @@ Page({
         autoFaceProbeHistory,
         dashboardStatus: buildDashboardStatus(
           this.data.effective,
-          this.data.usageStats,
           autoFaceProbe,
           autoFaceProbeHistory
         ),

@@ -684,6 +684,7 @@
       </view>
 
       <view
+        id="monitor-command-toggle"
         class="monitor-toggle {{monitorExpanded ? 'is-open' : ''}}"
       bindtap="toggleMonitor"
       hover-class="control-tap"
@@ -705,26 +706,16 @@
       </view>
     </view>
 
-    <view wx:if="{{monitorExpanded}}" class="monitor-content">
-      <view class="monitor-overview-card">
+    <view wx:if="{{monitorExpanded}}" class="monitor-content monitor-deep-command">
+      <view class="monitor-overview-card" data-tone="{{dashboardStatus.tone}}">
         <view class="monitor-overview-main">
           <view class="monitor-overview-kicker">系统运行概览</view>
           <view class="monitor-overview-title">{{dashboardStatus.title}}</view>
           <view class="monitor-overview-note">
-            下方可查看错误日志和部署记录；模型用量已放在“今天”下面。
+            错误、部署和探针状态集中在这里，点击数据可直接定位。
           </view>
         </view>
         <view class="monitor-overview-stats">
-          <view
-            class="monitor-overview-stat monitor-overview-stat-action"
-            catchtap="jumpToUsageSection"
-            hover-class="control-tap"
-            role="button"
-            aria-label="查看模型用量统计"
-          >
-            <text>今日成本</text>
-            <text class="monitor-overview-value">¥{{usageStats.today.estimatedCostDisplay}}</text>
-          </view>
           <view
             class="monitor-overview-stat monitor-overview-stat-action"
             data-section="diagnosticLogs"
@@ -747,14 +738,27 @@
             <text>部署记录</text>
             <text class="monitor-overview-value">{{logs.length}}</text>
           </view>
+          <view
+            class="monitor-overview-stat monitor-overview-stat-action"
+            catchtap="jumpToProbeHistory"
+            hover-class="control-tap"
+            role="button"
+            aria-label="查看探针历史"
+          >
+            <text>探针历史</text>
+            <text class="monitor-overview-value">{{autoFaceProbeHistory.history.length}}</text>
+          </view>
         </view>
       </view>
 
       <view id="monitor-section-diagnosticLogs" class="card admin-section diagnostic-admin-section monitor-fold-card {{monitorSections.diagnosticLogs ? 'is-open' : 'is-collapsed'}}">
         <view class="admin-section-head">
-          <view>
-            <view class="admin-section-title">用户端日志</view>
-            <view class="admin-section-help">仅管理员可见，保留最近72小时；超过72小时自动删除。最近更新 {{moduleStates.diagnosticLogs.updatedAtText}}</view>
+          <view class="monitor-section-head-main">
+            <view class="monitor-section-title-row">
+              <text class="monitor-status-dot {{diagnosticLogs.summary.errorCount > 0 ? 'is-danger' : ''}}"></text>
+              <text class="monitor-section-title">用户端日志</text>
+            </view>
+            <text class="monitor-section-summary">最近72小时 · 总数 {{diagnosticLogs.summary.total || 0}} 条 · 错误 {{diagnosticLogs.summary.errorCount || 0}} 条 · 超过72小时自动删除</text>
           </view>
           <view class="admin-section-tools">
             <view class="config-state {{moduleStates.diagnosticLogs.status === 'failed' ? 'is-off' : 'is-ready'}}">
@@ -1063,7 +1067,7 @@
         <view wx:if="{{modelProbes.message}}" class="usage-message is-warn">{{modelProbes.message}}</view>
       </view>
 
-      <view class="card admin-section auto-face-probe-history-card">
+      <view id="monitor-section-probeHistory" class="card admin-section auto-face-probe-history-card">
         <view class="admin-section-head">
           <view>
             <view class="admin-section-title">探针历史</view>
@@ -1136,6 +1140,13 @@
               {{moduleStates.logs.label}}
             </view>
             <text class="admin-log-count">{{logs.length}} 条</text>
+            <view
+              class="monitor-inline-check-button {{checking ? 'is-disabled' : ''}}"
+              catchtap="checkDeployment"
+              hover-class="control-tap"
+              role="button"
+              aria-label="立即检查线上部署"
+            >{{checking ? '检查中' : '立即检查'}}</view>
             <view class="admin-action-slot">
               <view
                 class="monitor-section-toggle-button"

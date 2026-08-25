@@ -214,7 +214,7 @@ function emptyForm() {
       endpoint: "",
       apiKey: "",
       model: "",
-      mode: "generations",
+      mode: "edits",
       size: "1080x1440",
       resolution: "1K",
       compatibilityMode: false,
@@ -2051,7 +2051,7 @@ function formFromConfig(result) {
       endpoint: image.endpoint || "",
       apiKey: image.apiKey || "",
       model: image.model || "",
-      mode: image.mode || "generations",
+      mode: image.mode || "edits",
       size: image.size || "1080x1440",
       resolution: normalizeAdminImageResolution(
         image.resolution || image.size,

@@ -62,7 +62,27 @@ function createClientRequestId() {
   return `mini-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
 }
 
-function resolveImageGenerationMode() {
+function hasImageEditAssets(project = {}) {
+  const source = project && typeof project === "object" ? project : {};
+  const hasFileID = (value) => Boolean(String(value || "").trim());
+  const hasAsset = (items) => (
+    Array.isArray(items) && items.some((item) => (
+      hasFileID(item && item.fileID) || Boolean(item && item.path)
+    ))
+  );
+  return Boolean(
+    source.mainImage
+    || hasFileID(source.maskFileID)
+    || source.maskCircle
+    || hasAsset(source.faceRefs)
+    || hasAsset(source.wardrobeRefs)
+    || hasAsset(source.backgroundRefs)
+  );
+}
+
+function resolveImageGenerationMode(project = {}) {
+  // 制作页的主流程是人脸替换；只要页面带有主图或参考素材，就必须上传 mask 并走 edits。
+  if (hasImageEditAssets(project)) return "edits";
   const mode = String(config.imageMode || "").trim().toLowerCase();
   return mode === "edits" ? "edits" : "generations";
 }
@@ -2336,7 +2356,7 @@ Page({
     let generationSucceeded = false;
     try {
       const promptProject = this.refreshPromptDraft();
-      const generationMode = resolveImageGenerationMode();
+      const generationMode = resolveImageGenerationMode(promptProject);
       this.setGenerationPhase(
         "upload",
         "正在上传素材...",

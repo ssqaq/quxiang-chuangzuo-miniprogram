@@ -214,6 +214,7 @@ if (-not (Test-Path -LiteralPath $apiIndexPath)) {
 
 $configText = Get-Content -LiteralPath $configPath -Raw -Encoding UTF8
 $appVersion = Get-ConfigValue -Text $configText -Name "appVersion"
+$imageMode = Get-ConfigValue -Text $configText -Name "imageMode"
 $cloudEnvId = Get-ConfigValue -Text $configText -Name "cloudEnvId"
 $functionName = Get-ConfigValue -Text $configText -Name "cloudFunctionName"
 if ($functionName -notmatch '^[A-Za-z][A-Za-z0-9_-]{0,58}$') {
@@ -239,6 +240,7 @@ Write-Host "AppID: $appId"
 Write-Host "Cloud environment: $cloudEnvId"
 Write-Host "Cloud function: $functionName"
 Write-Host "Expected version: $appVersion"
+Write-Host "Expected image mode: $imageMode"
 if ($expectedMarker) {
   Write-Host "Expected marker: $expectedMarker"
 }
@@ -300,8 +302,10 @@ try {
     -FunctionName $functionName
   $actualVersion = [string]$deployment.buildVersion
   $actualMarker = [string]$deployment.buildMarker
+  $actualImageMode = [string]$deployment.image.mode
   Write-Host "Online version: $actualVersion"
   Write-Host "Online marker: $actualMarker"
+  Write-Host "Online image mode: $actualImageMode"
 
   if ([string]::IsNullOrWhiteSpace($actualVersion)) {
     throw "Online cloud function did not return buildVersion."
@@ -311,6 +315,12 @@ try {
   }
   if ($expectedMarker -and $actualMarker -ne $expectedMarker) {
     throw "Online build marker mismatch. Local=$expectedMarker, online=$actualMarker."
+  }
+  if ([string]::IsNullOrWhiteSpace($actualImageMode)) {
+    throw "Online cloud function did not return image.mode."
+  }
+  if ($actualImageMode.ToLowerInvariant() -ne $imageMode.ToLowerInvariant()) {
+    throw "Online image mode mismatch. Local=$imageMode, online=$actualImageMode."
   }
   Write-Host "Cloud function deployment verified successfully." -ForegroundColor Green
 }

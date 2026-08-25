@@ -61,6 +61,7 @@ const jsFiles = [
   "scripts/admin-responsive-smoke.js",
   "scripts/admin-config-layout-smoke.js",
   "scripts/image-quality-smoke.js",
+  "scripts/image-edit-routing-smoke.js",
   "scripts/release-safety-smoke.js",
   "pages/index/index.js",
   "pages/records/records.js",
@@ -234,6 +235,7 @@ const required = [
   "scripts/admin-responsive-smoke.js",
   "scripts/admin-config-layout-smoke.js",
   "scripts/image-quality-smoke.js",
+  "scripts/image-edit-routing-smoke.js",
   "scripts/release-safety-smoke.js",
   "scripts/diagnostic-admin-logs-smoke.js",
   "pages/index/index.wxml",
@@ -338,6 +340,10 @@ const watermarkGatewayJs = fs.readFileSync(
 );
 const watermarkGatewayEnvExample = fs.readFileSync(
   path.join(root, "cloudfunctions/watermark-gateway/.env.example"),
+  "utf8"
+);
+const apiEnvExample = fs.readFileSync(
+  path.join(root, "cloudfunctions/api/.env.example"),
   "utf8"
 );
 const cloudTriggerConfig = JSON.parse(
@@ -462,6 +468,20 @@ if (
   || appConfig.photoToVideo.cleanup.gracePeriodMs !== 3 * 24 * 60 * 60 * 1000
 ) {
   throw new Error("小程序、主云函数、媒体解析网关、云函数锁文件版本不一致，或照片转视频 2 小时/3×24 小时清理配置不正确。");
+}
+if (
+  appConfig.imageMode !== "edits"
+  || !configJs.includes('imageMode: "edits"')
+  || !/^AI_IMAGE_MODE=edits$/m.test(apiEnvExample)
+  || !cloudJs.includes('env("AI_IMAGE_MODE", DEFAULT_IMAGE_MODE)')
+  || !cloudJs.includes("function hasImageEditAssets")
+  || !cloudJs.includes('if (hasImageEditAssets(payload)) return "edits";')
+  || !cloudJs.includes("missing-edit-asset")
+  || !indexJs.includes("resolveImageGenerationMode(promptProject)")
+  || !adminJs.includes('mode: "edits"')
+  || !adminJs.includes('mode: image.mode || "edits"')
+) {
+  throw new Error("人脸替换的 edits 默认模式、素材强制分流或管理员默认配置不完整。");
 }
 if (
   !watermarkGatewayJs.includes('process.env.ZHUCEKA_UID')

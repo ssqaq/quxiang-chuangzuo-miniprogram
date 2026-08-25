@@ -1,5 +1,6 @@
-const API_BUILD_VERSION = "0.40.31";
-const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V04031";
+const API_BUILD_VERSION = "0.40.32";
+const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V04032";
+const DEFAULT_IMAGE_MODE = "edits";
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
 const cloud = require("wx-server-sdk");
@@ -1437,7 +1438,7 @@ function resolveImageRetryEnabled(image) {
 
 function resolveImageConfig(overrides = {}) {
   const image = overrides && overrides.image ? overrides.image : overrides;
-  const mode = overrideString(image, "mode", env("AI_IMAGE_MODE", "generations")).toLowerCase();
+  const mode = overrideString(image, "mode", env("AI_IMAGE_MODE", DEFAULT_IMAGE_MODE)).toLowerCase();
   const size = overrideString(image, "size", env("AI_IMAGE_SIZE", "1024x1024"));
   const resolution = hasOwn(image, "resolution")
     ? normalizeImageResolution(image.resolution, normalizeImageResolution(size, "1K"))
@@ -1792,7 +1793,30 @@ function buildImageEditFields(payload = {}, imageConfig = resolveImageConfig(), 
   return fields;
 }
 
+function hasFileID(value) {
+  return Boolean(String(value || "").trim());
+}
+
+function hasFileIDList(value) {
+  return Array.isArray(value) && value.some((item) => hasFileID(item));
+}
+
+function hasImageEditAssets(payload = {}) {
+  const source = payload && typeof payload === "object" ? payload : {};
+  return Boolean(
+    hasFileID(source.mainFileID)
+    || hasFileID(source.maskFileID)
+    || hasFileID(source.identityFileID)
+    || hasFileIDList(source.faceFileIDs)
+    || hasFileIDList(source.wardrobeFileIDs)
+    || hasFileIDList(source.backgroundFileIDs)
+  );
+}
+
 function resolveGenerationMode(payload = {}, imageConfig = {}) {
+  // 主图、mask 或任意参考素材一旦出现，就只能走多图编辑。
+  // 不能让旧客户端或管理员的 generations 配置把素材静默丢掉。
+  if (hasImageEditAssets(payload)) return "edits";
   const requested = String(payload.mode || "").trim().toLowerCase();
   if (requested === "generations" || requested === "edits") return requested;
   const configured = String(imageConfig.mode || "").trim().toLowerCase();
@@ -5627,6 +5651,7 @@ async function checkDeployment(event, context) {
       ready: imageReady,
       provider: configs.image.provider || "",
       model: configs.image.model || "",
+      mode: configs.image.mode || DEFAULT_IMAGE_MODE,
       apiKeyConfigured: Boolean(configs.image.apiKey)
     },
     video: {
@@ -9296,9 +9321,13 @@ async function generate(event, context) {
   const configs = await resolveEffectiveConfigs();
   const imageConfig = configs.image;
   const costs = configs.costs;
+  const editAssetsDetected = hasImageEditAssets(payload);
   const mode = resolveGenerationMode(payload, imageConfig);
-  if (mode === "edits" && (!payload.mainFileID || !payload.maskFileID)) {
-    return fail("编辑模式需要主图和 mask 文件。", "missing-edit-asset");
+  if (mode === "edits" && (!hasFileID(payload.mainFileID) || !hasFileID(payload.maskFileID))) {
+    return fail(
+      "人脸替换需要主图和 mask 文件，请先完成主图圈选后再提交。",
+      "missing-edit-asset"
+    );
   }
   const apiKey = imageConfig.apiKey;
   if (!apiKey) return fail(
@@ -9348,6 +9377,7 @@ async function generate(event, context) {
     requestId,
     action: "generate",
     mode,
+    editAssetsDetected,
     model,
     size,
     faceRefs: Array.isArray(payload.faceFileIDs) ? payload.faceFileIDs.length : 0,
@@ -11113,7 +11143,9 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     resolveImageOutputSize,
     buildImageGenerationPayload,
     buildImageEditFields,
+    hasImageEditAssets,
     resolveGenerationMode,
+    defaultImageMode: DEFAULT_IMAGE_MODE,
     normalizeVideoResolution,
     modelCapabilities,
     buildImageQualityProbe,

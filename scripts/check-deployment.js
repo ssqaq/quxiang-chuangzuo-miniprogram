@@ -11,6 +11,10 @@ const apiIndexPath = path.join(root, "cloudfunctions", "api", "index.js");
 const apiIndex = fs.readFileSync(apiIndexPath, "utf8");
 const envExamplePath = path.join(root, "cloudfunctions", "api", ".env.example");
 const envExample = fs.readFileSync(envExamplePath, "utf8");
+function readEnvTemplateValue(name) {
+  const match = envExample.match(new RegExp(`^${name}=([^\\r\\n]*)`, "m"));
+  return match ? String(match[1] || "").trim() : "";
+}
 
 const requiredEnv = [
   "AI_BASE_URL",
@@ -35,6 +39,34 @@ if (projectConfig.appid !== "wxa5aaf3392cbeb39a") {
 }
 if (!["generations", "edits"].includes(config.imageMode)) {
   errors.push(`config.js 的 imageMode 不支持：${config.imageMode || "空"}`);
+}
+const frontendImageMode = String(config.imageMode || "").trim().toLowerCase();
+const templateImageMode = readEnvTemplateValue("AI_IMAGE_MODE").toLowerCase();
+if (frontendImageMode !== "edits") {
+  errors.push(`制作页必须使用 edits 多图编辑模式，当前是：${frontendImageMode || "空"}`);
+}
+if (templateImageMode !== frontendImageMode) {
+  errors.push(
+    `前端与环境模板的生图模式不一致：config.js=${frontendImageMode || "空"}，.env.example=${templateImageMode || "空"}`
+  );
+}
+const cloudDefaultImageModeMatch = apiIndex.match(
+  /const DEFAULT_IMAGE_MODE = "([^"]+)"/
+);
+const cloudDefaultImageMode = cloudDefaultImageModeMatch
+  ? cloudDefaultImageModeMatch[1].toLowerCase()
+  : "";
+if (cloudDefaultImageMode !== frontendImageMode) {
+  errors.push(
+    `前端与云函数默认生图模式不一致：config.js=${frontendImageMode || "空"}，云函数=${cloudDefaultImageMode || "空"}`
+  );
+}
+if (
+  !apiIndex.includes("function hasImageEditAssets")
+  || !apiIndex.includes("if (hasImageEditAssets(payload)) return \"edits\";")
+  || !apiIndex.includes("missing-edit-asset")
+) {
+  errors.push("云函数缺少带素材强制走 edits 的安全兜底。");
 }
 const apiBuildVersionMatch = apiIndex.match(
   /const API_BUILD_VERSION = "([^"]+)"/
@@ -98,6 +130,9 @@ console.log(`工程：${root}`);
 console.log(`AppID：${projectConfig.appid || "空"}`);
 console.log(`CloudBase：${config.cloudEnvId ? "已填写" : "未填写"}`);
 console.log(`本地云函数版本：${apiBuildVersionMatch ? apiBuildVersionMatch[1] : "空"}`);
+console.log(`前端生图模式：${frontendImageMode || "空"}`);
+console.log(`环境模板生图模式：${templateImageMode || "空"}`);
+console.log(`云函数默认生图模式：${cloudDefaultImageMode || "空"}`);
 console.log(`AI 变量模板：${missingEnvTemplate.length ? "不完整" : "完整"}`);
 warnings.forEach((item) => console.log(`⚠️ ${item}`));
 errors.forEach((item) => console.log(`❌ ${item}`));

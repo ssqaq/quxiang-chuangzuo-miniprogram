@@ -30,6 +30,10 @@ assert.ok(
   "部署脚本必须拒绝不携带依赖的危险参数"
 );
 assert.ok(
+  !source.includes("$payload.isAdmin"),
+  "checkDeployment 已自行校验管理员，脚本不能把缺少 isAdmin 字段误判为无权限"
+);
+assert.ok(
   !/if\s*\(\s*-\s*not\s+\$SkipRemoteNpmInstall\s*\)/i.test(source),
   "远程 npm 安装不能再由可选分支控制"
 );

@@ -293,9 +293,6 @@ function Get-DeploymentResult {
         $message = if ($payload.message) { $payload.message } else { "Cloud function request failed." }
         throw "$code`: $message"
       }
-      if (-not $payload.isAdmin) {
-        throw "Current WeChat account is not in ADMIN_OPENIDS."
-      }
       return $payload
     }
     catch {

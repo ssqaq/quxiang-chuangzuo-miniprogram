@@ -528,6 +528,45 @@ page {
   text-align: center;
 }
 
+.config-model-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10rpx;
+  margin-top: 14rpx;
+}
+
+.config-model-actions .config-tool-button,
+.config-model-button {
+  min-width: 148rpx;
+  height: 54rpx;
+  margin: 0;
+  padding: 0 16rpx;
+  border-radius: 14rpx;
+  font-size: 19rpx;
+  line-height: 1;
+}
+
+.config-model-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1rpx solid #bdd0ef;
+  font-weight: 700;
+  text-align: center;
+}
+
+.config-model-test {
+  color: #245fd4;
+  background: #eef5ff;
+}
+
+.config-model-list {
+  color: #ffffff;
+  background: #2e73dc;
+}
+
 .config-helper {
   padding: 14rpx 16rpx;
   border-radius: 16rpx;
@@ -3206,6 +3245,89 @@ page {
   color: #5c687a;
   font-size: 18rpx;
   line-height: 28rpx;
+}
+
+.model-picker-mask {
+  position: fixed;
+  z-index: 40;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  padding: 80rpx 22rpx 40rpx;
+  background: rgba(18, 27, 44, 0.42);
+}
+
+.model-picker-dialog {
+  max-height: 86vh;
+  padding: 22rpx;
+  overflow: hidden;
+  border-radius: 20rpx;
+  background: #ffffff;
+  box-shadow: 0 20rpx 60rpx rgba(22, 37, 63, 0.2);
+}
+
+.model-picker-head {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16rpx;
+  padding-bottom: 16rpx;
+  border-bottom: 1rpx solid #edf0f5;
+}
+
+.model-picker-title {
+  color: #1b2638;
+  font-size: 25rpx;
+  font-weight: 800;
+  line-height: 34rpx;
+}
+
+.model-picker-subtitle {
+  margin-top: 4rpx;
+  color: #7a879a;
+  font-size: 18rpx;
+  line-height: 26rpx;
+}
+
+.model-picker-close {
+  flex: none;
+  color: #2f70d4;
+  font-size: 19rpx;
+  font-weight: 700;
+  line-height: 32rpx;
+}
+
+.model-picker-list {
+  max-height: 68vh;
+  overflow-y: auto;
+}
+
+.model-picker-option {
+  display: flex;
+  min-width: 0;
+  min-height: 74rpx;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14rpx;
+  border-bottom: 1rpx solid #edf0f5;
+  color: #26364d;
+  font-size: 22rpx;
+  line-height: 30rpx;
+}
+
+.model-picker-option > text:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-picker-arrow {
+  flex: none;
+  color: #8a98ac;
+  font-size: 30rpx;
 }
 
 .auto-face-detail-request {

@@ -587,6 +587,12 @@ if (
   || !adminWxml.includes("图片分析输入 / 百万Token")
   || !adminWxml.includes("usageTypeLabel")
   || !adminWxss.includes(".config-tool-button")
+  || !adminWxss.includes(".config-model-button")
+  || !adminWxss.includes(".model-picker-dialog")
+  || !adminJs.includes("testModelConnection")
+  || !adminJs.includes("getModelOptions")
+  || !adminJs.includes("cloud.listModels")
+  || !clientCloudJs.includes('action: "listModels"')
   || !adminWxss.includes(".model-probe-row")
   || !adminWxss.includes(".model-probe-single-button")
 ) {
@@ -596,6 +602,7 @@ if (
   (adminWxml.match(/<text>服务商<\/text>/g) || []).length < 4
   || (adminWxml.match(/<text>使用的模型<\/text>/g) || []).length < 4
   || (adminWxml.match(/<text>接口地址<\/text>/g) || []).length < 4
+  || (adminWxml.match(/<text>API Key<\/text>/g) || []).length < 4
   || adminWxml.includes("<text>Provider</text>")
   || adminWxml.includes("<text>Model</text>")
   || adminWxml.includes("<text>Base URL</text>")
@@ -650,7 +657,9 @@ if (
   || !cloudJs.includes("modelErrorMessage")
   || !cloudJs.includes("probeOneModel")
   || !cloudJs.includes("normalizeModelProbeType")
+  || !cloudJs.includes("temporaryModelConfig")
   || !cloudJs.includes('action === "probeModels"')
+  || !cloudJs.includes('action === "listModels"')
   || !clientCloudJs.includes('action: "probeModels"')
   || !fs.existsSync(path.join(root, "scripts/analysis-cost-probe-smoke.js"))
 ) {

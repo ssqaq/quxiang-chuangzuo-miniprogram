@@ -1,6 +1,6 @@
 {
   "name": "display-tool-cloud-api",
-  "version": "0.35.41",
+  "version": "0.35.42",
   "private": true,
   "main": "index.js",
   "dependencies": {

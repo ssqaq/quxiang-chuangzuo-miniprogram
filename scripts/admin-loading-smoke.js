@@ -11,22 +11,26 @@ const baseConfig = {
     face: {
       provider: "face-provider",
       model: "face-model",
+      apiKey: "face-key",
       apiKeyConfigured: true
     },
     analysis: {
       provider: "analysis-provider",
       model: "analysis-model",
+      apiKey: "analysis-key",
       apiKeyConfigured: true
     },
     image: {
       provider: "image-provider",
       model: "image-model",
+      apiKey: "image-key",
       apiKeyConfigured: true,
       size: "1024x1024"
     },
     video: {
       provider: "video-provider",
       model: "video-model",
+      apiKey: "video-key",
       apiKeyConfigured: true,
       resolution: "720p"
     },
@@ -80,7 +84,27 @@ const cloudMock = {
     history: [],
     retentionDays: 30
   }),
-  listDeploymentLogs: async () => ({ logs: [] })
+  listDeploymentLogs: async () => ({ logs: [] }),
+  probeModels: async (modelType, modelConfig) => ({
+    ok: true,
+    results: [{
+      type: modelType,
+      typeLabel: modelType,
+      provider: modelConfig.provider,
+      model: modelConfig.model,
+      ready: true,
+      reachable: true,
+      status: "ok",
+      statusText: "正常",
+      message: "接口可访问，当前模型配置正常。"
+    }]
+  }),
+  listModels: async () => ({
+    ok: true,
+    status: "ok",
+    models: ["model-a", "model-b"],
+    message: "接口可访问，已读取 2 个模型。"
+  })
 };
 
 const diagnosticLogMock = {
@@ -199,6 +223,31 @@ async function main() {
   assert.strictEqual(page.data.usageStats.models[0].estimatedCostDisplay, "0.0007");
   assert.strictEqual(page.data.costTrend.days[6].costDisplay, "0.0007");
   assert.strictEqual(page.data.costTrend.totalCostDisplay, "0.0007");
+  assert.strictEqual(page.data.form.face.apiKey, "face-key");
+
+  await page.testModelConnection({
+    currentTarget: { dataset: { modelType: "face" } }
+  });
+  assert.strictEqual(page.data.modelActionType, "");
+  assert.ok(page.data.message.includes("测试完成"));
+
+  await page.getModelOptions({
+    currentTarget: { dataset: { modelType: "face" } }
+  });
+  assert.strictEqual(page.data.modelPickerOpen, true);
+  assert.deepStrictEqual(page.data.modelPickerOptions.map((item) => item.value), [
+    "model-a",
+    "model-b"
+  ]);
+  page.selectModelOption({
+    currentTarget: {
+      dataset: {
+        value: "model-b"
+      }
+    }
+  });
+  assert.strictEqual(page.data.form.face.model, "model-b");
+  assert.strictEqual(page.data.modelPickerOpen, false);
 
   await page.refreshAll();
   assert.strictEqual(page.data.refreshingAll, false);

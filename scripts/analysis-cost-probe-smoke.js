@@ -176,13 +176,36 @@ async function main() {
     const singleResult = await api.main({
       action: "probeModels",
       requestId: "single-analysis-probe",
-      modelType: "analysis"
+      modelType: "analysis",
+      config: {
+        provider: "openai-compatible",
+        baseUrl,
+        apiKey: "good-key",
+        model: "target-model",
+        timeoutMs: 3000
+      }
     }, { OPENID: "probe-admin" });
     assert.strictEqual(singleResult.ok, true);
     assert.strictEqual(singleResult.scope, "single");
     assert.strictEqual(singleResult.requestedType, "analysis");
     assert.strictEqual(singleResult.total, 1);
     assert.strictEqual(singleResult.results[0].type, "analysis");
+    assert.strictEqual(singleResult.results[0].status, "ok");
+
+    const listResult = await api.main({
+      action: "listModels",
+      requestId: "list-analysis-models",
+      modelType: "analysis",
+      config: {
+        provider: "openai-compatible",
+        baseUrl,
+        apiKey: "good-key",
+        timeoutMs: 3000
+      }
+    }, { OPENID: "probe-admin" });
+    assert.strictEqual(listResult.ok, true);
+    assert.strictEqual(listResult.status, "ok");
+    assert.deepStrictEqual(listResult.models, ["target-model"]);
 
     const invalidResult = await api.main({
       action: "probeModels",
@@ -206,7 +229,8 @@ async function main() {
         badKey.status,
         unsupported.status
       ],
-      singleProbeType: singleResult.results[0].type
+      singleProbeType: singleResult.results[0].type,
+      listedModels: listResult.models
     }));
   } finally {
     await close(server);

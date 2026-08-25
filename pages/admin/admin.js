@@ -8,6 +8,7 @@ function emptyForm() {
       provider: "",
       baseUrl: "",
       endpoint: "",
+      apiKey: "",
       model: "",
       timeoutMs: "30000"
     },
@@ -15,6 +16,7 @@ function emptyForm() {
       provider: "",
       baseUrl: "",
       endpoint: "",
+      apiKey: "",
       model: "",
       timeoutMs: "30000"
     },
@@ -22,6 +24,7 @@ function emptyForm() {
       provider: "",
       baseUrl: "",
       endpoint: "",
+      apiKey: "",
       model: "",
       mode: "generations",
       size: "1024x1024",
@@ -34,6 +37,7 @@ function emptyForm() {
       baseUrl: "",
       endpoint: "",
       queryEndpoint: "",
+      apiKey: "",
       model: "",
       createPath: "/v1/videos/generations",
       queryPath: "/v1/videos/{taskId}",
@@ -972,16 +976,12 @@ function formatUsageStats(result) {
     const counter = formatUsageCounter(summary[meta.key]);
     const modelText = models
       .filter((item) => item.usageType === meta.key)
-      .map((item) => {
-        const provider = item.provider || "未知 Provider";
-        const model = item.model || "未知模型";
-        return `${provider} / ${model}`;
-      })
+      .map((item) => item.model || "未知模型")
       .filter((item, index, list) => list.indexOf(item) === index)
       .join("、") || "暂无调用";
     const modelLines = models
       .filter((item) => item.usageType === meta.key)
-      .map((item) => `${item.provider || "未知 Provider"} / ${item.model || "未知模型"}`)
+      .map((item) => item.model || "未知模型")
       .filter((item, index, list) => list.indexOf(item) === index);
     if (!modelLines.length) modelLines.push("暂无调用");
     return Object.assign({}, meta, counter, { modelText, modelLines });
@@ -1584,6 +1584,7 @@ function formFromConfig(result) {
       provider: face.provider || "",
       baseUrl: face.baseUrl || "",
       endpoint: face.endpoint || "",
+      apiKey: face.apiKey || "",
       model: face.model || "",
       timeoutMs: String(face.timeoutMs || 30000)
     },
@@ -1591,6 +1592,7 @@ function formFromConfig(result) {
       provider: analysis.provider || "",
       baseUrl: analysis.baseUrl || "",
       endpoint: analysis.endpoint || "",
+      apiKey: analysis.apiKey || "",
       model: analysis.model || "",
       timeoutMs: String(analysis.timeoutMs || 30000)
     },
@@ -1598,6 +1600,7 @@ function formFromConfig(result) {
       provider: image.provider || "",
       baseUrl: image.baseUrl || "",
       endpoint: image.endpoint || "",
+      apiKey: image.apiKey || "",
       model: image.model || "",
       mode: image.mode || "generations",
       size: image.size || "1024x1024",
@@ -1610,6 +1613,7 @@ function formFromConfig(result) {
       baseUrl: video.baseUrl || "",
       endpoint: video.endpoint || "",
       queryEndpoint: video.queryEndpoint || "",
+      apiKey: video.apiKey || "",
       model: video.model || "",
       createPath: video.createPath || "/v1/videos/generations",
       queryPath: video.queryPath || "/v1/videos/{taskId}",
@@ -1658,6 +1662,7 @@ function formToConfig(form) {
       provider: String(form.face.provider || "").trim(),
       baseUrl: String(form.face.baseUrl || "").trim(),
       endpoint: String(form.face.endpoint || "").trim(),
+      apiKey: String(form.face.apiKey || "").trim(),
       model: String(form.face.model || "").trim(),
       timeoutMs: Number(form.face.timeoutMs || 0)
     },
@@ -1665,6 +1670,7 @@ function formToConfig(form) {
       provider: String(form.analysis.provider || "").trim(),
       baseUrl: String(form.analysis.baseUrl || "").trim(),
       endpoint: String(form.analysis.endpoint || "").trim(),
+      apiKey: String(form.analysis.apiKey || "").trim(),
       model: String(form.analysis.model || "").trim(),
       timeoutMs: Number(form.analysis.timeoutMs || 0)
     },
@@ -1672,6 +1678,7 @@ function formToConfig(form) {
       provider: String(form.image.provider || "").trim(),
       baseUrl: String(form.image.baseUrl || "").trim(),
       endpoint: String(form.image.endpoint || "").trim(),
+      apiKey: String(form.image.apiKey || "").trim(),
       model: String(form.image.model || "").trim(),
       mode: String(form.image.mode || "").trim().toLowerCase(),
       size: String(form.image.size || "").trim(),
@@ -1684,6 +1691,7 @@ function formToConfig(form) {
       baseUrl: String(form.video.baseUrl || "").trim(),
       endpoint: String(form.video.endpoint || "").trim(),
       queryEndpoint: String(form.video.queryEndpoint || "").trim(),
+      apiKey: String(form.video.apiKey || "").trim(),
       model: String(form.video.model || "").trim(),
       createPath: String(form.video.createPath || "").trim(),
       queryPath: String(form.video.queryPath || "").trim(),
@@ -1731,6 +1739,28 @@ function formToConfig(form) {
       }
     }
   };
+}
+
+function modelConfigForAction(form, modelType) {
+  const source = form && form[modelType] ? form[modelType] : {};
+  return {
+    provider: String(source.provider || "").trim(),
+    baseUrl: String(source.baseUrl || "").trim(),
+    endpoint: String(source.endpoint || "").trim(),
+    queryEndpoint: String(source.queryEndpoint || "").trim(),
+    apiKey: String(source.apiKey || "").trim(),
+    model: String(source.model || "").trim(),
+    timeoutMs: Number(source.timeoutMs || 0)
+  };
+}
+
+function normalizeModelOptions(result) {
+  const source = result && Array.isArray(result.models) ? result.models : [];
+  return Array.from(new Set(source
+    .map((item) => typeof item === "string" ? item : item && (item.id || item.name || item.model))
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)))
+    .map((value) => ({ value, label: value }));
 }
 
 function displayLog(item) {
@@ -1812,6 +1842,12 @@ Page({
     checking: false,
     modelProbing: false,
     modelProbingType: "",
+    modelActionType: "",
+    modelActionKind: "",
+    modelPickerOpen: false,
+    modelPickerType: "",
+    modelPickerTitle: "",
+    modelPickerOptions: [],
     refreshingAll: false,
     isAdmin: false,
     form: emptyForm(),
@@ -3349,6 +3385,140 @@ Page({
       diagnosticLog.error("admin", "deployment-check-failed", "线上部署检查失败", { error });
       this.showError("检查失败", error);
     }
+  },
+
+  async testModelConnection(event) {
+    const modelType = String(
+      event && event.currentTarget && event.currentTarget.dataset
+        ? event.currentTarget.dataset.modelType
+        : ""
+    ).trim();
+    if (!USAGE_TYPE_META.some((item) => item.key === modelType)) return;
+    if (this.data.modelActionType) return;
+    const typeLabel = usageTypeLabel(modelType);
+    this.setData({
+      modelActionType: modelType,
+      modelActionKind: "test",
+      message: `正在测试${typeLabel}连接...`
+    });
+    try {
+      const result = await cloud.probeModels(
+        modelType,
+        modelConfigForAction(this.data.form, modelType)
+      );
+      const target = result && Array.isArray(result.results)
+        ? result.results[0]
+        : null;
+      const ok = Boolean(target && target.status === "ok" && target.ready);
+      const message = target && target.message
+        ? target.message
+        : ok
+          ? "接口可访问，当前模型配置正常。"
+          : "连接测试未通过，请检查配置。";
+      this.setData({
+        message: `${typeLabel}测试完成：${message}`
+      });
+      wx.showModal({
+        title: ok ? "连接成功" : "连接未通过",
+        content: message,
+        showCancel: false
+      });
+    } catch (error) {
+      diagnosticLog.error("admin", "model-connection-test-failed", `${typeLabel}连接测试失败`, {
+        error,
+        modelType
+      });
+      this.showError("测试连接失败", error);
+    } finally {
+      this.setData({
+        modelActionType: "",
+        modelActionKind: ""
+      });
+    }
+  },
+
+  async getModelOptions(event) {
+    const modelType = String(
+      event && event.currentTarget && event.currentTarget.dataset
+        ? event.currentTarget.dataset.modelType
+        : ""
+    ).trim();
+    if (!USAGE_TYPE_META.some((item) => item.key === modelType)) return;
+    if (this.data.modelActionType) return;
+    const typeLabel = usageTypeLabel(modelType);
+    this.setData({
+      modelActionType: modelType,
+      modelActionKind: "list",
+      message: `正在读取${typeLabel}模型列表...`
+    });
+    try {
+      const result = await cloud.listModels(
+        modelType,
+        modelConfigForAction(this.data.form, modelType)
+      );
+      const options = normalizeModelOptions(result);
+      if (!options.length) {
+        const error = new Error(
+          result && result.message
+            ? result.message
+            : "接口没有返回可用模型。"
+        );
+        error.payload = Object.assign({}, result, {
+          modelTypeLabel: typeLabel
+        });
+        throw error;
+      }
+      this.setData({
+        modelPickerOpen: true,
+        modelPickerType: modelType,
+        modelPickerTitle: `${typeLabel}模型列表`,
+        modelPickerOptions: options,
+        message: `已读取 ${options.length} 个${typeLabel}模型。`
+      });
+    } catch (error) {
+      diagnosticLog.error("admin", "model-list-failed", `${typeLabel}模型列表读取失败`, {
+        error,
+        modelType
+      });
+      this.showError("获取模型失败", error);
+    } finally {
+      this.setData({
+        modelActionType: "",
+        modelActionKind: ""
+      });
+    }
+  },
+
+  closeModelPicker() {
+    this.setData({
+      modelPickerOpen: false,
+      modelPickerType: "",
+      modelPickerTitle: "",
+      modelPickerOptions: []
+    });
+  },
+
+  selectModelOption(event) {
+    const type = String(
+      this.data.modelPickerType
+        || event && event.currentTarget && event.currentTarget.dataset && event.currentTarget.dataset.type
+        || ""
+    ).trim();
+    const value = String(
+      event && event.currentTarget && event.currentTarget.dataset
+        ? event.currentTarget.dataset.value
+        : ""
+    ).trim();
+    if (!type || !value) return;
+    this.setData({
+      [`form.${type}.model`]: value,
+      modelPickerOpen: false,
+      modelPickerType: "",
+      modelPickerTitle: "",
+      modelPickerOptions: [],
+      message: `已选择${usageTypeLabel(type)}模型：${value}；点击“保存全部配置”后才会生效。`
+    });
+    wx.showToast({ title: "模型已填入", icon: "success" });
   },
 
   probeModels() {

@@ -34,27 +34,38 @@ assert.strictEqual(
 const patch = test.normalizeRuntimePatch({
   image: {
     model: "smoke-image-model",
-    apiKey: "must-be-dropped"
+    apiKey: "smoke-image-key"
   },
   video: {
     model: "smoke-video-model",
-    apiKey: "must-be-dropped"
+    apiKey: "smoke-video-key"
   },
   analysis: {
     provider: "smoke-analysis-provider",
     model: "smoke-analysis-model",
     timeoutMs: 18000,
-    apiKey: "must-be-dropped"
+    apiKey: "smoke-analysis-key"
+  },
+  face: {
+    apiKey: "smoke-face-key"
   },
   apiKey: "must-be-dropped"
 });
-assert.deepStrictEqual(patch.image, { model: "smoke-image-model" });
-assert.deepStrictEqual(patch.video, { model: "smoke-video-model" });
+assert.deepStrictEqual(patch.image, {
+  model: "smoke-image-model",
+  apiKey: "smoke-image-key"
+});
+assert.deepStrictEqual(patch.video, {
+  model: "smoke-video-model",
+  apiKey: "smoke-video-key"
+});
 assert.deepStrictEqual(patch.analysis, {
   provider: "smoke-analysis-provider",
   model: "smoke-analysis-model",
-  timeoutMs: 18000
+  timeoutMs: 18000,
+  apiKey: "smoke-analysis-key"
 });
+assert.deepStrictEqual(patch.face, { apiKey: "smoke-face-key" });
 assert.deepStrictEqual(test.validateRuntimePatch(patch), []);
 assert.ok(test.validateRuntimePatch({
   image: { mode: "not-supported" }
@@ -106,22 +117,12 @@ api.main({
   assert.ok(result.effective.analysis.model);
   assert.ok(result.effective.image.model);
   assert.ok(result.effective.video.model);
-  assert.strictEqual(
-    Object.prototype.hasOwnProperty.call(result.effective.face, "apiKey"),
-    false
-  );
-  assert.strictEqual(
-    Object.prototype.hasOwnProperty.call(result.effective.analysis, "apiKey"),
-    false
-  );
-  assert.strictEqual(
-    Object.prototype.hasOwnProperty.call(result.effective.image, "apiKey"),
-    false
-  );
-  assert.strictEqual(
-    Object.prototype.hasOwnProperty.call(result.effective.video, "apiKey"),
-    false
-  );
+  ["face", "analysis", "image", "video"].forEach((type) => {
+    assert.strictEqual(
+      Object.prototype.hasOwnProperty.call(result.effective[type], "apiKey"),
+      true
+    );
+  });
   return api.main({
     action: "checkDeployment",
     requestId: "admin-smoke-deployment"

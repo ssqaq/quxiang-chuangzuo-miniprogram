@@ -845,7 +845,7 @@ page {
 
 .admin-entry-title {
   color: #25334a;
-  font-size: 29rpx;
+  font-size: 30rpx;
   font-weight: 800;
 }
 
@@ -853,7 +853,7 @@ page {
   margin-top: 8rpx;
   overflow: hidden;
   color: #7b899c;
-  font-size: 22rpx;
+  font-size: 21rpx;
   line-height: 32rpx;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -910,7 +910,7 @@ page {
 .contact-author-title {
   margin-top: 2rpx;
   color: #263550;
-  font-size: 30rpx;
+  font-size: 21rpx;
   font-weight: 800;
   line-height: 40rpx;
 }
@@ -918,7 +918,7 @@ page {
 .contact-author-description {
   margin-top: 6rpx;
   color: #74839a;
-  font-size: 21rpx;
+  font-size: 30rpx;
   line-height: 30rpx;
 }
 

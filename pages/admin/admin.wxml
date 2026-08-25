@@ -182,11 +182,11 @@
         role="button"
         aria-label="查看人脸识别模型配置"
       >
-        <view class="current-config-main">
-          <view class="current-config-title">人脸识别模型</view>
-          <view class="current-config-meta">
-            {{faceConfigSummary.provider}} / {{faceConfigSummary.model}}
-          </view>
+          <view class="current-config-main">
+            <view class="current-config-title">人脸识别模型</view>
+            <view class="current-config-meta">
+              {{faceConfigSummary.model}}
+            </view>
         </view>
         <view class="current-config-side">
           <view class="config-state {{faceConfigSummary.ready ? 'is-ready' : 'is-off'}}">
@@ -203,11 +203,11 @@
         role="button"
         aria-label="查看图片分析模型配置"
       >
-        <view class="current-config-main">
-          <view class="current-config-title">图片分析模型</view>
-          <view class="current-config-meta">
-            {{analysisConfigSummary.provider}} / {{analysisConfigSummary.model}}
-          </view>
+          <view class="current-config-main">
+            <view class="current-config-title">图片分析模型</view>
+            <view class="current-config-meta">
+              {{analysisConfigSummary.model}}
+            </view>
         </view>
         <view class="current-config-side">
           <view class="config-state {{entryHealth.analysis.abnormal ? 'is-off' : 'is-ready'}}">
@@ -224,11 +224,11 @@
         role="button"
         aria-label="查看生图模型配置"
       >
-        <view class="current-config-main">
-          <view class="current-config-title">生图模型</view>
-          <view class="current-config-meta">
-            {{form.image.provider || '未填写'}} / {{form.image.model || '未填写'}} · {{form.image.size || '未填写'}}
-          </view>
+          <view class="current-config-main">
+            <view class="current-config-title">生图模型</view>
+            <view class="current-config-meta">
+              {{form.image.model || '未填写'}}
+            </view>
         </view>
         <view class="current-config-side">
           <view class="config-state {{effective.image.apiKeyConfigured ? 'is-ready' : 'is-off'}}">
@@ -245,11 +245,11 @@
         role="button"
         aria-label="查看视频模型配置"
       >
-        <view class="current-config-main">
-          <view class="current-config-title">视频模型</view>
-          <view class="current-config-meta">
-            {{form.video.provider || '未填写'}} / {{form.video.model || '未填写'}} · {{form.video.resolution || '未填写'}}
-          </view>
+          <view class="current-config-main">
+            <view class="current-config-title">视频模型</view>
+            <view class="current-config-meta">
+              {{form.video.model || '未填写'}}
+            </view>
         </view>
         <view class="current-config-side">
           <view class="config-state {{effective.video.apiKeyConfigured ? 'is-ready' : 'is-off'}}">
@@ -444,7 +444,7 @@
             </view>
             <view class="usage-failure-row-detail">
               <text>{{item.usageTypeLabel}}</text>
-              <text>{{item.provider || '未知 Provider'}} / {{item.model || '未知模型'}}</text>
+              <text>{{item.model || '未知模型'}}</text>
               <text wx:if="{{item.status}}">HTTP {{item.status}}</text>
               <text>{{item.retryable ? '可重试' : '不可重试'}}</text>
             </view>
@@ -476,7 +476,7 @@
           <view class="usage-failure-list-title">失败明细</view>
           <view wx:for="{{modelFailureView.details}}" wx:key="requestId" class="failure-detail-row">
             <view class="failure-detail-head">
-              <view class="failure-detail-title">{{item.createdAtText}} · {{item.usageTypeLabel}} · {{item.provider}} / {{item.model}}</view>
+              <view class="failure-detail-title">{{item.createdAtText}} · {{item.usageTypeLabel}} · {{item.model}}</view>
               <button class="copy-error-button" data-index="{{index}}" catchtap="copyModelFailure">复制错误</button>
             </view>
             <view class="failure-detail-meta">
@@ -518,7 +518,7 @@
       <view wx:if="{{usageStats.models.length}}" class="usage-model-list">
         <view wx:for="{{usageStats.models}}" wx:key="model" class="usage-model-row">
           <view class="usage-model-top">
-            <text>{{item.provider}} / {{item.model}}</text>
+            <text>{{item.model}}</text>
             <text>¥{{item.estimatedCostDisplay}} · {{item.total}} 次</text>
           </view>
           <view class="usage-user-detail">
@@ -667,7 +667,7 @@
               <text class="failure-type-tag is-{{item.failureTone}}">{{item.failureReasonLabel}}</text>
             </view>
             <view class="auto-face-detail-meta">
-              <text>{{item.usageTypeLabel}} · {{item.provider}} / {{item.model}}</text>
+              <text>{{item.usageTypeLabel}} · {{item.model}}</text>
               <text>{{item.errorCode}}</text>
               <text wx:if="{{item.errorStatus}}">HTTP {{item.errorStatus}}</text>
               <text wx:if="{{item.durationMs}}">用时 {{item.durationMs}}ms</text>
@@ -690,18 +690,37 @@
       </view>
 
       <view wx:if="{{activeConfigSection === 'face'}}" class="config-editor-body">
-        <view class="config-helper">API Key 继续从云函数环境变量读取，这里只改人脸识别服务商、接口地址和使用的模型。</view>
+        <view class="config-helper">API Key 可在这里新增或修改，保存后同步到管理员配置；测试和获取模型会优先使用当前填写内容。</view>
+        <view class="config-model-actions">
+          <view
+            class="config-model-button config-model-test"
+            data-model-type="face"
+            bindtap="testModelConnection"
+            hover-class="control-tap"
+            role="button"
+            aria-label="测试人脸识别模型连接"
+          >{{modelActionType === 'face' && modelActionKind === 'test' ? '测试中...' : '测试连接'}}</view>
+          <view
+            class="config-model-button config-model-list"
+            data-model-type="face"
+            bindtap="getModelOptions"
+            hover-class="control-tap"
+            role="button"
+            aria-label="获取人脸识别模型列表"
+          >{{modelActionType === 'face' && modelActionKind === 'list' ? '读取中...' : '获取模型'}}</view>
+        </view>
         <view class="admin-grid">
           <view class="admin-field"><text>服务商</text><input value="{{form.face.provider}}" data-section="face" data-key="provider" bindinput="onInput" /></view>
           <view class="admin-field"><text>使用的模型</text><input value="{{form.face.model}}" data-section="face" data-key="model" bindinput="onInput" /></view>
           <view class="admin-field admin-field-wide"><text>接口地址</text><input value="{{form.face.baseUrl}}" data-section="face" data-key="baseUrl" bindinput="onInput" /></view>
+          <view class="admin-field admin-field-wide"><text>API Key</text><input password value="{{form.face.apiKey}}" data-section="face" data-key="apiKey" placeholder="填写后可测试并保存" bindinput="onInput" /></view>
           <view class="admin-field"><text>超时毫秒</text><input type="number" value="{{form.face.timeoutMs}}" data-section="face" data-key="timeoutMs" bindinput="onInput" /></view>
         </view>
       </view>
 
       <view wx:if="{{activeConfigSection === 'analysis'}}" class="config-editor-body">
-        <view class="config-helper">图片分析模型独立保存服务商、接口地址、使用的模型和超时；API Key 继续从云函数环境变量读取，不会写入数据库。</view>
-        <view class="config-editor-tools">
+        <view class="config-helper">图片分析模型独立保存服务商、接口地址、API Key、使用的模型和超时；测试和获取模型会优先使用当前填写内容。</view>
+        <view class="config-editor-tools config-model-actions">
           <view
             class="config-tool-button"
             bindtap="copyFaceConfigToAnalysis"
@@ -709,21 +728,57 @@
             role="button"
             aria-label="复制人脸识别配置到图片分析"
           >复制人脸配置</view>
+          <view
+            class="config-model-button config-model-test"
+            data-model-type="analysis"
+            bindtap="testModelConnection"
+            hover-class="control-tap"
+            role="button"
+            aria-label="测试图片分析模型连接"
+          >{{modelActionType === 'analysis' && modelActionKind === 'test' ? '测试中...' : '测试连接'}}</view>
+          <view
+            class="config-model-button config-model-list"
+            data-model-type="analysis"
+            bindtap="getModelOptions"
+            hover-class="control-tap"
+            role="button"
+            aria-label="获取图片分析模型列表"
+          >{{modelActionType === 'analysis' && modelActionKind === 'list' ? '读取中...' : '获取模型'}}</view>
         </view>
         <view class="admin-grid">
           <view class="admin-field"><text>服务商</text><input value="{{form.analysis.provider}}" data-section="analysis" data-key="provider" bindinput="onInput" /></view>
           <view class="admin-field"><text>使用的模型</text><input value="{{form.analysis.model}}" data-section="analysis" data-key="model" bindinput="onInput" /></view>
           <view class="admin-field admin-field-wide"><text>接口地址</text><input value="{{form.analysis.baseUrl}}" data-section="analysis" data-key="baseUrl" bindinput="onInput" /></view>
+          <view class="admin-field admin-field-wide"><text>API Key</text><input password value="{{form.analysis.apiKey}}" data-section="analysis" data-key="apiKey" placeholder="填写后可测试并保存" bindinput="onInput" /></view>
           <view class="admin-field"><text>超时毫秒</text><input type="number" value="{{form.analysis.timeoutMs}}" data-section="analysis" data-key="timeoutMs" bindinput="onInput" /></view>
         </view>
       </view>
 
       <view wx:if="{{activeConfigSection === 'image'}}" class="config-editor-body">
-        <view class="config-helper">API Key 继续从云函数环境变量读取，这里不会显示密钥。</view>
+        <view class="config-helper">API Key 可在这里新增或修改，保存后同步到管理员配置；输入框默认隐藏密钥内容。</view>
+        <view class="config-model-actions">
+          <view
+            class="config-model-button config-model-test"
+            data-model-type="image"
+            bindtap="testModelConnection"
+            hover-class="control-tap"
+            role="button"
+            aria-label="测试生图模型连接"
+          >{{modelActionType === 'image' && modelActionKind === 'test' ? '测试中...' : '测试连接'}}</view>
+          <view
+            class="config-model-button config-model-list"
+            data-model-type="image"
+            bindtap="getModelOptions"
+            hover-class="control-tap"
+            role="button"
+            aria-label="获取生图模型列表"
+          >{{modelActionType === 'image' && modelActionKind === 'list' ? '读取中...' : '获取模型'}}</view>
+        </view>
         <view class="admin-grid">
           <view class="admin-field"><text>服务商</text><input value="{{form.image.provider}}" data-section="image" data-key="provider" bindinput="onInput" /></view>
           <view class="admin-field"><text>使用的模型</text><input value="{{form.image.model}}" data-section="image" data-key="model" bindinput="onInput" /></view>
           <view class="admin-field admin-field-wide"><text>接口地址</text><input value="{{form.image.baseUrl}}" data-section="image" data-key="baseUrl" bindinput="onInput" /></view>
+          <view class="admin-field admin-field-wide"><text>API Key</text><input password value="{{form.image.apiKey}}" data-section="image" data-key="apiKey" placeholder="填写后可测试并保存" bindinput="onInput" /></view>
           <view class="admin-field"><text>模式</text><input value="{{form.image.mode}}" data-section="image" data-key="mode" placeholder="generations / edits" bindinput="onInput" /></view>
           <view class="admin-field"><text>尺寸</text><input value="{{form.image.size}}" data-section="image" data-key="size" placeholder="1024x1024" bindinput="onInput" /></view>
           <view class="admin-field"><text>超时毫秒</text><input type="number" value="{{form.image.timeoutMs}}" data-section="image" data-key="timeoutMs" bindinput="onInput" /></view>
@@ -736,11 +791,30 @@
       </view>
 
       <view wx:if="{{activeConfigSection === 'video'}}" class="config-editor-body">
-        <view class="config-helper">创建任务只发一次，查询任务按配置轮询。</view>
+        <view class="config-helper">创建任务只发一次，查询任务按配置轮询；API Key 可在这里新增或修改并保存到管理员配置。</view>
+        <view class="config-model-actions">
+          <view
+            class="config-model-button config-model-test"
+            data-model-type="video"
+            bindtap="testModelConnection"
+            hover-class="control-tap"
+            role="button"
+            aria-label="测试视频模型连接"
+          >{{modelActionType === 'video' && modelActionKind === 'test' ? '测试中...' : '测试连接'}}</view>
+          <view
+            class="config-model-button config-model-list"
+            data-model-type="video"
+            bindtap="getModelOptions"
+            hover-class="control-tap"
+            role="button"
+            aria-label="获取视频模型列表"
+          >{{modelActionType === 'video' && modelActionKind === 'list' ? '读取中...' : '获取模型'}}</view>
+        </view>
         <view class="admin-grid">
           <view class="admin-field"><text>服务商</text><input value="{{form.video.provider}}" data-section="video" data-key="provider" bindinput="onInput" /></view>
           <view class="admin-field"><text>使用的模型</text><input value="{{form.video.model}}" data-section="video" data-key="model" bindinput="onInput" /></view>
           <view class="admin-field admin-field-wide"><text>接口地址</text><input value="{{form.video.baseUrl}}" data-section="video" data-key="baseUrl" bindinput="onInput" /></view>
+          <view class="admin-field admin-field-wide"><text>API Key</text><input password value="{{form.video.apiKey}}" data-section="video" data-key="apiKey" placeholder="填写后可测试并保存" bindinput="onInput" /></view>
           <view class="admin-field admin-field-wide"><text>创建路径</text><input value="{{form.video.createPath}}" data-section="video" data-key="createPath" bindinput="onInput" /></view>
           <view class="admin-field admin-field-wide"><text>查询路径</text><input value="{{form.video.queryPath}}" data-section="video" data-key="queryPath" bindinput="onInput" /></view>
           <view class="admin-field"><text>清晰度</text><input value="{{form.video.resolution}}" data-section="video" data-key="resolution" bindinput="onInput" /></view>
@@ -1086,10 +1160,41 @@
           aria-label="暂不修改并收起"
         >暂不修改</view>
       </view>
-    </view>
+      </view>
 
-    <view
-      class="monitor-toggle {{monitorExpanded ? 'is-open' : ''}}"
+      <view
+        wx:if="{{modelPickerOpen}}"
+        class="model-picker-mask"
+        catchtap="closeModelPicker"
+      >
+        <view class="model-picker-dialog" catchtap="noop">
+          <view class="model-picker-head">
+            <view>
+              <view class="model-picker-title">{{modelPickerTitle}}</view>
+              <view class="model-picker-subtitle">点选后会填入“使用的模型”，最后记得保存。</view>
+            </view>
+            <view class="model-picker-close" bindtap="closeModelPicker">关闭</view>
+          </view>
+          <scroll-view class="model-picker-list" scroll-y>
+            <view
+              wx:for="{{modelPickerOptions}}"
+              wx:key="value"
+              class="model-picker-option"
+              data-type="{{modelPickerType}}"
+              data-value="{{item.value}}"
+              bindtap="selectModelOption"
+              hover-class="control-tap"
+              role="button"
+            >
+              <text>{{item.label}}</text>
+              <text class="model-picker-arrow">›</text>
+            </view>
+          </scroll-view>
+        </view>
+      </view>
+
+      <view
+        class="monitor-toggle {{monitorExpanded ? 'is-open' : ''}}"
       bindtap="toggleMonitor"
       hover-class="control-tap"
       role="button"
@@ -1218,7 +1323,7 @@
           <view><text>云函数版本</text><text>{{autoFaceProbe.buildVersion || '未知'}}</text></view>
           <view><text>构建标记</text><text>{{autoFaceProbe.buildMarker || '未知'}}</text></view>
           <view><text>视觉配置</text><text>{{autoFaceProbe.visionConfigured ? '已就绪' : '未就绪'}}</text></view>
-          <view><text>Provider / Model</text><text>{{autoFaceProbe.provider || '未知'}} / {{autoFaceProbe.model || '未知'}}</text></view>
+          <view><text>模型</text><text>{{autoFaceProbe.model || '未知'}}</text></view>
           <view><text>Node.js</text><text>{{autoFaceProbe.nodeVersion || '未知'}}</text></view>
           <view><text>接口耗时</text><text>{{autoFaceProbe.durationText}}</text></view>
           <view><text>云函数处理耗时</text><text>{{autoFaceProbe.serverDurationText}}</text></view>
@@ -1245,7 +1350,7 @@
           <view wx:for="{{modelProbes.results}}" wx:key="type" class="model-probe-row">
             <view class="model-probe-main">
               <view class="model-probe-title">{{item.typeLabel}}</view>
-              <view class="model-probe-meta">{{item.provider}} / {{item.model}}</view>
+              <view class="model-probe-meta">{{item.model}}</view>
               <view class="model-probe-message">{{item.message}}</view>
             </view>
             <view class="model-probe-side">
@@ -1316,7 +1421,7 @@
               <text class="auto-face-probe-history-duration">{{item.durationText}}</text>
             </view>
             <view class="auto-face-probe-history-meta">
-              {{item.buildVersion}} · {{item.visionConfigured ? '视觉配置已就绪' : '视觉配置未就绪'}} · {{item.provider}} / {{item.model}}
+              {{item.buildVersion}} · {{item.visionConfigured ? '视觉配置已就绪' : '视觉配置未就绪'}} · {{item.model}}
             </view>
             <view class="auto-face-probe-history-meta">{{item.buildMarker}}</view>
             <view wx:if="{{item.status === 'failed' && item.errorCode}}" class="auto-face-probe-history-error">

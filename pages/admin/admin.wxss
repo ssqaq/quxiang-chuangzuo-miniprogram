@@ -3995,6 +3995,77 @@ page {
   white-space: normal;
 }
 
+.model-probe-quality {
+  margin-top: 12rpx;
+  padding: 12rpx 14rpx;
+  border: 1rpx solid #d7e4f7;
+  border-radius: 14rpx;
+  background: #f7faff;
+}
+
+.model-probe-quality-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12rpx;
+  color: #315a9d;
+  font-size: 19rpx;
+  font-weight: 800;
+  line-height: 28rpx;
+}
+
+.model-probe-quality-head text:last-child {
+  flex: none;
+  color: #4d79bf;
+  font-size: 18rpx;
+  font-weight: 700;
+}
+
+.model-probe-quality-note {
+  margin-top: 4rpx;
+  color: #7b8da8;
+  font-size: 17rpx;
+  line-height: 25rpx;
+}
+
+.model-probe-quality-values {
+  display: flex;
+  margin-top: 8rpx;
+  gap: 8rpx;
+}
+
+.model-probe-quality-value {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  padding: 7rpx 8rpx;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6rpx;
+  border: 1rpx solid #dce7f6;
+  border-radius: 10rpx;
+  background: #ffffff;
+  color: #526986;
+  font-size: 18rpx;
+  line-height: 24rpx;
+}
+
+.model-probe-quality-value text:first-child {
+  font-weight: 800;
+}
+
+.model-probe-quality-unknown {
+  color: #8a98aa;
+}
+
+.admin-quality-compat-row {
+  margin-top: 16rpx;
+}
+
+.admin-quality-compat-help {
+  margin-top: 10rpx;
+}
+
 .model-probe-side {
   display: flex;
   flex: none;

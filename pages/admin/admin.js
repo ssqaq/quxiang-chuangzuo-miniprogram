@@ -54,6 +54,16 @@ function normalizeAdminVideoResolution(value, fallback = "720p") {
     : "720p";
 }
 
+function normalizeAdminBoolean(value, fallback = false) {
+  if (value === undefined || value === null || value === "") return fallback;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["0", "false", "no", "off"].includes(normalized)) return false;
+    if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  }
+  return Boolean(value);
+}
+
 function normalizeAdminCapabilityValues(type, values) {
   const source = Array.isArray(values) ? values : [values];
   const output = [];
@@ -65,7 +75,16 @@ function normalizeAdminCapabilityValues(type, values) {
     }
     if (typeof value === "object") {
       Object.keys(value).forEach((key) => {
-        normalizeAdminCapabilityValues(type, value[key]).forEach((item) => output.push(item));
+        const flag = value[key];
+        if (typeof flag === "boolean") {
+          if (flag) {
+            normalizeAdminCapabilityValues(type, key)
+              .forEach((item) => output.push(item));
+          }
+          return;
+        }
+        normalizeAdminCapabilityValues(type, flag)
+          .forEach((item) => output.push(item));
       });
       return;
     }
@@ -198,6 +217,7 @@ function emptyForm() {
       mode: "generations",
       size: "1080x1440",
       resolution: "1K",
+      compatibilityMode: false,
       timeoutMs: "90000",
       maxRetries: "2",
       retryEnabled: true,
@@ -1075,6 +1095,85 @@ function modelProbeRepairAdvice(status, httpStatus) {
   }
 }
 
+function emptyImageQualityProbe() {
+  return {
+    available: false,
+    source: "custom",
+    sourceText: "未识别",
+    status: "unknown",
+    statusText: "上游没有返回清晰度能力",
+    safe: true,
+    noGeneration: true,
+    values: IMAGE_QUALITY_OPTIONS.map((item) => ({
+      value: item.value,
+      label: item.label,
+      status: "unknown",
+      statusText: "未识别"
+    })),
+    summaryText: "未识别"
+  };
+}
+
+function formatImageQualityProbe(source = {}) {
+  const raw = source && typeof source === "object" ? source : {};
+  const sourceText = raw.source === "upstream"
+    ? "上游能力"
+    : raw.source === "known-model-rule"
+      ? "已知模型规则"
+      : "未识别";
+  const rawValues = Array.isArray(raw.values) ? raw.values : [];
+  const values = IMAGE_QUALITY_OPTIONS.map((option) => {
+    const item = rawValues.find((entry) => (
+      String(entry && entry.value || "").toUpperCase() === option.value
+    )) || {};
+    const status = ["supported", "unsupported", "unknown"].includes(item.status)
+      ? item.status
+      : "unknown";
+    return {
+      value: option.value,
+      label: option.label,
+      status,
+      statusText: status === "supported"
+        ? "支持"
+        : status === "unsupported"
+          ? "不支持"
+          : "未识别"
+    };
+  });
+  const supported = values
+    .filter((item) => item.status === "supported")
+    .map((item) => item.value);
+  const status = raw.status === "ok" || raw.status === "partial"
+    || raw.status === "unsupported" || raw.status === "unknown"
+    ? raw.status
+    : "unknown";
+  return {
+    available: Boolean(raw.source || raw.values),
+    source: raw.source || "custom",
+    sourceText,
+    status,
+    statusText: raw.statusText || (
+      status === "ok"
+        ? "1K、2K、4K 全部支持"
+        : status === "partial"
+          ? `支持：${supported.join("、")}`
+          : status === "unsupported"
+            ? "未发现可用清晰度"
+            : "上游没有返回清晰度能力"
+    ),
+    safe: raw.safe !== false,
+    noGeneration: raw.noGeneration !== false,
+    values,
+    summaryText: status === "ok"
+      ? "1K、2K、4K 全部支持"
+      : status === "partial"
+        ? `支持：${supported.join("、")}`
+        : status === "unsupported"
+          ? "未发现可用清晰度"
+          : "未识别"
+  };
+}
+
 function formatModelProbes(result, error = null) {
   const source = result || {};
   const failed = Boolean(error) || source.ok === false && !Array.isArray(source.results);
@@ -1082,6 +1181,7 @@ function formatModelProbes(result, error = null) {
     type: item.type || "",
     typeLabel: item.typeLabel || usageTypeLabel(item.type),
     provider: item.provider || "未填写",
+    modelId: String(item.model || ""),
     model: displayModelName(item.model),
     configured: Boolean(item.configured),
     ready: Boolean(item.ready),
@@ -1092,6 +1192,12 @@ function formatModelProbes(result, error = null) {
     durationMs: Number(item.durationMs) || 0,
     durationText: `${Number(item.durationMs) || 0} 毫秒`,
     endpoint: item.endpoint || "",
+    capabilities: item.capabilities && typeof item.capabilities === "object"
+      ? item.capabilities
+      : { source: "custom", resolutions: [] },
+    qualityProbe: item.type === "image"
+      ? formatImageQualityProbe(item.qualityProbe)
+      : null,
     message: item.message || "",
     repairAdvice: item.ready
       ? ""
@@ -1951,6 +2057,7 @@ function formFromConfig(result) {
         image.resolution || image.size,
         "1K"
       ),
+      compatibilityMode: normalizeAdminBoolean(image.compatibilityMode, false),
       timeoutMs: String(image.timeoutMs || 90000),
       maxRetries: String(image.maxRetries || 0),
       retryEnabled: image.retryEnabled === undefined
@@ -2036,6 +2143,7 @@ function formToConfig(form) {
         form.image.resolution || form.image.size,
         "1K"
       ),
+      compatibilityMode: Boolean(form.image.compatibilityMode),
       timeoutMs: Number(form.image.timeoutMs || 0),
       maxRetries: Number(form.image.maxRetries || 0),
       retryEnabled: Boolean(form.image.retryEnabled),
@@ -2278,6 +2386,7 @@ Page({
     videoCapabilitySource: "known-model-rule",
     imageCapabilityNotice: "生图清晰度由 1K、2K、4K 控制，尺寸只控制画面比例。",
     videoCapabilityNotice: "视频清晰度由上游模型能力决定。",
+    imageQualityProbe: emptyImageQualityProbe(),
     modelCapabilityProfiles: {
       image: {},
       video: {}
@@ -3493,6 +3602,13 @@ Page({
     });
   },
 
+  onImageCompatibilityChange(event) {
+    this.setData({
+      "form.image.compatibilityMode": Array.isArray(event.detail.value)
+        && event.detail.value.includes("enabled")
+    });
+  },
+
   copyFaceConfigToAnalysis() {
     const face = this.data.form && this.data.form.face
       ? this.data.form.face
@@ -3816,7 +3932,7 @@ Page({
         form,
         effective,
         saving: false,
-        message: `配置已保存，第 ${result.version || 0} 版；正在自动测试四套模型...`
+        message: `配置已保存，第 ${result.version || 0} 版；正在自动测试四套模型和生图三档清晰度...`
       }, buildQualityPickerState(form));
       Object.assign(patch, this.buildAdminDerivedPatch(patch, this.data.moduleStates));
       this.setData(patch);
@@ -4142,10 +4258,38 @@ Page({
       const target = modelType
         ? modelProbes.results.find((item) => item.type === modelType)
         : null;
-      this.setData({
+      const modelCapabilityProfiles = Object.assign(
+        {},
+        this.data.modelCapabilityProfiles || {}
+      );
+      const capabilityPayload = {};
+      modelProbes.results.forEach((item) => {
+        if (!item || !item.type || !item.capabilities) return;
+        const modelId = String(item.modelId || "").trim();
+        const profiles = Object.assign(
+          {},
+          modelCapabilityProfiles[item.type] || {}
+        );
+        if (modelId) profiles[modelId] = item.capabilities;
+        modelCapabilityProfiles[item.type] = profiles;
+        if (item.type === "image") capabilityPayload.image = item.capabilities;
+        if (item.type === "video") capabilityPayload.video = item.capabilities;
+      });
+      const imageProbe = modelProbes.results.find((item) => item.type === "image");
+      const qualitySummary = imageProbe && imageProbe.qualityProbe
+        ? ` 生图清晰度：${imageProbe.qualityProbe.summaryText}（只读能力，不实际生成图片）。`
+        : "";
+      const pickerPatch = Object.keys(capabilityPayload).length
+        ? buildQualityPickerState(this.data.form, capabilityPayload)
+        : {};
+      this.setData(Object.assign({
         modelProbing: false,
         modelProbingType: "",
         modelProbes,
+        modelCapabilityProfiles,
+        imageQualityProbe: imageProbe && imageProbe.qualityProbe
+          ? imageProbe.qualityProbe
+          : this.data.imageQualityProbe,
         monitorExpanded: true,
         message: modelType && target
           ? `${target.typeLabel}探测完成：${target.statusText}。${
@@ -4153,12 +4297,12 @@ Page({
               ? ""
               : ` ${target.message || "连接测试未通过。"}${
                 target.repairAdvice ? ` 修复建议：${target.repairAdvice}` : ""
-              }`
-          }`
+                }`
+          }${qualitySummary}`
           : modelProbes.readyCount === modelProbes.total
-            ? `模型接口探测完成：${modelProbes.readyCount}/${modelProbes.total} 套正常。`
-            : `模型接口探测完成：${modelProbes.readyCount}/${modelProbes.total} 套正常，失败项请按下方修复建议处理。`
-      });
+            ? `模型接口探测完成：${modelProbes.readyCount}/${modelProbes.total} 套正常。${qualitySummary}`
+            : `模型接口探测完成：${modelProbes.readyCount}/${modelProbes.total} 套正常，失败项请按下方修复建议处理。${qualitySummary}`
+      }, pickerPatch));
       wx.showToast({
         title: modelType && target
           ? `${target.typeLabel}${target.statusText}`

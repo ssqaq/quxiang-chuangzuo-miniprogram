@@ -460,6 +460,11 @@
           <view class="admin-field"><text>最大重试</text><input type="number" value="{{form.image.maxRetries}}" data-section="image" data-key="maxRetries" bindinput="onInput" /></view>
         </view>
         <view class="config-helper">{{imageCapabilityNotice}}</view>
+          <label class="admin-checkbox-row admin-quality-compat-row">
+            <checkbox value="enabled" checked="{{form.image.compatibilityMode}}" bindchange="onImageCompatibilityChange" color="#245fd4"></checkbox>
+            <text>旧上游兼容模式：不发送 quality=auto</text>
+          </label>
+          <view class="config-helper admin-quality-compat-help">默认发送 quality=auto；如果上游报“参数不支持”，打开这个模式后再保存。</view>
           <label class="admin-checkbox-row">
             <checkbox value="enabled" checked="{{form.image.retryEnabled}}" bindchange="onRetryChange" color="#245fd4"></checkbox>
             <text>允许生图上游请求自动重试</text>
@@ -1722,12 +1727,30 @@
           <view wx:for="{{modelProbes.results}}" wx:key="type" class="model-probe-row">
             <view class="model-probe-main">
               <view class="model-probe-title">{{item.typeLabel}}</view>
-               <view class="model-probe-meta">{{item.model}}</view>
-               <view class="model-probe-message">{{item.message}}</view>
-               <view wx:if="{{item.repairAdvice}}" class="model-probe-repair">
-                 修复建议：{{item.repairAdvice}}
-               </view>
-             </view>
+              <view class="model-probe-meta">{{item.model}}</view>
+              <view class="model-probe-message">{{item.message}}</view>
+              <view wx:if="{{item.type === 'image' && item.qualityProbe}}" class="model-probe-quality">
+                <view class="model-probe-quality-head">
+                  <text>生图清晰度探测</text>
+                  <text>{{item.qualityProbe.statusText}}</text>
+                </view>
+                <view class="model-probe-quality-note">{{item.qualityProbe.sourceText}}；只读能力，不实际生成图片，不扣额度。</view>
+                <view class="model-probe-quality-values">
+                  <view
+                    wx:for="{{item.qualityProbe.values}}"
+                    wx:for-item="qualityItem"
+                    wx:key="value"
+                    class="model-probe-quality-value"
+                  >
+                    <text>{{qualityItem.value}}</text>
+                    <text class="{{qualityItem.status === 'supported' ? 'log-ok' : qualityItem.status === 'unsupported' ? 'log-warn' : 'model-probe-quality-unknown'}}">{{qualityItem.statusText}}</text>
+                  </view>
+                </view>
+              </view>
+              <view wx:if="{{item.repairAdvice}}" class="model-probe-repair">
+                修复建议：{{item.repairAdvice}}
+              </view>
+            </view>
             <view class="model-probe-side">
               <text class="{{item.ready ? 'log-ok' : 'log-warn'}}">{{item.statusText}}</text>
               <text>{{item.durationText}}</text>

@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.40.23";
-const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V04023";
+const API_BUILD_VERSION = "0.40.24";
+const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V04024";
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
 const cloud = require("wx-server-sdk");
@@ -1407,7 +1407,13 @@ function apiKeyHeaders(apiKey) {
 
 function overrideBoolean(overrides, key, fallback) {
   if (!overrides || !Object.prototype.hasOwnProperty.call(overrides, key)) return fallback;
-  return Boolean(overrides[key]);
+  const value = overrides[key];
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["0", "false", "no", "off"].includes(normalized)) return false;
+    if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  }
+  return Boolean(value);
 }
 
 function imageRetryPreferenceVersion(image) {
@@ -1454,6 +1460,7 @@ function resolveImageConfig(overrides = {}) {
     size,
     resolution,
     legacySizeOnly: !hasOwn(image, "resolution"),
+    compatibilityMode: overrideBoolean(image, "compatibilityMode", false),
     mode,
     timeoutMs: clampNumber(
       image && Object.prototype.hasOwnProperty.call(image, "timeoutMs")
@@ -1748,13 +1755,14 @@ function buildImageGenerationPayload(payload = {}, imageConfig = resolveImageCon
   const prompt = `${String(payload.prompt || "").trim()}${
     payload.negativePrompt ? `\n\n负面约束：${String(payload.negativePrompt).trim()}` : ""
   }`;
-  return {
+  const result = {
     model: String(config.model || payload.model || "").trim(),
     prompt,
     size: resolveImageOutputSize(config, payload.size),
-    quality: "auto",
     n: 1
   };
+  if (!config.compatibilityMode) result.quality = "auto";
+  return result;
 }
 
 function buildImageEditFields(payload = {}, imageConfig = resolveImageConfig(), references = []) {
@@ -1766,7 +1774,6 @@ function buildImageEditFields(payload = {}, imageConfig = resolveImageConfig(), 
       name: "size",
       value: resolveImageOutputSize(config, payload.size)
     },
-    { name: "quality", value: "auto" },
     {
       name: "reference_manifest",
       value: JSON.stringify((Array.isArray(references) ? references : []).map((item) => ({
@@ -1775,6 +1782,9 @@ function buildImageEditFields(payload = {}, imageConfig = resolveImageConfig(), 
       })))
     }
   ];
+  if (!config.compatibilityMode) {
+    fields.splice(3, 0, { name: "quality", value: "auto" });
+  }
   if (payload.n) fields.push({ name: "n", value: String(payload.n) });
   return fields;
 }
@@ -1801,7 +1811,12 @@ function normalizeCapabilityValues(type, values) {
     }
     if (typeof value === "object") {
       Object.keys(value).forEach((key) => {
-        normalized.push(...normalizeCapabilityValues(type, value[key]));
+        const flag = value[key];
+        if (typeof flag === "boolean") {
+          if (flag) normalized.push(...normalizeCapabilityValues(type, key));
+          return;
+        }
+        normalized.push(...normalizeCapabilityValues(type, flag));
       });
       return;
     }
@@ -1887,6 +1902,54 @@ function modelCapabilities(type, modelConfig = {}, payload = {}, modelEntry = nu
   return {
     source: "custom",
     resolutions: []
+  };
+}
+
+function buildImageQualityProbe(modelConfig = {}, capabilities = {}) {
+  const source = capabilities && capabilities.source
+    ? String(capabilities.source)
+    : "custom";
+  const resolutions = Array.isArray(capabilities && capabilities.resolutions)
+    ? capabilities.resolutions
+    : [];
+  const supported = new Set(resolutions.map((item) => normalizeImageResolution(item, "")));
+  const known = source === "upstream" || source === "known-model-rule";
+  const values = ["1K", "2K", "4K"].map((value) => {
+    const isSupported = supported.has(value);
+    return {
+      value,
+      status: known ? (isSupported ? "supported" : "unsupported") : "unknown",
+      supported: known ? isSupported : null,
+      statusText: known ? (isSupported ? "支持" : "不支持") : "未识别"
+    };
+  });
+  const supportedValues = values
+    .filter((item) => item.supported === true)
+    .map((item) => item.value);
+  const status = !known
+    ? "unknown"
+    : supportedValues.length === values.length
+      ? "ok"
+      : supportedValues.length
+        ? "partial"
+        : "unsupported";
+  return {
+    type: "image-quality",
+    method: "model-metadata",
+    safe: true,
+    noGeneration: true,
+    source,
+    status,
+    statusText: status === "ok"
+      ? "1K、2K、4K 全部支持"
+      : status === "partial"
+        ? `支持：${supportedValues.join("、")}`
+        : status === "unsupported"
+          ? "未发现可用清晰度"
+          : "上游没有返回清晰度能力",
+    model: String(modelConfig.model || ""),
+    checkedAt: new Date().toISOString(),
+    values
   };
 }
 
@@ -4691,6 +4754,7 @@ function normalizeRuntimePatch(input = {}) {
     "mode",
     "size",
     "resolution",
+    "compatibilityMode",
     "timeoutMs",
     "maxRetries",
     "retryEnabled",
@@ -4762,6 +4826,8 @@ function normalizeRuntimePatch(input = {}) {
     if (hasOwn(imageSource, key)) {
       image[key] = key === "apiKey"
         ? normalizeApiKey(imageSource[key])
+        : key === "compatibilityMode"
+          ? overrideBoolean(imageSource, key, false)
         : imageSource[key];
     }
   });
@@ -5077,6 +5143,7 @@ function redactConfig(config, defaults) {
         image.resolution || image.size,
         "1K"
       ),
+      compatibilityMode: overrideBoolean(image, "compatibilityMode", false),
       timeoutMs: Number(image.timeoutMs || 0),
       maxRetries: Number(image.maxRetries || 0),
       retryEnabled: Boolean(image.retryEnabled),
@@ -5691,6 +5758,7 @@ async function probeOneModel(type, modelConfig, options = {}) {
     && (config.baseUrl || config.endpoint)
     && (!requireModel || model)
   );
+  const initialCapabilities = modelCapabilities(type, config);
   const base = {
     type,
     typeLabel: label,
@@ -5707,7 +5775,10 @@ async function probeOneModel(type, modelConfig, options = {}) {
     endpoint: "",
     models: [],
     modelCapabilities: {},
-    capabilities: modelCapabilities(type, config),
+    capabilities: initialCapabilities,
+    qualityProbe: type === "image"
+      ? buildImageQualityProbe(config, initialCapabilities)
+      : null,
     message: configured
       ? ""
       : requireModel
@@ -5758,6 +5829,9 @@ async function probeOneModel(type, modelConfig, options = {}) {
       ));
       const capabilities = modelCapabilities(type, config, response.json, selectedEntry);
       const capabilitiesByModel = modelCapabilityMap(type, config, entries);
+      const qualityProbe = type === "image"
+        ? buildImageQualityProbe(config, capabilities)
+        : null;
       if (!requireModel) {
         return Object.assign(base, {
           ready: true,
@@ -5769,6 +5843,7 @@ async function probeOneModel(type, modelConfig, options = {}) {
           models: ids,
           modelCapabilities: capabilitiesByModel,
           capabilities,
+          qualityProbe,
           message: `接口可访问，已读取 ${ids.length} 个模型。`
         });
       }
@@ -5785,6 +5860,7 @@ async function probeOneModel(type, modelConfig, options = {}) {
         durationMs,
         modelCapabilities: capabilitiesByModel,
         capabilities,
+        qualityProbe,
         message: modelListed
           ? "接口可访问，当前模型配置正常。"
           : `接口可访问，但模型列表里没有 ${model}。`
@@ -5921,6 +5997,7 @@ async function listModels(event, context) {
       source: "custom",
       resolutions: []
     },
+    qualityProbe: result.qualityProbe || null,
     message: result.message || ""
   });
 }
@@ -9256,7 +9333,8 @@ async function generate(event, context) {
       createdAt,
       size,
       resolution,
-      quality: imageRequest.quality,
+      quality: imageRequest.quality || "",
+      compatibilityMode: Boolean(imageConfig.compatibilityMode),
       imageMode: mode,
       requestId,
       quotaUsed: billing.quota.freeUsed,
@@ -9517,7 +9595,8 @@ async function repairImage(event, context) {
       createdAt,
       size: repairSize,
       resolution: repairResolution,
-      quality: "auto",
+      quality: imageConfig.compatibilityMode ? "" : "auto",
+      compatibilityMode: Boolean(imageConfig.compatibilityMode),
       imageMode: "edits",
       generationType: "repair",
       parentRecordId,
@@ -10938,6 +11017,8 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     buildImageEditFields,
     normalizeVideoResolution,
     modelCapabilities,
+    buildImageQualityProbe,
+    normalizeRuntimePatch,
     extractModelUsage,
     extractVideoDuration,
     buildUsageBilling,

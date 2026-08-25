@@ -886,14 +886,6 @@ page {
   margin-bottom: 0;
 }
 
-.monitor-deployment-body .admin-section-tools .monitor-section-toggle-button {
-  margin-right: -12rpx;
-}
-
-.monitor-deployment-group > .monitor-section-head .monitor-section-toggle-button {
-  margin-right: -12rpx;
-}
-
 .monitor-fold-card.is-collapsed {
   padding-bottom: 0;
 }
@@ -937,7 +929,6 @@ page {
   }
 
   .monitor-deployment-body {
-    padding-right: 12rpx;
     padding-left: 12rpx;
   }
 }
@@ -4412,8 +4403,7 @@ page {
   }
 
   .admin-section-tools > .config-state,
-  .admin-section-tools > .usage-refresh-button,
-  .admin-section-tools > .monitor-section-toggle-button {
+  .admin-section-tools > .usage-refresh-button {
     flex: 1 1 calc(50% - 5rpx);
     width: auto;
   }
@@ -4423,12 +4413,7 @@ page {
     flex-wrap: wrap;
   }
 
-  .monitor-section-head .monitor-section-toggle-button {
-    margin-left: auto;
-  }
-
   .monitor-deployment-body {
-    padding-right: 8rpx;
     padding-left: 8rpx;
   }
 
@@ -4482,8 +4467,7 @@ page {
   }
 
   .usage-primary-actions > .usage-refresh-button,
-  .usage-primary-actions > .usage-export-button,
-  .usage-primary-actions > .monitor-section-toggle-button {
+  .usage-primary-actions > .usage-export-button {
     flex: 1 1 0;
     width: 0;
     min-width: 0;
@@ -4492,16 +4476,6 @@ page {
     padding-right: 6rpx;
     padding-left: 6rpx;
     font-size: 18rpx;
-  }
-
-  .usage-primary-actions > .monitor-section-toggle-button {
-    gap: 3rpx;
-  }
-
-  .usage-primary-actions .monitor-section-chevron {
-    min-width: 16rpx;
-    min-height: 16rpx;
-    font-size: 23rpx;
   }
 
   .usage-refresh-button {
@@ -4557,40 +4531,12 @@ page {
   }
 }
 
-/* 所有展开按钮统一按“用户端日志”的右侧基准线对齐。 */
-.monitor-section-toggle-button,
-.usage-subsection-toggle {
-  box-sizing: border-box;
-  width: 116rpx;
-  min-width: 116rpx;
-  height: 60rpx;
-  min-height: 60rpx;
-  padding: 0 14rpx;
-  gap: 8rpx;
-  font-size: 20rpx;
-}
-
-.monitor-section-chevron,
-.usage-subsection-chevron {
-  display: inline-flex;
-  min-width: 20rpx;
-  min-height: 20rpx;
-  align-items: center;
-  justify-content: center;
-  font-size: 26rpx;
-  line-height: 1;
-}
-
 .usage-subsection-head,
 .usage-collapsed-statistics-card > .usage-subsection-head {
   min-height: 92rpx;
   padding-top: 16rpx;
   padding-bottom: 16rpx;
   align-items: center;
-}
-
-.usage-collapsed-statistics-card > .usage-subsection-head {
-  margin-right: -12rpx;
 }
 
 .admin-section-head,
@@ -4608,17 +4554,8 @@ page {
 
 .admin-section-head > .admin-section-tools,
 .admin-section-head > .usage-toolbar,
-.usage-subsection-head > .usage-failure-actions,
-.monitor-section-head > .monitor-section-toggle-button {
+.usage-subsection-head > .usage-failure-actions {
   margin-left: auto;
-}
-
-.monitor-deployment-body .admin-section-tools .monitor-section-toggle-button {
-  margin-right: -12rpx;
-}
-
-.monitor-deployment-group > .monitor-section-head .monitor-section-toggle-button {
-  margin-right: 0;
 }
 
 @media (max-width: 560px) {
@@ -4641,22 +4578,11 @@ page {
     width: 142rpx;
   }
 
-  .admin-section-tools > .monitor-section-toggle-button {
-    flex: 0 0 116rpx;
-    width: 116rpx;
-  }
-
   .usage-primary-actions > .usage-refresh-button,
   .usage-primary-actions > .usage-export-button {
     flex: 1 1 0;
     width: auto;
     min-width: 0;
-  }
-
-  .usage-primary-actions > .monitor-section-toggle-button {
-    flex: 0 0 116rpx;
-    width: 116rpx;
-    min-width: 116rpx;
   }
 }
 
@@ -4687,26 +4613,10 @@ page {
   min-height: 54rpx;
 }
 
-.usage-primary-actions > .monitor-section-toggle-button,
-.usage-failure-actions > .usage-subsection-toggle {
-  box-sizing: border-box;
-  flex: 0 0 116rpx;
-  width: 116rpx;
-  min-width: 116rpx;
-  height: 60rpx;
-  min-height: 60rpx;
-  padding: 0 14rpx;
-  gap: 8rpx;
-  font-size: 20rpx;
-  font-weight: 800;
-}
-
 .usage-primary-actions > .usage-refresh-button,
 .usage-primary-actions > .usage-export-button,
-.usage-primary-actions > .monitor-section-toggle-button,
 .usage-failure-actions > picker,
-.usage-failure-actions > .model-failure-export-button,
-.usage-failure-actions > .usage-subsection-toggle {
+.usage-failure-actions > .model-failure-export-button {
   margin: 0;
   border-color: #bcd3f6;
   border-radius: 16rpx;
@@ -4719,8 +4629,7 @@ page {
 }
 
 .usage-primary-actions > .usage-refresh-button,
-.usage-primary-actions > .usage-export-button,
-.usage-primary-actions > .monitor-section-toggle-button {
+.usage-primary-actions > .usage-export-button {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -4772,17 +4681,27 @@ page {
     min-width: 176rpx;
   }
 
-  .usage-primary-actions > .monitor-section-toggle-button {
-    flex: 0 0 116rpx;
-    width: 116rpx;
-    min-width: 116rpx;
-  }
 }
 
-/* 所有“展开/收起”控件统一复用运行监控的视觉规格。 */
+/* 所有“展开/收起”控件统一与用户端日志的右边界和视觉规格。 */
+.admin-action-slot {
+  display: flex;
+  box-sizing: border-box;
+  flex: 0 0 116rpx;
+  width: 116rpx;
+  min-width: 116rpx;
+  margin-left: auto;
+  padding: 0;
+  align-items: center;
+  justify-content: flex-end;
+}
+
 .monitor-section-toggle-button,
 .usage-subsection-toggle {
   box-sizing: border-box;
+  display: inline-flex;
+  flex: 0 0 116rpx;
+  flex-shrink: 0;
   width: 116rpx;
   min-width: 116rpx;
   height: 60rpx;
@@ -4802,10 +4721,26 @@ page {
 .monitor-section-chevron,
 .usage-subsection-chevron {
   display: inline-flex;
+  flex: 0 0 20rpx;
+  width: 20rpx;
   min-width: 20rpx;
+  height: 20rpx;
   min-height: 20rpx;
   align-items: center;
   justify-content: center;
   font-size: 26rpx;
   line-height: 1;
+}
+
+.monitor-deployment-body {
+  padding-right: 0;
+}
+
+.usage-collapsed-statistics-card {
+  padding-right: 0;
+}
+
+.usage-collapsed-statistics-card > .usage-subsection-head {
+  margin-right: 0;
+  padding-right: 0;
 }

@@ -292,16 +292,18 @@
             <button class="usage-export-button" bindtap="exportModelUsage" loading="{{usageExporting}}" disabled="{{usageExporting}}">
               {{usageExporting ? '生成中' : '导出 Excel'}}
             </button>
-            <view
-              class="monitor-section-toggle-button"
-              data-usage-card="1"
-              catchtap="toggleUsageCard"
-              hover-class="control-tap"
-              role="button"
-              aria-label="{{usageExpanded ? '收起模型用量统计' : '展开模型用量统计'}}"
-            >
-              <text>{{usageExpanded ? '收起' : '展开'}}</text>
-              <text class="monitor-section-chevron {{usageExpanded ? 'is-open' : ''}}">⌄</text>
+            <view class="admin-action-slot">
+              <view
+                class="monitor-section-toggle-button"
+                data-usage-card="1"
+                catchtap="toggleUsageCard"
+                hover-class="control-tap"
+                role="button"
+                aria-label="{{usageExpanded ? '收起模型用量统计' : '展开模型用量统计'}}"
+              >
+                <text>{{usageExpanded ? '收起' : '展开'}}</text>
+                <text class="monitor-section-chevron {{usageExpanded ? 'is-open' : ''}}">⌄</text>
+              </view>
             </view>
           </view>
         </view>
@@ -390,16 +392,18 @@
       >
         <view class="usage-subsection-head">
           <view class="usage-subsection-title">按模型名称分组</view>
-          <view
-            class="usage-subsection-toggle"
-            data-usage-section="models"
-            catchtap="toggleUsageSection"
-            hover-class="control-tap"
-            role="button"
-            aria-label="{{usageSections.models ? '收起按模型名称分组' : '展开按模型名称分组'}}"
-          >
-            <text>{{usageSections.models ? '收起' : '展开'}}</text>
-            <text class="usage-subsection-chevron {{usageSections.models ? 'is-open' : ''}}">⌄</text>
+          <view class="admin-action-slot">
+            <view
+              class="usage-subsection-toggle"
+              data-usage-section="models"
+              catchtap="toggleUsageSection"
+              hover-class="control-tap"
+              role="button"
+              aria-label="{{usageSections.models ? '收起按模型名称分组' : '展开按模型名称分组'}}"
+            >
+              <text>{{usageSections.models ? '收起' : '展开'}}</text>
+              <text class="usage-subsection-chevron {{usageSections.models ? 'is-open' : ''}}">⌄</text>
+            </view>
           </view>
         </view>
       <view
@@ -426,16 +430,18 @@
 
         <view class="usage-subsection-head">
           <view class="usage-subsection-title">按用户统计</view>
-          <view
-            class="usage-subsection-toggle"
-            data-usage-section="users"
-            catchtap="toggleUsageSection"
-            hover-class="control-tap"
-            role="button"
-            aria-label="{{usageSections.users ? '收起按用户统计' : '展开按用户统计'}}"
-          >
-            <text>{{usageSections.users ? '收起' : '展开'}}</text>
-            <text class="usage-subsection-chevron {{usageSections.users ? 'is-open' : ''}}">⌄</text>
+          <view class="admin-action-slot">
+            <view
+              class="usage-subsection-toggle"
+              data-usage-section="users"
+              catchtap="toggleUsageSection"
+              hover-class="control-tap"
+              role="button"
+              aria-label="{{usageSections.users ? '收起按用户统计' : '展开按用户统计'}}"
+            >
+              <text>{{usageSections.users ? '收起' : '展开'}}</text>
+              <text class="usage-subsection-chevron {{usageSections.users ? 'is-open' : ''}}">⌄</text>
+            </view>
           </view>
         </view>
       <view
@@ -463,16 +469,18 @@
 
         <view class="usage-subsection-head">
           <view class="usage-subsection-title">按月份统计</view>
-          <view
-            class="usage-subsection-toggle"
-            data-usage-section="monthly"
-            catchtap="toggleUsageSection"
-            hover-class="control-tap"
-            role="button"
-            aria-label="{{usageSections.monthly ? '收起按月份统计' : '展开按月份统计'}}"
-          >
-            <text>{{usageSections.monthly ? '收起' : '展开'}}</text>
-            <text class="usage-subsection-chevron {{usageSections.monthly ? 'is-open' : ''}}">⌄</text>
+          <view class="admin-action-slot">
+            <view
+              class="usage-subsection-toggle"
+              data-usage-section="monthly"
+              catchtap="toggleUsageSection"
+              hover-class="control-tap"
+              role="button"
+              aria-label="{{usageSections.monthly ? '收起按月份统计' : '展开按月份统计'}}"
+            >
+              <text>{{usageSections.monthly ? '收起' : '展开'}}</text>
+              <text class="usage-subsection-chevron {{usageSections.monthly ? 'is-open' : ''}}">⌄</text>
+            </view>
           </view>
         </view>
       <view
@@ -499,16 +507,18 @@
 
         <view class="usage-subsection-head">
           <view class="usage-subsection-title usage-daily-title">最近{{usageStats.days}}天每日明细</view>
-          <view
-            class="usage-subsection-toggle"
-            data-usage-section="daily"
-            catchtap="toggleUsageSection"
-            hover-class="control-tap"
-            role="button"
-            aria-label="{{usageSections.daily ? '收起每日明细' : '展开每日明细'}}"
-          >
-            <text>{{usageSections.daily ? '收起' : '展开'}}</text>
-            <text class="usage-subsection-chevron {{usageSections.daily ? 'is-open' : ''}}">⌄</text>
+          <view class="admin-action-slot">
+            <view
+              class="usage-subsection-toggle"
+              data-usage-section="daily"
+              catchtap="toggleUsageSection"
+              hover-class="control-tap"
+              role="button"
+              aria-label="{{usageSections.daily ? '收起每日明细' : '展开每日明细'}}"
+            >
+              <text>{{usageSections.daily ? '收起' : '展开'}}</text>
+              <text class="usage-subsection-chevron {{usageSections.daily ? 'is-open' : ''}}">⌄</text>
+            </view>
           </view>
         </view>
       <view
@@ -552,7 +562,7 @@
           · 错误日志 {{diagnosticLogs.summary.errorCount || 0}} 条
         </view>
       </view>
-      <view class="monitor-toggle-actions">
+      <view class="monitor-toggle-actions admin-action-slot">
         <view class="monitor-section-toggle-button">
           <text>{{monitorExpanded ? '收起' : '展开'}}</text>
           <text class="monitor-section-chevron {{monitorExpanded ? 'is-open' : ''}}">⌄</text>
@@ -627,9 +637,11 @@
               · 探针历史 {{autoFaceProbeHistory.history.length}} 条
             </text>
           </view>
-          <view class="monitor-section-toggle-button">
-            <text>{{monitorSections.deployment ? '收起' : '展开'}}</text>
-            <text class="monitor-section-chevron {{monitorSections.deployment ? 'is-open' : ''}}">⌄</text>
+          <view class="admin-action-slot">
+            <view class="monitor-section-toggle-button">
+              <text>{{monitorSections.deployment ? '收起' : '展开'}}</text>
+              <text class="monitor-section-chevron {{monitorSections.deployment ? 'is-open' : ''}}">⌄</text>
+            </view>
           </view>
         </view>
 
@@ -729,16 +741,18 @@
               {{moduleStates.probeHistory.label}}
             </view>
             <button class="usage-refresh-button" bindtap="refreshAutoFaceProbeHistory">刷新</button>
-            <view
-              class="monitor-section-toggle-button"
-              data-deployment-section="probeHistory"
-              catchtap="toggleDeploymentSection"
-              hover-class="control-tap"
-              role="button"
-              aria-label="{{deploymentSections.probeHistory ? '收起探针历史' : '展开探针历史'}}"
-            >
-              <text>{{deploymentSections.probeHistory ? '收起' : '展开'}}</text>
-              <text class="monitor-section-chevron {{deploymentSections.probeHistory ? 'is-open' : ''}}">⌄</text>
+            <view class="admin-action-slot">
+              <view
+                class="monitor-section-toggle-button"
+                data-deployment-section="probeHistory"
+                catchtap="toggleDeploymentSection"
+                hover-class="control-tap"
+                role="button"
+                aria-label="{{deploymentSections.probeHistory ? '收起探针历史' : '展开探针历史'}}"
+              >
+                <text>{{deploymentSections.probeHistory ? '收起' : '展开'}}</text>
+                <text class="monitor-section-chevron {{deploymentSections.probeHistory ? 'is-open' : ''}}">⌄</text>
+              </view>
             </view>
           </view>
         </view>
@@ -789,16 +803,18 @@
               {{moduleStates.logs.label}}
             </view>
             <text class="admin-log-count">{{logs.length}} 条</text>
-            <view
-              class="monitor-section-toggle-button"
-              data-deployment-section="logs"
-              catchtap="toggleDeploymentSection"
-              hover-class="control-tap"
-              role="button"
-              aria-label="{{deploymentSections.logs ? '收起部署检查日志' : '展开部署检查日志'}}"
-            >
-              <text>{{deploymentSections.logs ? '收起' : '展开'}}</text>
-              <text class="monitor-section-chevron {{deploymentSections.logs ? 'is-open' : ''}}">⌄</text>
+            <view class="admin-action-slot">
+              <view
+                class="monitor-section-toggle-button"
+                data-deployment-section="logs"
+                catchtap="toggleDeploymentSection"
+                hover-class="control-tap"
+                role="button"
+                aria-label="{{deploymentSections.logs ? '收起部署检查日志' : '展开部署检查日志'}}"
+              >
+                <text>{{deploymentSections.logs ? '收起' : '展开'}}</text>
+                <text class="monitor-section-chevron {{deploymentSections.logs ? 'is-open' : ''}}">⌄</text>
+              </view>
             </view>
           </view>
         </view>
@@ -846,16 +862,18 @@
               loading="{{diagnosticLogsLoading}}"
               disabled="{{diagnosticLogsLoading}}"
             >{{diagnosticLogsLoading ? '读取中' : '刷新'}}</button>
-            <view
-              class="monitor-section-toggle-button"
-              data-section="diagnosticLogs"
-              catchtap="toggleMonitorSection"
-              hover-class="control-tap"
-              role="button"
-              aria-label="{{monitorSections.diagnosticLogs ? '收起用户端日志' : '展开用户端日志'}}"
-            >
-              <text>{{monitorSections.diagnosticLogs ? '收起' : '展开'}}</text>
-              <text class="monitor-section-chevron {{monitorSections.diagnosticLogs ? 'is-open' : ''}}">⌄</text>
+            <view class="admin-action-slot">
+              <view
+                class="monitor-section-toggle-button"
+                data-section="diagnosticLogs"
+                catchtap="toggleMonitorSection"
+                hover-class="control-tap"
+                role="button"
+                aria-label="{{monitorSections.diagnosticLogs ? '收起用户端日志' : '展开用户端日志'}}"
+              >
+                <text>{{monitorSections.diagnosticLogs ? '收起' : '展开'}}</text>
+                <text class="monitor-section-chevron {{monitorSections.diagnosticLogs ? 'is-open' : ''}}">⌄</text>
+              </view>
             </view>
           </view>
         </view>
@@ -1050,16 +1068,18 @@
               loading="{{modelFailureExporting}}"
               disabled="{{modelFailureExporting}}"
             >{{modelFailureExporting ? '生成中' : '导出失败统计'}}</button>
-            <view
-              class="usage-subsection-toggle"
-              data-usage-section="failure"
-              catchtap="toggleUsageSection"
-              hover-class="control-tap"
-              role="button"
-              aria-label="{{usageSections.failure ? '收起失败情况' : '展开失败情况'}}"
-            >
-              <text>{{usageSections.failure ? '收起' : '展开'}}</text>
-              <text class="usage-subsection-chevron {{usageSections.failure ? 'is-open' : ''}}">⌄</text>
+            <view class="admin-action-slot">
+              <view
+                class="usage-subsection-toggle"
+                data-usage-section="failure"
+                catchtap="toggleUsageSection"
+                hover-class="control-tap"
+                role="button"
+                aria-label="{{usageSections.failure ? '收起失败情况' : '展开失败情况'}}"
+              >
+                <text>{{usageSections.failure ? '收起' : '展开'}}</text>
+                <text class="usage-subsection-chevron {{usageSections.failure ? 'is-open' : ''}}">⌄</text>
+              </view>
             </view>
           </view>
         </view>

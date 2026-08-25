@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.36.13";
-const API_BUILD_MARKER = "API_BUILD_TAG_20260825_RELEASE_RECORD_HOOKS_V3613";
+const API_BUILD_VERSION = "0.37.1";
+const API_BUILD_MARKER = "API_BUILD_TAG_20260825_ADMIN_BUTTONS_M0371";
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
 const cloud = require("wx-server-sdk");

@@ -1140,12 +1140,37 @@ page {
   transform: none;
 }
 
+.deployment-log-card .admin-section-tools > .monitor-inline-check-button {
+  position: absolute;
+  right: 124rpx;
+  box-sizing: border-box;
+  display: inline-flex;
+  flex: 0 0 116rpx;
+  width: 116rpx;
+  min-width: 116rpx;
+  height: 60rpx;
+  min-height: 60rpx;
+  margin: 0;
+  padding: 0 14rpx;
+  align-items: center;
+  justify-content: center;
+  border: 1rpx solid #bcd3f6;
+  border-radius: 16rpx;
+  color: #246ee9;
+  background: #edf4ff;
+  font-size: 20rpx;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+}
+
 .diagnostic-admin-section .admin-section-tools > .config-state {
   font-size: 20rpx;
 }
 
 .auto-face-probe-history-card .admin-section-tools,
 .deployment-log-card .admin-section-tools {
+  position: relative;
   width: 100%;
   justify-content: flex-end;
 }
@@ -5185,9 +5210,9 @@ page {
   box-sizing: border-box;
   display: flex;
   min-width: 0;
-  min-height: 94rpx;
+  min-height: 96rpx;
   margin: 0;
-  padding: 17rpx 18rpx;
+  padding: 18rpx 4rpx 18rpx 18rpx;
   align-items: center;
   justify-content: space-between;
   gap: 14rpx;
@@ -5355,7 +5380,7 @@ page {
   }
 
   .usage-mobile-first-card .usage-stat-section-card .usage-subsection-head {
-    padding-right: 14rpx;
+    padding-right: 10rpx;
     padding-left: 14rpx;
   }
 
@@ -5387,6 +5412,70 @@ page {
   .usage-mobile-first-card .usage-model-top text:last-child {
     flex: none;
   }
+}
+
+/* 模型调用统计的月份和导出按钮固定放在内容卡片左上角。 */
+.model-call-stats-content .model-call-stats-toolbar {
+  display: flex !important;
+  width: 100% !important;
+  margin: 0 0 14rpx 0 !important;
+  align-items: flex-start !important;
+  justify-content: flex-start !important;
+}
+
+.model-call-stats-content .model-call-stats-toolbar .usage-failure-actions {
+  display: flex !important;
+  width: auto !important;
+  margin: 0 !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+}
+
+/* picker 外壳不重复画背景和边框，避免月份按钮右侧露出一条蓝色。 */
+.model-call-stats-content .usage-failure-actions > picker {
+  box-sizing: border-box !important;
+  display: flex !important;
+  flex: 0 0 176rpx !important;
+  width: 176rpx !important;
+  min-width: 176rpx !important;
+  max-width: 176rpx !important;
+  height: 54rpx !important;
+  min-height: 54rpx !important;
+  max-height: 54rpx !important;
+  overflow: visible !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  outline: 0 !important;
+  color: inherit !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+/* 月份按钮和“导出失败统计”使用完全相同的尺寸、字号和上下高度。 */
+.model-call-stats-content .usage-failure-actions > picker .model-failure-month-picker {
+  box-sizing: border-box !important;
+  display: flex !important;
+  width: 176rpx !important;
+  min-width: 176rpx !important;
+  max-width: 176rpx !important;
+  height: 54rpx !important;
+  min-height: 54rpx !important;
+  max-height: 54rpx !important;
+  margin: 0 !important;
+  padding: 0 8rpx !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border: 1rpx solid #bcd3f6 !important;
+  border-radius: 16rpx !important;
+  color: #246ee9 !important;
+  background: #edf4ff !important;
+  font-size: 20rpx !important;
+  font-weight: 800 !important;
+  line-height: 1 !important;
+  overflow: hidden !important;
+  white-space: nowrap !important;
 }
 
 /* 运行监控：01 深海指挥台。全部样式限定在监控区域，避免影响模型用量和失败统计。 */
@@ -5551,21 +5640,4 @@ page {
 .usage-collapsed-statistics-card > .usage-subsection-head {
   margin-right: 0;
   padding-right: 0;
-}
-
-/* 模型调用统计的月份和导出按钮固定放在内容卡片左上角。 */
-.model-call-stats-content .model-call-stats-toolbar {
-  display: flex !important;
-  width: 100% !important;
-  margin: 0 0 14rpx 0 !important;
-  align-items: flex-start !important;
-  justify-content: flex-start !important;
-}
-
-.model-call-stats-content .model-call-stats-toolbar .usage-failure-actions {
-  display: flex !important;
-  width: auto !important;
-  margin: 0 !important;
-  align-items: center !important;
-  justify-content: flex-start !important;
 }

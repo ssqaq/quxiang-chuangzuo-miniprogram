@@ -20,6 +20,14 @@ assert.ok(wxml.includes('data-section="points"'), "积分入口缺失");
 assert.ok(wxml.includes('data-section="costs"'), "成本入口缺失");
 assert.ok(wxml.includes('data-section="users"'), "用户入口缺失");
 assert.ok(wxml.includes('bindtap="toggleConfigSection"'), "配置入口没有跳转事件");
+const todayHeadingIndex = wxml.indexOf('<view class="overview-heading">今天</view>');
+const currentConfigHeadingIndex = wxml.indexOf('<view class="overview-heading">当前配置</view>');
+assert.ok(todayHeadingIndex >= 0, "今天统计区块缺失");
+assert.ok(currentConfigHeadingIndex >= 0, "当前配置区块缺失");
+assert.ok(
+  todayHeadingIndex < currentConfigHeadingIndex,
+  "今天统计必须放在当前配置之前"
+);
 assert.ok(
   wxml.indexOf("按模型名称分组") < wxml.indexOf("模型调用失败统计"),
   "模型详情必须放在模型调用失败统计之前"

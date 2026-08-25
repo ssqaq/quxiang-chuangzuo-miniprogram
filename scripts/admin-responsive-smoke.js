@@ -184,6 +184,18 @@ assert.ok(
   /\.auto-face-probe-history-card\s+\.admin-section-tools\s*>\s*\.usage-refresh-button\s*\{[\s\S]*?position:\s*absolute;[\s\S]*?right:\s*124rpx;[\s\S]*?width:\s*116rpx;[\s\S]*?height:\s*60rpx;/.test(wxss),
   "探针历史刷新按钮没有复用用户端日志的右侧位置和尺寸"
 );
+assert.ok(
+  /<view class="monitor-section-title-row">\s*<text class="monitor-status-dot is-danger"><\/text>\s*<text class="monitor-section-title">探针历史<\/text>/.test(wxml),
+  "探针历史标题缺少同款红点"
+);
+assert.ok(
+  /<view class="monitor-section-title-row">\s*<text class="monitor-status-dot is-danger"><\/text>\s*<text class="monitor-section-title">部署检查日志<\/text>/.test(wxml),
+  "部署检查日志标题缺少同款红点"
+);
+assert.ok(
+  /\.deployment-log-card\s+\.admin-section-tools\s*>\s*\.monitor-inline-check-button\s*\{[\s\S]*?position:\s*absolute;[\s\S]*?right:\s*124rpx;[\s\S]*?flex:\s*0\s+0\s+116rpx;[\s\S]*?width:\s*116rpx;[\s\S]*?height:\s*60rpx;[\s\S]*?font-size:\s*20rpx;/.test(wxss),
+  "部署检查日志的立即检查按钮没有与刷新、展开按钮统一位置、宽高和字号"
+);
 
 assert.strictEqual(
   (wxss.match(/(?:^|\n)\.admin-action-slot\s*\{/g) || []).length,
@@ -195,6 +207,14 @@ const canonicalStart = wxss.indexOf("/* 所有“展开/收起”控件统一与
 assert.notStrictEqual(canonicalStart, -1, "缺少展开按钮最终 canonical 规则");
 const canonicalBlock = wxss.slice(canonicalStart);
 assert.ok(!canonicalBlock.includes("@media"), "canonical 规则后面不能再有媒体查询覆盖");
+assert.ok(
+  /\.usage-mobile-first-card\s+\.usage-stat-section-card\s+\.usage-subsection-head\s*\{[\s\S]*?min-height:\s*96rpx;[\s\S]*?padding:\s*18rpx\s+4rpx\s+18rpx\s+18rpx;/.test(wxss),
+  "四个模型统计标题行没有与运行监控使用相同的上下间距和右侧基准线"
+);
+assert.ok(
+  /@media\s*\(max-width:\s*360px\)[\s\S]*?\.usage-mobile-first-card\s+\.usage-stat-section-card\s+\.usage-subsection-head\s*\{[\s\S]*?padding-right:\s*10rpx;/.test(wxss),
+  "窄屏模型统计标题行没有补齐与运行监控相同的右侧基准线"
+);
 [
   "flex: 0 0 116rpx",
   "width: 116rpx",

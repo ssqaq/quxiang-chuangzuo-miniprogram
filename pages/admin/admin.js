@@ -3494,6 +3494,22 @@ Page({
     });
   },
 
+  jumpToProbeHistory() {
+    this.setData({
+      monitorExpanded: true,
+      "monitorSections.deployment": true,
+      "deploymentSections.probeHistory": true
+    }, () => {
+      this.persistMonitorLayout();
+      if (typeof wx.pageScrollTo === "function") {
+        wx.pageScrollTo({
+          selector: "#monitor-section-probeHistory",
+          duration: 220
+        });
+      }
+    });
+  },
+
   async saveConfig() {
     if (this.data.saving) return;
     this.setData({ saving: true, message: "" });

@@ -12,7 +12,7 @@ function isHttpUrl(value) {
 
 function normalizeContentType(value) {
   const normalized = String(value || "").trim().toLowerCase();
-  return ["video", "image"].includes(normalized) ? normalized : "";
+  return ["video", "image", "live_photo"].includes(normalized) ? normalized : "";
 }
 
 function buildLocalDemoResult(contentType, requestId) {
@@ -72,7 +72,7 @@ function errorView(errorCode, message) {
     PROVIDER_NOT_CONFIGURED: "请先在 watermark-gateway 云函数中配置真实 Provider。",
     PROVIDER_TIMEOUT: "第三方服务响应太慢，请稍后重试。",
     PROVIDER_FAILED: "第三方服务没有返回可用的视频或图片。",
-    CONTENT_TYPE_NOT_SUPPORTED: "当前只支持视频和单张图片。",
+  CONTENT_TYPE_NOT_SUPPORTED: "当前返回的内容类型暂不支持。",
     RATE_LIMITED: "请稍等一会儿再试。",
     QUOTA_EXCEEDED: "第三方解析服务的余额或调用次数不足。"
   };
@@ -157,6 +157,40 @@ function resolveImagePath(filePath) {
   });
 }
 
+function saveMediaItem(item, contentType) {
+  const rawUrl = contentType === "image"
+    ? (item && (item.url || item.imageUrl))
+    : (item && (item.url || item.videoUrl));
+  const url = String(rawUrl || "").trim();
+  if (!url) return Promise.reject(new Error("媒体地址为空"));
+
+  if (contentType === "image") {
+    return resolveImagePath(url).then(saveImageToAlbum);
+  }
+  const localPath = isHttpUrl(url) ? downloadUrl(url) : Promise.resolve(url);
+  return localPath.then(saveVideoToAlbum);
+}
+
+async function saveMediaBatch(items, contentType) {
+  let saved = 0;
+  let failed = 0;
+  let firstError = null;
+  for (const item of items) {
+    try {
+      await saveMediaItem(item, contentType);
+      saved += 1;
+    } catch (error) {
+      if (!firstError) firstError = error;
+      failed += 1;
+      const raw = String(error && (error.errMsg || error.message) || "");
+      if (/auth deny|authorize|permission|domain|downloadfile:fail|url not in domain list/i.test(raw)) {
+        break;
+      }
+    }
+  }
+  return { saved, failed, firstError };
+}
+
 Page({
   data: {
     inputText: "",
@@ -189,9 +223,9 @@ Page({
           ? "测试模式已开启"
           : (configured ? "真实解析服务已就绪" : "真实解析服务未配置"),
         providerMessage: isMock
-          ? "云函数当前显式启用了 Mock，只用于联调，不代表真实平台解析。"
+        ? "云函数当前显式启用了 Mock，只用于联调，不代表真实平台解析。"
           : (configured
-            ? "可解析服务商支持的视频和单张图片。"
+            ? "可解析视频、图片、多图和实况素材。"
             : "请先在 watermark-gateway 云函数中配置 Provider 环境变量。")
       });
       return health;
@@ -246,13 +280,14 @@ Page({
       if (!contentType) {
         const view = errorView(
           "CONTENT_TYPE_NOT_SUPPORTED",
-          "当前只支持视频和单张图片。"
+          "当前返回的内容类型暂不支持。"
         );
         this.showError(view.title, view.message, view.code);
         return;
       }
 
       const isImage = contentType === "image";
+      const isLivePhoto = contentType === "live_photo";
       const providerMediaUrl = String(
         response.mediaUrl
         || (response.primaryMedia && response.primaryMedia.url)
@@ -268,12 +303,28 @@ Page({
         return;
       }
 
+      const mediaItems = Array.isArray(response.mediaItems)
+        ? response.mediaItems.filter(Boolean)
+        : (isImage && mediaUrl ? [{ type: "image", url: mediaUrl }] : []);
+      const livePhotoItems = Array.isArray(response.livePhotoItems)
+        ? response.livePhotoItems.filter(Boolean)
+        : (isLivePhoto ? mediaItems : []);
+      const mediaCount = Number(response.mediaCount)
+        || (isLivePhoto ? livePhotoItems.length : mediaItems.length || 1);
       const result = Object.assign({}, response, {
         contentType,
-        title: safeMessage(response.title, isImage ? "解析图片" : "解析视频"),
-        typeLabel: isImage ? "图片" : "视频",
+        title: safeMessage(
+          response.title,
+          isLivePhoto ? "解析实况图片" : (isImage ? "解析图片" : "解析视频")
+        ),
+        typeLabel: isLivePhoto
+          ? `实况图片（${mediaCount}组）`
+          : (isImage && mediaCount > 1 ? `图片（${mediaCount}张）` : (isImage ? "图片" : "视频")),
         platformLabel: platformLabel(response.platform),
         mediaUrl,
+        mediaItems,
+        livePhotoItems,
+        mediaCount,
         demo: Boolean(response.demo),
         isReal: !response.demo
       });
@@ -318,27 +369,60 @@ Page({
 
   async saveMedia() {
     if (this.data.saving || !this.data.result) return;
-    const mediaUrl = String(this.data.result.mediaUrl || "").trim();
-    if (!mediaUrl) {
+    const result = this.data.result;
+    const contentType = result.contentType;
+    const mediaUrl = String(result.mediaUrl || "").trim();
+    if (!mediaUrl && !result.mediaItems.length && !result.livePhotoItems.length) {
       wx.showToast({ title: "当前没有可保存的媒体", icon: "none" });
       return;
     }
 
     this.setData({ saving: true });
     try {
-      if (this.data.result.contentType === "image") {
-        const localPath = await resolveImagePath(mediaUrl);
-        await saveImageToAlbum(localPath);
+      let saved = 0;
+      let failed = 0;
+      let firstError = null;
+      if (contentType === "live_photo") {
+        const liveItems = result.livePhotoItems.length
+          ? result.livePhotoItems
+          : result.mediaItems;
+        const imageBatch = await saveMediaBatch(liveItems, "image");
+        saved += imageBatch.saved;
+        failed += imageBatch.failed;
+        firstError = firstError || imageBatch.firstError;
+        const videoBatch = await saveMediaBatch(liveItems, "video");
+        saved += videoBatch.saved;
+        failed += videoBatch.failed;
+        firstError = firstError || videoBatch.firstError;
       } else {
-        const localPath = isHttpUrl(mediaUrl)
-          ? await downloadUrl(mediaUrl)
-          : mediaUrl;
-        await saveVideoToAlbum(localPath);
+        const items = result.mediaItems.length
+          ? result.mediaItems
+          : [{ url: mediaUrl }];
+        const batch = await saveMediaBatch(items, contentType);
+        saved = batch.saved;
+        failed = batch.failed;
+        firstError = batch.firstError;
       }
-      wx.showToast({ title: "已保存到相册", icon: "success" });
+      if (firstError && saved === 0) {
+        throw firstError;
+      }
+      if (failed > 0) {
+        wx.showModal({
+          title: "部分保存成功",
+          content: `已保存 ${saved} 个文件，还有 ${failed} 个文件保存失败。`,
+          showCancel: false
+        });
+      } else {
+        wx.showToast({
+          title: contentType === "live_photo" ? "图片和动态视频已保存" : "已保存到相册",
+          icon: "success"
+        });
+      }
     } catch (error) {
       const raw = String(error && (error.errMsg || error.message) || "");
-      const typeLabel = this.data.result.contentType === "image" ? "图片" : "视频";
+      const typeLabel = contentType === "live_photo"
+        ? "图片和动态视频"
+        : (contentType === "image" ? "图片" : "视频");
       if (/auth deny|authorize|permission/i.test(raw)) {
         wx.showModal({
           title: "没有相册权限",

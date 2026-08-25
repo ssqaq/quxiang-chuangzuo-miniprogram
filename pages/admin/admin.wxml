@@ -172,6 +172,24 @@
       </view>
     </view>
 
+    <view class="overview-section today-section">
+      <view class="overview-heading">今天</view>
+      <view class="today-grid">
+        <view class="today-item">
+          <text class="today-value">{{usageStats.today.total}}</text>
+          <text class="today-label">调用</text>
+        </view>
+        <view class="today-item">
+          <text class="today-value {{usageStats.today.failure ? 'is-warn' : ''}}">{{usageStats.today.failure}}</text>
+          <text class="today-label">失败</text>
+        </view>
+        <view class="today-item">
+          <text class="today-value">¥{{usageStats.today.estimatedCostDisplay}}</text>
+          <text class="today-label">预计成本</text>
+        </view>
+      </view>
+    </view>
+
     <view class="overview-section">
       <view class="overview-heading">当前配置</view>
       <view
@@ -256,24 +274,6 @@
             {{effective.video.apiKeyConfigured ? '正常' : '未就绪'}}
           </view>
           <text class="current-config-arrow">›</text>
-        </view>
-      </view>
-    </view>
-
-    <view class="overview-section today-section">
-      <view class="overview-heading">今天</view>
-      <view class="today-grid">
-        <view class="today-item">
-          <text class="today-value">{{usageStats.today.total}}</text>
-          <text class="today-label">调用</text>
-        </view>
-        <view class="today-item">
-          <text class="today-value {{usageStats.today.failure ? 'is-warn' : ''}}">{{usageStats.today.failure}}</text>
-          <text class="today-label">失败</text>
-        </view>
-        <view class="today-item">
-          <text class="today-value">¥{{usageStats.today.estimatedCostDisplay}}</text>
-          <text class="today-label">预计成本</text>
         </view>
       </view>
     </view>
@@ -955,6 +955,8 @@
         </view>
       </view>
 
+
+
       <view
         id="monitor-section-deployment"
         class="monitor-deployment-group {{monitorSections.deployment ? 'is-open' : 'is-collapsed'}}"
@@ -1069,9 +1071,12 @@
 
       <view id="monitor-section-probeHistory" class="card admin-section auto-face-probe-history-card">
         <view class="admin-section-head">
-          <view>
-            <view class="admin-section-title">探针历史</view>
-            <view class="admin-section-help">最近 {{autoFaceProbeHistory.retentionDays}} 天，最多显示 20 条。</view>
+          <view class="monitor-section-head-main">
+            <view class="monitor-section-title-row">
+              <text class="monitor-status-dot is-danger"></text>
+              <text class="monitor-section-title">探针历史</text>
+            </view>
+            <text class="monitor-section-summary">最近 {{autoFaceProbeHistory.retentionDays}} 天，最多显示 20 条。</text>
           </view>
           <view class="admin-section-tools">
             <view class="config-state {{moduleStates.probeHistory.status === 'failed' ? 'is-off' : 'is-ready'}}">
@@ -1131,9 +1136,12 @@
       </view>
       <view class="card admin-section deployment-log-card">
         <view class="admin-section-head">
-          <view>
-            <view class="admin-section-title">部署检查日志</view>
-            <view class="admin-section-help">只记录版本、状态和配置完整性，不记录 Key 和素材。</view>
+          <view class="monitor-section-head-main">
+            <view class="monitor-section-title-row">
+              <text class="monitor-status-dot is-danger"></text>
+              <text class="monitor-section-title">部署检查日志</text>
+            </view>
+            <text class="monitor-section-summary">只记录版本、状态和配置完整性，不记录 Key 和素材。</text>
           </view>
           <view class="admin-section-tools">
             <view class="config-state {{moduleStates.logs.status === 'failed' ? 'is-off' : 'is-ready'}}">
@@ -1192,7 +1200,6 @@
 
 
       </view>
-
 
     <view
       wx:if="{{modelFailureDetailOpen}}"

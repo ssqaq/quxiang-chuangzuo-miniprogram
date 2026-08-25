@@ -46,7 +46,11 @@ function normalizeText(value) {
 }
 
 function normalizeContentType(value) {
-  return String(value || "").toLowerCase() === "image" ? "image" : "video";
+  const normalized = String(value || "").trim().toLowerCase();
+  if (["live_photo", "live-photo", "livephoto"].includes(normalized)) {
+    return "live_photo";
+  }
+  return normalized === "image" ? "image" : "video";
 }
 
 function normalizeProviderName(value) {
@@ -283,6 +287,23 @@ function normalizeMediaUrl(value) {
   return String(value.url || value.src || value.download_url || "").trim();
 }
 
+function normalizeLivePhotoItem(value) {
+  if (!value || typeof value !== "object") return null;
+  const imageUrl = normalizeMediaUrl(
+    value.image || value.imageUrl || value.photo || value.picture
+  );
+  const videoUrl = normalizeMediaUrl(
+    value.video || value.videoUrl || value.motion || value.motionVideo
+  );
+  if (!imageUrl && !videoUrl) return null;
+  return {
+    imageUrl,
+    videoUrl,
+    imageMimeType: "image/jpeg",
+    videoMimeType: "video/mp4"
+  };
+}
+
 function detectPlatform(sharedUrl, data = {}) {
   const providerPlatform = String(
     data.platform || data.type || data.source || ""
@@ -339,12 +360,40 @@ function normalizeZhucekaResponse(payload, requestId, sharedUrl) {
     ? data.images.map(normalizeMediaUrl).filter(Boolean)
     : [];
   const livePhotoItems = Array.isArray(data.live_photo)
-    ? data.live_photo.filter(Boolean)
+    ? data.live_photo.map(normalizeLivePhotoItem).filter(Boolean)
     : [];
   const platform = detectPlatform(sharedUrl, data);
   const title = String(data.title || "媒体解析结果").trim();
   const author = String(data.author || data.nickname || "").trim();
   const coverUrl = normalizeMediaUrl(data.cover);
+
+  if (livePhotoItems.length) {
+    const first = livePhotoItems[0];
+    const firstImageUrl = first.imageUrl || "";
+    return success({
+      provider: "zhuceka",
+      platform,
+      contentType: "live_photo",
+      title,
+      author,
+      coverUrl,
+      primaryMedia: {
+        type: "image",
+        url: firstImageUrl,
+        mimeType: first.imageMimeType,
+        size: 0
+      },
+      mediaItems: livePhotoItems,
+      livePhotoItems,
+      mediaCount: livePhotoItems.length,
+      mediaUrl: firstImageUrl,
+      mimeType: first.imageMimeType,
+      size: 0,
+      expiresAt: 0,
+      demo: false,
+      requestId
+    });
+  }
 
   if (videoUrl) {
     return success({
@@ -361,6 +410,7 @@ function normalizeZhucekaResponse(payload, requestId, sharedUrl) {
         size: 0
       },
       mediaItems: [],
+      mediaCount: 1,
       mediaUrl: videoUrl,
       mimeType: "video/mp4",
       size: 0,
@@ -371,6 +421,12 @@ function normalizeZhucekaResponse(payload, requestId, sharedUrl) {
   }
 
   if (imageUrls.length) {
+    const mediaItems = imageUrls.map((url) => ({
+      type: "image",
+      url,
+      mimeType: "image/jpeg",
+      size: 0
+    }));
     return success({
       provider: "zhuceka",
       platform,
@@ -380,27 +436,19 @@ function normalizeZhucekaResponse(payload, requestId, sharedUrl) {
       coverUrl,
       primaryMedia: {
         type: "image",
-        url: imageUrls[0],
+        url: mediaItems[0].url,
         mimeType: "image/jpeg",
         size: 0
       },
-      mediaItems: [],
-      mediaUrl: imageUrls[0],
+      mediaItems,
+      mediaCount: mediaItems.length,
+      mediaUrl: mediaItems[0].url,
       mimeType: "image/jpeg",
       size: 0,
       expiresAt: 0,
       demo: false,
       requestId
     });
-  }
-
-  if (livePhotoItems.length) {
-    return failure(
-      ERROR_CODES.CONTENT_TYPE_NOT_SUPPORTED,
-      "当前版本暂不支持实况内容",
-      requestId,
-      { provider: "zhuceka", platform }
-    );
   }
 
   return failure(
@@ -503,7 +551,7 @@ async function main(event = {}, _context = {}, dependencies = {}) {
       provider,
       mode: provider === "mock" ? "mock" : "real",
       configured: providerConfigured,
-      supports: ["video", "image"],
+      supports: ["video", "image", "live_photo"],
       requestId
     });
   }
@@ -541,5 +589,6 @@ module.exports = {
   resolveProviderRedirect,
   requestJson,
   normalizeZhucekaResponse,
+  normalizeLivePhotoItem,
   parseWithZhuceka
 };

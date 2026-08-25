@@ -140,7 +140,9 @@ async function testRealProviderMappings() {
   assert.strictEqual(image.ok, true);
   assert.strictEqual(image.contentType, "image");
   assert.strictEqual(image.mediaUrl, "https://cdn.example.com/first.jpg");
-  assert.deepStrictEqual(image.mediaItems, []);
+  assert.strictEqual(image.mediaCount, 2);
+  assert.strictEqual(image.mediaItems.length, 2);
+  assert.strictEqual(image.mediaItems[1].url, "https://cdn.example.com/second.jpg");
 }
 
 async function testRealProviderFailures() {
@@ -164,11 +166,24 @@ async function testRealProviderFailures() {
     code: 200,
     msg: "解析成功",
     data: {
-      live_photo: [{ image: "https://cdn.example.com/live.jpg" }]
+      live_photo: [
+        {
+          image: "https://cdn.example.com/live-1.jpg",
+          video: "https://cdn.example.com/live-1.mp4"
+        },
+        {
+          image: "https://cdn.example.com/live-2.jpg",
+          video: "https://cdn.example.com/live-2.mp4"
+        }
+      ]
     }
   });
-  assert.strictEqual(livePhoto.ok, false);
-  assert.strictEqual(livePhoto.errorCode, "CONTENT_TYPE_NOT_SUPPORTED");
+  assert.strictEqual(livePhoto.ok, true);
+  assert.strictEqual(livePhoto.contentType, "live_photo");
+  assert.strictEqual(livePhoto.mediaCount, 2);
+  assert.strictEqual(livePhoto.livePhotoItems.length, 2);
+  assert.strictEqual(livePhoto.livePhotoItems[1].imageUrl, "https://cdn.example.com/live-2.jpg");
+  assert.strictEqual(livePhoto.livePhotoItems[1].videoUrl, "https://cdn.example.com/live-2.mp4");
 
   const timeout = new Error("timeout");
   timeout.code = "PROVIDER_TIMEOUT";

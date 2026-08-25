@@ -72,17 +72,53 @@
       object-fit="contain"
     ></video>
 
+    <view wx:elif="{{result.contentType === 'image' && result.mediaCount > 1}}" class="media-grid">
+      <block wx:for="{{result.mediaItems}}" wx:key="url">
+        <image class="media-grid-image" src="{{item.url}}" mode="aspectFill"></image>
+      </block>
+    </view>
+
     <image
-      wx:if="{{result.contentType === 'image'}}"
+      wx:elif="{{result.contentType === 'image'}}"
       class="result-image"
       src="{{result.mediaUrl}}"
       mode="aspectFit"
     ></image>
 
+    <view wx:elif="{{result.contentType === 'live_photo'}}" class="live-photo-grid">
+      <block wx:for="{{result.livePhotoItems}}" wx:key="imageUrl">
+        <view class="live-photo-item">
+          <image class="media-grid-image" src="{{item.imageUrl}}" mode="aspectFill"></image>
+          <text class="live-photo-label">第{{index + 1}}组</text>
+        </view>
+      </block>
+    </view>
+
     <view wx:if="{{result.demo}}" class="result-hint">当前云函数显式启用了 Mock，这不是平台真实解析结果。</view>
+    <view wx:elif="{{result.contentType === 'live_photo'}}" class="result-hint">已取到实况的静态图片和动态视频；当前会分别保存，暂不封装成系统原生 Live Photo。</view>
+    <view wx:elif="{{result.contentType === 'image' && result.mediaCount > 1}}" class="result-hint">共 {{result.mediaCount}} 张图片，点击下面按钮可以全部保存。</view>
     <view wx:else class="result-hint">媒体地址由第三方解析服务返回；如果保存受微信域名限制，会提示后续转存处理。</view>
 
     <button
+      wx:if="{{result.contentType === 'live_photo'}}"
+      class="primary-btn save-button"
+      bindtap="saveMedia"
+      loading="{{saving}}"
+      disabled="{{saving}}"
+    >
+      {{saving ? '保存中...' : '保存实况图片和动态视频'}}
+    </button>
+    <button
+      wx:elif="{{result.contentType === 'image' && result.mediaCount > 1}}"
+      class="primary-btn save-button"
+      bindtap="saveMedia"
+      loading="{{saving}}"
+      disabled="{{saving}}"
+    >
+      {{saving ? '保存中...' : '保存全部图片'}}
+    </button>
+    <button
+      wx:else
       class="primary-btn save-button"
       bindtap="saveMedia"
       loading="{{saving}}"

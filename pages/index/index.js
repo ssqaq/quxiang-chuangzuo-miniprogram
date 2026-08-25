@@ -62,6 +62,11 @@ function createClientRequestId() {
   return `mini-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
 }
 
+function resolveImageGenerationMode() {
+  const mode = String(config.imageMode || "").trim().toLowerCase();
+  return mode === "edits" ? "edits" : "generations";
+}
+
 function decorateRecordForRepair(record, cloudReady = true) {
   return Object.assign({}, record, {
     canRepair: canRepairRecord(record, cloudReady)
@@ -2331,13 +2336,14 @@ Page({
     let generationSucceeded = false;
     try {
       const promptProject = this.refreshPromptDraft();
+      const generationMode = resolveImageGenerationMode();
       this.setGenerationPhase(
         "upload",
         "正在上传素材...",
         "正在上传主图、红圈和参考素材，请稍等。"
       );
       const project = await this.prepareCloudAssets({
-        includeMask: config.imageMode === "edits",
+        includeMask: generationMode === "edits",
         project: promptProject
       });
       this.setGenerationPhase(
@@ -2365,7 +2371,7 @@ Page({
       const result = await cloud.generateImage(
         {
           generationType: "normal",
-          mode: "generations",
+          mode: generationMode,
           projectName: project.projectName,
           prompt: submittedPrompt,
           negativePrompt: project.negativePrompt,

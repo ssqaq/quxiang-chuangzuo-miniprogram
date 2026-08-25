@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.40.30";
-const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V04030";
+const API_BUILD_VERSION = "0.40.31";
+const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V04031";
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
 const cloud = require("wx-server-sdk");
@@ -1767,9 +1767,12 @@ function buildImageGenerationPayload(payload = {}, imageConfig = resolveImageCon
 
 function buildImageEditFields(payload = {}, imageConfig = resolveImageConfig(), references = []) {
   const config = imageConfig && typeof imageConfig === "object" ? imageConfig : {};
+  const prompt = `${String(payload.prompt || "").trim()}${
+    payload.negativePrompt ? `\n\n负面约束：${String(payload.negativePrompt).trim()}` : ""
+  }`;
   const fields = [
     { name: "model", value: String(config.model || "").trim() },
-    { name: "prompt", value: String(payload.prompt || "").trim() },
+    { name: "prompt", value: prompt },
     {
       name: "size",
       value: resolveImageOutputSize(config, payload.size)
@@ -1787,6 +1790,13 @@ function buildImageEditFields(payload = {}, imageConfig = resolveImageConfig(), 
   }
   if (payload.n) fields.push({ name: "n", value: String(payload.n) });
   return fields;
+}
+
+function resolveGenerationMode(payload = {}, imageConfig = {}) {
+  const requested = String(payload.mode || "").trim().toLowerCase();
+  if (requested === "generations" || requested === "edits") return requested;
+  const configured = String(imageConfig.mode || "").trim().toLowerCase();
+  return configured === "edits" ? "edits" : "generations";
 }
 
 function normalizeVideoResolution(value, fallback = "720p") {
@@ -9280,23 +9290,37 @@ async function generate(event, context) {
   const payload = event.payload || {};
   const openid = getOpenId(context);
   if (!payload.prompt || !String(payload.prompt).trim()) return fail("提示词不能为空。", "empty-prompt");
-  if (payload.generationType === "repair" || payload.mode === "edits") {
-    return fail("普通生图接口不接受局部修正请求，请改用 repairImage。", "repair-action-required");
+  if (payload.generationType === "repair") {
+    return fail("局部修正请求必须改用 repairImage。", "repair-action-required");
   }
   const configs = await resolveEffectiveConfigs();
   const imageConfig = configs.image;
   const costs = configs.costs;
+  const mode = resolveGenerationMode(payload, imageConfig);
+  if (mode === "edits" && (!payload.mainFileID || !payload.maskFileID)) {
+    return fail("编辑模式需要主图和 mask 文件。", "missing-edit-asset");
+  }
   const apiKey = imageConfig.apiKey;
   if (!apiKey) return fail(
     "云函数还没有配置 AI_IMAGE_API_KEY（兼容旧配置 AI_API_KEY）。",
     "missing-api-key"
   );
 
-  const mode = "generations";
-
   const requestId = event.requestId;
   const model = imageConfig.model;
-  const imageRequest = buildImageGenerationPayload(payload, imageConfig);
+  const imageRequest = mode === "edits"
+    ? {
+        model: String(imageConfig.model || payload.model || "").trim(),
+        prompt: `${String(payload.prompt || "").trim()}${
+          payload.negativePrompt
+            ? `\n\n负面约束：${String(payload.negativePrompt).trim()}`
+            : ""
+        }`,
+        size: resolveImageOutputSize(imageConfig, payload.size),
+        quality: imageConfig.compatibilityMode ? "" : "auto",
+        n: 1
+      }
+    : buildImageGenerationPayload(payload, imageConfig);
   const size = imageRequest.size;
   const prompt = imageRequest.prompt;
   const resolution = imageConfig.resolution || normalizeImageResolution(size, "1K");
@@ -9350,23 +9374,34 @@ async function generate(event, context) {
     }
     claimed = true;
     let response;
-    const url = imageConfig.endpoint || endpoint(imageConfig.baseUrl, "images/generations");
-    const body = imageRequest;
-    response = await requestJson(url, body, apiKey, {
-      "Idempotency-Key": requestId
-    }, {
-      requestId,
-      action: "generate",
-      provider: imageConfig.provider || "",
-      model,
-      imageGeneration: true,
-      allowRetry: imageConfig.retryEnabled,
-      maxAttempts: imageConfig.retryEnabled ? imageConfig.maxRetries + 1 : 1,
-      timeoutMs: imageConfig.timeoutMs,
-      costs,
-      userHash: usageUserHash(openid),
-      imageResolution: resolution
-    });
+    if (mode === "edits") {
+      response = await requestImageEdits(
+        Object.assign({}, payload, { __action: "generate" }),
+        apiKey,
+        requestId,
+        imageConfig,
+        costs,
+        usageUserHash(openid)
+      );
+    } else {
+      const url = imageConfig.endpoint || endpoint(imageConfig.baseUrl, "images/generations");
+      const body = imageRequest;
+      response = await requestJson(url, body, apiKey, {
+        "Idempotency-Key": requestId
+      }, {
+        requestId,
+        action: "generate",
+        provider: imageConfig.provider || "",
+        model,
+        imageGeneration: true,
+        allowRetry: imageConfig.retryEnabled,
+        maxAttempts: imageConfig.retryEnabled ? imageConfig.maxRetries + 1 : 1,
+        timeoutMs: imageConfig.timeoutMs,
+        costs,
+        userHash: usageUserHash(openid),
+        imageResolution: resolution
+      });
+    }
     const image = extractImageItem(response);
     if (!image) {
       const error = new Error("图片接口没有返回图片。");
@@ -11078,6 +11113,7 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     resolveImageOutputSize,
     buildImageGenerationPayload,
     buildImageEditFields,
+    resolveGenerationMode,
     normalizeVideoResolution,
     modelCapabilities,
     buildImageQualityProbe,

@@ -119,6 +119,30 @@ assert.strictEqual(
   false,
   "兼容模式编辑请求不能发送 quality"
 );
+assert.strictEqual(
+  test.resolveGenerationMode({ mode: "edits" }, { mode: "generations" }),
+  "edits",
+  "前端明确要求编辑模式时，不能退回纯文字生图接口"
+);
+assert.strictEqual(
+  test.resolveGenerationMode({}, { mode: "edits" }),
+  "edits",
+  "没有单次请求模式时应使用服务端编辑模式配置"
+);
+assert.strictEqual(
+  test.resolveGenerationMode({ mode: "unknown" }, { mode: "generations" }),
+  "generations",
+  "未知模式必须安全回退到 generations"
+);
+const editPromptFields = test.buildImageEditFields(
+  { prompt: "编辑主图", negativePrompt: "不要文字" },
+  pandaConfig,
+  []
+);
+assert.ok(
+  editPromptFields.find((field) => field.name === "prompt").value.includes("负面约束：不要文字"),
+  "编辑请求必须带上负面提示"
+);
 
 assert.deepStrictEqual(
   test.modelCapabilities(

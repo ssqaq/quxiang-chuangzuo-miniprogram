@@ -593,6 +593,19 @@ if (
   throw new Error("模型配置、图片分析价格、接口探测、失败类型或复制配置功能不完整。");
 }
 if (
+  (adminWxml.match(/<text>服务商<\/text>/g) || []).length < 4
+  || (adminWxml.match(/<text>使用的模型<\/text>/g) || []).length < 4
+  || (adminWxml.match(/<text>接口地址<\/text>/g) || []).length < 4
+  || adminWxml.includes("<text>Provider</text>")
+  || adminWxml.includes("<text>Model</text>")
+  || adminWxml.includes("<text>Base URL</text>")
+  || adminWxml.includes("Endpoint（可空）")
+  || adminWxml.includes("创建 Endpoint")
+  || adminWxml.includes("查询 Endpoint")
+) {
+  throw new Error("四个模型配置区的字段中文名称或 Endpoint 删除不完整。");
+}
+if (
   !clientCloudJs.includes('action: "getModelUsageStats"')
   || !adminJs.includes("cloud.getModelUsageStats(30)")
   || !adminJs.includes("refreshModelUsage")

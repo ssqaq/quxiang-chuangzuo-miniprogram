@@ -690,18 +690,17 @@
       </view>
 
       <view wx:if="{{activeConfigSection === 'face'}}" class="config-editor-body">
-        <view class="config-helper">API Key 继续从云函数环境变量读取，这里只改人脸识别服务地址和模型。</view>
+        <view class="config-helper">API Key 继续从云函数环境变量读取，这里只改人脸识别服务商、接口地址和使用的模型。</view>
         <view class="admin-grid">
-          <view class="admin-field"><text>Provider</text><input value="{{form.face.provider}}" data-section="face" data-key="provider" bindinput="onInput" /></view>
-          <view class="admin-field"><text>Model</text><input value="{{form.face.model}}" data-section="face" data-key="model" bindinput="onInput" /></view>
-          <view class="admin-field admin-field-wide"><text>Base URL</text><input value="{{form.face.baseUrl}}" data-section="face" data-key="baseUrl" bindinput="onInput" /></view>
-          <view class="admin-field admin-field-wide"><text>Endpoint（可空）</text><input value="{{form.face.endpoint}}" data-section="face" data-key="endpoint" bindinput="onInput" /></view>
+          <view class="admin-field"><text>服务商</text><input value="{{form.face.provider}}" data-section="face" data-key="provider" bindinput="onInput" /></view>
+          <view class="admin-field"><text>使用的模型</text><input value="{{form.face.model}}" data-section="face" data-key="model" bindinput="onInput" /></view>
+          <view class="admin-field admin-field-wide"><text>接口地址</text><input value="{{form.face.baseUrl}}" data-section="face" data-key="baseUrl" bindinput="onInput" /></view>
           <view class="admin-field"><text>超时毫秒</text><input type="number" value="{{form.face.timeoutMs}}" data-section="face" data-key="timeoutMs" bindinput="onInput" /></view>
         </view>
       </view>
 
       <view wx:if="{{activeConfigSection === 'analysis'}}" class="config-editor-body">
-        <view class="config-helper">图片分析模型独立保存 Provider、地址、模型和超时；API Key 继续从云函数环境变量读取，不会写入数据库。</view>
+        <view class="config-helper">图片分析模型独立保存服务商、接口地址、使用的模型和超时；API Key 继续从云函数环境变量读取，不会写入数据库。</view>
         <view class="config-editor-tools">
           <view
             class="config-tool-button"
@@ -712,10 +711,9 @@
           >复制人脸配置</view>
         </view>
         <view class="admin-grid">
-          <view class="admin-field"><text>Provider</text><input value="{{form.analysis.provider}}" data-section="analysis" data-key="provider" bindinput="onInput" /></view>
-          <view class="admin-field"><text>Model</text><input value="{{form.analysis.model}}" data-section="analysis" data-key="model" bindinput="onInput" /></view>
-          <view class="admin-field admin-field-wide"><text>Base URL</text><input value="{{form.analysis.baseUrl}}" data-section="analysis" data-key="baseUrl" bindinput="onInput" /></view>
-          <view class="admin-field admin-field-wide"><text>Endpoint（可空）</text><input value="{{form.analysis.endpoint}}" data-section="analysis" data-key="endpoint" bindinput="onInput" /></view>
+          <view class="admin-field"><text>服务商</text><input value="{{form.analysis.provider}}" data-section="analysis" data-key="provider" bindinput="onInput" /></view>
+          <view class="admin-field"><text>使用的模型</text><input value="{{form.analysis.model}}" data-section="analysis" data-key="model" bindinput="onInput" /></view>
+          <view class="admin-field admin-field-wide"><text>接口地址</text><input value="{{form.analysis.baseUrl}}" data-section="analysis" data-key="baseUrl" bindinput="onInput" /></view>
           <view class="admin-field"><text>超时毫秒</text><input type="number" value="{{form.analysis.timeoutMs}}" data-section="analysis" data-key="timeoutMs" bindinput="onInput" /></view>
         </view>
       </view>
@@ -723,10 +721,9 @@
       <view wx:if="{{activeConfigSection === 'image'}}" class="config-editor-body">
         <view class="config-helper">API Key 继续从云函数环境变量读取，这里不会显示密钥。</view>
         <view class="admin-grid">
-          <view class="admin-field"><text>Provider</text><input value="{{form.image.provider}}" data-section="image" data-key="provider" bindinput="onInput" /></view>
-          <view class="admin-field"><text>Model</text><input value="{{form.image.model}}" data-section="image" data-key="model" bindinput="onInput" /></view>
-          <view class="admin-field admin-field-wide"><text>Base URL</text><input value="{{form.image.baseUrl}}" data-section="image" data-key="baseUrl" bindinput="onInput" /></view>
-          <view class="admin-field admin-field-wide"><text>Endpoint（可空）</text><input value="{{form.image.endpoint}}" data-section="image" data-key="endpoint" bindinput="onInput" /></view>
+          <view class="admin-field"><text>服务商</text><input value="{{form.image.provider}}" data-section="image" data-key="provider" bindinput="onInput" /></view>
+          <view class="admin-field"><text>使用的模型</text><input value="{{form.image.model}}" data-section="image" data-key="model" bindinput="onInput" /></view>
+          <view class="admin-field admin-field-wide"><text>接口地址</text><input value="{{form.image.baseUrl}}" data-section="image" data-key="baseUrl" bindinput="onInput" /></view>
           <view class="admin-field"><text>模式</text><input value="{{form.image.mode}}" data-section="image" data-key="mode" placeholder="generations / edits" bindinput="onInput" /></view>
           <view class="admin-field"><text>尺寸</text><input value="{{form.image.size}}" data-section="image" data-key="size" placeholder="1024x1024" bindinput="onInput" /></view>
           <view class="admin-field"><text>超时毫秒</text><input type="number" value="{{form.image.timeoutMs}}" data-section="image" data-key="timeoutMs" bindinput="onInput" /></view>
@@ -741,11 +738,9 @@
       <view wx:if="{{activeConfigSection === 'video'}}" class="config-editor-body">
         <view class="config-helper">创建任务只发一次，查询任务按配置轮询。</view>
         <view class="admin-grid">
-          <view class="admin-field"><text>Provider</text><input value="{{form.video.provider}}" data-section="video" data-key="provider" bindinput="onInput" /></view>
-          <view class="admin-field"><text>Model</text><input value="{{form.video.model}}" data-section="video" data-key="model" bindinput="onInput" /></view>
-          <view class="admin-field admin-field-wide"><text>Base URL</text><input value="{{form.video.baseUrl}}" data-section="video" data-key="baseUrl" bindinput="onInput" /></view>
-          <view class="admin-field admin-field-wide"><text>创建 Endpoint（可空）</text><input value="{{form.video.endpoint}}" data-section="video" data-key="endpoint" bindinput="onInput" /></view>
-          <view class="admin-field admin-field-wide"><text>查询 Endpoint（可空）</text><input value="{{form.video.queryEndpoint}}" data-section="video" data-key="queryEndpoint" bindinput="onInput" /></view>
+          <view class="admin-field"><text>服务商</text><input value="{{form.video.provider}}" data-section="video" data-key="provider" bindinput="onInput" /></view>
+          <view class="admin-field"><text>使用的模型</text><input value="{{form.video.model}}" data-section="video" data-key="model" bindinput="onInput" /></view>
+          <view class="admin-field admin-field-wide"><text>接口地址</text><input value="{{form.video.baseUrl}}" data-section="video" data-key="baseUrl" bindinput="onInput" /></view>
           <view class="admin-field admin-field-wide"><text>创建路径</text><input value="{{form.video.createPath}}" data-section="video" data-key="createPath" bindinput="onInput" /></view>
           <view class="admin-field admin-field-wide"><text>查询路径</text><input value="{{form.video.queryPath}}" data-section="video" data-key="queryPath" bindinput="onInput" /></view>
           <view class="admin-field"><text>清晰度</text><input value="{{form.video.resolution}}" data-section="video" data-key="resolution" bindinput="onInput" /></view>

@@ -1092,8 +1092,13 @@ if (
   || !workbenchWxml.includes('class="author-qr-preview-mask"')
   || !workbenchWxml.includes('class="author-qr-preview-panel"')
   || !workbenchWxml.includes('bindtap="closeAuthorQrPreview"')
+  || !workbenchWxml.includes('mode="widthFix"')
   || !workbenchWxss.includes(".author-qr-preview-mask")
   || !workbenchWxss.includes(".author-qr-preview-panel")
+  || !workbenchWxss.includes("padding: 120rpx 40rpx")
+  || !workbenchWxss.includes("max-height: calc(100vh - 160rpx)")
+  || !workbenchWxss.includes("width: 560rpx")
+  || workbenchWxss.includes("height: 600rpx")
   || !contactAuthorCardStyle
   || !/margin-top:\s*16rpx/.test(contactAuthorCardStyle[1])
   || !contactAuthorQrStyle

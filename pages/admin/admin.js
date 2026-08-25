@@ -139,7 +139,7 @@ function displayModelNameZh(value, usageType = "") {
   if (MODEL_DISPLAY_ZH[raw]) return MODEL_DISPLAY_ZH[raw];
   if (raw === "未配置") return raw;
   const typeLabel = usageTypeLabel(usageType);
-  return typeLabel === "模型" ? "已配置模型" : `${typeLabel}模型`;
+  return typeLabel === "模型" ? "已配置模型" : typeLabel;
 }
 
 function modelErrorCodeLabel(value) {

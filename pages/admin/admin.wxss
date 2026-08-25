@@ -1435,8 +1435,12 @@ page {
 .model-call-stats-toolbar {
   display: flex;
   min-width: 0;
-  justify-content: flex-end;
+  justify-content: flex-start;
   margin-bottom: 14rpx;
+}
+
+.model-call-stats-toolbar .usage-failure-actions {
+  margin-left: 0;
 }
 
 .model-call-stats-dashboard-hero {
@@ -4919,4 +4923,21 @@ page {
 .usage-collapsed-statistics-card > .usage-subsection-head {
   margin-right: 0;
   padding-right: 0;
+}
+
+/* 模型调用统计的月份和导出按钮固定放在内容卡片左上角。 */
+.model-call-stats-content .model-call-stats-toolbar {
+  display: flex !important;
+  width: 100% !important;
+  margin: 0 0 14rpx 0 !important;
+  align-items: flex-start !important;
+  justify-content: flex-start !important;
+}
+
+.model-call-stats-content .model-call-stats-toolbar .usage-failure-actions {
+  display: flex !important;
+  width: auto !important;
+  margin: 0 !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
 }

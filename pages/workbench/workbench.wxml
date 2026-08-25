@@ -271,7 +271,7 @@
       <image
         class="author-qr-preview-image"
         src="{{authorQrPreviewPath}}"
-        mode="aspectFit"
+        mode="widthFix"
         show-menu-by-longpress="true"
         binderror="onAuthorQrPreviewError"
       ></image>

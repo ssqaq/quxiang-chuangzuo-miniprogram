@@ -1607,3 +1607,45 @@ button.recent-more-c.small-btn {
 .common-feature-panel .feature-card-copy {
   margin-left: 14rpx !important;
 }
+
+/* 工作台所有功能卡片统一文字颜色：深色标题、浅色说明、绿色操作、浅灰箭头。 */
+.common-feature-panel .entry-title,
+.common-feature-panel .section-title,
+.common-feature-panel .publish-export-title,
+.common-feature-panel .photo-to-video-title,
+.media-parser-entry .media-parser-title,
+.admin-entry-card .admin-entry-title,
+.contact-author-card .contact-author-copy > .section-kicker {
+  color: #2d3b54;
+}
+
+.common-feature-panel .entry-description,
+.common-feature-panel .common-feature-description,
+.common-feature-panel .publish-export-description,
+.common-feature-panel .photo-to-video-description,
+.media-parser-entry .media-parser-description,
+.admin-entry-card .admin-entry-description,
+.contact-author-card .contact-author-title,
+.contact-author-card .contact-author-description {
+  color: #8b99aa;
+}
+
+.common-feature-panel .common-feature-action,
+.common-feature-panel .common-feature-action-button,
+.common-feature-panel .recent-more-c,
+.media-parser-entry .common-feature-action,
+.contact-author-card .contact-author-toggle,
+.contact-author-card .expand-toggle {
+  color: #287762 !important;
+}
+
+.common-feature-panel .entry-arrow,
+.common-feature-panel .recent-more-arrow,
+.common-feature-panel .publish-export-arrow,
+.common-feature-panel .photo-to-video-arrow,
+.media-parser-entry .media-parser-arrow,
+.admin-entry-card .admin-entry-arrow,
+.contact-author-card .contact-author-toggle-arrow,
+.contact-author-card .expand-toggle-arrow {
+  color: #9bb0c3;
+}

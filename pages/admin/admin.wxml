@@ -541,6 +541,147 @@
         </view>
       </view>
     </view>
+      <view wx:if="{{moduleStates.usage.status === 'ready' || moduleStates.usage.hasData}}" class="usage-failure-panel">
+        <view
+          class="monitor-toggle model-call-stats-toggle usage-failure-head {{usageSections.failure ? 'is-open' : ''}}"
+          data-usage-section="failure"
+          catchtap="toggleUsageSection"
+          hover-class="control-tap"
+          role="button"
+          aria-label="{{usageSections.failure ? '收起模型调用失败统计' : '展开模型调用失败统计'}}"
+        >
+          <view>
+            <view class="monitor-toggle-title">模型调用失败统计</view>
+            <view class="monitor-toggle-subtitle">
+              数据仪表盘 · {{modelFailureView.selectedMonth || '当前月份'}}
+              · 失败 {{modelFailureView.total || 0}} 次
+            </view>
+          </view>
+          <view class="monitor-toggle-actions admin-action-slot">
+            <view class="monitor-section-toggle-button">
+              <text>{{usageSections.failure ? '收起' : '展开'}}</text>
+              <text class="monitor-section-chevron {{usageSections.failure ? 'is-open' : ''}}">⌄</text>
+            </view>
+          </view>
+        </view>
+
+        <view wx:if="{{usageSections.failure}}" class="usage-subsection-body model-call-stats-content">
+          <view class="model-call-stats-toolbar">
+            <view class="usage-failure-actions">
+            <picker
+              mode="selector"
+              range="{{modelFailureView.monthOptions}}"
+              value="{{modelFailureView.monthIndex}}"
+              bindchange="selectModelFailureMonth"
+            >
+              <view class="model-failure-month-picker">{{modelFailureView.selectedMonth || '选择月份'}} <text>⌄</text></view>
+            </picker>
+            <button
+              class="usage-export-button model-failure-export-button"
+              catchtap="exportModelFailureStats"
+              loading="{{modelFailureExporting}}"
+              disabled="{{modelFailureExporting}}"
+            >{{modelFailureExporting ? '生成中' : '导出失败统计'}}</button>
+            </view>
+          </view>
+
+        <view class="model-call-stats-dashboard-hero">
+          <view class="model-call-stats-hero-label">本月失败率</view>
+          <view class="model-call-stats-hero-value">{{modelFailureView.failureRate || 0}}%</view>
+          <view class="model-call-stats-hero-note">
+            失败 {{modelFailureView.total || 0}} 次 · 成功 {{modelFailureView.success || 0}} 次
+          </view>
+        </view>
+
+        <view class="usage-failure-summary model-call-stats-kpis">
+          <view class="usage-failure-summary-item">
+            <text>总调用</text>
+            <text>{{modelFailureView.totalCalls || 0}}</text>
+            <text>{{modelFailureView.selectedMonth || '本月'}}</text>
+          </view>
+          <view class="usage-failure-summary-item">
+            <text>成功</text>
+            <text>{{modelFailureView.success || 0}}</text>
+            <text>{{modelFailureView.successRate || 0}}%</text>
+          </view>
+          <view class="usage-failure-summary-item">
+            <text>失败</text>
+            <text>{{modelFailureView.total || 0}}</text>
+            <text>{{modelFailureView.failureRate || 0}}%</text>
+          </view>
+        </view>
+
+        <view class="model-call-stats-failed-model">
+          <view class="usage-failure-list-title">失败最多的模型</view>
+          <view wx:if="{{modelFailureView.failedModels.length}}" class="model-call-stats-failed-model-main">
+            <view>
+              <view class="model-call-stats-failed-model-name">{{modelFailureView.failedModels[0].modelDisplayZh || modelFailureView.failedModels[0].modelDisplay}}</view>
+              <view class="model-call-stats-failed-model-meta">
+                {{modelFailureView.failedModels[0].usageTypeLabel}} · 失败 {{modelFailureView.failedModels[0].failure}} 次
+              </view>
+            </view>
+            <text class="failure-type-tag is-danger">失败</text>
+          </view>
+          <view wx:else class="admin-empty usage-empty">暂无失败模型</view>
+        </view>
+
+        <view wx:if="{{modelFailureView.topFailureReasons.length}}" class="usage-failure-list">
+          <view class="usage-failure-list-title">失败原因前 5 名</view>
+          <view wx:for="{{modelFailureView.topFailureReasons}}" wx:key="key" class="usage-failure-row">
+            <view class="usage-failure-row-top">
+              <text class="usage-failure-label">{{index + 1}}. <text class="failure-type-tag is-{{item.failureTone}}">{{item.label}}</text></text>
+              <text class="usage-failure-count">{{item.count}} 次 · {{item.rate}}%</text>
+            </view>
+            <view class="usage-failure-row-detail">
+              <text>{{item.usageTypeLabel}}</text>
+              <text>{{item.modelDisplayZh || item.modelDisplay}}</text>
+              <text wx:if="{{item.status}}">状态码 {{item.status}}</text>
+              <text>{{item.retryable ? '可重试' : '不可重试'}}</text>
+            </view>
+          </view>
+        </view>
+        <view wx:else class="admin-empty usage-empty">{{modelFailureView.emptyText}}</view>
+
+        <view wx:if="{{modelFailureView.users.length}}" class="usage-failure-list">
+          <view class="usage-failure-list-title">按用户统计</view>
+          <view
+            wx:for="{{modelFailureView.users}}"
+            wx:key="userHash"
+            class="usage-failure-user-row"
+            data-index="{{index}}"
+            catchtap="openModelFailureUserDetail"
+          >
+            <view class="usage-failure-user-main">
+              <text>用户 {{item.userHash}}</text>
+              <text>{{item.total}} 次 · 查看详情</text>
+            </view>
+            <view class="usage-failure-user-meta">
+              <text class="failure-type-tag is-{{item.failureTone}}">{{item.topFailureReason}}</text>
+              <text>最近 {{item.lastSeenText}}</text>
+            </view>
+          </view>
+        </view>
+
+        <view wx:if="{{modelFailureView.details.length}}" class="failure-detail-list">
+          <view class="usage-failure-list-title">失败明细</view>
+          <view wx:for="{{modelFailureView.details}}" wx:key="requestId" class="failure-detail-row">
+            <view class="failure-detail-head">
+              <view class="failure-detail-title">{{item.createdAtText}} · {{item.usageTypeLabel}} · {{item.modelDisplayZh || item.modelDisplay}}</view>
+              <button class="copy-error-button" data-index="{{index}}" catchtap="copyModelFailure">复制错误</button>
+            </view>
+            <view class="failure-detail-meta">
+              <text class="failure-type-tag is-{{item.failureTone}}">{{item.failureReasonLabel}}</text>
+              <text>{{item.errorCodeLabel || item.errorCode}}</text>
+              <text wx:if="{{item.errorStatus}}">状态码 {{item.errorStatus}}</text>
+              <text>{{item.durationMs}} 毫秒</text>
+              <text wx:if="{{item.requestId}}">请求 {{item.requestId}}</text>
+            </view>
+            <view class="failure-detail-message">{{item.errorMessageZh || item.errorMessage}}</view>
+          </view>
+        </view>
+        <view wx:else class="admin-empty usage-empty">{{modelFailureView.emptyText}}</view>
+        </view>
+      </view>
 
       <view
         class="monitor-toggle {{monitorExpanded ? 'is-open' : ''}}"
@@ -1041,147 +1182,6 @@
 
       </view>
 
-      <view wx:if="{{moduleStates.usage.status === 'ready' || moduleStates.usage.hasData}}" class="usage-failure-panel">
-        <view
-          class="monitor-toggle model-call-stats-toggle usage-failure-head {{usageSections.failure ? 'is-open' : ''}}"
-          data-usage-section="failure"
-          catchtap="toggleUsageSection"
-          hover-class="control-tap"
-          role="button"
-          aria-label="{{usageSections.failure ? '收起模型调用失败统计' : '展开模型调用失败统计'}}"
-        >
-          <view>
-            <view class="monitor-toggle-title">模型调用失败统计</view>
-            <view class="monitor-toggle-subtitle">
-              数据仪表盘 · {{modelFailureView.selectedMonth || '当前月份'}}
-              · 失败 {{modelFailureView.total || 0}} 次
-            </view>
-          </view>
-          <view class="monitor-toggle-actions admin-action-slot">
-            <view class="monitor-section-toggle-button">
-              <text>{{usageSections.failure ? '收起' : '展开'}}</text>
-              <text class="monitor-section-chevron {{usageSections.failure ? 'is-open' : ''}}">⌄</text>
-            </view>
-          </view>
-        </view>
-
-        <view wx:if="{{usageSections.failure}}" class="usage-subsection-body model-call-stats-content">
-          <view class="model-call-stats-toolbar">
-            <view class="usage-failure-actions">
-            <picker
-              mode="selector"
-              range="{{modelFailureView.monthOptions}}"
-              value="{{modelFailureView.monthIndex}}"
-              bindchange="selectModelFailureMonth"
-            >
-              <view class="model-failure-month-picker">{{modelFailureView.selectedMonth || '选择月份'}} <text>⌄</text></view>
-            </picker>
-            <button
-              class="usage-export-button model-failure-export-button"
-              catchtap="exportModelFailureStats"
-              loading="{{modelFailureExporting}}"
-              disabled="{{modelFailureExporting}}"
-            >{{modelFailureExporting ? '生成中' : '导出失败统计'}}</button>
-            </view>
-          </view>
-
-        <view class="model-call-stats-dashboard-hero">
-          <view class="model-call-stats-hero-label">本月失败率</view>
-          <view class="model-call-stats-hero-value">{{modelFailureView.failureRate || 0}}%</view>
-          <view class="model-call-stats-hero-note">
-            失败 {{modelFailureView.total || 0}} 次 · 成功 {{modelFailureView.success || 0}} 次
-          </view>
-        </view>
-
-        <view class="usage-failure-summary model-call-stats-kpis">
-          <view class="usage-failure-summary-item">
-            <text>总调用</text>
-            <text>{{modelFailureView.totalCalls || 0}}</text>
-            <text>{{modelFailureView.selectedMonth || '本月'}}</text>
-          </view>
-          <view class="usage-failure-summary-item">
-            <text>成功</text>
-            <text>{{modelFailureView.success || 0}}</text>
-            <text>{{modelFailureView.successRate || 0}}%</text>
-          </view>
-          <view class="usage-failure-summary-item">
-            <text>失败</text>
-            <text>{{modelFailureView.total || 0}}</text>
-            <text>{{modelFailureView.failureRate || 0}}%</text>
-          </view>
-        </view>
-
-        <view class="model-call-stats-failed-model">
-          <view class="usage-failure-list-title">失败最多的模型</view>
-          <view wx:if="{{modelFailureView.failedModels.length}}" class="model-call-stats-failed-model-main">
-            <view>
-              <view class="model-call-stats-failed-model-name">{{modelFailureView.failedModels[0].modelDisplayZh || modelFailureView.failedModels[0].modelDisplay}}</view>
-              <view class="model-call-stats-failed-model-meta">
-                {{modelFailureView.failedModels[0].usageTypeLabel}} · 失败 {{modelFailureView.failedModels[0].failure}} 次
-              </view>
-            </view>
-            <text class="failure-type-tag is-danger">失败</text>
-          </view>
-          <view wx:else class="admin-empty usage-empty">暂无失败模型</view>
-        </view>
-
-        <view wx:if="{{modelFailureView.topFailureReasons.length}}" class="usage-failure-list">
-          <view class="usage-failure-list-title">失败原因前 5 名</view>
-          <view wx:for="{{modelFailureView.topFailureReasons}}" wx:key="key" class="usage-failure-row">
-            <view class="usage-failure-row-top">
-              <text class="usage-failure-label">{{index + 1}}. <text class="failure-type-tag is-{{item.failureTone}}">{{item.label}}</text></text>
-              <text class="usage-failure-count">{{item.count}} 次 · {{item.rate}}%</text>
-            </view>
-            <view class="usage-failure-row-detail">
-              <text>{{item.usageTypeLabel}}</text>
-              <text>{{item.modelDisplayZh || item.modelDisplay}}</text>
-              <text wx:if="{{item.status}}">状态码 {{item.status}}</text>
-              <text>{{item.retryable ? '可重试' : '不可重试'}}</text>
-            </view>
-          </view>
-        </view>
-        <view wx:else class="admin-empty usage-empty">{{modelFailureView.emptyText}}</view>
-
-        <view wx:if="{{modelFailureView.users.length}}" class="usage-failure-list">
-          <view class="usage-failure-list-title">按用户统计</view>
-          <view
-            wx:for="{{modelFailureView.users}}"
-            wx:key="userHash"
-            class="usage-failure-user-row"
-            data-index="{{index}}"
-            catchtap="openModelFailureUserDetail"
-          >
-            <view class="usage-failure-user-main">
-              <text>用户 {{item.userHash}}</text>
-              <text>{{item.total}} 次 · 查看详情</text>
-            </view>
-            <view class="usage-failure-user-meta">
-              <text class="failure-type-tag is-{{item.failureTone}}">{{item.topFailureReason}}</text>
-              <text>最近 {{item.lastSeenText}}</text>
-            </view>
-          </view>
-        </view>
-
-        <view wx:if="{{modelFailureView.details.length}}" class="failure-detail-list">
-          <view class="usage-failure-list-title">失败明细</view>
-          <view wx:for="{{modelFailureView.details}}" wx:key="requestId" class="failure-detail-row">
-            <view class="failure-detail-head">
-              <view class="failure-detail-title">{{item.createdAtText}} · {{item.usageTypeLabel}} · {{item.modelDisplayZh || item.modelDisplay}}</view>
-              <button class="copy-error-button" data-index="{{index}}" catchtap="copyModelFailure">复制错误</button>
-            </view>
-            <view class="failure-detail-meta">
-              <text class="failure-type-tag is-{{item.failureTone}}">{{item.failureReasonLabel}}</text>
-              <text>{{item.errorCodeLabel || item.errorCode}}</text>
-              <text wx:if="{{item.errorStatus}}">状态码 {{item.errorStatus}}</text>
-              <text>{{item.durationMs}} 毫秒</text>
-              <text wx:if="{{item.requestId}}">请求 {{item.requestId}}</text>
-            </view>
-            <view class="failure-detail-message">{{item.errorMessageZh || item.errorMessage}}</view>
-          </view>
-        </view>
-        <view wx:else class="admin-empty usage-empty">{{modelFailureView.emptyText}}</view>
-        </view>
-      </view>
 
     <view
       wx:if="{{modelFailureDetailOpen}}"

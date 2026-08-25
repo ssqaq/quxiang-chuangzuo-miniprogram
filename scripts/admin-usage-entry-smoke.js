@@ -28,6 +28,18 @@ assert.ok(
   wxml.indexOf("最近{{usageStats.days}}天每日明细") < wxml.indexOf("模型调用失败统计"),
   "每日明细必须放在模型调用失败统计之前"
 );
+const usageSectionIndex = wxml.indexOf('id="usage-section"');
+const failurePanelIndex = wxml.indexOf('class="usage-failure-panel"');
+const monitorToggleIndex = wxml.indexOf('bindtap="toggleMonitor"');
+const monitorContentIndex = wxml.indexOf('class="monitor-content');
+assert.ok(
+  usageSectionIndex < failurePanelIndex && failurePanelIndex < monitorToggleIndex,
+  "页面区块顺序必须是模型用量统计、模型调用失败统计、运行监控"
+);
+assert.ok(
+  failurePanelIndex < monitorToggleIndex && monitorToggleIndex < monitorContentIndex,
+  "模型调用失败统计必须独立于运行监控内容"
+);
 
 let pageDefinition = null;
 const originalLoad = Module._load;

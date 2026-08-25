@@ -94,11 +94,15 @@ assert.ok(!adminJs.includes("monitorOnlyAbnormal"), "异常筛选状态仍残留
 assert.ok(!adminJs.includes("setAllMonitorSections"), "全部展开/收起方法仍残留");
 assert.ok(!adminJs.includes("toggleMonitorOnlyAbnormal"), "异常筛选方法仍残留");
 
+const usageSectionIndex = wxml.indexOf('id="usage-section"');
+const monitorToggleIndex = wxml.indexOf('bindtap="toggleMonitor"');
 const monitorOverviewIndex = wxml.indexOf('class="monitor-overview-card"');
 const diagnosticLogsIndex = wxml.indexOf('id="monitor-section-diagnosticLogs"');
 const deploymentIndex = wxml.indexOf('id="monitor-section-deployment"');
 const failureIndex = wxml.indexOf('class="usage-failure-panel"');
 [
+  ["模型用量统计", usageSectionIndex],
+  ["运行监控入口", monitorToggleIndex],
   ["系统运行概览", monitorOverviewIndex],
   ["用户端日志", diagnosticLogsIndex],
   ["部署与探针", deploymentIndex],
@@ -107,10 +111,12 @@ const failureIndex = wxml.indexOf('class="usage-failure-panel"');
   assert.notStrictEqual(index, -1, `管理员页缺少${label}区块`);
 });
 assert.ok(
-  monitorOverviewIndex < diagnosticLogsIndex
-  && diagnosticLogsIndex < deploymentIndex
-  && deploymentIndex < failureIndex,
-  "运行监控区块顺序应为：系统运行概览、用户端日志、部署与探针、模型调用失败统计"
+  usageSectionIndex < failureIndex
+  && failureIndex < monitorToggleIndex
+  && monitorToggleIndex < monitorOverviewIndex
+  && monitorOverviewIndex < diagnosticLogsIndex
+  && diagnosticLogsIndex < deploymentIndex,
+  "页面区块顺序应为：模型用量统计、模型调用失败统计、运行监控"
 );
 assert.strictEqual(
   (wxml.match(/id="monitor-section-diagnosticLogs"/g) || []).length,

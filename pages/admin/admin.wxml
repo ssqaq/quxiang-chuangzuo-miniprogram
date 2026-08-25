@@ -430,7 +430,7 @@
           <view class="usage-failure-summary-item usage-failure-summary-model">
             <text>失败最多的模型</text>
             <text wx:if="{{modelFailureView.failedModels.length}}">
-              {{modelFailureView.failedModels[0].usageTypeLabel}} · {{modelFailureView.failedModels[0].provider}} / {{modelFailureView.failedModels[0].model}}
+              {{modelFailureView.failedModels[0].model}}
             </text>
             <text wx:else>暂无失败</text>
           </view>

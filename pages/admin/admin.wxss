@@ -1223,13 +1223,16 @@ page {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 12rpx;
+  align-items: stretch;
   margin-top: 16rpx;
 }
 
 .usage-type-card {
+  box-sizing: border-box;
   display: flex;
   min-width: 0;
   min-height: 212rpx;
+  align-self: stretch;
   padding: 16rpx 14rpx;
   flex-direction: column;
   align-items: center;
@@ -1264,6 +1267,7 @@ page {
   display: flex;
   width: 100%;
   min-width: 0;
+  min-height: 34rpx;
   align-items: center;
   justify-content: center;
   gap: 8rpx;
@@ -1309,6 +1313,7 @@ page {
 }
 
 .usage-type-total {
+  min-height: 42rpx;
   margin-top: 12rpx;
   color: #1e2d43;
   font-size: 36rpx;
@@ -1328,6 +1333,7 @@ page {
 .usage-type-result {
   display: flex;
   width: 100%;
+  min-height: 26rpx;
   justify-content: center;
   gap: 10rpx;
   margin-top: 4rpx;
@@ -1343,6 +1349,7 @@ page {
 
 .usage-model-text {
   width: 100%;
+  min-height: 52rpx;
   overflow: visible;
   margin-top: 10rpx;
   text-align: center;

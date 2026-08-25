@@ -303,8 +303,8 @@ page {
   min-height: 82rpx;
   margin: 12rpx 0 0;
   max-width: none;
-  border-radius: 14rpx;
-  font-size: 24rpx;
+  border-radius: 16rpx;
+  font-size: 28rpx;
   line-height: 82rpx;
 }
 

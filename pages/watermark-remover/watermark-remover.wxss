@@ -272,10 +272,16 @@
 }
 
 .parse-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   position: relative;
   box-sizing: border-box;
+  padding-top: 0;
+  padding-bottom: 0;
   padding-right: 72rpx;
   padding-left: 72rpx;
+  line-height: normal;
   text-align: center;
 }
 
@@ -297,6 +303,12 @@
   font-weight: 500;
   line-height: 1;
   transform: translateY(-50%);
+}
+
+.button-label {
+  display: block;
+  line-height: 1.35;
+  text-align: center;
 }
 
 .page-note {

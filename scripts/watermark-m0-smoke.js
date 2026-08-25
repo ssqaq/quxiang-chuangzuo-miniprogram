@@ -523,6 +523,7 @@ function testPageMarkup() {
   assert.ok(wxml.includes('wx:if="{{result.demo}}"'));
   assert.ok(wxml.includes("真实结果"));
   assert.ok(wxml.includes("一键解析并提取"));
+  assert.ok(wxml.includes('class="button-label"'));
   assert.ok(wxml.includes('class="media-play-icon"'));
   assert.ok(wxml.includes('class="copy-lines-icon"'));
   assert.ok(wxml.includes('class="copy-line copy-line-short"'));
@@ -531,6 +532,11 @@ function testPageMarkup() {
   assert.ok(wxss.includes(".media-play-icon"));
   assert.ok(wxss.includes(".copy-lines-icon"));
   assert.ok(wxss.includes(".parse-button"));
+  assert.ok(wxss.includes("display: flex"));
+  assert.ok(wxss.includes("align-items: center"));
+  assert.ok(wxss.includes("justify-content: center"));
+  assert.ok(wxss.includes("line-height: normal"));
+  assert.ok(wxss.includes(".button-label"));
   assert.ok(wxss.includes("padding-right: 72rpx"));
   assert.ok(wxss.includes("padding-left: 72rpx"));
   assert.ok(wxss.includes("text-align: center"));

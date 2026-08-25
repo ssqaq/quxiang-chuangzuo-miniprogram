@@ -63,7 +63,7 @@
     loading="{{parsing}}"
     disabled="{{parsing}}"
   >
-    {{parsing ? '正在解析并提取...' : '一键解析并提取'}}
+    <text class="button-label">{{parsing ? '正在解析并提取...' : '一键解析并提取'}}</text>
     <text wx:if="{{!parsing}}" class="button-arrow">→</text>
   </button>
 

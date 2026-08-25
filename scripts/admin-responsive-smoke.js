@@ -141,6 +141,14 @@ assert.ok(
   /\.usage-failure-head\s*\{\s*align-items:\s*center;\s*padding-right:\s*24rpx;/.test(wxss),
   "失败情况标题行没有补齐与用户端日志相同的右侧基准线"
 );
+assert.ok(
+  /\.auto-face-probe-history-card\s+\.admin-section-tools\s*\{\s*position:\s*relative;/.test(wxss),
+  "探针历史刷新按钮缺少与用户端日志相同的定位基准"
+);
+assert.ok(
+  /\.auto-face-probe-history-card\s+\.admin-section-tools\s*>\s*\.usage-refresh-button\s*\{[\s\S]*?position:\s*absolute;[\s\S]*?right:\s*124rpx;[\s\S]*?width:\s*116rpx;[\s\S]*?height:\s*60rpx;/.test(wxss),
+  "探针历史刷新按钮没有复用用户端日志的右侧位置和尺寸"
+);
 
 assert.strictEqual(
   (wxss.match(/(?:^|\n)\.admin-action-slot\s*\{/g) || []).length,

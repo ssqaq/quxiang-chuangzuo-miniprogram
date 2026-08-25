@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.37.2";
-const API_BUILD_MARKER = "API_BUILD_TAG_20260825_ADMIN_FAILURE_ALIGN_M0372";
+const API_BUILD_VERSION = "0.37.3";
+const API_BUILD_MARKER = "API_BUILD_TAG_20260825_ADMIN_PROBE_REFRESH_ALIGN_M0373";
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
 const cloud = require("wx-server-sdk");

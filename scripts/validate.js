@@ -53,6 +53,7 @@ const jsFiles = [
   "scripts/admin-layout-state-smoke.js",
   "scripts/admin-usage-entry-smoke.js",
   "scripts/admin-responsive-smoke.js",
+  "scripts/release-safety-smoke.js",
   "pages/index/index.js",
   "pages/records/records.js",
   "pages/repair/repair.js",
@@ -107,6 +108,7 @@ const powerShellFiles = [
   "scripts/deploy-and-verify-api.ps1",
   "scripts/init-cloud-database.ps1",
   "scripts/refresh-preview.ps1",
+  "scripts/sync-to-github.ps1",
   "scripts/check-cloud-database-indexes.ps1"
 ];
 
@@ -149,7 +151,7 @@ if (process.platform === "win32") {
   for (const relative of powerShellFiles) {
     const file = path.join(root, relative);
     const escaped = file.replace(/'/g, "''");
-    const command = `[scriptblock]::Create((Get-Content -LiteralPath '${escaped}' -Raw)) | Out-Null`;
+    const command = `[scriptblock]::Create([IO.File]::ReadAllText('${escaped}', [Text.Encoding]::UTF8)) | Out-Null`;
     cp.execFileSync("powershell.exe", [
       "-NoProfile",
       "-NonInteractive",
@@ -182,6 +184,7 @@ const required = [
   "utils/diagnostic-log.js",
   "utils/points-ui.js",
   "scripts/refresh-preview.ps1",
+  "scripts/sync-to-github.ps1",
   "一键刷新预览.cmd",
   "pages/publish-export/publish-export.js",
   "pages/publish-export/publish-export.json",
@@ -203,6 +206,7 @@ const required = [
   "scripts/admin-layout-state-smoke.js",
   "scripts/admin-usage-entry-smoke.js",
   "scripts/admin-responsive-smoke.js",
+  "scripts/release-safety-smoke.js",
   "scripts/diagnostic-admin-logs-smoke.js",
   "pages/index/index.wxml",
   "pages/index/index.wxss",

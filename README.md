@@ -470,15 +470,19 @@ https://github.com/ssqaq/quxiang-chuangzuo-miniprogram
 
 ### 手动立即同步
 
-在 PowerShell 执行：
+在 PowerShell 执行，必须显式列出本次要同步的文件：
 
 ```powershell
-PowerShell -ExecutionPolicy Bypass -File `
-  "D:\aips小程序\wechat-miniapp\scripts\sync-to-github.ps1"
+Set-Location "D:\aips小程序\wechat-miniapp"
+& .\scripts\sync-to-github.ps1 -IncludePath @(
+  "scripts\example.js",
+  "README.md"
+)
 ```
 
-脚本会先拉取远端更新；有变化时先检查并生成发布 ZIP，再按修改范围生成提交标题和文件摘要，
-最后提交并推送到 `main`。没有变化时不会创建空提交。
+脚本会先获取独占发布锁并拉取远端更新；有变化时只暂存 `-IncludePath` 指定的文件，
+从暂存 Git tree 生成提交前检查包，提交后再从最终 commit SHA 生成正式发布 ZIP，
+最后推送到 `main`。没有变化时不会创建空提交。
 
 发布包默认生成在小程序目录旁边：
 
@@ -487,12 +491,14 @@ D:\aips小程序\wechat-miniapp-release-v版本.zip
 ```
 
 如果发布包检查失败，脚本会停止提交和推送，避免把未通过检查的版本同步到 GitHub。
+打包前后如果 HEAD、tree SHA 或工作区状态变化，脚本会判定有并行任务插入并立即停止。
+发布包里的 `RELEASE-MANIFEST.txt` 会记录最终 commit SHA、Git tree SHA 和源码内容 SHA256。
 
 ### 自动同步
 
 当前采用“改完并验证后立即同步”，不依赖 Windows 每 10 分钟轮询任务。
-仓库的 `post-commit` hook 会兜底推送直接提交的分支；宝宝正常修改代码时统一运行上面的同步脚本，
-这样会同时完成提交信息生成、发布包生成和 GitHub 推送。
+并行任务必须在独立分支或 worktree 开发；仓库的 `pre-commit` hook 会拒绝直接在 `main` 提交。
+`post-commit` hook 只兜底推送独立分支，`main` 统一使用上面的受控同步脚本发布。
 
 同步日志保存在项目目录外，不会上传到 GitHub：
 

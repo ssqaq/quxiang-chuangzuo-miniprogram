@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+
+branch="$(git symbolic-ref --quiet --short HEAD || true)"
+if [ "$branch" = "main" ] && [ "${MINIPROGRAM_SYNC_ALLOW_MAIN_COMMIT:-}" != "1" ]; then
+  echo "pre-commit: 禁止直接在 main 提交。" >&2
+  echo "请在 worktree/独立分支开发，并通过 scripts/sync-to-github.ps1 发布。" >&2
+  exit 1
+fi

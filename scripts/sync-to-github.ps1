@@ -1,10 +1,37 @@
+param(
+    [Parameter(Mandatory = $true)]
+    [ValidateNotNullOrEmpty()]
+    [string[]]$IncludePath
+)
+
 $ErrorActionPreference = "Stop"
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+$repoName = Split-Path $repoRoot -Leaf
 $branch = "main"
 $logRoot = Join-Path (Split-Path $repoRoot -Parent) "wechat-miniapp-sync-logs"
 $logFile = Join-Path $logRoot ("sync-{0}.log" -f (Get-Date -Format "yyyy-MM-dd"))
+$lockPath = Join-Path (Split-Path $repoRoot -Parent) "$repoName-release.lock"
 $packageScript = Join-Path $repoRoot "scripts/package-release.py"
+
+function Invoke-Git {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$Arguments,
+        [switch]$AllowFailure
+    )
+
+    $output = & git @Arguments 2>&1
+    if (-not $AllowFailure -and $LASTEXITCODE -ne 0) {
+        throw "Git 命令失败：git $($Arguments -join ' ')`n$($output -join "`n")"
+    }
+    return @($output)
+}
+
+function Get-GitValue {
+    param([Parameter(Mandatory = $true)][string[]]$Arguments)
+    return ((Invoke-Git -Arguments $Arguments) -join "`n").Trim()
+}
 
 function Get-ReleaseVersion {
     $configPath = Join-Path $repoRoot "config.js"
@@ -16,9 +43,70 @@ function Get-ReleaseVersion {
     return $match.Groups[1].Value
 }
 
+function Normalize-RelativePath {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    if ([IO.Path]::IsPathRooted($Path)) {
+        throw "IncludePath 必须是仓库内相对路径：$Path"
+    }
+    $normalized = $Path.Replace("\", "/")
+    if ($normalized -match '(^|/)\.\.(?:/|$)') {
+        throw "IncludePath 不是安全的仓库相对路径：$Path"
+    }
+    while ($normalized.StartsWith("./", [StringComparison]::Ordinal)) {
+        $normalized = $normalized.Substring(2)
+    }
+    if ([string]::IsNullOrWhiteSpace($normalized) -or $normalized -match '(^|/)\.\.(?:/|$)') {
+        throw "IncludePath 不是安全的仓库相对路径：$Path"
+    }
+    if ($normalized -match '^(?:\.git|\.worktrees)(?:/|$)') {
+        throw "IncludePath 不允许指向 Git 内部目录或 worktree：$Path"
+    }
+    return $normalized
+}
+
+function Get-IncludePaths {
+    $paths = @(
+        $IncludePath |
+            ForEach-Object { Normalize-RelativePath -Path $_ } |
+            Select-Object -Unique
+    )
+    if ($paths.Count -eq 0) {
+        throw "必须显式指定本次要同步的文件，禁止使用 git add -A。"
+    }
+    return $paths
+}
+
+function Get-WorktreeSignature {
+    $trackedDiff = (Invoke-Git -Arguments @("diff", "--no-ext-diff", "--binary", "HEAD")) -join "`n"
+    $untracked = @(
+        Invoke-Git -Arguments @(
+            "-c",
+            "core.quotepath=false",
+            "ls-files",
+            "--others",
+            "--exclude-standard"
+        )
+    ) |
+        Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+        Sort-Object
+    $untrackedHashes = @()
+    foreach ($path in $untracked) {
+        $fullPath = Join-Path $repoRoot $path
+        if (Test-Path -LiteralPath $fullPath -PathType Leaf) {
+            $hash = (Get-FileHash -LiteralPath $fullPath -Algorithm SHA256).Hash
+            $untrackedHashes += "$path=$hash"
+        }
+        else {
+            $untrackedHashes += "$path=<missing>"
+        }
+    }
+    return (($trackedDiff.Trim()) + "`n" + ($untrackedHashes -join "`n")).Trim()
+}
+
 function Get-CommitMetadata {
-    $entries = @(git diff --cached --name-status)
-    if ($LASTEXITCODE -ne 0 -or $entries.Count -eq 0) {
+    $entries = @(Invoke-Git -Arguments @("diff", "--cached", "--name-status"))
+    if ($entries.Count -eq 0) {
         throw "无法读取已暂存文件，无法生成提交摘要。"
     }
 
@@ -86,66 +174,143 @@ function Get-CommitMetadata {
     }
 }
 
-Set-Location $repoRoot
+function Assert-ReleaseState {
+    param(
+        [Parameter(Mandatory = $true)][string]$ExpectedHead,
+        [Parameter(Mandatory = $true)][string]$ExpectedTree,
+        [Parameter(Mandatory = $true)][string]$ExpectedWorktree,
+        [Parameter(Mandatory = $true)][string]$Stage
+    )
 
+    $actualHead = Get-GitValue -Arguments @("rev-parse", "HEAD")
+    if ($actualHead -ne $ExpectedHead) {
+        throw "$Stage 前后 Git SHA 变化：预期 $ExpectedHead，实际 $actualHead。检测到并行提交，已停止。"
+    }
+    $actualTree = Get-GitValue -Arguments @("write-tree")
+    if ($actualTree -ne $ExpectedTree) {
+        throw "$Stage 前后暂存 tree SHA 变化：预期 $ExpectedTree，实际 $actualTree。检测到并行改动，已停止。"
+    }
+    $actualWorktree = Get-WorktreeSignature
+    if ($actualWorktree -ne $ExpectedWorktree) {
+        throw "$Stage 前后工作区状态变化，检测到并行改动，已停止。"
+    }
+}
+
+function Acquire-ReleaseLock {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    try {
+        $stream = [IO.File]::Open(
+            $Path,
+            [IO.FileMode]::OpenOrCreate,
+            [IO.FileAccess]::ReadWrite,
+            [IO.FileShare]::None
+        )
+        $stream.SetLength(0)
+        $payload = [Text.Encoding]::UTF8.GetBytes(
+            "PID=$PID`n开始时间=$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')`n仓库=$repoRoot`n"
+        )
+        $stream.Write($payload, 0, $payload.Length)
+        $stream.Flush()
+        return $stream
+    }
+    catch [IO.IOException] {
+        throw "发布锁已被占用：$Path。请等另一个发布任务结束后重试。"
+    }
+}
+
+$includePaths = Get-IncludePaths
+Set-Location $repoRoot
 New-Item -ItemType Directory -Path $logRoot -Force | Out-Null
+
+$lockStream = $null
 $transcriptStarted = $false
 try {
+    $gitRoot = Get-GitValue -Arguments @("rev-parse", "--show-toplevel")
+    if ([IO.Path]::GetFullPath($gitRoot) -ne [IO.Path]::GetFullPath($repoRoot)) {
+        throw "同步脚本必须从主仓库根目录运行。当前目录：$gitRoot"
+    }
+    $currentBranch = Get-GitValue -Arguments @("branch", "--show-current")
+    if ($currentBranch -ne $branch) {
+        throw "发布同步只允许在 main 执行，当前分支：$currentBranch"
+    }
+    $gitEntry = Get-Item -LiteralPath (Join-Path $repoRoot ".git")
+    if (-not $gitEntry.PSIsContainer) {
+        throw "禁止从 worktree 执行 main 发布同步。请回到主仓库目录：$repoRoot"
+    }
+
+    $lockStream = Acquire-ReleaseLock -Path $lockPath
     Start-Transcript -Path $logFile -Append | Out-Null
     $transcriptStarted = $true
 
     Write-Host "同步时间：$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
     Write-Host "同步仓库：$repoRoot"
-    Write-Host "拉取远端最新代码：origin/$branch"
-    # Git 2.5x 在本地存在多个同名远端跟踪分支配置时，
-    # 使用简写的 main 可能误报“Cannot rebase onto multiple branches”；
-    # 指定完整 ref 可以稳定拉取 origin/main。
-    git pull --rebase --autostash origin "refs/heads/$branch"
-    if ($LASTEXITCODE -ne 0) {
-        throw "拉取远端代码失败，已停止自动同步。请先处理冲突后重试。"
+    Write-Host "发布锁：$lockPath"
+    Write-Host "本次文件：$($includePaths -join '；')"
+    Write-Host "检查远端最新代码：origin/$branch"
+    Invoke-Git -Arguments @("fetch", "origin", "refs/heads/$branch`:refs/remotes/origin/$branch") | Write-Host
+    $localHead = Get-GitValue -Arguments @("rev-parse", "HEAD")
+    $remoteHeadBefore = Get-GitValue -Arguments @("rev-parse", "origin/$branch")
+    if ($localHead -ne $remoteHeadBefore) {
+        throw "本地 main 与 origin/main 不一致：本地 $localHead，远端 $remoteHeadBefore。请先在干净主目录同步后重试。"
     }
 
-    git add -A
-    git diff --cached --quiet
+    $cachedBefore = @(
+        Invoke-Git -Arguments @("diff", "--cached", "--name-only")
+    ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+    $outsideCached = @($cachedBefore | Where-Object { $_ -notin $includePaths })
+    if ($outsideCached.Count -gt 0) {
+        throw "暂存区已有未列入本次发布的文件：$($outsideCached -join '；')。请先处理，避免串提交。"
+    }
 
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host "没有新的修改"
+    $literalPaths = @($includePaths | ForEach-Object { ":(literal)$_" })
+    Invoke-Git -Arguments (@("add", "--") + $literalPaths) | Write-Host
+    $cachedPaths = @(
+        Invoke-Git -Arguments @("diff", "--cached", "--name-only")
+    ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+    $outsideCached = @($cachedPaths | Where-Object { $_ -notin $includePaths })
+    if ($outsideCached.Count -gt 0) {
+        throw "暂存后发现未授权文件：$($outsideCached -join '；')。已停止提交。"
+    }
+    if ($cachedPaths.Count -eq 0) {
+        Write-Host "指定文件没有新修改，安全退出。"
         return
     }
 
+    $baseHead = Get-GitValue -Arguments @("rev-parse", "HEAD")
+    $stagedTree = Get-GitValue -Arguments @("write-tree")
+    $expectedWorktree = Get-WorktreeSignature
     $version = Get-ReleaseVersion
     $releasePackage = Join-Path (Split-Path $repoRoot -Parent) "wechat-miniapp-release-v$version.zip"
-    Write-Host "生成发布包：$releasePackage"
-    & python $packageScript
+    Write-Host "校验暂存 tree：$stagedTree"
+    Write-Host "生成提交前发布包：$releasePackage"
+    Invoke-Git -Arguments @("diff", "--cached", "--check") | Write-Host
+    & python $packageScript `
+        --source-tree $stagedTree `
+        --tree-sha $stagedTree `
+        --commit-sha "提交前暂存版本" `
+        --source-label "提交前 Git tree：$stagedTree" `
+        --output $releasePackage
     if ($LASTEXITCODE -ne 0) {
-        throw "发布包生成失败，已停止提交和推送。"
+        throw "提交前发布包生成失败，已停止提交和推送。"
     }
-    if (-not (Test-Path -LiteralPath $releasePackage)) {
-        throw "发布包生成命令结束，但找不到产物：$releasePackage"
-    }
-    $packageSize = (Get-Item -LiteralPath $releasePackage).Length
-    if ($packageSize -le 0) {
-        throw "发布包是空文件：$releasePackage"
-    }
-    Write-Host "发布包已生成：$packageSize bytes"
+    Assert-ReleaseState -ExpectedHead $baseHead -ExpectedTree $stagedTree -ExpectedWorktree $expectedWorktree -Stage "提交前打包"
 
     $commitMetadata = Get-CommitMetadata
     $commitMessage = $commitMetadata.Subject
     $commitBody = @(
         $commitMetadata.Body
         "版本：$version"
+        "提交前暂存 tree：$stagedTree"
         "发布包：$releasePackage"
         "同步时间：$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
     ) -join "`n"
 
-    # 当前脚本会在提交后显式 push；避免 post-commit hook 重复推送。
     $previousHookSetting = $env:MINIPROGRAM_SYNC_SKIP_POST_COMMIT
+    $previousMainCommitSetting = $env:MINIPROGRAM_SYNC_ALLOW_MAIN_COMMIT
     $env:MINIPROGRAM_SYNC_SKIP_POST_COMMIT = "1"
+    $env:MINIPROGRAM_SYNC_ALLOW_MAIN_COMMIT = "1"
     try {
-        git commit -m $commitMessage -m $commitBody
-        if ($LASTEXITCODE -ne 0) {
-            throw "提交修改失败，已停止自动同步。"
-        }
+        Invoke-Git -Arguments @("commit", "-m", $commitMessage, "-m", $commitBody) | Write-Host
     }
     finally {
         if ($null -eq $previousHookSetting) {
@@ -154,15 +319,47 @@ try {
         else {
             $env:MINIPROGRAM_SYNC_SKIP_POST_COMMIT = $previousHookSetting
         }
+        if ($null -eq $previousMainCommitSetting) {
+            Remove-Item Env:MINIPROGRAM_SYNC_ALLOW_MAIN_COMMIT -ErrorAction SilentlyContinue
+        }
+        else {
+            $env:MINIPROGRAM_SYNC_ALLOW_MAIN_COMMIT = $previousMainCommitSetting
+        }
     }
+
+    $finalHead = Get-GitValue -Arguments @("rev-parse", "HEAD")
+    $finalTree = Get-GitValue -Arguments @("rev-parse", "$finalHead^{tree}")
+    if ($finalHead -eq $baseHead) {
+        throw "提交后 HEAD 没有变化，已停止推送。"
+    }
+    Write-Host "最终提交 SHA：$finalHead"
+    Write-Host "最终 Git tree SHA：$finalTree"
+
+    $expectedPostCommitWorktree = Get-WorktreeSignature
+    Write-Host "从最终提交重新生成正式发布包"
+    & python $packageScript `
+        --source-tree $finalHead `
+        --tree-sha $finalTree `
+        --commit-sha $finalHead `
+        --source-label "最终提交：$finalHead" `
+        --output $releasePackage
+    if ($LASTEXITCODE -ne 0) {
+        throw "正式发布包生成失败。提交已保留但未推送，请修复后重试。"
+    }
+    Assert-ReleaseState `
+        -ExpectedHead $finalHead `
+        -ExpectedTree $finalTree `
+        -ExpectedWorktree $expectedPostCommitWorktree `
+        -Stage "正式打包"
 
     Write-Host "推送到 GitHub：origin/$branch"
-    git push origin $branch
-    if ($LASTEXITCODE -ne 0) {
-        throw "推送到 GitHub 失败。请检查网络、登录状态或远端冲突。"
+    Invoke-Git -Arguments @("push", "origin", $branch) | Write-Host
+    $remoteHead = Get-GitValue -Arguments @("rev-parse", "origin/$branch")
+    if ($remoteHead -ne $finalHead) {
+        throw "推送后远端 SHA 不一致：本地 $finalHead，远端 $remoteHead。"
     }
-
     Write-Host "同步完成：$commitMessage"
+    Write-Host "本地 HEAD 与 origin/$branch 一致：$finalHead"
 }
 catch {
     Write-Host "同步失败：$($_.Exception.Message)" -ForegroundColor Red
@@ -171,5 +368,8 @@ catch {
 finally {
     if ($transcriptStarted) {
         Stop-Transcript | Out-Null
+    }
+    if ($null -ne $lockStream) {
+        $lockStream.Dispose()
     }
 }

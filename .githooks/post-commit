@@ -11,5 +11,10 @@ if [ -z "$branch" ]; then
   exit 0
 fi
 
+if [ "$branch" = "main" ] && [ "${MINIPROGRAM_SYNC_ALLOW_MAIN_COMMIT:-}" != "1" ]; then
+  echo "post-commit: main 只能由受控同步脚本提交，跳过直接推送。" >&2
+  exit 0
+fi
+
 echo "post-commit: 自动推送 origin/$branch"
 git push origin "$branch"

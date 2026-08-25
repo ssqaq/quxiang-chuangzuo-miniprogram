@@ -268,13 +268,15 @@
   >
     <view class="author-qr-preview-panel" catchtap="noop">
       <view class="author-qr-preview-title">二维码</view>
-      <image
-        class="author-qr-preview-image"
-        src="{{authorQrPreviewPath}}"
-        mode="widthFix"
-        show-menu-by-longpress="true"
-        binderror="onAuthorQrPreviewError"
-      ></image>
+      <view class="author-qr-preview-image-wrap">
+        <image
+          class="author-qr-preview-image"
+          src="{{authorQrPreviewPath}}"
+          mode="aspectFit"
+          show-menu-by-longpress="true"
+          binderror="onAuthorQrPreviewError"
+        ></image>
+      </view>
       <view class="author-qr-preview-hint">长按二维码可识别或添加好友</view>
       <button
         class="secondary-btn author-qr-preview-close"

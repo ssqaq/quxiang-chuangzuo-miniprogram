@@ -1121,8 +1121,7 @@ page {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 120rpx 40rpx calc(40rpx + env(safe-area-inset-bottom));
-  overflow-y: auto;
+  padding: 24rpx 24rpx calc(24rpx + env(safe-area-inset-bottom));
   box-sizing: border-box;
   background: rgba(12, 18, 29, 0.82);
 }
@@ -1130,10 +1129,12 @@ page {
 .author-qr-preview-panel {
   width: 100%;
   max-width: 680rpx;
-  max-height: calc(100vh - 160rpx);
+  height: 80%;
+  min-height: 0;
   padding: 28rpx;
   box-sizing: border-box;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
   border-radius: 28rpx;
   background: #ffffff;
   box-shadow: 0 20rpx 60rpx rgba(0, 0, 0, 0.24);
@@ -1147,14 +1148,20 @@ page {
   text-align: center;
 }
 
+.author-qr-preview-image-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 18rpx;
+  overflow: hidden;
+}
+
 .author-qr-preview-image {
   display: block;
-  width: 560rpx;
-  max-width: 100%;
-  height: auto;
-  margin-top: 18rpx;
-  margin-right: auto;
-  margin-left: auto;
+  width: 100%;
+  height: 100%;
   border-radius: 18rpx;
   background: #ffffff;
 }

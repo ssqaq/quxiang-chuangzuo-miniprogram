@@ -8,11 +8,38 @@ const cp = require("child_process");
 const root = path.resolve(__dirname, "..");
 const scriptPath = path.join(root, "scripts", "deploy-and-verify-api.ps1");
 const source = fs.readFileSync(scriptPath, "utf8");
+const deploymentCheckSource = fs.readFileSync(
+  path.join(root, "scripts", "check-deployment.js"),
+  "utf8"
+);
+const requiredEnvBlock = deploymentCheckSource.match(
+  /const requiredEnv = \[([\s\S]*?)\];/
+);
 const apiConfig = JSON.parse(
   fs.readFileSync(
     path.join(root, "cloudfunctions", "api", "config.json"),
     "utf8"
   )
+);
+
+assert.ok(requiredEnvBlock, "部署检查缺少环境变量清单");
+[
+  "AI_IMAGE_PRIMARY_MODEL",
+  "AI_IMAGE_PRIMARY_API_KEY",
+  "AI_IMAGE_BACKUP_MODEL",
+  "AI_IMAGE_BACKUP_API_KEY",
+  "AI_IMAGE_PRIMARY_TIMEOUT_MS",
+  "AI_IMAGE_BACKUP_TIMEOUT_MS",
+  "TENCENT_FACEFUSION_TIMEOUT_MS",
+].forEach((name) => {
+  assert.ok(
+    requiredEnvBlock[1].includes(`"${name}"`),
+    `部署检查必须核对新版图片主备配置：${name}`
+  );
+});
+assert.ok(
+  !requiredEnvBlock[1].includes('"AI_IMAGE_MODEL"'),
+  "部署检查不能再把旧 AI_IMAGE_MODEL 当成必填项"
 );
 
 assert.ok(

@@ -332,6 +332,7 @@ PowerShell -NoProfile -ExecutionPolicy Bypass -File .\scripts\init-cloud-databas
 脚本会通过微信开发者工具当前登录态调用管理员初始化接口，自动检查并补齐以下集合：
 
 ```text
+admin_config_audit_logs
 admin_deployment_logs
 admin_runtime_config
 asset_upload_tickets
@@ -339,11 +340,14 @@ auto_face_failure_logs
 auto_face_probe_logs
 generation_operations
 generation_records
+image_provider_attempt_events
 model_usage_events
 photo_to_video_temp_assets
 point_ledger
 publish_export_jobs
 repair_chains
+tencent_facefusion_intermediate_assets
+tencent_facefusion_status
 user_accounts
 user_assets
 user_diagnostic_logs
@@ -364,6 +368,10 @@ watermark_transfer_temp_assets
 
 `auto_face_probe_logs` 只保存管理员主动检查的探针状态、版本、视觉配置、Provider、Model
 和耗时，保留最近 30 天，管理页最多显示 20 条；不保存 API Key、图片、提示词或完整用户身份。
+
+`admin_config_audit_logs` 只记录管理员改了哪些字段；API Key 只记录“是否已配置、是否更新”，
+不记录真实内容、前缀或长度。`image_provider_attempt_events` 只记录星炬主模型和凌云备用模型
+每次尝试的成功、失败、耗时与切换情况，不重复计入成本统计。
 
 `watermark_transfer_temp_assets` 只登记媒体保存时的临时 CloudBase 文件。正常保存成功后
 立即删除；失败或中途退出时，`api` 每 15 分钟检查一次，到期后删除云文件并移除登记，

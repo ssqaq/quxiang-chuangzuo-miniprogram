@@ -117,6 +117,25 @@ assert.ok(
     && wxss.includes(".api-key-field-tip {"),
   "图片主备模型密钥状态样式缺失"
 );
+assert.ok(
+  wxml.includes("图片主备切换统计")
+    && wxml.includes("管理员配置修改记录")
+    && wxml.includes("imageProviderStats.primary")
+    && wxml.includes("configAuditLogs.logs"),
+  "主备统计和配置审计没有放进管理页"
+);
+assert.ok(
+  wxss.includes(".image-provider-stats-grid {")
+    && wxss.includes(".config-audit-list {"),
+  "主备统计和配置审计样式缺失"
+);
+assert.ok(
+  js.includes("refreshImageProviderStats")
+    && js.includes("refreshConfigAudit")
+    && js.includes("cloud.getImageProviderFailoverStats")
+    && js.includes("cloud.getAdminConfigAuditLogs"),
+  "管理页没有接入主备统计和配置审计刷新"
+);
 
 const toggleStart = js.indexOf("toggleConfigSection(event)");
 const toggleEnd = js.indexOf("closeConfigSection()", toggleStart);

@@ -3,7 +3,8 @@ param(
   [string]$WechatIde = "",
   [string]$ClientName = "default",
   [switch]$SkipRemoteNpmInstall,
-  [switch]$DryRun
+  [switch]$DryRun,
+  [switch]$VerifyOnly
 )
 
 # Keep this file ASCII-only so Windows PowerShell 5.1 can parse it without BOM.
@@ -160,6 +161,170 @@ function Invoke-WechatIdeTool {
   return Resolve-ToolPayload -CliPath $CliPath -Response $response
 }
 
+function Repair-CloudFunctionTimeout {
+  param(
+    [string]$EnvironmentId,
+    [string]$FunctionName,
+    [int]$TimeoutSeconds = 900
+  )
+
+  $npxCommand = Get-Command "npx.cmd" -ErrorAction SilentlyContinue
+  if (-not $npxCommand) {
+    $npxCommand = Get-Command "npx" -ErrorAction SilentlyContinue
+  }
+  if (-not $npxCommand) {
+    throw "npx 未找到，无法自动把云函数超时修正为 $TimeoutSeconds 秒。"
+  }
+
+  $arguments = @(
+    "-y",
+    "-p",
+    "@cloudbase/cli",
+    "tcb",
+    "config",
+    "update",
+    "fn",
+    $FunctionName,
+    "--timeout",
+    [string]$TimeoutSeconds,
+    "-e",
+    $EnvironmentId,
+    "--json"
+  )
+  $previousErrorActionPreference = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  try {
+    $output = & $npxCommand.Source @arguments 2>&1
+    $exitCode = $LASTEXITCODE
+  }
+  finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+  }
+  if ($exitCode -ne 0) {
+    $text = ($output | Out-String).Trim()
+    throw "自动修正云函数超时失败（exit code ${exitCode}）：$text"
+  }
+  Write-Host "已通过 CloudBase CLI 请求把云函数超时修正为 $TimeoutSeconds 秒。"
+}
+
+function Invoke-CloudBaseCliJson {
+  param([string[]]$Arguments)
+
+  $npxCommand = Get-Command "npx.cmd" -ErrorAction SilentlyContinue
+  if (-not $npxCommand) {
+    $npxCommand = Get-Command "npx" -ErrorAction SilentlyContinue
+  }
+  if (-not $npxCommand) {
+    throw "npx 未找到，无法执行 CloudBase 只读核验。"
+  }
+
+  $fullArguments = @(
+    "-y",
+    "-p",
+    "@cloudbase/cli",
+    "tcb"
+  ) + $Arguments
+  $previousErrorActionPreference = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  try {
+    # CloudBase detail 会返回环境变量；这里只在内存中解析，绝不回显原始输出。
+    $output = & $npxCommand.Source @fullArguments 2>&1
+    $exitCode = $LASTEXITCODE
+  }
+  finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+  }
+  if ($exitCode -ne 0) {
+    throw "CloudBase CLI 请求失败（原始输出已隐藏，防止环境变量或密钥泄露）。"
+  }
+  $text = ($output | Out-String).Trim()
+  $jsonStart = $text.IndexOf("{")
+  if ($jsonStart -lt 0) {
+    throw "CloudBase CLI 没有返回可解析的 JSON（原始输出已隐藏）。"
+  }
+  try {
+    return $text.Substring($jsonStart) | ConvertFrom-Json
+  }
+  catch {
+    throw "CloudBase CLI 返回的 JSON 无法解析（原始输出已隐藏）。"
+  }
+}
+
+function Get-CloudBaseFunctionSnapshot {
+  param(
+    [string]$EnvironmentId,
+    [string]$FunctionName
+  )
+
+  $response = Invoke-CloudBaseCliJson -Arguments @(
+    "fn",
+    "detail",
+    $FunctionName,
+    "-e",
+    $EnvironmentId,
+    "--json"
+  )
+  $data = Get-ObjectPropertyValue -Value $response -Name "data"
+  if ($null -eq $data) {
+    $data = $response
+  }
+  $codeInfo = [string](Get-ObjectPropertyValue -Value $data -Name "CodeInfo")
+  $versionMatch = [regex]::Match(
+    $codeInfo,
+    'const API_BUILD_VERSION = "([^"]+)"'
+  )
+  $markerMatch = [regex]::Match(
+    $codeInfo,
+    'const API_BUILD_MARKER = "([^"]+)"'
+  )
+  $modeMatch = [regex]::Match(
+    $codeInfo,
+    'const DEFAULT_IMAGE_MODE = "([^"]+)"'
+  )
+  return [pscustomobject]@{
+    Status = [string](Get-ObjectPropertyValue -Value $data -Name "Status")
+    Timeout = [int](Get-ObjectPropertyValue -Value $data -Name "Timeout")
+    BuildVersion = if ($versionMatch.Success) { $versionMatch.Groups[1].Value } else { "" }
+    BuildMarker = if ($markerMatch.Success) { $markerMatch.Groups[1].Value } else { "" }
+    ImageMode = if ($modeMatch.Success) { $modeMatch.Groups[1].Value } else { "" }
+  }
+}
+
+function Assert-CloudBaseFunctionSnapshot {
+  param(
+    [object]$Snapshot,
+    [string]$ExpectedVersion,
+    [string]$ExpectedMarker,
+    [string]$ExpectedImageMode,
+    [int]$ExpectedTimeout
+  )
+
+  if ($null -eq $Snapshot) {
+    throw "CloudBase 只读代码快照为空。"
+  }
+  if ([string]$Snapshot.Status -ne "Active") {
+    throw "CloudBase 云函数当前不是 Active：$($Snapshot.Status)"
+  }
+  if ([int]$Snapshot.Timeout -ne $ExpectedTimeout) {
+    throw "CloudBase 只读核验失败：线上超时=$($Snapshot.Timeout) 秒，期望=$ExpectedTimeout 秒。"
+  }
+  if ([string]$Snapshot.BuildVersion -ne $ExpectedVersion) {
+    throw "CloudBase 只读核验失败：线上代码版本=$($Snapshot.BuildVersion)，本地=$ExpectedVersion。"
+  }
+  if (
+    $ExpectedMarker -and
+    [string]$Snapshot.BuildMarker -ne $ExpectedMarker
+  ) {
+    throw "CloudBase 只读核验失败：线上构建标记与本地不一致。"
+  }
+  if (
+    [string]::IsNullOrWhiteSpace([string]$Snapshot.ImageMode) -or
+    ([string]$Snapshot.ImageMode).ToLowerInvariant() -ne $ExpectedImageMode.ToLowerInvariant()
+  ) {
+    throw "CloudBase 只读核验失败：线上图片模式=$($Snapshot.ImageMode)，本地=$ExpectedImageMode。"
+  }
+}
+
 function Get-ObjectPropertyValue {
   param(
     [object]$Value,
@@ -288,10 +453,12 @@ function Get-DeploymentResult {
     [string]$CliPath,
     [string]$Project,
     [string]$FunctionName,
+    [switch]$ReadOnly,
     [int]$Attempts = 3
   )
 
-  $functionSource = "function() { return wx.cloud.callFunction({ name: '$FunctionName', data: { action: 'checkDeployment', requestId: 'deploy-verify-' + Date.now() } }).then(function(response) { return response.result; }); }"
+  $readOnlyLiteral = if ($ReadOnly) { "true" } else { "false" }
+  $functionSource = "function() { return wx.cloud.callFunction({ name: '$FunctionName', data: { action: 'checkDeployment', readOnly: $readOnlyLiteral, requestId: 'deploy-verify-' + Date.now() } }).then(function(response) { return response.result; }); }"
   $lastError = ""
   for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
     try {
@@ -319,6 +486,74 @@ function Get-DeploymentResult {
     }
   }
   throw "Deployment verification failed after $Attempts attempts: $lastError"
+}
+
+function Assert-DeploymentImageConfiguration {
+  param(
+    [object]$Deployment,
+    [string]$ExpectedImageMode
+  )
+
+  $primary = Get-ObjectPropertyValue -Value $Deployment -Name "image"
+  $backup = Get-ObjectPropertyValue -Value $Deployment -Name "imageBackup"
+  $tencent = Get-ObjectPropertyValue -Value $Deployment -Name "tencentFaceFusion"
+  $flows = Get-ObjectPropertyValue -Value $Deployment -Name "flows"
+  $normalFlow = Get-ObjectPropertyValue -Value $flows -Name "normal"
+  $tencentFlow = Get-ObjectPropertyValue -Value $flows -Name "tencent"
+
+  if ($null -eq $primary -or $null -eq $backup) {
+    throw "线上核验失败：没有返回图片主备模型配置。"
+  }
+  if (
+    [string]$primary.provider -ne "xingju" -or
+    [string]$primary.model -ne "jw-gpt-image-2" -or
+    ([string]$primary.mode).ToLowerInvariant() -ne $ExpectedImageMode.ToLowerInvariant() -or
+    [int]$primary.timeoutMs -ne 150000 -or
+    [int]$primary.maxRetries -ne 1
+  ) {
+    throw "线上核验失败：主模型必须是星炬 jw-gpt-image-2、150 秒超时、失败重试 1 次。"
+  }
+  if (-not [bool]$primary.apiKeyConfigured) {
+    throw "线上核验失败：星炬主模型 API Key 尚未配置。"
+  }
+  if (
+    [string]$backup.provider -ne "lingyun" -or
+    [string]$backup.model -ne "gpt-image-2" -or
+    ([string]$backup.mode).ToLowerInvariant() -ne $ExpectedImageMode.ToLowerInvariant() -or
+    [int]$backup.timeoutMs -ne 150000 -or
+    [int]$backup.maxRetries -ne 0
+  ) {
+    throw "线上核验失败：备用模型必须是凌云 gpt-image-2、150 秒超时、备用不重复重试。"
+  }
+  if (-not [bool]$backup.apiKeyConfigured) {
+    throw "线上核验失败：凌云备用模型 API Key 尚未配置。"
+  }
+  if (
+    $null -eq $tencent -or
+    [string]$tencent.model -ne "FuseFaceUltra" -or
+    [int]$tencent.timeoutMs -ne 75000
+  ) {
+    throw "线上核验失败：腾讯 FuseFaceUltra 必须使用 75 秒超时。"
+  }
+  if (-not [bool]$tencent.credentialsConfigured) {
+    throw "线上核验失败：腾讯换脸凭据尚未配置。"
+  }
+  if (
+    $null -eq $normalFlow -or
+    [int]$normalFlow.totalSteps -ne 1 -or
+    [int]$normalFlow.imageEditSteps -ne 1 -or
+    [int]$normalFlow.faceFusionSteps -ne 0
+  ) {
+    throw "线上核验失败：普通版必须一次图片编辑完成。"
+  }
+  if (
+    $null -eq $tencentFlow -or
+    [int]$tencentFlow.totalSteps -ne 2 -or
+    [int]$tencentFlow.imageEditSteps -ne 1 -or
+    [int]$tencentFlow.faceFusionSteps -ne 1
+  ) {
+    throw "线上核验失败：腾讯版必须是先改图、再腾讯换脸的两步流程。"
+  }
 }
 
 $project = [IO.Path]::GetFullPath($ProjectPath)
@@ -363,8 +598,8 @@ $apiConfig = Get-Content -LiteralPath $apiConfigPath -Raw -Encoding UTF8 |
 $expectedFunctionTimeout = [int](
   Get-ObjectPropertyValue -Value $apiConfig -Name "timeout"
 )
-if ($expectedFunctionTimeout -lt 600 -or $expectedFunctionTimeout -gt 900) {
-  throw "cloudfunctions/api/config.json timeout must be between 600 and 900 seconds."
+if ($expectedFunctionTimeout -ne 900) {
+  throw "cloudfunctions/api/config.json timeout must be exactly 900 seconds."
 }
 $cli = Find-WechatIde -Preferred $WechatIde
 if (-not $cli) {
@@ -378,6 +613,9 @@ Write-Host "Cloud function: $functionName"
 Write-Host "Expected version: $appVersion"
 Write-Host "Expected image mode: $imageMode"
 Write-Host "Expected function timeout: $expectedFunctionTimeout seconds"
+if ($VerifyOnly) {
+  Write-Host "Mode: read-only online verification (no source upload, no remote write)"
+}
 Write-Host "Remote npm install: required"
 if ($expectedMarker) {
   Write-Host "Expected marker: $expectedMarker"
@@ -391,6 +629,93 @@ if ($DryRun) {
 
 Push-Location $project
 try {
+  if ($VerifyOnly) {
+    Write-Host "Read-only verification: inspect CloudBase code snapshot"
+    $cloudBaseSnapshot = Get-CloudBaseFunctionSnapshot `
+      -EnvironmentId $cloudEnvId `
+      -FunctionName $functionName
+    Assert-CloudBaseFunctionSnapshot `
+      -Snapshot $cloudBaseSnapshot `
+      -ExpectedVersion $appVersion `
+      -ExpectedMarker $expectedMarker `
+      -ExpectedImageMode $imageMode `
+      -ExpectedTimeout $expectedFunctionTimeout
+    Write-Host "CloudBase code snapshot: version=$($cloudBaseSnapshot.BuildVersion), timeout=$($cloudBaseSnapshot.Timeout), status=$($cloudBaseSnapshot.Status)"
+
+    Write-Host "Read-only verification: check WechatIDE login"
+    $ideStatus = Invoke-WechatIdeTool -CliPath $cli -Arguments @(
+      "-c", $ClientName,
+      "check_wechatide_status"
+    )
+    if ($ideStatus.loginExpired -eq $true) {
+      throw "WechatIDE login has expired. Log in again before verifying."
+    }
+
+    Write-Host "Read-only verification: open project runtime context"
+    Invoke-WechatIdeTool -CliPath $cli -Arguments @(
+      "-c", $ClientName,
+      "open_project_window",
+      "--project", $project,
+      "--window-mode", "liteMode"
+    ) | Out-Null
+    Start-Sleep -Seconds 2
+
+    Write-Host "Read-only verification: wait for Active and inspect timeout"
+    Wait-CloudFunctionReady `
+      -CliPath $cli `
+      -AppId $appId `
+      -EnvironmentId $cloudEnvId `
+      -FunctionName $functionName
+    $functionInfo = Get-CloudFunctionInfo `
+      -CliPath $cli `
+      -AppId $appId `
+      -EnvironmentId $cloudEnvId `
+      -FunctionName $functionName
+    $actualFunctionTimeout = [int](
+      Get-ObjectPropertyValue -Value $functionInfo -Name "timeout"
+    )
+    Write-Host "Online function timeout: $actualFunctionTimeout seconds"
+    if ($actualFunctionTimeout -lt $expectedFunctionTimeout) {
+      throw "Read-only verification failed: online function timeout is $actualFunctionTimeout seconds, expected $expectedFunctionTimeout seconds."
+    }
+
+    Write-Host "Read-only verification: inspect online build"
+    $deployment = Get-DeploymentResult `
+      -CliPath $cli `
+      -Project $project `
+      -FunctionName $functionName `
+      -ReadOnly
+    $actualVersion = [string]$deployment.buildVersion
+    $actualMarker = [string]$deployment.buildMarker
+    $actualImageMode = [string]$deployment.image.mode
+    Write-Host "Online version: $actualVersion"
+    Write-Host "Online marker: $actualMarker"
+    Write-Host "Online image mode: $actualImageMode"
+    if ([string]::IsNullOrWhiteSpace($actualVersion)) {
+      throw "Read-only verification failed: online cloud function did not return buildVersion."
+    }
+    if ($actualVersion -ne $appVersion) {
+      throw "Read-only verification failed: local=$appVersion, online=$actualVersion."
+    }
+    if ($expectedMarker -and $actualMarker -ne $expectedMarker) {
+      throw "Read-only verification failed: local marker=$expectedMarker, online=$actualMarker."
+    }
+    if ([string]::IsNullOrWhiteSpace($actualImageMode)) {
+      throw "Read-only verification failed: online cloud function did not return image.mode."
+    }
+    if ($actualImageMode.ToLowerInvariant() -ne $imageMode.ToLowerInvariant()) {
+      throw "Read-only verification failed: local image mode=$imageMode, online=$actualImageMode."
+    }
+    if (-not [bool]$deployment.readOnly -or [bool]$deployment.logWritten) {
+      throw "Read-only verification failed: online check unexpectedly wrote a deployment log."
+    }
+    Assert-DeploymentImageConfiguration `
+      -Deployment $deployment `
+      -ExpectedImageMode $imageMode
+    Write-Host "Read-only online verification passed. No source upload or remote write was sent." -ForegroundColor Green
+    return
+  }
+
   Write-Host "1/5 Check WechatIDE login"
   $ideStatus = Invoke-WechatIdeTool -CliPath $cli -Arguments @(
     "-c", $ClientName,
@@ -452,10 +777,43 @@ try {
   )
   Write-Host "Online function timeout: $actualFunctionTimeout seconds"
   if ($actualFunctionTimeout -lt $expectedFunctionTimeout) {
-    throw "Online function timeout is too short. Expected at least $expectedFunctionTimeout seconds, actual $actualFunctionTimeout seconds."
+    Write-Host "Online function timeout is too short. Start automatic repair."
+    Repair-CloudFunctionTimeout `
+      -EnvironmentId $cloudEnvId `
+      -FunctionName $functionName `
+      -TimeoutSeconds $expectedFunctionTimeout
+    Wait-CloudFunctionReady `
+      -CliPath $cli `
+      -AppId $appId `
+      -EnvironmentId $cloudEnvId `
+      -FunctionName $functionName
+    $functionInfo = Get-CloudFunctionInfo `
+      -CliPath $cli `
+      -AppId $appId `
+      -EnvironmentId $cloudEnvId `
+      -FunctionName $functionName
+    $actualFunctionTimeout = [int](
+      Get-ObjectPropertyValue -Value $functionInfo -Name "timeout"
+    )
+    Write-Host "Online function timeout after repair: $actualFunctionTimeout seconds"
+    if ($actualFunctionTimeout -lt $expectedFunctionTimeout) {
+      throw "Online function timeout is still too short after automatic repair. Expected $expectedFunctionTimeout seconds, actual $actualFunctionTimeout seconds."
+    }
   }
 
-  Write-Host "5/5 Verify online build"
+  Write-Host "5/6 Verify CloudBase code snapshot"
+  $cloudBaseSnapshot = Get-CloudBaseFunctionSnapshot `
+    -EnvironmentId $cloudEnvId `
+    -FunctionName $functionName
+  Assert-CloudBaseFunctionSnapshot `
+    -Snapshot $cloudBaseSnapshot `
+    -ExpectedVersion $appVersion `
+    -ExpectedMarker $expectedMarker `
+    -ExpectedImageMode $imageMode `
+    -ExpectedTimeout $expectedFunctionTimeout
+  Write-Host "CloudBase code snapshot: version=$($cloudBaseSnapshot.BuildVersion), timeout=$($cloudBaseSnapshot.Timeout), status=$($cloudBaseSnapshot.Status)"
+
+  Write-Host "6/6 Verify online runtime configuration"
   $deployment = Get-DeploymentResult `
     -CliPath $cli `
     -Project $project `
@@ -482,6 +840,9 @@ try {
   if ($actualImageMode.ToLowerInvariant() -ne $imageMode.ToLowerInvariant()) {
     throw "Online image mode mismatch. Local=$imageMode, online=$actualImageMode."
   }
+  Assert-DeploymentImageConfiguration `
+    -Deployment $deployment `
+    -ExpectedImageMode $imageMode
   Write-Host "Cloud function deployment verified successfully." -ForegroundColor Green
 }
 finally {

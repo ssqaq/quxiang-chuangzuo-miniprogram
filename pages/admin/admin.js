@@ -811,6 +811,180 @@ function emptyUsageStats() {
   };
 }
 
+function emptyImageProviderAttemptCounter(provider, model) {
+  return {
+    calls: 0,
+    success: 0,
+    failure: 0,
+    totalDurationMs: 0,
+    averageDurationMs: 0,
+    averageDurationText: "0.0 秒",
+    provider: provider || "",
+    model: model || ""
+  };
+}
+
+function emptyImageProviderStats() {
+  return {
+    timeZone: "Asia/Shanghai",
+    days: 30,
+    todayKey: "",
+    totalRequests: 0,
+    totalAttempts: 0,
+    primary: emptyImageProviderAttemptCounter("xingju", "jw-gpt-image-2"),
+    backup: emptyImageProviderAttemptCounter("lingyun", "gpt-image-2"),
+    switchCount: 0,
+    switchRate: 0,
+    switchRateText: "0%",
+    finalBackupSuccessCount: 0,
+    recentFailures: [],
+    daily: [],
+    eventCount: 0,
+    truncated: false,
+    unavailable: false,
+    message: ""
+  };
+}
+
+function formatImageProviderAttemptCounter(value, fallbackProvider, fallbackModel) {
+  const source = value || {};
+  const calls = Math.max(0, Number(source.calls) || 0);
+  const totalDurationMs = Math.max(0, Number(source.totalDurationMs) || 0);
+  const averageDurationMs = calls
+    ? Math.round(totalDurationMs / calls)
+    : Math.max(0, Number(source.averageDurationMs) || 0);
+  return Object.assign(
+    emptyImageProviderAttemptCounter(fallbackProvider, fallbackModel),
+    source,
+    {
+      calls,
+      success: Math.max(0, Number(source.success) || 0),
+      failure: Math.max(0, Number(source.failure) || 0),
+      totalDurationMs,
+      averageDurationMs,
+      averageDurationText: `${(averageDurationMs / 1000).toFixed(1)} 秒`,
+      provider: source.provider || fallbackProvider,
+      model: source.model || fallbackModel
+    }
+  );
+}
+
+function formatImageProviderStats(result) {
+  const source = result || {};
+  const failures = (Array.isArray(source.recentFailures)
+    ? source.recentFailures
+    : []
+  ).map((item) => {
+    const durationMs = Math.max(0, Number(item.durationMs) || 0);
+    return Object.assign({}, item, {
+      roleText: item.role === "backup" ? "备用模型" : "主模型",
+      createdAtText: formatAdminDate(item.createdAt || item.dateKey),
+      durationText: `${(durationMs / 1000).toFixed(1)} 秒`,
+      statusText: Number(item.status) ? `HTTP ${Number(item.status)}` : "无状态码",
+      message: item.message || "未提供错误原因"
+    });
+  });
+  const daily = (Array.isArray(source.daily) ? source.daily : []).map((item) => ({
+    dateKey: item.dateKey || "",
+    dateLabel: item.dateKey === source.todayKey
+      ? `${item.dateKey} 今天`
+      : item.dateKey || "未知日期",
+    totalAttempts: Math.max(0, Number(item.totalAttempts) || 0),
+    primaryCalls: Math.max(0, Number(item.primaryCalls) || 0),
+    primarySuccess: Math.max(0, Number(item.primarySuccess) || 0),
+    primaryFailure: Math.max(0, Number(item.primaryFailure) || 0),
+    backupCalls: Math.max(0, Number(item.backupCalls) || 0),
+    backupSuccess: Math.max(0, Number(item.backupSuccess) || 0),
+    backupFailure: Math.max(0, Number(item.backupFailure) || 0),
+    switchCount: Math.max(0, Number(item.switchCount) || 0)
+  }));
+  return Object.assign(emptyImageProviderStats(), source, {
+    days: Math.max(1, Number(source.days) || 30),
+    totalRequests: Math.max(0, Number(source.totalRequests) || 0),
+    totalAttempts: Math.max(0, Number(source.totalAttempts) || 0),
+    primary: formatImageProviderAttemptCounter(
+      source.primary,
+      "xingju",
+      "jw-gpt-image-2"
+    ),
+    backup: formatImageProviderAttemptCounter(
+      source.backup,
+      "lingyun",
+      "gpt-image-2"
+    ),
+    switchCount: Math.max(0, Number(source.switchCount) || 0),
+    switchRate: Math.max(0, Number(source.switchRate) || 0),
+    switchRateText: source.switchRateText || `${Number(source.switchRate) || 0}%`,
+    finalBackupSuccessCount: Math.max(
+      0,
+      Number(source.finalBackupSuccessCount) || 0
+    ),
+    recentFailures: failures,
+    daily
+  });
+}
+
+const CONFIG_AUDIT_SECTION_LABELS = Object.freeze({
+  face: "人脸模型",
+  analysis: "分析模型",
+  image: "主图片模型",
+  imageBackup: "备用图片模型",
+  video: "视频模型",
+  points: "积分规则",
+  costs: "成本配置",
+  generationQueue: "生图队列"
+});
+
+function emptyConfigAuditLogs() {
+  return {
+    logs: [],
+    limit: 20,
+    unavailable: false,
+    message: ""
+  };
+}
+
+function formatConfigAuditLogs(result) {
+  const source = result || {};
+  const logs = (Array.isArray(source.logs) ? source.logs : []).map((item) => {
+    const changes = (Array.isArray(item.changes) ? item.changes : []).map((change) => {
+      const section = CONFIG_AUDIT_SECTION_LABELS[change.section]
+        || change.section
+        || "配置";
+      if (change.secret || change.field === "apiKey") {
+        return {
+          text: `${section} API Key：${change.configuredAfter ? "已配置" : "未配置"}`
+            + `${change.updated ? "（本次已更新）" : ""}`
+        };
+      }
+      const oldValue = change.oldValue === null || change.oldValue === undefined
+        ? "空"
+        : String(change.oldValue);
+      const newValue = change.newValue === null || change.newValue === undefined
+        ? "空"
+        : String(change.newValue);
+      return {
+        text: `${section} ${change.field || "字段"}：${oldValue} → ${newValue}`
+      };
+    });
+    return {
+      _id: item._id || "",
+      createdAt: item.createdAt || "",
+      createdAtText: formatAdminDate(item.createdAt),
+      source: item.source || "admin-save",
+      sourceText: item.source === "system-auto-correct" ? "系统自动纠正" : "管理员保存",
+      actorHash: item.actorHash || "system",
+      configVersion: Number(item.configVersion) || 0,
+      changeCount: Number(item.changeCount) || changes.length,
+      changes,
+      changeSummary: changes.length
+        ? changes.map((change) => change.text).join("；")
+        : "没有可展示的字段变化"
+    };
+  });
+  return Object.assign(emptyConfigAuditLogs(), source, { logs });
+}
+
 function emptyAutoFaceFailureStats() {
   return {
     timeZone: "Asia/Shanghai",
@@ -988,6 +1162,8 @@ function buildTodayFailureText(usageStats, moduleStates) {
 const ADMIN_MODULE_KEYS = [
   "generationQueue",
   "usage",
+  "imageProviderStats",
+  "configAudit",
   "users",
   "diagnosticLogs",
   "autoFaceFailure",
@@ -3120,6 +3296,10 @@ Page({
     usageLoading: false,
     usageExporting: false,
     usageStats: emptyUsageStats(),
+    imageProviderStatsLoading: false,
+    imageProviderStats: emptyImageProviderStats(),
+    configAuditLoading: false,
+    configAuditLogs: emptyConfigAuditLogs(),
     costTrend: emptyCostTrend(),
     userStatsLoading: false,
     userStatsExporting: false,
@@ -3460,6 +3640,28 @@ Page({
       ),
       this.loadAdminModule(
         token,
+        "imageProviderStats",
+        () => cloud.getImageProviderFailoverStats(30),
+        formatImageProviderStats,
+        (imageProviderStats) => ({ imageProviderStats }),
+        {
+          label: "图片主备切换统计",
+          loadingKey: "imageProviderStatsLoading"
+        }
+      ),
+      this.loadAdminModule(
+        token,
+        "configAudit",
+        () => cloud.getAdminConfigAuditLogs(20),
+        formatConfigAuditLogs,
+        (configAuditLogs) => ({ configAuditLogs }),
+        {
+          label: "配置修改记录",
+          loadingKey: "configAuditLoading"
+        }
+      ),
+      this.loadAdminModule(
+        token,
         "users",
         () => cloud.getAdminUserStats(0, 20, buildUserStatsFilters(this.data)),
         formatUserStats,
@@ -3780,6 +3982,10 @@ Page({
         loadingKey: "usageLoading"
       }
     );
+    await Promise.all([
+      this.refreshImageProviderStats({ silent: true }),
+      this.refreshConfigAudit({ silent: true })
+    ]);
     if (result.stale) return;
     if (result.ok) {
       if (!silent) wx.showToast({ title: "统计已刷新", icon: "success" });
@@ -3792,6 +3998,52 @@ Page({
         this.showError("统计刷新失败", result.error || new Error("统计读取失败，请稍后重试。"));
       }
     }
+  },
+
+  async refreshImageProviderStats(options = {}) {
+    if (this.data.imageProviderStatsLoading) return;
+    const silent = Boolean(options && options.silent);
+    const result = await this.loadAdminModule(
+      this._adminLoadToken || 0,
+      "imageProviderStats",
+      () => cloud.getImageProviderFailoverStats(30),
+      formatImageProviderStats,
+      (imageProviderStats) => ({ imageProviderStats }),
+      {
+        label: "图片主备切换统计",
+        loadingKey: "imageProviderStatsLoading"
+      }
+    );
+    if (!result.ok && !result.stale && !silent) {
+      this.showError(
+        "主备统计刷新失败",
+        result.error || new Error("主备统计读取失败，请稍后重试。")
+      );
+    }
+    return result;
+  },
+
+  async refreshConfigAudit(options = {}) {
+    if (this.data.configAuditLoading) return;
+    const silent = Boolean(options && options.silent);
+    const result = await this.loadAdminModule(
+      this._adminLoadToken || 0,
+      "configAudit",
+      () => cloud.getAdminConfigAuditLogs(20),
+      formatConfigAuditLogs,
+      (configAuditLogs) => ({ configAuditLogs }),
+      {
+        label: "配置修改记录",
+        loadingKey: "configAuditLoading"
+      }
+    );
+    if (!result.ok && !result.stale && !silent) {
+      this.showError(
+        "配置记录刷新失败",
+        result.error || new Error("配置修改记录读取失败，请稍后重试。")
+      );
+    }
+    return result;
   },
 
   startModelFailureAutoRefresh() {

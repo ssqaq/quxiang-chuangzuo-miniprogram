@@ -4088,6 +4088,167 @@ page {
   font-size: 19rpx;
 }
 
+.image-provider-stats-card,
+.config-audit-card {
+  margin-top: 18rpx;
+}
+
+.usage-section-note {
+  margin-top: 6rpx;
+  color: #8995a7;
+  font-size: 18rpx;
+  line-height: 26rpx;
+}
+
+.usage-small-refresh-button {
+  min-width: 92rpx !important;
+  min-height: 52rpx !important;
+  margin: 0 !important;
+  padding: 0 14rpx !important;
+  border-radius: 13rpx !important;
+  font-size: 18rpx !important;
+}
+
+.image-provider-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12rpx;
+  margin-top: 14rpx;
+}
+
+.image-provider-stat-card {
+  min-width: 0;
+  padding: 18rpx;
+  border: 1rpx solid #dfe7f1;
+  border-radius: 18rpx;
+  background: #f8fbff;
+}
+
+.image-provider-stat-card.is-primary {
+  border-color: #c5d8f5;
+  background: #f3f7ff;
+}
+
+.image-provider-stat-card.is-backup {
+  border-color: #ecd7ae;
+  background: #fffaf0;
+}
+
+.image-provider-stat-card.is-switch {
+  border-color: #c9e4d8;
+  background: #f4fbf7;
+}
+
+.image-provider-stat-kicker {
+  color: #7d8b9f;
+  font-size: 17rpx;
+  font-weight: 800;
+  line-height: 24rpx;
+}
+
+.image-provider-stat-name {
+  min-height: 46rpx;
+  margin-top: 6rpx;
+  color: #314158;
+  font-size: 20rpx;
+  font-weight: 800;
+  line-height: 27rpx;
+  overflow-wrap: anywhere;
+}
+
+.image-provider-stat-number {
+  margin-top: 8rpx;
+  color: #1d3557;
+  font-size: 32rpx;
+  font-weight: 900;
+  line-height: 38rpx;
+}
+
+.image-provider-stat-detail {
+  margin-top: 5rpx;
+  color: #76859a;
+  font-size: 17rpx;
+  line-height: 24rpx;
+}
+
+.image-provider-failure-list,
+.config-audit-list {
+  margin-top: 16rpx;
+}
+
+.image-provider-failure-title {
+  color: #52647c;
+  font-size: 20rpx;
+  font-weight: 800;
+}
+
+.image-provider-failure-row,
+.config-audit-row {
+  margin-top: 10rpx;
+  padding: 14rpx 16rpx;
+  border: 1rpx solid #e1e7ef;
+  border-radius: 14rpx;
+  background: #ffffff;
+}
+
+.image-provider-failure-top,
+.config-audit-row-top {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12rpx;
+  color: #394b64;
+  font-size: 18rpx;
+  font-weight: 700;
+}
+
+.image-provider-failure-top text:first-child,
+.config-audit-row-top text:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.image-provider-failure-top text:last-child,
+.config-audit-row-top text:last-child {
+  flex: none;
+  color: #8c98a9;
+  font-size: 17rpx;
+  font-weight: 400;
+}
+
+.image-provider-failure-detail,
+.config-audit-row-meta {
+  margin-top: 5rpx;
+  color: #8b97a8;
+  font-size: 17rpx;
+  line-height: 24rpx;
+  overflow-wrap: anywhere;
+}
+
+.image-provider-failure-message,
+.config-audit-row-summary {
+  margin-top: 6rpx;
+  color: #5c6d83;
+  font-size: 18rpx;
+  line-height: 27rpx;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 560px) {
+  .image-provider-stats-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .image-provider-stat-card {
+    padding: 16rpx;
+  }
+
+  .image-provider-stat-name {
+    min-height: 0;
+  }
+}
+
 .usage-user-detail {
   display: flex;
   flex-wrap: wrap;

@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.45.1";
-const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0451";
+const API_BUILD_VERSION = "0.46.0";
+const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0460";
 const DEFAULT_IMAGE_MODE = "edits";
 // 图片和视频默认成本只在云函数入口维护；管理员页读取云端有效配置，
 // 避免前后端各写一份价格。入口保持单文件可启动，兼容 CloudBase 部署。
@@ -1148,6 +1148,8 @@ const DEFAULT_RETRY_STATUSES = new Set([408, 409, 425, 429, 500, 502, 503, 504])
 const ADMIN_RUNTIME_CONFIG_COLLECTION = "admin_runtime_config";
 const ADMIN_RUNTIME_CONFIG_ID = "global";
 const IMAGE_RETRY_PREFERENCE_VERSION = 1;
+const ADMIN_CONFIG_AUDIT_LOG_COLLECTION = "admin_config_audit_logs";
+const ADMIN_CONFIG_AUDIT_MAX_READ = 200;
 const IMAGE_QUALITY_LONG_EDGES = Object.freeze({
   "1K": 1024,
   "2K": 2048,
@@ -1160,6 +1162,9 @@ const IMAGE_SIZE_PRESETS = Object.freeze([
 ]);
 const ADMIN_DEPLOYMENT_LOG_COLLECTION = "admin_deployment_logs";
 const MODEL_USAGE_EVENT_COLLECTION = "model_usage_events";
+const IMAGE_PROVIDER_ATTEMPT_EVENT_COLLECTION = "image_provider_attempt_events";
+const IMAGE_PROVIDER_ATTEMPT_MAX_READ = 5000;
+const IMAGE_PROVIDER_ATTEMPT_TIME_ZONE = "Asia/Shanghai";
 const MODEL_USAGE_TIME_ZONE = "Asia/Shanghai";
 const MODEL_USAGE_TYPES = ["image", "analysis", "face", "video"];
 const MODEL_PROBE_TYPES = ["face", "analysis", "image", "video"];
@@ -1296,6 +1301,7 @@ const ASSET_TICKET_TTL_MS = 10 * 60 * 1000;
 const REPAIR_ASSET_KINDS = new Set(["main", "mask", "face", "wardrobe", "background", "avatar"]);
 const REQUIRED_DATABASE_COLLECTIONS = Object.freeze([
   ADMIN_DEPLOYMENT_LOG_COLLECTION,
+  ADMIN_CONFIG_AUDIT_LOG_COLLECTION,
   ADMIN_RUNTIME_CONFIG_COLLECTION,
   ASSET_UPLOAD_TICKET_COLLECTION,
   AUTO_FACE_FAILURE_LOG_COLLECTION,
@@ -1303,6 +1309,7 @@ const REQUIRED_DATABASE_COLLECTIONS = Object.freeze([
   GENERATION_OPERATION_COLLECTION,
   "generation_records",
   MODEL_USAGE_EVENT_COLLECTION,
+  IMAGE_PROVIDER_ATTEMPT_EVENT_COLLECTION,
   PHOTO_TO_VIDEO_TEMP_ASSET_COLLECTION,
   WATERMARK_TRANSFER_TEMP_COLLECTION,
   POINTS_LEDGER_COLLECTION,
@@ -2966,6 +2973,8 @@ function normalizeWebPoseSuggestions(value) {
 
 const db = cloud.database();
 const modelUsageTestEvents = [];
+const imageProviderAttemptTestEvents = [];
+const adminConfigAuditTestRows = [];
 const autoFaceFailureTestEvents = [];
 const autoFaceProbeTestEvents = [];
 const userProfileTestRows = [];
@@ -6712,6 +6721,265 @@ function isLegacyLingyunImageConfig(value) {
   );
 }
 
+const ADMIN_CONFIG_AUDIT_SECTIONS = Object.freeze([
+  "face",
+  "analysis",
+  "image",
+  "imageBackup",
+  "video",
+  "points",
+  "costs",
+  "generationQueue"
+]);
+
+function isSensitiveAdminAuditKey(key) {
+  return /(?:api[_-]?key|secret|token|authorization|password|credential)/i
+    .test(String(key || ""));
+}
+
+function sanitizeAdminAuditStructuredValue(value, depth = 0) {
+  if (depth > 5) return "[内容已省略]";
+  if (value === undefined || value === null) return null;
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (typeof value === "string") {
+    return value
+      .replace(/Bearer\s+\S+/gi, "Bearer [已隐藏]")
+      .replace(
+        /((?:api[_-]?key|secret|token|authorization|password|credential)\s*[:=]\s*)\S+/gi,
+        "$1[已隐藏]"
+      )
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 180);
+  }
+  if (Array.isArray(value)) {
+    return value
+      .slice(0, 20)
+      .map((item) => sanitizeAdminAuditStructuredValue(item, depth + 1));
+  }
+  if (typeof value === "object") {
+    const result = {};
+    Object.keys(value).slice(0, 40).forEach((key) => {
+      result[key] = isSensitiveAdminAuditKey(key)
+        ? "[已隐藏]"
+        : sanitizeAdminAuditStructuredValue(value[key], depth + 1);
+    });
+    return result;
+  }
+  return String(value).slice(0, 180);
+}
+
+function auditSafeValue(value) {
+  const safe = sanitizeAdminAuditStructuredValue(value);
+  if (safe && typeof safe === "object") {
+    return JSON.stringify(safe).slice(0, 180);
+  }
+  return safe;
+}
+
+function flattenAdminAuditValues(value, prefix, output) {
+  const source = value && typeof value === "object" ? value : {};
+  Object.keys(source).forEach((key) => {
+    const path = prefix ? `${prefix}.${key}` : key;
+    const item = source[key];
+    if (isSensitiveAdminAuditKey(key)) {
+      output[path] = {
+        secret: true,
+        configured: Boolean(normalizeApiKey(item))
+      };
+      return;
+    }
+    if (item instanceof Date) {
+      output[path] = auditSafeValue(item);
+      return;
+    }
+    if (item && typeof item === "object" && !Array.isArray(item)) {
+      flattenAdminAuditValues(item, path, output);
+      return;
+    }
+    output[path] = auditSafeValue(item);
+  });
+  return output;
+}
+
+function adminAuditPathValue(source, path) {
+  return String(path || "")
+    .split(".")
+    .filter(Boolean)
+    .reduce((value, key) => (
+      value && typeof value === "object" ? value[key] : undefined
+    ), source);
+}
+
+function auditValuesEqual(left, right) {
+  return JSON.stringify(left === undefined ? null : left)
+    === JSON.stringify(right === undefined ? null : right);
+}
+
+function buildAdminConfigAuditChanges(previous = {}, next = {}, patch = {}) {
+  const before = previous && typeof previous === "object" ? previous : {};
+  const after = next && typeof next === "object" ? next : {};
+  const submitted = patch && typeof patch === "object" ? patch : {};
+  const changes = [];
+  ADMIN_CONFIG_AUDIT_SECTIONS.forEach((section) => {
+    const oldValues = flattenAdminAuditValues(before[section], "", {});
+    const newValues = flattenAdminAuditValues(after[section], "", {});
+    const patchSection = submitted[section] && typeof submitted[section] === "object"
+      ? submitted[section]
+      : {};
+    const paths = new Set([
+      ...Object.keys(oldValues),
+      ...Object.keys(newValues)
+    ]);
+    if (
+      hasOwn(patchSection, "apiKey")
+      || hasOwn(oldValues, "apiKey")
+      || hasOwn(newValues, "apiKey")
+    ) {
+      paths.add("apiKey");
+    }
+    [...paths].sort().forEach((field) => {
+      const oldValue = oldValues[field];
+      const newValue = newValues[field];
+      const fieldKey = field.split(".").pop();
+      const secretField = isSensitiveAdminAuditKey(fieldKey)
+        || Boolean(oldValue && oldValue.secret)
+        || Boolean(newValue && newValue.secret);
+      if (secretField) {
+        const configuredBefore = Boolean(
+          oldValue && oldValue.secret && oldValue.configured
+        );
+        const configuredAfter = Boolean(
+          newValue && newValue.secret && newValue.configured
+        );
+        const submittedRaw = adminAuditPathValue(patchSection, field);
+        const submittedKey = submittedRaw === undefined
+          ? ""
+          : normalizeApiKey(submittedRaw);
+        const previousKey = normalizeApiKey(
+          adminAuditPathValue(before[section], field)
+        );
+        const updated = Boolean(
+          submittedKey
+          && submittedKey !== previousKey
+        );
+        if (
+          configuredBefore !== configuredAfter
+          || updated
+        ) {
+          changes.push({
+            section,
+            field: String(fieldKey || "secret"),
+            secret: true,
+            configuredBefore,
+            configuredAfter,
+            updated
+          });
+        }
+        return;
+      }
+      if (!auditValuesEqual(oldValue, newValue)) {
+        changes.push({
+          section,
+          field,
+          oldValue: oldValue === undefined ? null : oldValue,
+          newValue: newValue === undefined ? null : newValue
+        });
+      }
+    });
+  });
+  return changes;
+}
+
+function adminConfigAuditIdentity(openid) {
+  const value = String(openid || "").trim();
+  if (!value || value === "anonymous" || value === "system") return "system";
+  return usageUserHash(`admin-audit:${value}`);
+}
+
+function normalizeAdminConfigAuditRow(value = {}) {
+  const source = value && typeof value === "object" ? value : {};
+  const createdAt = source.createdAt instanceof Date
+    ? source.createdAt
+    : new Date(source.createdAt || Date.now());
+  const changes = Array.isArray(source.changes)
+    ? source.changes.map((item) => {
+        const change = item && typeof item === "object" ? item : {};
+        const fieldKey = String(change.field || "").split(".").pop();
+        if (change.secret || isSensitiveAdminAuditKey(fieldKey)) {
+          return {
+            section: compactUsageText(change.section, 40),
+            field: compactUsageText(fieldKey, 40) || "secret",
+            secret: true,
+            configuredBefore: Boolean(change.configuredBefore),
+            configuredAfter: Boolean(change.configuredAfter),
+            updated: Boolean(change.updated)
+          };
+        }
+        return {
+          section: compactUsageText(change.section, 40),
+          field: compactUsageText(change.field, 120),
+          oldValue: auditSafeValue(change.oldValue),
+          newValue: auditSafeValue(change.newValue)
+        };
+      })
+      .filter((item) => item.section && item.field)
+      .slice(0, 100)
+    : [];
+  return {
+    _id: compactUsageText(source._id, 80),
+    createdAt: Number.isNaN(createdAt.getTime()) ? new Date() : createdAt,
+    source: source.source === "system-auto-correct"
+      ? "system-auto-correct"
+      : "admin-save",
+    actorHash: compactUsageText(source.actorHash, 80) || "system",
+    configVersion: Math.max(0, Number(source.configVersion) || 0),
+    changeCount: changes.length,
+    changedSections: Array.from(new Set(
+      changes.map((item) => item.section).filter(Boolean)
+    )).slice(0, 20),
+    changes
+  };
+}
+
+async function writeAdminConfigAuditLog(options = {}) {
+  const changes = buildAdminConfigAuditChanges(
+    options.previous,
+    options.next,
+    options.patch
+  );
+  if (!changes.length) return false;
+  const row = normalizeAdminConfigAuditRow({
+    source: options.source,
+    actorHash: options.actorHash || adminConfigAuditIdentity(options.openid),
+    configVersion: options.configVersion,
+    changes,
+    createdAt: options.createdAt || new Date()
+  });
+  if (process.env.WECHAT_MINIAPP_TEST === "1") {
+    adminConfigAuditTestRows.push(row);
+    return true;
+  }
+  try {
+    await db.collection(ADMIN_CONFIG_AUDIT_LOG_COLLECTION).add({
+      data: stripDocumentId(row)
+    });
+    return true;
+  } catch (error) {
+    log("warn", "admin.config-audit.write-failed", {
+      source: row.source,
+      configVersion: row.configVersion,
+      changeCount: row.changeCount,
+      error: error && error.message
+    });
+    return false;
+  }
+}
+
 function migrateLegacyImageProviderConfig(runtime, rawConfig) {
   const normalized = runtime && typeof runtime === "object"
     ? runtime
@@ -6724,27 +6992,51 @@ function migrateLegacyImageProviderConfig(runtime, rawConfig) {
     && typeof rawConfig.imageBackup === "object"
     ? rawConfig.imageBackup
     : null;
-  if (
-    !rawImage
-    || rawBackup && Object.keys(rawBackup).length
-    || !isLegacyLingyunImageConfig(rawImage)
-  ) {
+  if (!rawImage || !isLegacyLingyunImageConfig(rawImage)) {
     return {
       value: normalized,
       migrated: false
     };
   }
 
-  const legacyBackup = Object.assign({}, normalized.image || {}, {
-    provider: String(normalized.image && normalized.image.provider || "lingyun"),
-    model: String(normalized.image && normalized.image.model || "gpt-image-2"),
-    mode: "edits",
-    timeoutMs: 150000,
-    maxRetries: 0,
-    retryEnabled: false,
-    retryPreferenceVersion: IMAGE_RETRY_PREFERENCE_VERSION
-  });
+  const hasExistingBackup = Boolean(
+    rawBackup && Object.keys(rawBackup).length
+  );
+  const legacyImage = normalized.image && typeof normalized.image === "object"
+    ? normalized.image
+    : {};
+  const existingBackup = normalized.imageBackup
+    && typeof normalized.imageBackup === "object"
+    ? normalized.imageBackup
+    : {};
+  const legacyApiKey = normalizeApiKey(
+    rawImage.apiKey || legacyImage.apiKey
+  );
+  const legacyBackup = Object.assign(
+    {},
+    hasExistingBackup ? existingBackup : legacyImage
+  );
+  if (!legacyBackup.provider) legacyBackup.provider = "lingyun";
+  if (!legacyBackup.model) legacyBackup.model = "gpt-image-2";
+  if (!legacyBackup.baseUrl) legacyBackup.baseUrl = "https://api.lingyunapi.xyz/v1";
+  if (!legacyBackup.mode) legacyBackup.mode = "edits";
+  if (!legacyBackup.size) legacyBackup.size = env("AI_IMAGE_SIZE", "1024x1024");
+  if (!legacyBackup.resolution) {
+    legacyBackup.resolution = normalizeImageResolution(legacyBackup.size, "1K");
+  }
+  if (
+    !normalizeApiKey(legacyBackup.apiKey)
+    && legacyApiKey
+    && (!hasExistingBackup || isLegacyLingyunImageConfig(legacyBackup))
+  ) {
+    legacyBackup.apiKey = legacyApiKey;
+  }
+  legacyBackup.timeoutMs = 150000;
+  legacyBackup.maxRetries = 0;
+  legacyBackup.retryEnabled = false;
+  legacyBackup.retryPreferenceVersion = IMAGE_RETRY_PREFERENCE_VERSION;
   const primaryDefaults = resolveImageConfig({
+    provider: "xingju",
     mode: "edits",
     size: legacyBackup.size || env("AI_IMAGE_SIZE", "1024x1024"),
     resolution: legacyBackup.resolution
@@ -6755,7 +7047,14 @@ function migrateLegacyImageProviderConfig(runtime, rawConfig) {
     retryEnabled: true,
     retryPreferenceVersion: IMAGE_RETRY_PREFERENCE_VERSION
   });
-  const primary = Object.assign({}, primaryDefaults);
+  const primary = Object.assign({}, primaryDefaults, {
+    provider: "xingju",
+    model: "jw-gpt-image-2",
+    timeoutMs: 150000,
+    maxRetries: 1,
+    retryEnabled: true,
+    retryPreferenceVersion: IMAGE_RETRY_PREFERENCE_VERSION
+  });
   delete primary.apiKey;
 
   return {
@@ -6764,6 +7063,62 @@ function migrateLegacyImageProviderConfig(runtime, rawConfig) {
       imageBackup: legacyBackup
     }),
     migrated: true
+  };
+}
+
+function guardAdminImageProviderConfig(current, merged, patch) {
+  const existing = current && typeof current === "object" ? current : {};
+  const next = merged && typeof merged === "object" ? merged : {};
+  const submitted = patch && typeof patch === "object" ? patch : {};
+  const nextImage = next.image && typeof next.image === "object"
+    ? next.image
+    : {};
+  if (!isLegacyLingyunImageConfig(nextImage)) {
+    return {
+      value: next,
+      corrected: false
+    };
+  }
+
+  const existingImage = existing.image && typeof existing.image === "object"
+    ? existing.image
+    : {};
+  const submittedImage = submitted.image && typeof submitted.image === "object"
+    ? submitted.image
+    : {};
+  const guardInput = Object.assign({}, next, {
+    image: Object.assign({}, nextImage),
+    imageBackup: Object.assign({}, next.imageBackup || {})
+  });
+  const submittedLingyunKey = hasOwn(submittedImage, "apiKey")
+    ? normalizeApiKey(submittedImage.apiKey)
+    : "";
+
+  // 管理员只改了服务商/模型且主 Key 留空时，merge 后会带着旧星炬 Key。
+  // 这里先移除，避免旧星炬 Key 被误搬到凌云备用配置。
+  if (
+    !submittedLingyunKey
+    && !isLegacyLingyunImageConfig(existingImage)
+  ) {
+    delete guardInput.image.apiKey;
+  }
+
+  const migrated = migrateLegacyImageProviderConfig(guardInput, guardInput);
+  const existingPrimaryKey = (
+    isXingjuImageProvider(existingImage)
+    && !isLegacyLingyunImageConfig(existingImage)
+  )
+    ? normalizeApiKey(existingImage.apiKey)
+    : "";
+  if (existingPrimaryKey) {
+    migrated.value.image = Object.assign({}, migrated.value.image, {
+      apiKey: existingPrimaryKey
+    });
+  }
+
+  return {
+    value: migrated.value,
+    corrected: Boolean(migrated.migrated)
   };
 }
 
@@ -6992,14 +7347,22 @@ function migrateLegacyModelCostConfig(runtime, rawConfig) {
   };
 }
 
-async function loadAdminRuntimeConfig(force = false) {
+async function loadAdminRuntimeConfig(force = false, options = {}) {
+  const allowMigrations = options.allowMigrations !== false;
+  const useCache = options.cache !== false;
   if (
     process.env.WECHAT_MINIAPP_TEST === "1"
     && process.env.ADMIN_RUNTIME_CONFIG_SMOKE !== "1"
   ) {
     return null;
   }
-  if (!force && adminRuntimeCache.expiresAt > Date.now()) return adminRuntimeCache.value;
+  if (
+    useCache
+    && !force
+    && adminRuntimeCache.expiresAt > Date.now()
+  ) {
+    return adminRuntimeCache.value;
+  }
   try {
     const result = await db
       .collection(ADMIN_RUNTIME_CONFIG_COLLECTION)
@@ -7016,12 +7379,21 @@ async function loadAdminRuntimeConfig(force = false) {
       providerMigration.value,
       rawConfig
     );
+    let migrationApplied = false;
+    let migrationVersion = Number(rawConfig && rawConfig.version) || 0;
+    let migrationUpdatedAt = rawConfig && rawConfig.updatedAt
+      ? rawConfig.updatedAt
+      : "";
+    let migrationUpdatedBy = rawConfig && rawConfig.updatedBy
+      ? rawConfig.updatedBy
+      : "";
     if (
       (
         retryMigration.migrated
         || providerMigration.migrated
         || costMigration.migrated
       )
+      && allowMigrations
       && process.env.WECHAT_MINIAPP_TEST !== "1"
     ) {
       try {
@@ -7035,14 +7407,29 @@ async function loadAdminRuntimeConfig(force = false) {
         if (costMigration.migrated) {
           migrationData.costs = costMigration.value.costs;
         }
+        migrationVersion += 1;
+        migrationUpdatedAt = new Date();
+        migrationUpdatedBy = "system:auto-correct";
+        migrationData.version = migrationVersion;
+        migrationData.updatedAt = migrationUpdatedAt;
+        migrationData.updatedBy = migrationUpdatedBy;
         await db
           .collection(ADMIN_RUNTIME_CONFIG_COLLECTION)
           .doc(ADMIN_RUNTIME_CONFIG_ID)
           .update({
             data: migrationData
           });
+        migrationApplied = true;
+        await writeAdminConfigAuditLog({
+          source: "system-auto-correct",
+          actorHash: "system",
+          configVersion: migrationVersion,
+          previous: rawConfig,
+          next: Object.assign({}, rawConfig, migrationData),
+          patch: migrationData
+        });
         log("info", "admin.runtime-config.defaults-migrated", {
-          version: Number(rawConfig.version) || 0,
+          version: migrationVersion,
           retryMigrated: retryMigration.migrated,
           imageProviderMigrated: providerMigration.migrated,
           modelCostsMigrated: costMigration.migrated,
@@ -7063,22 +7450,32 @@ async function loadAdminRuntimeConfig(force = false) {
           generationQueueAlertState: rawConfig.generationQueueAlertState
             && typeof rawConfig.generationQueueAlertState === "object"
             ? Object.assign({}, rawConfig.generationQueueAlertState)
-            : {},
-          version: Number(rawConfig.version) || 0,
-          updatedAt: rawConfig.updatedAt || "",
-          updatedBy: rawConfig.updatedBy || ""
+           : {},
+          version: migrationApplied
+            ? migrationVersion
+            : Number(rawConfig.version) || 0,
+          updatedAt: migrationApplied
+            ? migrationUpdatedAt
+            : rawConfig.updatedAt || "",
+          updatedBy: migrationApplied
+            ? migrationUpdatedBy
+            : rawConfig.updatedBy || ""
         })
       : null;
-    adminRuntimeCache = {
-      value,
-      expiresAt: Date.now() + ADMIN_RUNTIME_CACHE_TTL_MS
-    };
+    if (useCache) {
+      adminRuntimeCache = {
+        value,
+        expiresAt: Date.now() + ADMIN_RUNTIME_CACHE_TTL_MS
+      };
+    }
     return value;
   } catch (error) {
-    adminRuntimeCache = {
-      value: null,
-      expiresAt: Date.now() + ADMIN_RUNTIME_CACHE_TTL_MS
-    };
+    if (useCache) {
+      adminRuntimeCache = {
+        value: null,
+        expiresAt: Date.now() + ADMIN_RUNTIME_CACHE_TTL_MS
+      };
+    }
     log("warn", "admin.runtime-config.read-failed", {
       error: error && error.message
     });
@@ -7086,8 +7483,11 @@ async function loadAdminRuntimeConfig(force = false) {
   }
 }
 
-async function resolveEffectiveConfigs() {
-  const runtime = await loadAdminRuntimeConfig();
+async function resolveEffectiveConfigs(options = {}) {
+  const runtime = await loadAdminRuntimeConfig(
+    Boolean(options.force),
+    options
+  );
   const image = resolveImageConfig(runtime && runtime.image);
   return {
     runtime: runtime || {
@@ -7220,6 +7620,66 @@ async function getAdminConfig(context) {
     }
   }
   return jsonResponse(true, adminConfigView(configs, runtime, metadata));
+}
+
+function adminConfigAuditDisplay(value) {
+  const row = normalizeAdminConfigAuditRow(value);
+  return {
+    _id: row._id,
+    createdAt: row.createdAt instanceof Date
+      ? row.createdAt.toISOString()
+      : String(row.createdAt || ""),
+    source: row.source,
+    actorHash: row.actorHash,
+    configVersion: row.configVersion,
+    changeCount: row.changeCount,
+    changedSections: row.changedSections,
+    changes: row.changes
+  };
+}
+
+async function getAdminConfigAuditLogs(event, context) {
+  if (!isAdminContext(context)) return adminForbidden();
+  const limit = Math.max(
+    1,
+    Math.min(
+      ADMIN_CONFIG_AUDIT_MAX_READ,
+      Number(event && event.limit) || 20
+    )
+  );
+  try {
+    const rows = process.env.WECHAT_MINIAPP_TEST === "1"
+      ? adminConfigAuditTestRows
+          .slice()
+          .sort((left, right) => (
+            new Date(right.createdAt || 0).getTime()
+            - new Date(left.createdAt || 0).getTime()
+          ))
+          .slice(0, limit)
+      : (
+        await db
+          .collection(ADMIN_CONFIG_AUDIT_LOG_COLLECTION)
+          .orderBy("createdAt", "desc")
+          .limit(limit)
+          .get()
+      ).data || [];
+    return jsonResponse(true, {
+      logs: rows.map(adminConfigAuditDisplay),
+      limit,
+      unavailable: false,
+      message: ""
+    });
+  } catch (error) {
+    log("warn", "admin.config-audit.read-failed", {
+      error: error && error.message
+    });
+    return jsonResponse(true, {
+      logs: [],
+      limit,
+      unavailable: true,
+      message: "配置修改记录暂时读取失败。"
+    });
+  }
 }
 
 function operationRows(result) {
@@ -7792,7 +8252,9 @@ async function saveAdminConfig(event, context) {
   const errors = validateRuntimePatch(patch);
   if (errors.length) return fail(errors.join("；"), "ADMIN_CONFIG_INVALID", { fields: errors });
   const current = await loadAdminRuntimeConfig(true);
-  const next = mergeRuntimeConfig(current, patch);
+  let next = mergeRuntimeConfig(current, patch);
+  const providerGuard = guardAdminImageProviderConfig(current, next, patch);
+  next = providerGuard.value;
   const previousVersion = Number(current && current.version) || 0;
   const data = {
     _id: ADMIN_RUNTIME_CONFIG_ID,
@@ -7817,6 +8279,14 @@ async function saveAdminConfig(event, context) {
     .collection(ADMIN_RUNTIME_CONFIG_COLLECTION)
     .doc(ADMIN_RUNTIME_CONFIG_ID)
     .set({ data: stripDocumentId(data) });
+  await writeAdminConfigAuditLog({
+    source: "admin-save",
+    openid: getOpenId(context),
+    configVersion: data.version,
+    previous: current || {},
+    next: data,
+    patch
+  });
   adminRuntimeCache = {
     value: {
       face: next.face,
@@ -7837,6 +8307,7 @@ async function saveAdminConfig(event, context) {
   log("info", "admin.runtime-config.saved", {
     updatedBy: getOpenId(context),
     version: data.version,
+    imageProviderAutoCorrected: providerGuard.corrected,
     faceFields: Object.keys(patch.face),
     analysisFields: Object.keys(patch.analysis),
     imageFields: Object.keys(patch.image),
@@ -7869,8 +8340,13 @@ async function writeDeploymentLog(entry) {
 
 async function checkDeployment(event, context) {
   if (!isAdminContext(context)) return adminForbidden();
-  const configs = await resolveEffectiveConfigs();
-  const runtime = await loadAdminRuntimeConfig();
+  const readOnly = Boolean(event && event.readOnly);
+  const configs = await resolveEffectiveConfigs({
+    allowMigrations: !readOnly,
+    cache: !readOnly
+  });
+  const runtime = configs.runtime;
+  const tencentFaceFusion = resolveTencentFaceFusionConfig();
   let imageEditEndpoint = {
     url: "",
     source: "invalid",
@@ -7941,6 +8417,8 @@ async function checkDeployment(event, context) {
       provider: configs.image.provider || "",
       model: configs.image.model || "",
       mode: configs.image.mode || DEFAULT_IMAGE_MODE,
+      timeoutMs: Number(configs.image.timeoutMs) || 0,
+      maxRetries: Number(configs.image.maxRetries) || 0,
       generationEndpoint: safeEndpointUrl(
         configs.image.baseUrl,
         configs.image.endpoint,
@@ -7955,9 +8433,30 @@ async function checkDeployment(event, context) {
       provider: configs.imageBackup.provider || "",
       model: configs.imageBackup.model || "",
       mode: configs.imageBackup.mode || DEFAULT_IMAGE_MODE,
+      timeoutMs: Number(configs.imageBackup.timeoutMs) || 0,
+      maxRetries: Number(configs.imageBackup.maxRetries) || 0,
       editEndpoint: safeUrl(imageBackupEditEndpoint.url),
       editEndpointSource: imageBackupEditEndpoint.source,
       apiKeyConfigured: Boolean(configs.imageBackup.apiKey)
+    },
+    tencentFaceFusion: {
+      ready: Boolean(tencentFaceFusion.configured),
+      provider: "tencent",
+      model: tencentFaceFusion.model || "FuseFaceUltra",
+      timeoutMs: Number(tencentFaceFusion.timeoutMs) || 0,
+      credentialsConfigured: Boolean(tencentFaceFusion.configured)
+    },
+    flows: {
+      normal: {
+        imageEditSteps: 1,
+        faceFusionSteps: 0,
+        totalSteps: 1
+      },
+      tencent: {
+        imageEditSteps: 1,
+        faceFusionSteps: 1,
+        totalSteps: 2
+      }
     },
     video: {
       ready: videoReady,
@@ -7971,13 +8470,16 @@ async function checkDeployment(event, context) {
       : "",
     checkedAt: new Date().toISOString()
   };
-  const logWritten = await writeDeploymentLog(Object.assign({}, result, {
-    requestId: event.requestId,
-    ok: faceReady || analysisReady || imageReady || imageBackupReady || videoReady,
-    checkedBy: getOpenId(context)
-  }));
+  const logWritten = readOnly
+    ? false
+    : await writeDeploymentLog(Object.assign({}, result, {
+        requestId: event.requestId,
+        ok: faceReady || analysisReady || imageReady || imageBackupReady || videoReady,
+        checkedBy: getOpenId(context)
+      }));
   return jsonResponse(true, Object.assign(result, {
     ok: true,
+    readOnly,
     logWritten
   }));
 }
@@ -10618,12 +11120,306 @@ async function runImageEditProviderFailover(options = {}) {
         retryable: summary.retryable,
         durationMs: summary.durationMs
       });
+      await recordImageProviderAttemptEvent({
+        requestId,
+        openid,
+        action: options.action || "generate",
+        pipeline: options.pipeline || "image-edit",
+        role: summary.role,
+        attempt: summary.attempt,
+        provider: summary.provider,
+        model: summary.model,
+        success: summary.success,
+        status: summary.status,
+        code: summary.code,
+        category: summary.category,
+        retryable: summary.retryable,
+        durationMs: summary.durationMs,
+        errorMessage: summary.message
+      });
       if (typeof options.onAttemptFinish === "function") {
         await options.onAttemptFinish(summary, attempt);
       }
     },
     executeAttempt: options.executeAttempt
   });
+}
+
+function normalizeImageProviderAttemptEvent(value = {}) {
+  const source = value && typeof value === "object" ? value : {};
+  const createdAt = source.createdAt instanceof Date
+    ? source.createdAt
+    : new Date(source.createdAt || Date.now());
+  const safeCreatedAt = Number.isNaN(createdAt.getTime()) ? new Date() : createdAt;
+  const role = source.role === "backup" ? "backup" : "primary";
+  const success = Boolean(source.success);
+  return {
+    requestId: compactUsageText(source.requestId, 120)
+      .replace(/[^A-Za-z0-9._:-]+/g, "-"),
+    userHash: compactUsageText(source.userHash, 40)
+      || usageUserHash(source.openid),
+    action: compactUsageText(source.action, 40) || "generate",
+    pipeline: compactUsageText(source.pipeline, 60) || "image-edit",
+    role,
+    attempt: Math.max(1, Math.round(Number(source.attempt) || 1)),
+    provider: compactUsageText(source.provider, 80),
+    model: compactUsageText(source.model, 120),
+    success,
+    status: Math.max(0, Number(source.status) || 0),
+    code: success
+      ? ""
+      : normalizeFailureCode(source.code, source.status),
+    category: success ? "" : compactUsageText(source.category, 40),
+    retryable: !success && Boolean(source.retryable),
+    durationMs: Math.max(
+      0,
+      Math.min(900000, Math.round(Number(source.durationMs) || 0))
+    ),
+    errorMessage: success
+      ? ""
+      : sanitizeFailureMessage(source.errorMessage || source.message),
+    switchedToBackup: role === "backup",
+    dateKey: /^\d{4}-\d{2}-\d{2}$/.test(String(source.dateKey || ""))
+      ? String(source.dateKey)
+      : dateKeyForTimeZone(safeCreatedAt, IMAGE_PROVIDER_ATTEMPT_TIME_ZONE),
+    createdAt: safeCreatedAt
+  };
+}
+
+async function recordImageProviderAttemptEvent(value = {}) {
+  const event = normalizeImageProviderAttemptEvent(value);
+  if (!event) return false;
+  if (process.env.WECHAT_MINIAPP_TEST === "1") {
+    imageProviderAttemptTestEvents.push(event);
+    return true;
+  }
+  try {
+    await db.collection(IMAGE_PROVIDER_ATTEMPT_EVENT_COLLECTION).add({
+      data: event
+    });
+    return true;
+  } catch (error) {
+    // 统计写入失败不能让图片生成失败。
+    log("warn", "image-provider-attempt.write-failed", {
+      requestId: event.requestId,
+      role: event.role,
+      provider: event.provider,
+      model: event.model,
+      error: error && error.message
+    });
+    return false;
+  }
+}
+
+function emptyImageProviderAttemptCounter() {
+  return {
+    calls: 0,
+    success: 0,
+    failure: 0,
+    totalDurationMs: 0,
+    averageDurationMs: 0,
+    averageDurationText: "0 秒",
+    provider: "",
+    model: ""
+  };
+}
+
+function addImageProviderAttemptCounter(counter, event) {
+  if (!counter || !event) return;
+  counter.calls += 1;
+  if (event.success) counter.success += 1;
+  else counter.failure += 1;
+  counter.totalDurationMs += Math.max(0, Number(event.durationMs) || 0);
+  if (!counter.provider && event.provider) counter.provider = event.provider;
+  if (!counter.model && event.model) counter.model = event.model;
+}
+
+function finalizeImageProviderAttemptCounter(counter) {
+  const value = Object.assign(
+    emptyImageProviderAttemptCounter(),
+    counter || {}
+  );
+  value.calls = Math.max(0, Number(value.calls) || 0);
+  value.success = Math.max(0, Number(value.success) || 0);
+  value.failure = Math.max(0, Number(value.failure) || 0);
+  value.totalDurationMs = Math.max(0, Number(value.totalDurationMs) || 0);
+  value.averageDurationMs = value.calls
+    ? Math.round(value.totalDurationMs / value.calls)
+    : 0;
+  value.averageDurationText = `${(value.averageDurationMs / 1000).toFixed(1)} 秒`;
+  return value;
+}
+
+function loadImageProviderAttemptEvents(startKey) {
+  if (process.env.WECHAT_MINIAPP_TEST === "1") {
+    return Promise.resolve(imageProviderAttemptTestEvents.slice());
+  }
+  return (async () => {
+    const events = [];
+    const pageSize = 100;
+    let offset = 0;
+    const command = db.command;
+    while (offset < IMAGE_PROVIDER_ATTEMPT_MAX_READ) {
+      const result = await db
+        .collection(IMAGE_PROVIDER_ATTEMPT_EVENT_COLLECTION)
+        .where({ dateKey: command.gte(startKey) })
+        .skip(offset)
+        .limit(Math.min(pageSize, IMAGE_PROVIDER_ATTEMPT_MAX_READ - offset))
+        .get();
+      const rows = result && Array.isArray(result.data) ? result.data : [];
+      events.push(...rows);
+      if (rows.length < pageSize) break;
+      offset += rows.length;
+    }
+    return events;
+  })();
+}
+
+function aggregateImageProviderAttemptEvents(
+  events = [],
+  days = 30,
+  now = new Date()
+) {
+  const rangeDays = Math.max(1, Math.min(90, Number(days) || 30));
+  const todayKey = dateKeyForTimeZone(now, IMAGE_PROVIDER_ATTEMPT_TIME_ZONE);
+  const startKey = shiftDateKey(todayKey, -(rangeDays - 1));
+  const dailyMap = {};
+  for (let offset = 0; offset < rangeDays; offset += 1) {
+    const dateKey = shiftDateKey(todayKey, -offset);
+    dailyMap[dateKey] = {
+      dateKey,
+      totalAttempts: 0,
+      primaryCalls: 0,
+      primarySuccess: 0,
+      primaryFailure: 0,
+      backupCalls: 0,
+      backupSuccess: 0,
+      backupFailure: 0,
+      switchCount: 0
+    };
+  }
+  const primary = emptyImageProviderAttemptCounter();
+  const backup = emptyImageProviderAttemptCounter();
+  const requestMap = new Map();
+  const recentFailures = [];
+  (Array.isArray(events) ? events : []).forEach((source, index) => {
+    const event = normalizeImageProviderAttemptEvent(source);
+    if (
+      !event
+      || event.dateKey < startKey
+      || event.dateKey > todayKey
+    ) {
+      return;
+    }
+    const requestKey = event.requestId
+      || `${event.dateKey}:${event.userHash}:${index}`;
+    if (!requestMap.has(requestKey)) {
+      requestMap.set(requestKey, []);
+    }
+    requestMap.get(requestKey).push(event);
+    if (event.role === "backup") addImageProviderAttemptCounter(backup, event);
+    else addImageProviderAttemptCounter(primary, event);
+    const daily = dailyMap[event.dateKey];
+    if (daily) {
+      daily.totalAttempts += 1;
+      if (event.role === "backup") {
+        daily.backupCalls += 1;
+        if (event.success) daily.backupSuccess += 1;
+        else daily.backupFailure += 1;
+      } else {
+        daily.primaryCalls += 1;
+        if (event.success) daily.primarySuccess += 1;
+        else daily.primaryFailure += 1;
+      }
+    }
+    if (!event.success) {
+      recentFailures.push({
+        dateKey: event.dateKey,
+        createdAt: event.createdAt instanceof Date
+          ? event.createdAt.toISOString()
+          : String(event.createdAt || ""),
+        role: event.role,
+        attempt: event.attempt,
+        provider: event.provider,
+        model: event.model,
+        code: event.code,
+        category: event.category,
+        message: event.errorMessage || "未提供错误原因",
+        status: event.status,
+        retryable: event.retryable,
+        durationMs: event.durationMs
+      });
+    }
+  });
+
+  let switchCount = 0;
+  let finalBackupSuccessCount = 0;
+  requestMap.forEach((attempts) => {
+    const ordered = attempts.slice().sort((left, right) => {
+      const timeDiff = new Date(left.createdAt || 0).getTime()
+        - new Date(right.createdAt || 0).getTime();
+      return timeDiff || left.attempt - right.attempt;
+    });
+    const backupAttempt = ordered.find((item) => item.role === "backup");
+    if (backupAttempt) {
+      switchCount += 1;
+      const daily = dailyMap[backupAttempt.dateKey];
+      if (daily) daily.switchCount += 1;
+    }
+    const last = ordered[ordered.length - 1];
+    if (last && last.role === "backup" && last.success) {
+      finalBackupSuccessCount += 1;
+    }
+  });
+
+  const totalRequests = requestMap.size;
+  const switchRate = totalRequests
+    ? Number((switchCount / totalRequests * 100).toFixed(2))
+    : 0;
+  return {
+    timeZone: IMAGE_PROVIDER_ATTEMPT_TIME_ZONE,
+    days: rangeDays,
+    todayKey,
+    totalRequests,
+    totalAttempts: primary.calls + backup.calls,
+    primary: finalizeImageProviderAttemptCounter(primary),
+    backup: finalizeImageProviderAttemptCounter(backup),
+    switchCount,
+    switchRate,
+    switchRateText: `${switchRate}%`,
+    finalBackupSuccessCount,
+    recentFailures: recentFailures
+      .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)))
+      .slice(0, 20),
+    daily: Object.values(dailyMap)
+      .sort((left, right) => right.dateKey.localeCompare(left.dateKey)),
+    eventCount: primary.calls + backup.calls,
+    truncated: Array.isArray(events) && events.length >= IMAGE_PROVIDER_ATTEMPT_MAX_READ,
+    unavailable: false,
+    message: ""
+  };
+}
+
+async function getImageProviderFailoverStats(event, context) {
+  if (!isAdminContext(context)) return adminForbidden();
+  const days = Math.max(1, Math.min(90, Number(event && event.days) || 30));
+  const todayKey = dateKeyForTimeZone(new Date(), IMAGE_PROVIDER_ATTEMPT_TIME_ZONE);
+  const startKey = shiftDateKey(todayKey, -(days - 1));
+  try {
+    const events = await loadImageProviderAttemptEvents(startKey);
+    return jsonResponse(true, aggregateImageProviderAttemptEvents(events, days));
+  } catch (error) {
+    log("warn", "image-provider-attempt.read-failed", {
+      startKey,
+      days,
+      error: error && error.message
+    });
+    const empty = aggregateImageProviderAttemptEvents([], days);
+    return jsonResponse(true, Object.assign(empty, {
+      unavailable: true,
+      message: "主备切换统计暂时读取失败，请稍后刷新。"
+    }));
+  }
 }
 
 function dateKeyForTimeZone(date = new Date(), timeZone = POINTS_TIME_ZONE) {
@@ -17004,6 +17800,9 @@ exports.main = async (event = {}, context) => {
     else if (action === "exportAdminUserStats") result = await exportAdminUserStats(requestEvent, context);
     else if (action === "initializeDatabase") result = await initializeDatabase(context);
     else if (action === "saveAdminConfig") result = await saveAdminConfig(requestEvent, context);
+    else if (action === "getAdminConfigAuditLogs") {
+      result = await getAdminConfigAuditLogs(requestEvent, context);
+    }
     else if (action === "checkDeployment") result = await checkDeployment(requestEvent, context);
     else if (action === "probeImageEditCapability") {
       result = await probeImageEditCapability(requestEvent, context);
@@ -17012,6 +17811,9 @@ exports.main = async (event = {}, context) => {
     else if (action === "listModels") result = await listModels(requestEvent, context);
     else if (action === "listDeploymentLogs") result = await listDeploymentLogs(context);
     else if (action === "getModelUsageStats") result = await getModelUsageStats(requestEvent, context);
+    else if (action === "getImageProviderFailoverStats") {
+      result = await getImageProviderFailoverStats(requestEvent, context);
+    }
     else if (action === "exportModelUsageStats") result = await exportModelUsageStats(requestEvent, context);
     else if (action === "exportModelFailureStats") result = await exportModelFailureStats(requestEvent, context);
     else if (action === "reportAutoFaceFailure") {
@@ -17126,6 +17928,7 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     imageProviderAttemptStage,
     imageProviderAttemptProgress,
     migrateLegacyImageProviderConfig,
+    guardAdminImageProviderConfig,
     isLegacyLingyunImageConfig,
     assertVisionImageSize,
     normalizeFaceDetections,
@@ -17224,9 +18027,25 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     buildModelUsageExportWorkbook,
     buildModelFailureExportWorkbook,
     recordModelUsageEvent,
+    normalizeImageProviderAttemptEvent,
+    aggregateImageProviderAttemptEvents,
+    recordImageProviderAttemptEvent,
+    getImageProviderFailoverStats,
     getModelUsageTestEvents: () => modelUsageTestEvents.slice(),
     resetModelUsageTestEvents: () => {
       modelUsageTestEvents.splice(0, modelUsageTestEvents.length);
+    },
+    getImageProviderAttemptTestEvents: () => imageProviderAttemptTestEvents.slice(),
+    resetImageProviderAttemptTestEvents: () => {
+      imageProviderAttemptTestEvents.splice(0, imageProviderAttemptTestEvents.length);
+    },
+    buildAdminConfigAuditChanges,
+    normalizeAdminConfigAuditRow,
+    writeAdminConfigAuditLog,
+    getAdminConfigAuditLogs,
+    getAdminConfigAuditTestRows: () => adminConfigAuditTestRows.slice(),
+    resetAdminConfigAuditTestRows: () => {
+      adminConfigAuditTestRows.splice(0, adminConfigAuditTestRows.length);
     },
     getAutoFaceFailureTestEvents: () => autoFaceFailureTestEvents.slice(),
     resetAutoFaceFailureTestEvents: () => {
@@ -17314,6 +18133,7 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     initializeDatabase,
     requiredDatabaseCollections: REQUIRED_DATABASE_COLLECTIONS.slice(),
     saveAdminConfig,
+    getAdminConfigAuditLogs,
     checkDeployment,
     modelProbeUrl,
     listedModelIds,

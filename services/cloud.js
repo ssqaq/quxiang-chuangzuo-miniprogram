@@ -799,6 +799,14 @@ module.exports = {
       config
     });
   },
+  getAdminConfigAuditLogs(limit = 20) {
+    return callApi({
+      action: "getAdminConfigAuditLogs",
+      limit: Math.max(1, Math.min(200, Number(limit) || 20)),
+      retryLimit: 0,
+      silent: true
+    });
+  },
   checkDeployment() {
     return callApi({ action: "checkDeployment" });
   },
@@ -835,6 +843,14 @@ module.exports = {
     return callApi({
       action: "getModelUsageStats",
       days: Math.max(1, Math.min(90, Number(days) || 30))
+    });
+  },
+  getImageProviderFailoverStats(days = 30) {
+    return callApi({
+      action: "getImageProviderFailoverStats",
+      days: Math.max(1, Math.min(90, Number(days) || 30)),
+      retryLimit: 0,
+      silent: true
     });
   },
   reportAutoFaceFailure(payload) {

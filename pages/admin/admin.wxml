@@ -1181,6 +1181,88 @@
           </view>
         </view>
 
+        <view wx:if="{{moduleStates.imageProviderStats.status === 'ready' || moduleStates.imageProviderStats.hasData || imageProviderStatsLoading}}" class="usage-stat-section-card image-provider-stats-card">
+          <view class="usage-subsection-head">
+            <view class="usage-stat-section-copy">
+              <view class="usage-stat-section-kicker">IMAGE FAILOVER</view>
+              <view class="usage-subsection-title">图片主备切换统计</view>
+              <view class="usage-section-note">最近 {{imageProviderStats.days}} 天 · 不和成本统计重复计数</view>
+            </view>
+            <button class="usage-refresh-button usage-small-refresh-button" bindtap="refreshImageProviderStats" loading="{{imageProviderStatsLoading}}" disabled="{{imageProviderStatsLoading}}">
+              {{imageProviderStatsLoading ? '读取中' : '刷新'}}
+            </button>
+          </view>
+          <view wx:if="{{imageProviderStats.message}}" class="usage-message {{imageProviderStats.unavailable ? 'is-warn' : ''}}">
+            {{imageProviderStats.message}}
+          </view>
+          <view class="image-provider-stats-grid">
+            <view class="image-provider-stat-card is-primary">
+              <view class="image-provider-stat-kicker">主模型</view>
+              <view class="image-provider-stat-name">星炬 · {{imageProviderStats.primary.model}}</view>
+              <view class="image-provider-stat-number">{{imageProviderStats.primary.calls}} 次</view>
+              <view class="image-provider-stat-detail">成功 {{imageProviderStats.primary.success}} · 失败 {{imageProviderStats.primary.failure}}</view>
+              <view class="image-provider-stat-detail">平均 {{imageProviderStats.primary.averageDurationText}}</view>
+            </view>
+            <view class="image-provider-stat-card is-backup">
+              <view class="image-provider-stat-kicker">备用模型</view>
+              <view class="image-provider-stat-name">凌云 · {{imageProviderStats.backup.model}}</view>
+              <view class="image-provider-stat-number">{{imageProviderStats.backup.calls}} 次</view>
+              <view class="image-provider-stat-detail">成功 {{imageProviderStats.backup.success}} · 失败 {{imageProviderStats.backup.failure}}</view>
+              <view class="image-provider-stat-detail">平均 {{imageProviderStats.backup.averageDurationText}}</view>
+            </view>
+            <view class="image-provider-stat-card is-switch">
+              <view class="image-provider-stat-kicker">切换情况</view>
+              <view class="image-provider-stat-name">主失败后转备用</view>
+              <view class="image-provider-stat-number">{{imageProviderStats.switchCount}} 次</view>
+              <view class="image-provider-stat-detail">切换率 {{imageProviderStats.switchRateText}}</view>
+              <view class="image-provider-stat-detail">备用最终成功 {{imageProviderStats.finalBackupSuccessCount}} 次</view>
+            </view>
+          </view>
+          <view wx:if="{{imageProviderStats.recentFailures.length}}" class="image-provider-failure-list">
+            <view class="image-provider-failure-title">最近失败原因</view>
+            <view wx:for="{{imageProviderStats.recentFailures}}" wx:key="createdAt" class="image-provider-failure-row">
+              <view class="image-provider-failure-top">
+                <text>{{item.roleText}} · {{item.provider}}/{{item.model}}</text>
+                <text>{{item.durationText}}</text>
+              </view>
+              <view class="image-provider-failure-detail">{{item.createdAtText}} · {{item.statusText}} · {{item.code || '未分类'}}</view>
+              <view class="image-provider-failure-message">{{item.message}}</view>
+            </view>
+          </view>
+          <view wx:if="{{!imageProviderStats.recentFailures.length && !imageProviderStats.totalAttempts}}" class="admin-empty usage-empty">
+            还没有图片主备调用记录；下一次生图后这里会自动出现数据。
+          </view>
+        </view>
+
+        <view wx:if="{{moduleStates.configAudit.status === 'ready' || moduleStates.configAudit.hasData || configAuditLoading}}" class="usage-stat-section-card config-audit-card">
+          <view class="usage-subsection-head">
+            <view class="usage-stat-section-copy">
+              <view class="usage-stat-section-kicker">CONFIG AUDIT</view>
+              <view class="usage-subsection-title">管理员配置修改记录</view>
+              <view class="usage-section-note">只显示改了什么，不显示真实 API Key</view>
+            </view>
+            <button class="usage-refresh-button usage-small-refresh-button" bindtap="refreshConfigAudit" loading="{{configAuditLoading}}" disabled="{{configAuditLoading}}">
+              {{configAuditLoading ? '读取中' : '刷新'}}
+            </button>
+          </view>
+          <view wx:if="{{configAuditLogs.message}}" class="usage-message {{configAuditLogs.unavailable ? 'is-warn' : ''}}">
+            {{configAuditLogs.message}}
+          </view>
+          <view wx:if="{{configAuditLogs.logs.length}}" class="config-audit-list">
+            <view wx:for="{{configAuditLogs.logs}}" wx:key="_id" class="config-audit-row">
+              <view class="config-audit-row-top">
+                <text>{{item.sourceText}} · 第 {{item.configVersion}} 版</text>
+                <text>{{item.createdAtText}}</text>
+              </view>
+              <view class="config-audit-row-meta">管理员编号 {{item.actorHash}} · 改动 {{item.changeCount}} 项</view>
+              <view class="config-audit-row-summary">{{item.changeSummary}}</view>
+            </view>
+          </view>
+          <view wx:if="{{!configAuditLogs.logs.length && !configAuditLoading}}" class="admin-empty usage-empty">
+            暂时没有配置修改记录。
+          </view>
+        </view>
+
         <view wx:if="{{(moduleStates.usage.status === 'ready' || moduleStates.usage.hasData)}}" class="usage-quick-action-card">
           <view class="usage-quick-action-head">
             <view>

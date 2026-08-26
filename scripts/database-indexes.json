@@ -74,6 +74,18 @@
       "reason": "按检查时间倒序读取最近部署记录"
     },
     {
+      "collection": "admin_config_audit_logs",
+      "name": "idx_created_at_desc",
+      "keys": [
+        {
+          "name": "createdAt",
+          "direction": -1
+        }
+      ],
+      "unique": false,
+      "reason": "按创建时间倒序读取最近管理员配置修改记录"
+    },
+    {
       "collection": "model_usage_events",
       "name": "idx_date_key_asc",
       "keys": [
@@ -84,6 +96,18 @@
       ],
       "unique": false,
       "reason": "按日期范围读取模型用量事件"
+    },
+    {
+      "collection": "image_provider_attempt_events",
+      "name": "idx_date_key_asc",
+      "keys": [
+        {
+          "name": "dateKey",
+          "direction": 1
+        }
+      ],
+      "unique": false,
+      "reason": "按日期范围读取图片主模型、备用模型调用与切换事件"
     },
     {
       "collection": "auto_face_probe_logs",

@@ -62,9 +62,11 @@ const jsFiles = [
   "scripts/admin-usage-entry-smoke.js",
   "scripts/admin-responsive-smoke.js",
   "scripts/admin-config-layout-smoke.js",
+  "scripts/admin-config-audit-smoke.js",
   "scripts/image-quality-smoke.js",
   "scripts/image-edit-routing-smoke.js",
   "scripts/image-provider-failover-smoke.js",
+  "scripts/image-provider-failover-stats-smoke.js",
   "scripts/tencent-face-fusion-page-smoke.js",
   "scripts/tencent-face-fusion-smoke.js",
   "scripts/release-safety-smoke.js",
@@ -151,6 +153,7 @@ const pythonFiles = ["scripts/package-release.py"];
 const powerShellFiles = [
   "scripts/check-devtools.ps1",
   "scripts/deploy-and-verify-api.ps1",
+  "scripts/verify-online-api.ps1",
   "scripts/init-cloud-database.ps1",
   "scripts/refresh-preview.ps1",
   "scripts/sync-to-github.ps1",
@@ -235,6 +238,7 @@ const required = [
   "utils/diagnostic-log.js",
   "utils/points-ui.js",
   "scripts/refresh-preview.ps1",
+  "scripts/verify-online-api.ps1",
   "scripts/sync-to-github.ps1",
   "scripts/install-git-hooks.ps1",
   "scripts/install-git-hooks.cmd",
@@ -268,9 +272,11 @@ const required = [
   "scripts/admin-usage-entry-smoke.js",
   "scripts/admin-responsive-smoke.js",
   "scripts/admin-config-layout-smoke.js",
+  "scripts/admin-config-audit-smoke.js",
   "scripts/image-quality-smoke.js",
   "scripts/image-edit-routing-smoke.js",
   "scripts/image-provider-failover-smoke.js",
+  "scripts/image-provider-failover-stats-smoke.js",
   "scripts/tencent-face-fusion-page-smoke.js",
   "scripts/tencent-face-fusion-smoke.js",
   "scripts/release-safety-smoke.js",
@@ -367,7 +373,7 @@ const databaseIndexPs1 = fs.readFileSync(
 if (
   databaseIndexes.version !== 1
   || !Array.isArray(databaseIndexes.indexes)
-  || databaseIndexes.indexes.length !== 13
+  || databaseIndexes.indexes.length !== 15
   || !databaseIndexes.indexes.some((item) => (
     item
     && item.collection === "watermark_transfer_temp_assets"
@@ -388,6 +394,24 @@ if (
     && item.keys[1].name === "updatedAt"
     && item.keys[1].direction === 1
     && item.unique === false
+  ))
+  || !databaseIndexes.indexes.some((item) => (
+    item
+    && item.collection === "admin_config_audit_logs"
+    && item.name === "idx_created_at_desc"
+    && Array.isArray(item.keys)
+    && item.keys.length === 1
+    && item.keys[0].name === "createdAt"
+    && item.keys[0].direction === -1
+  ))
+  || !databaseIndexes.indexes.some((item) => (
+    item
+    && item.collection === "image_provider_attempt_events"
+    && item.name === "idx_date_key_asc"
+    && Array.isArray(item.keys)
+    && item.keys.length === 1
+    && item.keys[0].name === "dateKey"
+    && item.keys[0].direction === 1
   ))
   || !databaseIndexPs1.includes("TENCENTCLOUD_SECRET_ID")
   || !databaseIndexPs1.includes("TENCENTCLOUD_SECRET_KEY")

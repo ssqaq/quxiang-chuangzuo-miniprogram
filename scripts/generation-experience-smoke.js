@@ -11,6 +11,11 @@ const cloudFunction = fs.readFileSync(
   path.join(root, "cloudfunctions/api/index.js"),
   "utf8"
 );
+const generationKernel = fs.readFileSync(
+  path.join(root, "cloudfunctions/api/lib/generation-execution-kernel.js"),
+  "utf8"
+);
+const generationBackend = `${cloudFunction}\n${generationKernel}`;
 
 assert.ok(indexJs.includes("GENERATION_TIMEOUT_MS = 120000"));
 assert.ok(indexJs.includes("GENERATION_POLL_DELAYS_MS = [2000, 4000, 6000]"));
@@ -39,8 +44,8 @@ assert.ok(indexWxss.includes("@keyframes generation-check-current-pulse"));
 assert.ok(indexWxss.includes(".generation-task-meta"));
 assert.ok(indexWxss.includes(".generation-waiting-timeout"));
 assert.ok(cloudFunction.includes('action === "getGenerationStatus"'));
-assert.ok(cloudFunction.includes("findGenerationRecord"));
-assert.ok(cloudFunction.includes("generation.idempotent_hit"));
+assert.ok(generationBackend.includes("findGenerationRecord"));
+assert.ok(generationBackend.includes("generation.idempotent_hit"));
 
 const actionCounts = {};
 const requestIds = [];

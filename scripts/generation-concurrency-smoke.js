@@ -95,11 +95,23 @@ async function main() {
       valuesFor(store, "generation_operations").filter((item) => item.requestId === requestId).length,
       1
     );
+    const reservedOperation = valuesFor(store, "generation_operations")
+      .find((item) => item.requestId === requestId);
+    assert.deepStrictEqual(
+      reservedOperation.stageHistory.map((item) => item.status),
+      ["reserved"]
+    );
 
     const claims = await Promise.all(
       Array.from({ length: 10 }, () => helpers.claimGenerationOperation(user.OPENID, requestId, "image"))
     );
     assert.strictEqual(claims.filter((item) => item.claimed).length, 1);
+    const processingOperation = valuesFor(store, "generation_operations")
+      .find((item) => item.requestId === requestId);
+    assert.deepStrictEqual(
+      processingOperation.stageHistory.map((item) => item.status),
+      ["reserved", "processing"]
+    );
 
     await helpers.failGenerationOperation(user.OPENID, requestId, new Error("provider failed"));
     const refunds = await Promise.all(
@@ -113,6 +125,11 @@ async function main() {
     const refundedOperation = valuesFor(store, "generation_operations")
       .find((item) => item.requestId === requestId);
     assert.strictEqual(refundedOperation.status, "refunded");
+    assert.deepStrictEqual(
+      refundedOperation.stageHistory.map((item) => item.status),
+      ["reserved", "processing", "failed", "refunded"]
+    );
+    assert.ok(refundedOperation.stageHistory.length <= 20);
     await assert.rejects(
       () => helpers.reserveUsage(user.OPENID, requestId, "image"),
       (error) => error && error.code === "request-refunded"

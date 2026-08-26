@@ -37,6 +37,9 @@ function createActionRegistry(options = {}) {
   const forbidden = typeof options.forbidden === "function"
     ? options.forbidden
     : () => ({ ok: false, errorCode: "ADMIN_FORBIDDEN", message: "没有管理员权限。" });
+  const mapError = typeof options.mapError === "function"
+    ? options.mapError
+    : null;
   const getTriggerName = typeof options.getTriggerName === "function"
     ? options.getTriggerName
     : (event = {}) => text(event.triggerName || event.TriggerName || event.name, 100);
@@ -137,11 +140,33 @@ function createActionRegistry(options = {}) {
         result
       };
     } catch (error) {
-      log("error", "action-registry.error", Object.assign({}, fields, {
+      const errorFields = Object.assign({}, fields, {
         durationMs: Date.now() - startedAt,
         errorCode: text(error && error.code, 80),
         message: text(error && error.message, 240)
-      }));
+      });
+      log("error", "action-registry.error", errorFields);
+      if (mapError) {
+        try {
+          return {
+            handled: true,
+            denied: false,
+            errorMapped: true,
+            entry: resolution.entry,
+            matchedBy: resolution.matchedBy,
+            result: await mapError(error, errorFields)
+          };
+        } catch (mappingError) {
+          log("error", "action-registry.error-map-failed", Object.assign(
+            {},
+            fields,
+            {
+              errorCode: text(mappingError && mappingError.code, 80),
+              message: text(mappingError && mappingError.message, 240)
+            }
+          ));
+        }
+      }
       throw error;
     }
   }

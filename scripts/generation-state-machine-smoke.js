@@ -46,6 +46,61 @@ const repeated = stateMachine.applyTransition(
 );
 assert.strictEqual(repeated.stageHistory.length, 2);
 
+const failedPatch = stateMachine.applyTransition(
+  Object.assign({}, processing, processingPatch),
+  {
+    status: "failed",
+    pipelineStage: "failed",
+    progress: 0,
+    lastError: { code: "provider-failed", message: "must-not-be-copied" }
+  },
+  { actor: "worker" }
+);
+const failed = Object.assign({}, processing, processingPatch, failedPatch);
+const recoveredPatch = stateMachine.applyTransition(failed, {
+  status: "queued",
+  pipelineStage: "queued",
+  progress: 0
+}, {
+  actor: "reconcile",
+  code: "generation-processing-requeued"
+});
+assert.strictEqual(recoveredPatch.status, "queued");
+assert.strictEqual(
+  recoveredPatch.stageHistory[recoveredPatch.stageHistory.length - 1].actor,
+  "reconcile"
+);
+
+const refundedPatch = stateMachine.applyTransition(failed, {
+  status: "refunded",
+  pipelineStage: "refunded",
+  progress: 0
+}, {
+  actor: "billing",
+  code: "refund-ledger-created"
+});
+const refunded = Object.assign({}, failed, refundedPatch);
+const repeatedRefund = stateMachine.applyTransition(refunded, {
+  status: "refunded",
+  pipelineStage: "refunded",
+  progress: 0
+}, {
+  actor: "billing",
+  code: "refund-ledger-created"
+});
+assert.strictEqual(
+  repeatedRefund.stageHistory.length,
+  refundedPatch.stageHistory.length
+);
+
+assert.throws(
+  () => stateMachine.applyTransition(
+    { status: "reserved", pipelineStage: "reserved" },
+    { status: "succeeded", pipelineStage: "succeeded" }
+  ),
+  (error) => error && error.code === "generation-transition-invalid"
+);
+
 assert.throws(
   () => stateMachine.applyTransition(
     { status: "succeeded", pipelineStage: "succeeded" },

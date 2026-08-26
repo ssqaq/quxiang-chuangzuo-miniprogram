@@ -18,6 +18,13 @@ async function main() {
     },
     forbidden() {
       return { ok: false, errorCode: "ADMIN_FORBIDDEN" };
+    },
+    mapError(error, fields) {
+      return {
+        ok: false,
+        errorCode: error.code,
+        requestId: fields.requestId
+      };
     }
   });
 
@@ -84,10 +91,14 @@ async function main() {
   );
   assert.strictEqual(wrongTimer.handled, false);
 
-  await assert.rejects(
-    () => registry.dispatch({ action: "explode", requestId: "explode-request" }, {}),
-    (error) => error && error.code === "boom-code"
+  const exploded = await registry.dispatch(
+    { action: "explode", requestId: "explode-request" },
+    {}
   );
+  assert.strictEqual(exploded.handled, true);
+  assert.strictEqual(exploded.errorMapped, true);
+  assert.strictEqual(exploded.result.errorCode, "boom-code");
+  assert.strictEqual(exploded.result.requestId, "explode-request");
 
   assert.ok(logs.some((item) => item.event === "action-registry.start"));
   assert.ok(logs.some((item) => item.event === "action-registry.finish"));

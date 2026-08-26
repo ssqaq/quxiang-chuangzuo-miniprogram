@@ -78,6 +78,7 @@ const jsFiles = [
   "cloudfunctions/api/lib/web-pose.js",
   "cloudfunctions/api/lib/publish-export-core.js",
   "cloudfunctions/api/lib/action-registry.js",
+  "cloudfunctions/api/lib/generation-execution-kernel.js",
   "cloudfunctions/api/lib/generation-state-machine.js",
   "cloudfunctions/api/lib/image-pixel-codec.js",
   "cloudfunctions/api/lib/image-composite.js",
@@ -86,6 +87,7 @@ const jsFiles = [
   "cloudfunctions/api/tests/pixel-protection.test.js",
   "scripts/database-index-core.js",
   "scripts/action-registry-smoke.js",
+  "scripts/generation-execution-kernel-smoke.js",
   "scripts/generation-state-machine-smoke.js",
   "scripts/database-index-smoke.js",
   "scripts/cloud-database-index-manager/index.js",
@@ -276,6 +278,7 @@ const required = [
   "workers/publish-export-worker.js",
   "cloudfunctions/api/lib/publish-export-core.js",
   "cloudfunctions/api/lib/action-registry.js",
+  "cloudfunctions/api/lib/generation-execution-kernel.js",
   "cloudfunctions/api/lib/generation-state-machine.js",
   "cloudfunctions/api/lib/image-pixel-codec.js",
   "cloudfunctions/api/lib/image-composite.js",
@@ -284,6 +287,7 @@ const required = [
   "cloudfunctions/api/tests/pixel-protection.test.js",
   "scripts/canvas-gesture-smoke.js",
   "scripts/action-registry-smoke.js",
+  "scripts/generation-execution-kernel-smoke.js",
   "scripts/generation-state-machine-smoke.js",
   "scripts/circle-gesture-smoke.js",
   "scripts/auto-face-fallback-smoke.js",
@@ -464,6 +468,10 @@ const recordsJs = fs.readFileSync(path.join(root, "pages/records/records.js"), "
 const recordsWxml = fs.readFileSync(path.join(root, "pages/records/records.wxml"), "utf8");
 const recordsWxss = fs.readFileSync(path.join(root, "pages/records/records.wxss"), "utf8");
 const cloudJs = fs.readFileSync(path.join(root, "cloudfunctions/api/index.js"), "utf8");
+const generationKernelJs = fs.readFileSync(
+  path.join(root, "cloudfunctions/api/lib/generation-execution-kernel.js"),
+  "utf8"
+);
 const clientCloudJs = fs.readFileSync(path.join(root, "services/cloud.js"), "utf8");
 const diagnosticLogJs = fs.readFileSync(
   path.join(root, "utils/diagnostic-log.js"),
@@ -517,6 +525,22 @@ if (
   || appConfig.photoToVideo.cleanup.gracePeriodMs !== 3 * 24 * 60 * 60 * 1000
 ) {
   throw new Error("小程序、主云函数、媒体解析网关、云函数锁文件版本不一致，或照片转视频 2 小时/3×24 小时清理配置不正确。");
+}
+if (
+  !cloudJs.includes("createGenerationExecutionKernel")
+  || !cloudJs.includes("const generationExecutionKernel = createGenerationKernel()")
+  || !cloudJs.includes("generationExecutionKernel.generate(event, context)")
+  || !cloudJs.includes("operation.kind === \"image\"")
+  || !generationKernelJs.includes("async function generate")
+  || !generationKernelJs.includes("async function processGenerationQueue")
+  || !generationKernelJs.includes("async function reconcileGenerationOperations")
+  || !generationKernelJs.includes("deleteFile")
+  || !generationKernelJs.includes("tempFileUrl")
+  || !fs.existsSync(
+    path.join(root, "scripts/generation-execution-kernel-smoke.js")
+  )
+) {
+  throw new Error("生图执行内核、依赖注入、统一状态写入或内核专项测试不完整。");
 }
 if (
   appConfig.imageMode !== "edits"

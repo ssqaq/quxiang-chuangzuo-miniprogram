@@ -14,7 +14,15 @@ const TRANSITIONS = Object.freeze({
   reserved: Object.freeze(["reserved", "queued", "processing", "failed", "refunding"]),
   queued: Object.freeze(["queued", "processing", "failed", "refunding"]),
   processing: Object.freeze(["processing", "queued", "succeeded", "failed", "refunding"]),
-  failed: Object.freeze(["failed", "queued", "processing", "succeeded", "refunding"]),
+  // failed -> refunded 用于计费台账与任务记录在同一事务内原子退款。
+  failed: Object.freeze([
+    "failed",
+    "queued",
+    "processing",
+    "succeeded",
+    "refunding",
+    "refunded"
+  ]),
   refunding: Object.freeze(["refunding", "refunded"]),
   refunded: Object.freeze(["refunded"]),
   succeeded: Object.freeze(["succeeded"])

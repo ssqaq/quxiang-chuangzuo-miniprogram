@@ -27,6 +27,10 @@ const apiJs = fs.readFileSync(
   path.join(root, "cloudfunctions/api/index.js"),
   "utf8"
 );
+const apiConfig = JSON.parse(fs.readFileSync(
+  path.join(root, "cloudfunctions/api/config.json"),
+  "utf8"
+));
 
 assert.ok(
   appJson.pages.includes("pages/tencent-face-fusion/tencent-face-fusion"),
@@ -45,15 +49,23 @@ assert.ok(tencentPageWxml.includes("GPT Image 2 → 腾讯人脸融合专业版"
 assert.ok(tencentPageJs.includes("retryTencentOnly"));
 assert.ok(serviceJs.includes('action: "tencentFaceFusionPipeline"'));
 assert.ok(serviceJs.includes('action: "getTencentFaceFusionPipelineStatus"'));
+assert.ok(serviceJs.includes('action: "testTencentFaceFusion"'));
 assert.ok(apiJs.includes("FuseFaceUltra"));
 assert.ok(apiJs.includes("reserveUsage(openid, requestId, \"image\")"));
 assert.ok(apiJs.includes("refundUsage(openid, requestId"));
 assert.ok(apiJs.includes("TENCENT_FACEFUSION_SECRET_ID"));
+assert.ok(apiJs.includes("cleanupTencentFaceFusionIntermediateAssets"));
+assert.ok(
+  apiConfig.triggers.some((trigger) => trigger.name === "tencent-facefusion-intermediate-cleanup"),
+  "腾讯中间图必须配置定时清理触发器"
+);
 assert.ok(!tencentPageJs.includes("TENCENT_FACEFUSION_SECRET_KEY"));
 
 const api = require("../cloudfunctions/api/index.js");
 const test = api.__test;
 assert.ok(test && typeof test.requestTencentFaceFusion === "function");
+assert.ok(test && typeof test.testTencentFaceFusion === "function");
+assert.ok(test && typeof test.cleanupTencentFaceFusionIntermediateAssets === "function");
 
 function withServer(handler, callback) {
   const server = http.createServer(handler);

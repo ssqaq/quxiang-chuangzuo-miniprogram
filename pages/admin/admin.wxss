@@ -77,6 +77,81 @@ page {
   color: #b75560;
 }
 
+.tencent-test-title {
+  margin-top: 20rpx;
+  color: #4f3687;
+  font-size: 23rpx;
+  font-weight: 800;
+}
+
+.tencent-test-help {
+  margin-top: 5rpx;
+  color: #8995a8;
+  font-size: 18rpx;
+  line-height: 28rpx;
+}
+
+.tencent-test-grid {
+  display: flex;
+  gap: 12rpx;
+  margin-top: 14rpx;
+}
+
+.tencent-test-upload {
+  display: flex;
+  width: 148rpx;
+  height: 148rpx;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 2rpx dashed #b9a4ec;
+  border-radius: 18rpx;
+  color: #8b73be;
+  background: #f7f3ff;
+}
+
+.tencent-test-upload.is-face {
+  border-color: #a8d0e3;
+  color: #4c88a6;
+  background: #f0faff;
+}
+
+.tencent-test-upload image {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.tencent-test-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-size: 32rpx;
+}
+
+.tencent-test-empty text {
+  margin-top: 4rpx;
+  font-size: 19rpx;
+}
+
+.tencent-test-button {
+  display: flex;
+  min-height: 72rpx;
+  margin-top: 14rpx;
+  align-items: center;
+  justify-content: center;
+  border-radius: 16rpx;
+  color: #ffffff;
+  background: #6848bb;
+  font-size: 22rpx;
+  font-weight: 800;
+}
+
+.tencent-test-button.is-disabled {
+  opacity: 0.58;
+  pointer-events: none;
+}
+
 .card {
   border: 1rpx solid #dce4ef;
   border-radius: 26rpx;

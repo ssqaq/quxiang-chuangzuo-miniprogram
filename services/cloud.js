@@ -642,6 +642,14 @@ module.exports = {
       silent: true
     });
   },
+  testTencentFaceFusion(payload = {}, options = {}) {
+    return callApi({
+      action: "testTencentFaceFusion",
+      payload: payload && typeof payload === "object" ? payload : {},
+      requestId: options.requestId || (payload && payload.requestId) || "",
+      retryLimit: 0
+    });
+  },
   repairImage(payload, options = {}) {
     return callApi({
       action: "repairImage",

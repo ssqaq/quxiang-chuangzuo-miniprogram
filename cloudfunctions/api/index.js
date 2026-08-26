@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.41.0";
-const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0410";
+const API_BUILD_VERSION = "0.42.0";
+const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0420";
 const DEFAULT_IMAGE_MODE = "edits";
 const IMAGE_EDIT_ERROR_CODES = Object.freeze([
   "image-edit-unsupported",
@@ -1227,6 +1227,9 @@ const ASSET_UPLOAD_TICKET_COLLECTION = "asset_upload_tickets";
 const USER_ASSET_COLLECTION = "user_assets";
 const TENCENT_FACEFUSION_STATUS_COLLECTION = "tencent_facefusion_status";
 const TENCENT_FACEFUSION_STATUS_ID = "latest";
+const TENCENT_FACEFUSION_INTERMEDIATE_COLLECTION = "tencent_facefusion_intermediate_assets";
+const TENCENT_FACEFUSION_INTERMEDIATE_TTL_MS = 2 * 60 * 60 * 1000;
+const TENCENT_FACEFUSION_INTERMEDIATE_CLEANUP_BATCH_SIZE = 50;
 const REPAIR_CHAIN_COLLECTION = "repair_chains";
 const REPAIR_MAX_REVISIONS = 10;
 const ASSET_TICKET_TTL_MS = 10 * 60 * 1000;
@@ -1249,6 +1252,7 @@ const REQUIRED_DATABASE_COLLECTIONS = Object.freeze([
   USER_PROFILE_COLLECTION,
   USER_DIAGNOSTIC_LOG_COLLECTION,
   USER_ASSET_COLLECTION,
+  TENCENT_FACEFUSION_INTERMEDIATE_COLLECTION,
   TENCENT_FACEFUSION_STATUS_COLLECTION,
   USER_QUOTA_COLLECTION
 ].sort());
@@ -3198,6 +3202,110 @@ function isWatermarkTransferCleanupTrigger(event = {}) {
     source.triggerName === "watermark-transfer-temp-cleanup"
     || source.action === "cleanupWatermarkTransferTempAssets"
   );
+}
+
+function isTencentFaceFusionFileMissing(error) {
+  return /not.?found|不存在|file.?not.?exist|no such file|404/i
+    .test(sanitizeFailureMessage(error && (error.errMsg || error.message) || error || "", 240));
+}
+
+async function registerTencentFaceFusionIntermediateAsset(fileID, openid, requestId) {
+  const normalizedFileID = String(fileID || "").trim();
+  if (!normalizedFileID) return null;
+  const now = new Date();
+  const row = {
+    fileID: normalizedFileID,
+    ownerOpenId: String(openid || ""),
+    requestId: String(requestId || ""),
+    cleanupAfter: new Date(now.getTime() + TENCENT_FACEFUSION_INTERMEDIATE_TTL_MS),
+    status: "active",
+    attempts: 0,
+    createdAt: now,
+    updatedAt: now
+  };
+  const result = await db.collection(TENCENT_FACEFUSION_INTERMEDIATE_COLLECTION).add({
+    data: row
+  });
+  return Object.assign({}, row, { _id: result && result._id || "" });
+}
+
+async function removeTencentFaceFusionIntermediateAsset(fileID, requestId = "") {
+  const where = requestId
+    ? { fileID: String(fileID || ""), requestId: String(requestId || "") }
+    : { fileID: String(fileID || "") };
+  const result = await db.collection(TENCENT_FACEFUSION_INTERMEDIATE_COLLECTION)
+    .where(where)
+    .limit(20)
+    .get();
+  const rows = result && Array.isArray(result.data) ? result.data : [];
+  await Promise.all(rows.filter((row) => row && row._id).map((row) => (
+    db.collection(TENCENT_FACEFUSION_INTERMEDIATE_COLLECTION).doc(row._id).remove()
+  )));
+  return rows.length;
+}
+
+async function cleanupTencentFaceFusionIntermediateAssets(baseDate = new Date(), dependencies = {}) {
+  const database = dependencies.db || db;
+  const cloudClient = dependencies.cloud || cloud;
+  const now = baseDate instanceof Date ? baseDate : new Date(baseDate);
+  const result = await database.collection(TENCENT_FACEFUSION_INTERMEDIATE_COLLECTION)
+    .where({ cleanupAfter: database.command.lte(now) })
+    .limit(TENCENT_FACEFUSION_INTERMEDIATE_CLEANUP_BATCH_SIZE)
+    .get();
+  const rows = result && Array.isArray(result.data) ? result.data : [];
+  let removed = 0;
+  let retried = 0;
+  let failed = 0;
+  for (const row of rows) {
+    if (!row || !row._id) continue;
+    try {
+      if (row.fileID) {
+        const response = await cloudClient.deleteFile({ fileList: [row.fileID] });
+        const item = response && Array.isArray(response.fileList)
+          ? response.fileList.find((entry) => entry && entry.fileID === row.fileID)
+          : null;
+        if (item && Number(item.status) !== 0) {
+          const error = new Error(item.errMsg || "腾讯中间图删除失败");
+          error.code = "TENCENT_FACEFUSION_INTERMEDIATE_DELETE_FAILED";
+          throw error;
+        }
+      }
+      await database.collection(TENCENT_FACEFUSION_INTERMEDIATE_COLLECTION).doc(row._id).remove();
+      removed += 1;
+    } catch (error) {
+      if (isTencentFaceFusionFileMissing(error)) {
+        await database.collection(TENCENT_FACEFUSION_INTERMEDIATE_COLLECTION).doc(row._id).remove();
+        removed += 1;
+        continue;
+      }
+      failed += 1;
+      retried += 1;
+      await database.collection(TENCENT_FACEFUSION_INTERMEDIATE_COLLECTION).doc(row._id).update({
+        data: {
+          status: "failed",
+          attempts: Math.max(0, Number(row.attempts) || 0) + 1,
+          lastError: sanitizeFailureMessage(error && error.message || error, 240),
+          updatedAt: new Date()
+        }
+      });
+      log("warn", "tencent.facefusion.intermediate-cleanup-failed", {
+        fileID: row.fileID,
+        requestId: row.requestId,
+        error: sanitizeFailureMessage(error && error.message || error, 240)
+      });
+    }
+  }
+  const summary = {
+    skipped: false,
+    scanned: rows.length,
+    removed,
+    retried,
+    failed,
+    truncated: rows.length >= TENCENT_FACEFUSION_INTERMEDIATE_CLEANUP_BATCH_SIZE,
+    cutoff: now.toISOString()
+  };
+  log("info", "tencent.facefusion.intermediate-cleanup", summary);
+  return summary;
 }
 
 function normalizePhotoToVideoTempFileError(error) {
@@ -10435,6 +10543,22 @@ async function getTencentFaceFusionPipelineStatus(event, context) {
   return jsonResponse(true, Object.assign({
     requestId,
     stage,
+    progress: operation.status === "succeeded"
+      ? 100
+      : operation.status === "refunded"
+        ? 0
+        : operation.pipelineStage === "facefusion"
+          ? 85
+          : operation.pipelineStage === "preparing"
+            ? 35
+            : 10,
+    stageText: operation.status === "succeeded"
+      ? "制作完成，最终图片已保存"
+      : operation.status === "refunded"
+        ? "本次制作没有完成"
+        : operation.pipelineStage === "facefusion"
+          ? "正在融合参考人脸"
+          : "正在修改衣服、背景和光影",
     status: operation.status || "",
     intermediateAvailable: Boolean(operation.intermediateFileID),
     canRetryTencent: operation.status === "refunded" && Boolean(operation.intermediateFileID)
@@ -10467,11 +10591,112 @@ async function getTencentFaceFusionAdminStatus(context) {
     lastErrorCode: latest && latest.errorCode || "",
     lastErrorMessage: latest && latest.errorMessage || "",
     lastRequestId: latest && latest.requestId || "",
+    lastDurationMs: Number(latest && latest.durationMs) || 0,
+    lastTestType: latest && latest.testType || "",
     lastCalledAt: latest && latest.calledAt
       ? new Date(latest.calledAt).toISOString()
       : "",
     checkedAt: new Date().toISOString()
   });
+}
+
+async function testTencentFaceFusion(event, context) {
+  if (!isAdminContext(context)) return adminForbidden();
+  const payload = event && event.payload && typeof event.payload === "object"
+    ? event.payload
+    : {};
+  const templateFileID = String(payload.templateFileID || "").trim();
+  const faceFileID = String(payload.faceFileID || "").trim();
+  const requestId = String(
+    event && event.requestId || payload.requestId || `admin-tencent-test-${Date.now()}`
+  ).trim();
+  if (!templateFileID || !faceFileID) {
+    return fail("请先上传模板图和参考脸。", "TENCENT_FACEFUSION_TEST_ASSET_MISSING");
+  }
+  const config = resolveTencentFaceFusionConfig();
+  if (!config.configured) {
+    return fail(
+      "腾讯人脸融合还没有配置，请先填写云函数环境变量。",
+      "TENCENT_FACEFUSION_NOT_CONFIGURED"
+    );
+  }
+  const startedAt = Date.now();
+  let statusPatch = {
+    requestId,
+    testType: "admin-real-call",
+    status: "processing",
+    stage: "facefusion",
+    errorCode: "",
+    errorMessage: "",
+    calledAt: new Date(),
+    region: config.region,
+    model: config.model,
+    durationMs: 0
+  };
+  await writeTencentFaceFusionStatus(statusPatch);
+  try {
+    const [templateBuffer, faceBuffer] = await Promise.all([
+      downloadCloudFile(templateFileID, {
+        requestId,
+        action: "tencent.admin-test",
+        fileType: "template"
+      }),
+      downloadCloudFile(faceFileID, {
+        requestId,
+        action: "tencent.admin-test",
+        fileType: "face"
+      })
+    ]);
+    const result = await requestTencentFaceFusion(
+      templateBuffer,
+      faceBuffer,
+      config,
+      requestId
+    );
+    const durationMs = Date.now() - startedAt;
+    await writeTencentFaceFusionStatus(Object.assign({}, statusPatch, {
+      status: "succeeded",
+      stage: "succeeded",
+      durationMs,
+      completedAt: new Date()
+    }));
+    return jsonResponse(true, {
+      requestId,
+      tested: true,
+      success: true,
+      durationMs,
+      resultBytes: result.length,
+      model: config.model,
+      region: config.region
+    });
+  } catch (error) {
+    const durationMs = Date.now() - startedAt;
+    await writeTencentFaceFusionStatus(Object.assign({}, statusPatch, {
+      status: "failed",
+      stage: "facefusion",
+      errorCode: String(error && error.code || "TENCENT_FACEFUSION_TEST_FAILED"),
+      errorMessage: sanitizeFailureMessage(error && error.message || "腾讯真实测试失败"),
+      durationMs,
+      completedAt: new Date()
+    }));
+    return fail(
+      error && error.message || "腾讯真实测试失败，请检查两张图片和腾讯配置。",
+      String(error && error.code || "TENCENT_FACEFUSION_TEST_FAILED"),
+      { requestId, durationMs, tested: true }
+    );
+  } finally {
+    await Promise.all([templateFileID, faceFileID].map(async (fileID) => {
+      try {
+        await cloud.deleteFile({ fileList: [fileID] });
+      } catch (error) {
+        log("warn", "tencent.facefusion.admin-test-cleanup-failed", {
+          requestId,
+          fileID,
+          error: error && error.message
+        });
+      }
+    }));
+  }
 }
 
 async function tencentFaceFusionPipeline(event, context) {
@@ -10576,6 +10801,7 @@ async function tencentFaceFusionPipeline(event, context) {
         requestId,
         status: "processing",
         stage: "preparing",
+        progress: 15,
         errorCode: "",
         errorMessage: "",
         calledAt: new Date(),
@@ -10619,6 +10845,11 @@ async function tencentFaceFusionPipeline(event, context) {
         fileContent: gptBuffer
       });
       intermediateFileID = intermediate.fileID;
+      await registerTencentFaceFusionIntermediateAsset(
+        intermediateFileID,
+        openid,
+        requestId
+      );
       if (!billing || !billing.untracked) {
         await updateGenerationOperation(openid, requestId, {
           pipelineStage: "facefusion",
@@ -10631,6 +10862,7 @@ async function tencentFaceFusionPipeline(event, context) {
         requestId,
         status: "processing",
         stage: "facefusion",
+        progress: 85,
         errorCode: "",
         errorMessage: "",
         calledAt: new Date(),
@@ -10730,6 +10962,7 @@ async function tencentFaceFusionPipeline(event, context) {
       requestId,
       status: "succeeded",
       stage: "succeeded",
+      progress: 100,
       errorCode: "",
       errorMessage: "",
       completedAt: new Date(),
@@ -10738,6 +10971,7 @@ async function tencentFaceFusionPipeline(event, context) {
     });
     try {
       await cloud.deleteFile({ fileList: [intermediateFileID] });
+      await removeTencentFaceFusionIntermediateAsset(intermediateFileID, requestId);
     } catch (error) {
       log("warn", "tencent.facefusion.intermediate-cleanup-failed", {
         requestId,
@@ -10781,6 +11015,7 @@ async function tencentFaceFusionPipeline(event, context) {
       requestId,
       status: "failed",
       stage: pipelineStage,
+      progress: pipelineStage === "facefusion" ? 85 : 35,
       errorCode: String(error && error.code || "TENCENT_PIPELINE_FAILED"),
       errorMessage: sanitizeFailureMessage(error && error.message || "腾讯版制作失败"),
       completedAt: new Date(),
@@ -10793,6 +11028,7 @@ async function tencentFaceFusionPipeline(event, context) {
       {
         requestId,
         pipelineStage,
+        progress: pipelineStage === "facefusion" ? 85 : 35,
         canRetryTencent,
         intermediateAvailable: canRetryTencent,
         refunded: Boolean(billing && !billing.untracked),
@@ -12474,17 +12710,25 @@ exports.main = async (event = {}, context) => {
     let result;
     if (isPhotoToVideoCleanupTrigger(requestEvent)) {
       const cleanupDate = new Date();
-      const [photoToVideo, diagnosticLogs, publishExportJobs, watermarkTransfer] = await Promise.all([
+      const [
+        photoToVideo,
+        diagnosticLogs,
+        publishExportJobs,
+        watermarkTransfer,
+        tencentFaceFusion
+      ] = await Promise.all([
         cleanupPhotoToVideoTempAssets(cleanupDate),
         cleanupDiagnosticLogs(cleanupDate),
         cleanupPublishExportJobs(cleanupDate),
-        cleanupWatermarkTransferTempAssets(cleanupDate)
+        cleanupWatermarkTransferTempAssets(cleanupDate),
+        cleanupTencentFaceFusionIntermediateAssets(cleanupDate)
       ]);
       result = jsonResponse(true, {
         photoToVideo,
         diagnosticLogs,
         publishExportJobs,
-        watermarkTransfer
+        watermarkTransfer,
+        tencentFaceFusion
       });
     } else if (isWatermarkTransferCleanupTrigger(requestEvent)) {
       result = jsonResponse(true, {
@@ -12509,6 +12753,9 @@ exports.main = async (event = {}, context) => {
     }
     else if (action === "getTencentFaceFusionPipelineStatus") {
       result = await getTencentFaceFusionPipelineStatus(requestEvent, context);
+    }
+    else if (action === "testTencentFaceFusion") {
+      result = await testTencentFaceFusion(requestEvent, context);
     }
     else if (action === "repairImage") result = await repairImage(requestEvent, context);
     else if (action === "getMyUserProfile") result = await getMyUserProfile(context);
@@ -12646,7 +12893,10 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     requestTencentFaceFusion,
     requestTencentPipelineImageEdit,
     tencentFaceFusionPipeline,
+    testTencentFaceFusion,
     getTencentFaceFusionPipelineStatus,
+    registerTencentFaceFusionIntermediateAsset,
+    cleanupTencentFaceFusionIntermediateAssets,
     resolveVisionConfig,
     resolveFaceConfig,
     resolveAnalysisConfig,

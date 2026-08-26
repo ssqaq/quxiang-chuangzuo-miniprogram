@@ -14,18 +14,25 @@
   </view>
 
   <view class="pipeline-card">
+    <view class="progress-head">
+      <view class="progress-label">{{progressText}}</view>
+      <view class="progress-value">{{progress}}%</view>
+    </view>
+    <view class="progress-track">
+      <view class="progress-fill {{stage === 'failed' ? 'is-failed' : ''}}" style="width: {{progress}}%;"></view>
+    </view>
     <view class="pipeline-line"></view>
     <view class="pipeline-step {{stage === 'preparing' ? 'is-active' : ''}} {{stage === 'facefusion' || stage === 'succeeded' ? 'is-done' : ''}}">
       <view class="pipeline-dot">1</view>
       <view class="pipeline-copy">
-        <view class="pipeline-title">正在修改衣服、背景和光影</view>
+        <view class="pipeline-title">{{stage === 'preparing' ? '正在修改衣服、背景和光影' : '修改衣服、背景和光影'}}</view>
         <view class="pipeline-desc">使用当前普通生图配置，不会换掉普通创作设置。</view>
       </view>
     </view>
     <view class="pipeline-step {{stage === 'facefusion' ? 'is-active' : ''}} {{stage === 'succeeded' ? 'is-done' : ''}}">
       <view class="pipeline-dot">2</view>
       <view class="pipeline-copy">
-        <view class="pipeline-title">正在融合参考人脸</view>
+        <view class="pipeline-title">{{stage === 'facefusion' ? '正在融合参考人脸' : '融合参考人脸'}}</view>
         <view class="pipeline-desc">最后使用腾讯云图片人脸融合专业版。</view>
       </view>
     </view>

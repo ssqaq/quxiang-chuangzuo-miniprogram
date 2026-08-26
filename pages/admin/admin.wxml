@@ -207,6 +207,7 @@
           <view><text>接口</text><text>{{tencentFaceFusionStatus.model}}</text></view>
           <view><text>模型</text><text>{{tencentFaceFusionStatus.swapModelType}}</text></view>
           <view><text>最近调用</text><text>{{tencentFaceFusionStatus.lastCallStatus}}</text></view>
+          <view><text>最近耗时</text><text>{{tencentFaceFusionStatus.lastDurationMs ? tencentFaceFusionStatus.lastDurationMs + 'ms' : '暂无'}}</text></view>
         </view>
         <view class="tencent-status-error" wx:if="{{tencentFaceFusionStatus.lastErrorMessage}}">
           最近错误：{{tencentFaceFusionStatus.lastErrorMessage}}
@@ -214,6 +215,32 @@
         <view class="tencent-status-help">
           密钥只读取云函数环境变量，不在这里显示。未配置时请填写 TENCENT_FACEFUSION_SECRET_ID 和 TENCENT_FACEFUSION_SECRET_KEY。
         </view>
+        <view class="tencent-test-title">真实测试腾讯接口</view>
+        <view class="tencent-test-help">会真实调用 FuseFaceUltra，不调用 GPT Image 2、不扣小程序额度，也不会保存制作记录。</view>
+        <view class="tencent-test-grid">
+          <view
+            class="tencent-test-upload"
+            bindtap="chooseTencentTestImage"
+            data-kind="template"
+          >
+            <image wx:if="{{tencentTestTemplate}}" src="{{tencentTestTemplate.path}}" mode="aspectFill"></image>
+            <view wx:else class="tencent-test-empty">＋<text>模板图</text></view>
+          </view>
+          <view
+            class="tencent-test-upload is-face"
+            bindtap="chooseTencentTestImage"
+            data-kind="face"
+          >
+            <image wx:if="{{tencentTestFace}}" src="{{tencentTestFace.path}}" mode="aspectFill"></image>
+            <view wx:else class="tencent-test-empty">＋<text>参考脸</text></view>
+          </view>
+        </view>
+        <view
+          class="tencent-test-button {{tencentTestLoading ? 'is-disabled' : ''}}"
+          bindtap="runTencentRealTest"
+          role="button"
+          aria-label="真实测试腾讯接口"
+        >{{tencentTestLoading ? '正在真实调用腾讯接口…' : '真实测试腾讯接口'}}</view>
       </view>
       <view
         class="current-config-row {{entryHealth.face.abnormal ? 'is-abnormal' : ''}}"

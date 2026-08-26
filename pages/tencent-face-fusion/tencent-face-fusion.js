@@ -58,6 +58,8 @@ Page({
     negativePrompt: "不要新增人物，不要改变人物身份，不要改变手脚数量，不要出现文字、水印、变形。",
     loading: false,
     stage: "idle",
+    progress: 0,
+    progressText: "等待开始",
     stageText: "上传两张图片后，一次完成修改和换脸",
     requestId: "",
     mainFileID: "",
@@ -202,19 +204,27 @@ Page({
     const stageMap = {
       preparing: {
         stage: "preparing",
-        stageText: "正在修改衣服、背景和光影"
+        stageText: status.stageText || "正在修改衣服、背景和光影",
+        progress: Number(status.progress) || 35,
+        progressText: "正在修改衣服、背景和光影"
       },
       facefusion: {
         stage: "facefusion",
-        stageText: "正在融合参考人脸"
+        stageText: status.stageText || "正在融合参考人脸",
+        progress: Number(status.progress) || 85,
+        progressText: "正在融合参考人脸"
       },
       succeeded: {
         stage: "succeeded",
-        stageText: "制作完成，最终图片已保存"
+        stageText: status.stageText || "制作完成，最终图片已保存",
+        progress: 100,
+        progressText: "制作完成"
       },
       failed: {
         stage: "failed",
-        stageText: "本次制作没有完成"
+        stageText: status.stageText || "本次制作没有完成",
+        progress: Number(status.progress) || 0,
+        progressText: "本次制作没有完成"
       }
     };
     const mapped = stageMap[stage];
@@ -259,6 +269,8 @@ Page({
       cloudReady: true,
       requestId,
       stage: "preparing",
+      progress: 10,
+      progressText: isTencentRetry ? "准备重新融合参考人脸" : "准备图片",
       stageText: isTencentRetry ? "正在重新融合参考人脸" : "正在准备图片并修改衣服、背景和光影",
       message: "",
       retryTencentAvailable: false,
@@ -269,7 +281,11 @@ Page({
       let mainFileID = this.data.mainFileID;
       let faceFileID = this.data.faceFileID;
       if (!isTencentRetry) {
-        this.setData({ stageText: "正在上传原始主图和参考脸" });
+        this.setData({
+          stageText: "正在上传原始主图和参考脸",
+          progress: 15,
+          progressText: "准备图片"
+        });
         mainFileID = await this.uploadPipelineAsset(this.data.mainImage, "main");
         faceFileID = await this.uploadPipelineAsset(this.data.faceImage, "face");
         this.setData({
@@ -277,7 +293,9 @@ Page({
           faceFileID,
           mainImage: Object.assign({}, this.data.mainImage, { fileID: mainFileID }),
           faceImage: Object.assign({}, this.data.faceImage, { fileID: faceFileID }),
-          stageText: "正在修改衣服、背景和光影"
+          stageText: "正在修改衣服、背景和光影",
+          progress: 35,
+          progressText: "正在修改衣服、背景和光影"
         });
       }
       const result = await cloud.tencentFaceFusionPipeline({
@@ -303,6 +321,8 @@ Page({
       this.setData({
         loading: false,
         stage: "succeeded",
+        progress: 100,
+        progressText: "制作完成",
         stageText: "制作完成，最终图片已保存到制作记录",
         resultUrl: result.tempFileURL || record.imagePath || "",
         resultFileID: result.fileID || record.fileID || "",
@@ -323,6 +343,8 @@ Page({
       this.setData({
         loading: false,
         stage: "failed",
+        progress: Number(payload.progress) || (canRetryTencent ? 85 : 0),
+        progressText: canRetryTencent ? "腾讯换脸失败，可重试" : "本次制作没有完成",
         stageText: canRetryTencent ? "腾讯换脸失败，可只重试最后一步" : "本次制作没有完成",
         message: errorMessage(error),
         retryTencentAvailable: canRetryTencent,
@@ -358,6 +380,8 @@ Page({
       resultFileID: "",
       resultRecordId: "",
       stage: "idle",
+      progress: 0,
+      progressText: "等待开始",
       stageText: "上传两张图片后，一次完成修改和换脸",
       message: "",
       requestId: "",

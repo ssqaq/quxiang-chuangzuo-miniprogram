@@ -1107,6 +1107,8 @@ function emptyTencentFaceFusionStatus() {
     lastErrorCode: "",
     lastErrorMessage: "",
     lastRequestId: "",
+    lastDurationMs: 0,
+    lastTestType: "",
     lastCalledAt: "",
     checkedAt: ""
   };
@@ -1125,6 +1127,8 @@ function formatTencentFaceFusionStatus(result) {
     lastErrorCode: String(source.lastErrorCode || ""),
     lastErrorMessage: String(source.lastErrorMessage || ""),
     lastRequestId: String(source.lastRequestId || ""),
+    lastDurationMs: Number(source.lastDurationMs) || 0,
+    lastTestType: String(source.lastTestType || ""),
     lastCalledAt: source.lastCalledAt ? formatAdminDate(source.lastCalledAt) : "暂无调用",
     checkedAt: source.checkedAt ? formatAdminDate(source.checkedAt) : ""
   });
@@ -2516,6 +2520,9 @@ Page({
     faceConfigSummary: emptyFaceConfigSummary(),
     analysisConfigSummary: emptyAnalysisConfigSummary(),
     tencentFaceFusionStatus: emptyTencentFaceFusionStatus(),
+    tencentTestTemplate: null,
+    tencentTestFace: null,
+    tencentTestLoading: false,
     entryHealth: buildEntryHealth(),
     activeConfigSection: "",
     activeConfigTitle: "",
@@ -3605,6 +3612,88 @@ Page({
           )
         });
       }
+    }
+  },
+
+  chooseTencentTestImage(event) {
+    if (this.data.tencentTestLoading) return;
+    const kind = event && event.currentTarget && event.currentTarget.dataset
+      ? String(event.currentTarget.dataset.kind || "")
+      : "";
+    if (!["template", "face"].includes(kind)) return;
+    wx.chooseMedia({
+      count: 1,
+      mediaType: ["image"],
+      sourceType: ["album", "camera"],
+      success: async (result) => {
+        const file = result && result.tempFiles && result.tempFiles[0];
+        if (!file || !file.tempFilePath) return;
+        this.setData({
+          [kind === "template" ? "tencentTestTemplate" : "tencentTestFace"]: {
+            path: file.tempFilePath,
+            fileID: "",
+            size: Number(file.size) || 0
+          }
+        });
+      },
+      fail: (error) => {
+        diagnosticLog.warn("admin", "tencent-test-image-choose-failed", "腾讯测试图片选择失败", {
+          kind,
+          error
+        });
+      }
+    });
+  },
+
+  async runTencentRealTest() {
+    if (this.data.tencentTestLoading) return;
+    if (!this.data.tencentTestTemplate || !this.data.tencentTestFace) {
+      wx.showToast({ title: "请先选择模板图和参考脸", icon: "none" });
+      return;
+    }
+    if (!this.data.tencentFaceFusionStatus.configured) {
+      wx.showToast({ title: "腾讯配置还没完成", icon: "none" });
+      return;
+    }
+    const requestId = `admin-tencent-test-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+    this.setData({
+      tencentTestLoading: true,
+      "tencentFaceFusionStatus.lastCallStatus": "processing",
+      "tencentFaceFusionStatus.lastErrorMessage": ""
+    });
+    let templateFileID = "";
+    let faceFileID = "";
+    try {
+      const template = await cloud.uploadFile(
+        this.data.tencentTestTemplate.path,
+        "tencent-facefusion/admin-test"
+      );
+      templateFileID = String(template && template.fileID || "");
+      const face = await cloud.uploadFile(
+        this.data.tencentTestFace.path,
+        "tencent-facefusion/admin-test"
+      );
+      faceFileID = String(face && face.fileID || "");
+      if (!templateFileID || !faceFileID) throw new Error("测试图片上传失败");
+      const result = await cloud.testTencentFaceFusion({
+        templateFileID,
+        faceFileID,
+        requestId
+      }, { requestId });
+      await this.loadTencentFaceFusionStatus(this._adminLoadToken || 0);
+      wx.showToast({
+        title: `真实测试成功 ${Number(result.durationMs) || 0}ms`,
+        icon: "success"
+      });
+    } catch (error) {
+      await this.loadTencentFaceFusionStatus(this._adminLoadToken || 0);
+      this.showError("腾讯真实测试失败", error);
+    } finally {
+      this.setData({
+        tencentTestLoading: false,
+        tencentTestTemplate: null,
+        tencentTestFace: null
+      });
     }
   },
 

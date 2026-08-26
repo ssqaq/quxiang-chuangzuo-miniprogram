@@ -97,7 +97,7 @@ async function main() {
       response.end(JSON.stringify({
         Response: {
           RequestId: "smoke-tencent-request",
-          ResultImage: Buffer.from("final-image").toString("base64")
+          FusedImage: Buffer.from("final-image").toString("base64")
         }
       }));
     });

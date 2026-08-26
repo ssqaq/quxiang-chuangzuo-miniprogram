@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.42.0";
-const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0420";
+const API_BUILD_VERSION = "0.42.1";
+const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0421";
 const DEFAULT_IMAGE_MODE = "edits";
 const IMAGE_EDIT_ERROR_CODES = Object.freeze([
   "image-edit-unsupported",
@@ -8289,23 +8289,48 @@ async function requestTencentFaceFusion(modelBuffer, faceBuffer, config, request
   ) {
     throw tencentFaceFusionError(response);
   }
-  const resultImage = responseRoot.ResultImage
+  // FuseFaceUltra 的官方返回字段是 FusedImage。保留旧字段兼容，
+  // 防止不同版本/模拟接口返回 ResultImage 或 URL 时再次误判为空。
+  const resultImage = responseRoot.FusedImage
+    || responseRoot.fusedImage
+    || responseRoot.ResultImage
     || responseRoot.Result
     || responseRoot.resultImage
     || responseRoot.ResultUrl
     || responseRoot.ResultURL;
   if (!resultImage) {
-    const error = new Error("腾讯人脸融合没有返回最终图片。");
+    const returnedKeys = responseRoot && typeof responseRoot === "object"
+      ? Object.keys(responseRoot).slice(0, 20).join(", ")
+      : "";
+    log("warn", "tencent.facefusion.empty-result", {
+      requestId,
+      returnedKeys
+    });
+    const error = new Error(
+      returnedKeys
+        ? `腾讯人脸融合返回成功，但没有识别到图片字段（返回字段：${returnedKeys}）。`
+        : "腾讯人脸融合没有返回最终图片。"
+    );
     error.code = "TENCENT_FACEFUSION_EMPTY_RESULT";
     throw error;
   }
-  if (/^https?:\/\//i.test(String(resultImage))) {
-    return downloadUrl(resultImage, {
+  const resultText = String(resultImage).trim();
+  if (/^https?:\/\//i.test(resultText)) {
+    return downloadUrl(resultText, {
       requestId,
       action: "tencent.facefusion-result"
     });
   }
-  return Buffer.from(String(resultImage), "base64");
+  const base64 = resultText
+    .replace(/^data:image\/[^;]+;base64,/i, "")
+    .replace(/\s/g, "");
+  const resultBuffer = Buffer.from(base64, "base64");
+  if (!resultBuffer.length) {
+    const error = new Error("腾讯人脸融合返回了空图片内容。");
+    error.code = "TENCENT_FACEFUSION_EMPTY_IMAGE";
+    throw error;
+  }
+  return resultBuffer;
 }
 
 async function requestTencentPipelineImageEdit(mainBuffer, payload, imageConfig, costs, requestId, userHash) {

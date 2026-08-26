@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.44.0";
-const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0440";
+const API_BUILD_VERSION = "0.45.0";
+const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0450";
 const DEFAULT_IMAGE_MODE = "edits";
 // 图片和视频默认成本只在云函数入口维护；管理员页读取云端有效配置，
 // 避免前后端各写一份价格。入口保持单文件可启动，兼容 CloudBase 部署。
@@ -25,6 +25,9 @@ const IMAGE_EDIT_ERROR_CODES = Object.freeze([
   "image-edit-model-unsupported",
   "image-edit-upstream-error"
 ]);
+const IMAGE_EDIT_DEFAULT_MAX_ASSET_BYTES = 5 * 1024 * 1024;
+const IMAGE_EDIT_DEFAULT_MAX_TOTAL_ASSET_BYTES = 20 * 1024 * 1024;
+const IMAGE_EDIT_DEFAULT_MAX_REQUEST_BYTES = 28 * 1024 * 1024;
 const TENCENT_FACE_PROTECTION_MARGIN_RATIO = 0.22;
 const TENCENT_FACE_PROTECTION_MAX_PIXELS = 20000000;
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
@@ -9025,6 +9028,160 @@ function imageEditReferences(payload = {}) {
     })));
 }
 
+function imageEditByteLimit(overrides, key, envName, fallback) {
+  const raw = hasOwn(overrides, key)
+    ? overrides[key]
+    : env(envName, String(fallback));
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value <= 0) return fallback;
+  return Math.max(1, Math.min(512 * 1024 * 1024, Math.floor(value)));
+}
+
+function resolveImageEditSizeLimits(overrides = {}) {
+  const source = overrides && typeof overrides === "object" ? overrides : {};
+  return {
+    maxAssetBytes: imageEditByteLimit(
+      source,
+      "maxAssetBytes",
+      "AI_IMAGE_EDIT_MAX_ASSET_BYTES",
+      IMAGE_EDIT_DEFAULT_MAX_ASSET_BYTES
+    ),
+    maxTotalAssetBytes: imageEditByteLimit(
+      source,
+      "maxTotalAssetBytes",
+      "AI_IMAGE_EDIT_MAX_TOTAL_ASSET_BYTES",
+      IMAGE_EDIT_DEFAULT_MAX_TOTAL_ASSET_BYTES
+    ),
+    maxRequestBytes: imageEditByteLimit(
+      source,
+      "maxRequestBytes",
+      "AI_IMAGE_EDIT_MAX_REQUEST_BYTES",
+      IMAGE_EDIT_DEFAULT_MAX_REQUEST_BYTES
+    )
+  };
+}
+
+function imageEditReferenceLabel(reference = {}) {
+  const index = Math.max(0, Number(reference.index) || 0) + 1;
+  const labels = {
+    identity: "身份参考图",
+    face: `人脸参考图第 ${index} 张`,
+    wardrobe: `穿搭参考图第 ${index} 张`,
+    background: `背景参考图第 ${index} 张`
+  };
+  return labels[reference.role] || `参考图第 ${index} 张`;
+}
+
+function imageEditAssetEntries(mainBuffer, maskBuffer, referenceBuffers = []) {
+  return [{
+    kind: "main",
+    label: "主图",
+    buffer: mainBuffer
+  }, {
+    kind: "mask",
+    label: "mask 图片",
+    buffer: maskBuffer
+  }].concat(
+    (Array.isArray(referenceBuffers) ? referenceBuffers : []).map((item, index) => {
+      const reference = item && item.reference && typeof item.reference === "object"
+        ? item.reference
+        : { role: "reference", index };
+      return {
+        kind: String(reference.role || "reference"),
+        label: imageEditReferenceLabel(reference),
+        buffer: item && item.buffer
+      };
+    })
+  );
+}
+
+function formatImageEditBytes(value) {
+  const bytes = Math.max(0, Number(value) || 0);
+  if (bytes >= 1024 * 1024) {
+    const mib = bytes / 1024 / 1024;
+    return `${Number.isInteger(mib) ? mib : mib.toFixed(1)} MB`;
+  }
+  if (bytes >= 1024) {
+    const kib = bytes / 1024;
+    return `${Number.isInteger(kib) ? kib : kib.toFixed(1)} KB`;
+  }
+  return `${bytes} B`;
+}
+
+function imageEditSizeLimitError(code, message, details = {}) {
+  const error = new Error(message);
+  error.code = code;
+  error.status = 413;
+  error.retryable = false;
+  Object.assign(error, details);
+  return error;
+}
+
+function assertImageEditAssetLimits(entries, limits = resolveImageEditSizeLimits()) {
+  const normalizedLimits = resolveImageEditSizeLimits(limits);
+  const summaries = (Array.isArray(entries) ? entries : []).map((entry) => ({
+    kind: String(entry && entry.kind || "image"),
+    label: String(entry && entry.label || "图片"),
+    bytes: Buffer.isBuffer(entry && entry.buffer) ? entry.buffer.length : 0
+  }));
+  for (const item of summaries) {
+    if (item.bytes > normalizedLimits.maxAssetBytes) {
+      throw imageEditSizeLimitError(
+        "IMAGE_ASSET_TOO_LARGE",
+        `${item.label}太大（${formatImageEditBytes(item.bytes)}），`
+          + `单张最多支持 ${formatImageEditBytes(normalizedLimits.maxAssetBytes)}。`
+          + "请先压缩图片再重试。",
+        {
+          assetKind: item.kind,
+          assetLabel: item.label,
+          imageBytes: item.bytes,
+          maxAssetBytes: normalizedLimits.maxAssetBytes
+        }
+      );
+    }
+  }
+  const totalBytes = summaries.reduce((sum, item) => sum + item.bytes, 0);
+  if (totalBytes > normalizedLimits.maxTotalAssetBytes) {
+    throw imageEditSizeLimitError(
+      "IMAGE_ASSET_TOTAL_TOO_LARGE",
+      `这次选择的全部图片加起来有 ${formatImageEditBytes(totalBytes)}，`
+        + `最多支持 ${formatImageEditBytes(normalizedLimits.maxTotalAssetBytes)}。`
+        + "请减少参考图或先压缩图片。",
+      {
+        totalAssetBytes: totalBytes,
+        maxTotalAssetBytes: normalizedLimits.maxTotalAssetBytes,
+        assetCount: summaries.length
+      }
+    );
+  }
+  return {
+    totalBytes,
+    assetCount: summaries.length,
+    assets: summaries,
+    limits: normalizedLimits
+  };
+}
+
+function assertImageEditRequestBodySize(body, limits = resolveImageEditSizeLimits()) {
+  const normalizedLimits = resolveImageEditSizeLimits(limits);
+  const requestBytes = Buffer.isBuffer(body)
+    ? body.length
+    : Buffer.byteLength(String(body === null || body === undefined ? "" : body));
+  if (requestBytes > normalizedLimits.maxRequestBytes) {
+    throw imageEditSizeLimitError(
+      "IMAGE_REQUEST_TOO_LARGE",
+      `图片转成上传数据后有 ${formatImageEditBytes(requestBytes)}，`
+        + `超过 ${formatImageEditBytes(normalizedLimits.maxRequestBytes)} 的请求上限。`
+        + "请压缩图片或减少参考图后重试。",
+      {
+        requestBytes,
+        maxRequestBytes: normalizedLimits.maxRequestBytes
+      }
+    );
+  }
+  return requestBytes;
+}
+
 async function requestImageEdits(
   payload,
   apiKey,
@@ -9067,7 +9224,16 @@ async function requestImageEdits(
           })
         })))
   ]);
+  const sizeLimits = resolveImageEditSizeLimits(requestOptions.sizeLimits);
+  assertImageEditAssetLimits(
+    imageEditAssetEntries(mainBuffer, rawMaskBuffer, referenceBuffers),
+    sizeLimits
+  );
   const maskBuffer = invertMask(rawMaskBuffer, requestId);
+  const assetSummary = assertImageEditAssetLimits(
+    imageEditAssetEntries(mainBuffer, maskBuffer, referenceBuffers),
+    sizeLimits
+  );
 
   const mainMime = detectMime(mainBuffer);
   const maskMime = detectMime(maskBuffer);
@@ -9140,6 +9306,7 @@ async function requestImageEdits(
       maskField
     );
   }
+  const requestBytes = assertImageEditRequestBodySize(requestBody, sizeLimits);
   const requestLogFields = useJsonImageEdit
     ? { json: requestSummary }
     : { multipart: requestSummary };
@@ -9158,7 +9325,12 @@ async function requestImageEdits(
     ...requestLogFields,
     mainImagePresent: Boolean(mainBuffer && mainBuffer.length),
     maskPresent: Boolean(maskBuffer && maskBuffer.length),
-    referenceCount: referenceBuffers.length
+    referenceCount: referenceBuffers.length,
+    assetBytes: assetSummary.totalBytes,
+    requestBytes,
+    maxAssetBytes: sizeLimits.maxAssetBytes,
+    maxTotalAssetBytes: sizeLimits.maxTotalAssetBytes,
+    maxRequestBytes: sizeLimits.maxRequestBytes
   });
   const response = await requestWithRetry(url, {
     method: "POST",
@@ -9416,7 +9588,16 @@ async function requestTencentPipelineImageEdit(
       "TENCENT_PIPELINE_MASK_REQUIRED"
     );
   }
+  const sizeLimits = resolveImageEditSizeLimits(requestOptions.sizeLimits);
+  assertImageEditAssetLimits(
+    imageEditAssetEntries(mainBuffer, maskBuffer),
+    sizeLimits
+  );
   const preparedMaskBuffer = invertMask(maskBuffer, requestId);
+  const assetSummary = assertImageEditAssetLimits(
+    imageEditAssetEntries(mainBuffer, preparedMaskBuffer),
+    sizeLimits
+  );
   const mainDimensions = readImageDimensions(mainBuffer);
   let maskDimensions;
   try {
@@ -9494,6 +9675,7 @@ async function requestTencentPipelineImageEdit(
     requestFormat = "multipart";
     requestSummary = imageEditMultipartSummary(fields, files, mainField, maskField);
   }
+  const requestBytes = assertImageEditRequestBodySize(requestBody, sizeLimits);
   const requestLogFields = useJsonImageEdit
     ? { json: requestSummary }
     : { multipart: requestSummary };
@@ -9509,7 +9691,12 @@ async function requestTencentPipelineImageEdit(
     maskPresent: true,
     mainSize: `${mainDimensions.width}x${mainDimensions.height}`,
     maskSize: `${maskDimensions.width}x${maskDimensions.height}`,
-    maskSha256: crypto.createHash("sha256").update(preparedMaskBuffer).digest("hex").slice(0, 16)
+    maskSha256: crypto.createHash("sha256").update(preparedMaskBuffer).digest("hex").slice(0, 16),
+    assetBytes: assetSummary.totalBytes,
+    requestBytes,
+    maxAssetBytes: sizeLimits.maxAssetBytes,
+    maxTotalAssetBytes: sizeLimits.maxTotalAssetBytes,
+    maxRequestBytes: sizeLimits.maxRequestBytes
   });
   const response = await requestWithRetry(
     endpointInfo.url,
@@ -15993,6 +16180,10 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     normalizeApiKey,
     apiKeyHeaders,
     resolveImageEditEndpoint,
+    resolveImageEditSizeLimits,
+    imageEditAssetEntries,
+    assertImageEditAssetLimits,
+    assertImageEditRequestBodySize,
     classifyImageEditResponse,
     imageEditErrorMessage,
     imageEditMultipartSummary,

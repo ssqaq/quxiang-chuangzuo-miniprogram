@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.42.8";
-const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0428";
+const API_BUILD_VERSION = "0.42.9";
+const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0429";
 const DEFAULT_IMAGE_MODE = "edits";
 // 图片和视频默认成本只在云函数入口维护；管理员页读取云端有效配置，
 // 避免前后端各写一份价格。入口保持单文件可启动，兼容 CloudBase 部署。
@@ -44,6 +44,8 @@ const pixelCodec = require("./lib/image-pixel-codec");
 const pixelComposite = require("./lib/image-composite");
 const pixelAcceptance = require("./lib/pixel-acceptance");
 const pixelProtectionFlow = require("./lib/pixel-protection-flow");
+const { ACCESS, createActionRegistry } = require("./lib/action-registry");
+const generationStateMachine = require("./lib/generation-state-machine");
 const XLSX = require("xlsx");
 const publishExportCore = (() => {
   const module = { exports: {} };
@@ -10854,18 +10856,32 @@ async function findGenerationOperation(openid, requestId, store = db) {
   );
 }
 
-async function saveGenerationOperation(openid, requestId, data, store = db) {
+async function saveGenerationOperation(
+  openid,
+  requestId,
+  data,
+  store = db,
+  options = {}
+) {
   const operationId = generationOperationId(openid, requestId);
   const ref = store.collection(GENERATION_OPERATION_COLLECTION).doc(operationId);
   const existing = await readDocument(ref);
   const now = new Date();
+  const patch = options.enforceState
+    ? generationStateMachine.applyTransition(existing || {}, data, {
+        actor: options.actor || "system",
+        stage: options.historyStage,
+        code: options.historyCode,
+        at: now
+      })
+    : data;
   const record = Object.assign({
     _id: operationId,
     openid,
     requestId,
     status: "reserved",
     createdAt: now
-  }, existing || {}, data, {
+  }, existing || {}, patch, {
     _id: operationId,
     openid,
     requestId,
@@ -10894,6 +10910,7 @@ async function enqueueGenerationOperation(
     const now = new Date();
     return saveGenerationOperation(openid, requestId, {
       kind: "image",
+      workflow: "image-generation-v1",
       status: "queued",
       payload: sanitizeGenerationPayload(payload),
       pipelineStage: "queued",
@@ -10907,7 +10924,10 @@ async function enqueueGenerationOperation(
       size: String(metadata.size || (existing && existing.size) || "").slice(0, 32),
       expiresAt: new Date(now.getTime() + GENERATION_RESULT_TTL_MS),
       lastError: null
-    }, transaction);
+    }, transaction, {
+      enforceState: true,
+      actor: "client"
+    });
   }, 5);
 }
 
@@ -10997,7 +11017,12 @@ async function updateGenerationOperation(openid, requestId, patch, options = {})
     ) {
       return operation;
     }
-    return saveGenerationOperation(openid, requestId, patch, transaction);
+    return saveGenerationOperation(openid, requestId, patch, transaction, {
+      enforceState: Boolean(options.enforceState),
+      actor: options.actor,
+      historyStage: options.historyStage,
+      historyCode: options.historyCode
+    });
   }, 5);
 }
 
@@ -11012,11 +11037,13 @@ async function touchGenerationOperation(openid, requestId, stage, progress) {
     progress: safeProgress,
     lastHeartbeatAt: new Date()
   }, {
-    allowedStatuses: ["queued", "processing"]
+    allowedStatuses: ["queued", "processing"],
+    enforceState: true,
+    actor: "worker"
   });
 }
 
-async function completeGenerationOperation(openid, requestId, result) {
+async function completeGenerationOperation(openid, requestId, result, options = {}) {
   const safeResult = sanitizeGenerationResult(result);
   return updateGenerationOperation(openid, requestId, {
     status: "succeeded",
@@ -11033,11 +11060,13 @@ async function completeGenerationOperation(openid, requestId, result) {
     cleanupPending: false,
     lastError: null
   }, {
-    allowedStatuses: ["processing", "failed", "succeeded"]
+    allowedStatuses: ["processing", "failed", "succeeded"],
+    enforceState: options.enforceState !== false,
+    actor: options.actor || "worker"
   });
 }
 
-async function failGenerationOperation(openid, requestId, error) {
+async function failGenerationOperation(openid, requestId, error, options = {}) {
   return updateGenerationOperation(openid, requestId, {
     status: "failed",
     pipelineStage: String(error && error.pipelineStage || "failed").slice(0, 40),
@@ -11050,7 +11079,10 @@ async function failGenerationOperation(openid, requestId, error) {
       retryable: Boolean(error && error.retryable)
     }
   }, {
-    allowedStatuses: ["reserved", "queued", "processing", "failed"]
+    allowedStatuses: ["reserved", "queued", "processing", "failed"],
+    enforceState: options.enforceState !== false,
+    actor: options.actor || "worker",
+    historyCode: String(error && error.code || "generation-failed")
   });
 }
 
@@ -11184,7 +11216,10 @@ async function reserveUsage(openid, requestId, kind) {
         billing: legacyBilling,
         ledgerId: existingLedger._id,
         legacyRecovered: true
-      }, transaction);
+      }, transaction, {
+        enforceState: true,
+        actor: "worker"
+      });
       return Object.assign({
         requestId,
         dateKey,
@@ -12918,7 +12953,18 @@ async function deleteGenerationResultFile(operation, dependencies = {}) {
     || operation && operation.result && operation.result.fileID
     || ""
   ).trim();
-  const updateOperation = dependencies.updateOperation || updateGenerationOperation;
+  const updateOperation = dependencies.updateOperation || (
+    (owner, id, patch, updateOptions = {}) => updateGenerationOperation(
+      owner,
+      id,
+      patch,
+      Object.assign({}, updateOptions, {
+        enforceState: true,
+        actor: "reconcile",
+        historyStage: updateOptions.historyStage || "cleanup"
+      })
+    )
+  );
   const deleteFile = dependencies.deleteFile || (async (fileID) => (
     cloud.deleteFile({ fileList: [fileID] })
   ));
@@ -13055,8 +13101,27 @@ async function refundGenerationOperation(operation, error, dependencies = {}) {
   const openid = String(operation && operation.openid || "");
   const requestId = String(operation && operation.requestId || "");
   const status = normalizeGenerationStatus(operation && operation.status);
-  const failOperation = dependencies.failOperation || failGenerationOperation;
-  const updateOperation = dependencies.updateOperation || updateGenerationOperation;
+  const failOperation = dependencies.failOperation || (
+    (owner, id, failure) => failGenerationOperation(
+      owner,
+      id,
+      failure,
+      { enforceState: true, actor: "reconcile" }
+    )
+  );
+  const updateOperation = dependencies.updateOperation || (
+    (owner, id, patch, updateOptions = {}) => updateGenerationOperation(
+      owner,
+      id,
+      patch,
+      Object.assign({}, updateOptions, {
+        enforceState: true,
+        actor: "reconcile",
+        historyStage: updateOptions.historyStage || patch.pipelineStage,
+        historyCode: updateOptions.historyCode || patch.refundLastError
+      })
+    )
+  );
   const refund = dependencies.refund || refundUsage;
   if (status === "refunded") {
     return { refunded: true, duplicate: true };
@@ -13114,9 +13179,28 @@ async function reconcileGenerationOperation(operation, options = {}) {
     ? options.now
     : new Date(options.now || Date.now());
   const status = normalizeGenerationStatus(source.status);
-  const updateOperation = options.updateOperation || updateGenerationOperation;
+  const updateOperation = options.updateOperation || (
+    (owner, id, patch, updateOptions = {}) => updateGenerationOperation(
+      owner,
+      id,
+      patch,
+      Object.assign({}, updateOptions, {
+        enforceState: true,
+        actor: "reconcile",
+        historyStage: updateOptions.historyStage || patch.pipelineStage,
+        historyCode: updateOptions.historyCode
+      })
+    )
+  );
   const persistResult = options.persistResult || persistGenerationResult;
-  const completeOperation = options.completeOperation || completeGenerationOperation;
+  const completeOperation = options.completeOperation || (
+    (owner, id, result) => completeGenerationOperation(
+      owner,
+      id,
+      result,
+      { enforceState: true, actor: "reconcile" }
+    )
+  );
   const resultFileID = String(
     source.resultFileID
     || source.result && source.result.fileID
@@ -14986,6 +15070,44 @@ async function buildAppleLivePhoto(event, context) {
   }));
 }
 
+function createGenerationActionRegistry() {
+  const registry = createActionRegistry({
+    log,
+    isAdmin: isAdminContext,
+    forbidden: adminForbidden,
+    getTriggerName: timerTriggerName
+  });
+  registry.register({
+    name: "generate",
+    access: ACCESS.USER,
+    metadata: { workflow: "image-generation-v1" },
+    handler: ({ event, context }) => generate(event, context)
+  });
+  registry.register({
+    name: "getGenerationStatus",
+    access: ACCESS.USER,
+    metadata: { workflow: "image-generation-v1" },
+    handler: ({ event, context }) => getGenerationStatus(event, context)
+  });
+  registry.register({
+    name: "processGenerationQueue",
+    triggerName: "generation-queue-worker",
+    access: ACCESS.TIMER_OR_ADMIN,
+    metadata: { workflow: "image-generation-v1" },
+    handler: ({ event, context }) => processGenerationQueue(event, context)
+  });
+  registry.register({
+    name: "reconcileGenerationOperations",
+    triggerName: "generation-operation-reconcile",
+    access: ACCESS.TIMER_OR_ADMIN,
+    metadata: { workflow: "image-generation-v1" },
+    handler: ({ event, context }) => reconcileGenerationOperations(event, context)
+  });
+  return registry;
+}
+
+const generationActionRegistry = createGenerationActionRegistry();
+
 exports.main = async (event = {}, context) => {
   const requestId = event.requestId
     || (event.payload && event.payload.requestId)
@@ -14999,10 +15121,13 @@ exports.main = async (event = {}, context) => {
   });
   try {
     let result;
-    if (isGenerationQueueWorkerTrigger(requestEvent)) {
-      result = await processGenerationQueue(requestEvent, context);
-    } else if (isGenerationReconcileTrigger(requestEvent)) {
-      result = await reconcileGenerationOperations(requestEvent, context);
+    const registryDispatch = await generationActionRegistry.dispatch(
+      requestEvent,
+      context,
+      { requestId }
+    );
+    if (registryDispatch.handled) {
+      result = registryDispatch.result;
     } else if (isPhotoToVideoCleanupTrigger(requestEvent)) {
       const cleanupDate = new Date();
       const [
@@ -15431,6 +15556,8 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     reconcileGenerationOperationForTest,
     reconcileGenerationOperations,
     processGenerationQueue,
+    generationActionRegistry,
+    generationStateMachine,
     refundUsage,
     claimGenerationOperation,
     completeGenerationOperation,

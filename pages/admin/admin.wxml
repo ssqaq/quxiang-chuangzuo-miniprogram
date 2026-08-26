@@ -529,10 +529,10 @@
             <view class="admin-field admin-field-wide admin-api-key-field">
               <view class="admin-field-label-row">
                 <text>API Key</text>
-                <text class="api-key-config-state {{effective.image.apiKeyConfigured ? 'is-ready' : 'is-off'}}">{{effective.image.apiKeyConfigured ? '已配置（不显示内容）' : '未配置'}}</text>
+                <text class="api-key-config-state {{form.image.apiKey ? 'is-ready' : 'is-off'}}">{{form.image.apiKey ? '已显示完整 Key' : (effective.image.apiKeyConfigured ? '完整 Key 读取失败' : '未配置')}}</text>
               </view>
-              <input password value="{{form.image.apiKey}}" data-section="image" data-key="apiKey" placeholder="{{effective.image.apiKeyConfigured ? '已配置，留空继续使用' : '请填写星炬 API Key'}}" bindinput="onInput" />
-              <view class="api-key-field-tip">真实密钥只保存在服务端，不会写进小程序前端或发布包。</view>
+              <input value="{{form.image.apiKey}}" data-section="image" data-key="apiKey" placeholder="请填写星炬 API Key" bindinput="onInput" />
+              <view class="api-key-field-tip">当前显示云端实际生效的完整 Key；修改后点击“保存全部配置”才会生效。</view>
             </view>
             <view class="admin-field"><text>模式</text><input disabled value="{{form.image.mode}}" data-section="image" data-key="mode" /></view>
           <view class="admin-field">
@@ -588,10 +588,10 @@
             <view class="admin-field admin-field-wide admin-api-key-field">
               <view class="admin-field-label-row">
                 <text>API Key</text>
-                <text class="api-key-config-state {{effective.imageBackup.apiKeyConfigured ? 'is-ready' : 'is-off'}}">{{effective.imageBackup.apiKeyConfigured ? '已配置（不显示内容）' : '未配置'}}</text>
+                <text class="api-key-config-state {{form.imageBackup.apiKey ? 'is-ready' : 'is-off'}}">{{form.imageBackup.apiKey ? '已显示完整 Key' : (effective.imageBackup.apiKeyConfigured ? '完整 Key 读取失败' : '未配置')}}</text>
               </view>
-              <input password value="{{form.imageBackup.apiKey}}" data-section="imageBackup" data-key="apiKey" placeholder="{{effective.imageBackup.apiKeyConfigured ? '已配置，留空继续使用' : '请填写凌云 API Key'}}" bindinput="onInput" />
-              <view class="api-key-field-tip">凌云 Key 已放在云端管理员配置中，备用模型会在服务端读取。</view>
+              <input value="{{form.imageBackup.apiKey}}" data-section="imageBackup" data-key="apiKey" placeholder="请填写凌云 API Key" bindinput="onInput" />
+              <view class="api-key-field-tip">当前显示云端实际生效的完整 Key；备用模型仍只在服务端使用。</view>
             </view>
             <view class="admin-field"><text>单次超时毫秒</text><input type="number" value="{{form.imageBackup.timeoutMs}}" data-section="imageBackup" data-key="timeoutMs" bindinput="onInput" /></view>
             <view class="admin-field"><text>备用调用次数</text><input disabled type="number" value="1" /></view>

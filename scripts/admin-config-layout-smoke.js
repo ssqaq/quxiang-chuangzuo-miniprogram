@@ -101,16 +101,31 @@ assert.ok(
   "模型探测刷新按钮样式缺失"
 );
 const apiKeyInputs = wxml.match(/<input[^>]*data-key="apiKey"[^>]*>/g) || [];
+const apiKeyInputBySection = apiKeyInputs.reduce((result, input) => {
+  const match = input.match(/data-section="([^"]+)"/);
+  if (match) result[match[1]] = input;
+  return result;
+}, {});
 assert.strictEqual(apiKeyInputs.length, 5, "五个主备模型 API Key 输入框必须完整");
 assert.ok(
-  apiKeyInputs.every((input) => /\bpassword\b/.test(input)),
-  "所有 API Key 输入框都必须使用密码输入"
+  ["face", "analysis", "video"].every((section) => (
+    apiKeyInputBySection[section]
+    && /\bpassword\b/.test(apiKeyInputBySection[section])
+  )),
+  "人脸、图片分析和视频 API Key 必须继续使用密码输入"
+);
+assert.ok(
+  ["image", "imageBackup"].every((section) => (
+    apiKeyInputBySection[section]
+    && !/\bpassword\b/.test(apiKeyInputBySection[section])
+  )),
+  "图片主备 API Key 必须直接显示完整内容"
 );
 assert.ok(
   wxml.includes("effective.image.apiKeyConfigured")
     && wxml.includes("effective.imageBackup.apiKeyConfigured")
-    && (wxml.match(/已配置（不显示内容）/g) || []).length >= 2,
-  "图片主备模型没有显示脱敏密钥配置状态"
+    && (wxml.match(/已显示完整 Key/g) || []).length >= 2,
+  "图片主备模型没有显示完整密钥状态"
 );
 assert.ok(
   wxss.includes(".api-key-config-state {")

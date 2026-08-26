@@ -70,6 +70,10 @@ const cloudMock = {
   isCloudReady: () => true,
   getAdminStatus: async () => ({ isAdmin: true }),
   getAdminConfig: async () => baseConfig,
+  getAdminImageApiKeys: async () => ({
+    image: { apiKey: "image-key" },
+    imageBackup: { apiKey: "image-backup-key" }
+  }),
   saveAdminConfig: async () => ({
     ok: true,
     effective: baseConfig.effective,

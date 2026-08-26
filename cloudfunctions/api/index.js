@@ -7622,6 +7622,23 @@ async function getAdminConfig(context) {
   return jsonResponse(true, adminConfigView(configs, runtime, metadata));
 }
 
+async function getAdminImageApiKeys(context) {
+  if (!isAdminContext(context)) return adminForbidden();
+  const configs = await resolveEffectiveConfigs();
+  return jsonResponse(true, {
+    image: {
+      apiKey: String(configs.image && configs.image.apiKey || "")
+    },
+    imageBackup: {
+      apiKey: String(
+        configs.imageBackup
+        && configs.imageBackup.apiKey
+        || ""
+      )
+    }
+  });
+}
+
 function adminConfigAuditDisplay(value) {
   const row = normalizeAdminConfigAuditRow(value);
   return {
@@ -17796,6 +17813,9 @@ exports.main = async (event = {}, context) => {
       result = await getAdminDiagnosticLogs(requestEvent, context);
     }
     else if (action === "getAdminConfig") result = await getAdminConfig(context);
+    else if (action === "getAdminImageApiKeys") {
+      result = await getAdminImageApiKeys(context);
+    }
     else if (action === "getAdminUserStats") result = await getAdminUserStats(requestEvent, context);
     else if (action === "exportAdminUserStats") result = await exportAdminUserStats(requestEvent, context);
     else if (action === "initializeDatabase") result = await initializeDatabase(context);
@@ -18099,6 +18119,7 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     mergeRuntimeConfig,
     getAdminStatus,
     getAdminConfig,
+    getAdminImageApiKeys,
     normalizeUserGender,
     normalizeUserNickname,
     normalizeAdminUserSearch,

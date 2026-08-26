@@ -3087,6 +3087,138 @@ function formToConfig(form) {
   };
 }
 
+function emptyAdminImageApiKeys() {
+  return {
+    image: "",
+    imageBackup: ""
+  };
+}
+
+function normalizeAdminImageApiKeys(result) {
+  const source = result && typeof result === "object" ? result : {};
+  return {
+    image: String(
+      source.image
+      && source.image.apiKey
+      || ""
+    ).trim(),
+    imageBackup: String(
+      source.imageBackup
+      && source.imageBackup.apiKey
+      || ""
+    ).trim()
+  };
+}
+
+function adminImageApiKeysFromForm(form) {
+  const source = form && typeof form === "object" ? form : {};
+  return {
+    image: String(
+      source.image
+      && source.image.apiKey
+      || ""
+    ).trim(),
+    imageBackup: String(
+      source.imageBackup
+      && source.imageBackup.apiKey
+      || ""
+    ).trim()
+  };
+}
+
+function formWithAdminImageApiKeys(form, apiKeys) {
+  const source = form && typeof form === "object" ? form : {};
+  const keys = normalizeAdminImageApiKeys({
+    image: { apiKey: apiKeys && apiKeys.image },
+    imageBackup: { apiKey: apiKeys && apiKeys.imageBackup }
+  });
+  return Object.assign({}, source, {
+    image: Object.assign({}, source.image || {}, {
+      apiKey: keys.image
+    }),
+    imageBackup: Object.assign({}, source.imageBackup || {}, {
+      apiKey: keys.imageBackup
+    })
+  });
+}
+
+function adminConfigSavePayload(form, baseline) {
+  const configPayload = formToConfig(form);
+  const currentKeys = adminImageApiKeysFromForm(form);
+  const loadedKeys = Object.assign(
+    emptyAdminImageApiKeys(),
+    baseline && typeof baseline === "object" ? baseline : {}
+  );
+  ["image", "imageBackup"].forEach((section) => {
+    const current = currentKeys[section];
+    const loaded = String(loadedKeys[section] || "").trim();
+    if (!current || current === loaded) {
+      delete configPayload[section].apiKey;
+    }
+  });
+  return configPayload;
+}
+
+function adminImageApiKeysAfterSave(form, baseline) {
+  const currentKeys = adminImageApiKeysFromForm(form);
+  const loadedKeys = Object.assign(
+    emptyAdminImageApiKeys(),
+    baseline && typeof baseline === "object" ? baseline : {}
+  );
+  return {
+    image: currentKeys.image || String(loadedKeys.image || "").trim(),
+    imageBackup: currentKeys.imageBackup
+      || String(loadedKeys.imageBackup || "").trim()
+  };
+}
+
+async function fetchAdminConfigBundle() {
+  const apiKeyTask = withTimeout(
+    cloud.getAdminImageApiKeys({ retryLimit: 0 }),
+    10000,
+    "生图完整 Key"
+  )
+    .then((result) => {
+      if (!result || result.ok === false) {
+        const error = new Error("完整 Key 专用接口返回失败");
+        error.code = result && (result.errorCode || result.code) || "";
+        throw error;
+      }
+      return {
+        ok: true,
+        apiKeys: normalizeAdminImageApiKeys(result),
+        error: null
+      };
+    })
+    .catch((error) => ({
+      ok: false,
+      apiKeys: emptyAdminImageApiKeys(),
+      error
+    }));
+  const results = await Promise.all([
+    withTimeout(
+      cloud.getAdminConfig({ retryLimit: 1 }),
+      10000,
+      "管理员配置"
+    ),
+    apiKeyTask
+  ]);
+  return {
+    config: results[0],
+    apiKeyResult: results[1]
+  };
+}
+
+function adminImageApiKeyFailureLog(error) {
+  return {
+    errorCode: String(
+      error
+      && (error.code || error.errorCode)
+      || ""
+    ).slice(0, 80)
+  };
+}
+
 function modelConfigForAction(form, modelType) {
   const source = form && form[modelType] ? form[modelType] : {};
   return {
@@ -3427,6 +3559,7 @@ Page({
 
   onLoad() {
     this._adminLoadToken = 0;
+    this._imageApiKeyBaseline = emptyAdminImageApiKeys();
     this.restoreMonitorLayout();
     this.loadAdminPage();
     this.startModelFailureAutoRefresh();
@@ -3435,6 +3568,7 @@ Page({
 
   onUnload() {
     this._adminLoadToken = (this._adminLoadToken || 0) + 1;
+    this._imageApiKeyBaseline = emptyAdminImageApiKeys();
     this.stopModelFailureAutoRefresh();
     this.stopAutoFaceFailureAutoRefresh();
   },
@@ -3782,14 +3916,19 @@ Page({
         });
         return;
       }
-      const result = await withTimeout(
-        cloud.getAdminConfig({ retryLimit: 1 }),
-        10000,
-        "管理员配置"
-      );
+      const bundle = await fetchAdminConfigBundle();
       if (!this.isCurrentAdminLoad(token)) return;
+      const result = bundle.config;
+      const apiKeyResult = bundle.apiKeyResult;
+      const imageApiKeys = apiKeyResult.ok
+        ? apiKeyResult.apiKeys
+        : emptyAdminImageApiKeys();
       const effective = result && result.effective ? result.effective : null;
-      const form = formFromConfig(result);
+      const form = formWithAdminImageApiKeys(
+        formFromConfig(result),
+        imageApiKeys
+      );
+      this._imageApiKeyBaseline = imageApiKeys;
       const moduleStates = loadingAdminModuleStates(this.data.moduleStates);
       const basePatch = Object.assign({
         loading: false,
@@ -3800,13 +3939,23 @@ Page({
         defaults: result.defaults || null,
         effective,
         moduleStates,
-        message: ""
+        message: apiKeyResult.ok
+          ? ""
+          : "普通配置已读取，但完整 Key 读取失败，请刷新。"
       }, buildQualityPickerState(form));
       Object.assign(basePatch, this.buildAdminDerivedPatch(basePatch, moduleStates));
       this.setData(basePatch);
       diagnosticLog.info("admin", "config-loaded", "管理员配置读取完成", {
         runtimeConfigVersion: result.version || 0
       });
+      if (!apiKeyResult.ok) {
+        diagnosticLog.warn(
+          "admin",
+          "image-api-key-load-failed",
+          "管理员生图完整 Key 读取失败",
+          adminImageApiKeyFailureLog(apiKeyResult.error)
+        );
+      }
       this.loadAdminBackground(token);
       this.loadTencentFaceFusionStatus(token);
     } catch (error) {
@@ -4512,15 +4661,20 @@ Page({
 
     const configTask = (async () => {
       try {
-        const result = await withTimeout(
-          cloud.getAdminConfig({ retryLimit: 1 }),
-          10000,
-          "管理员配置"
-        );
+        const bundle = await fetchAdminConfigBundle();
         if (!this.isCurrentAdminLoad(token) || !this.data.isAdmin) {
           return { ok: false, stale: true };
         }
-        const form = formFromConfig(result);
+        const result = bundle.config;
+        const apiKeyResult = bundle.apiKeyResult;
+        const imageApiKeys = apiKeyResult.ok
+          ? apiKeyResult.apiKeys
+          : emptyAdminImageApiKeys();
+        const form = formWithAdminImageApiKeys(
+          formFromConfig(result),
+          imageApiKeys
+        );
+        this._imageApiKeyBaseline = imageApiKeys;
         const patch = Object.assign({
           form,
           costFieldErrors: {},
@@ -4529,7 +4683,18 @@ Page({
         }, buildQualityPickerState(form));
         Object.assign(patch, this.buildAdminDerivedPatch(patch, this.data.moduleStates));
         this.setData(patch);
-        return { ok: true };
+        if (!apiKeyResult.ok) {
+          diagnosticLog.warn(
+            "admin",
+            "image-api-key-refresh-failed",
+            "刷新管理员生图完整 Key 失败",
+            adminImageApiKeyFailureLog(apiKeyResult.error)
+          );
+        }
+        return {
+          ok: true,
+          imageApiKeysOk: apiKeyResult.ok
+        };
       } catch (error) {
         diagnosticLog.warn("admin", "refresh-all-part-failed", "模型配置刷新失败", { error });
         return { ok: false, error };
@@ -4621,6 +4786,9 @@ Page({
     }
     const failed = [];
     if (!configResult.ok) failed.push("模型配置");
+    if (configResult.ok && configResult.imageApiKeysOk === false) {
+      failed.push("生图完整 Key");
+    }
     parts.forEach((part, index) => {
       if (!part || part.ok) return;
       const labels = [
@@ -5308,9 +5476,22 @@ Page({
     }
     this.setData({ saving: true, message: "" });
     try {
-      const result = await cloud.saveAdminConfig(formToConfig(this.data.form));
+      const savedImageApiKeys = adminImageApiKeysAfterSave(
+        this.data.form,
+        this._imageApiKeyBaseline
+      );
+      const result = await cloud.saveAdminConfig(
+        adminConfigSavePayload(
+          this.data.form,
+          this._imageApiKeyBaseline
+        )
+      );
       const effective = result.effective || null;
-      const form = formFromConfig(result);
+      const form = formWithAdminImageApiKeys(
+        formFromConfig(result),
+        savedImageApiKeys
+      );
+      this._imageApiKeyBaseline = savedImageApiKeys;
       const patch = Object.assign({
         form,
         costFieldErrors: {},

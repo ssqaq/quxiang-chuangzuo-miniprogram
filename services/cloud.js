@@ -747,6 +747,15 @@ module.exports = {
       silent: Boolean(options.silent)
     });
   },
+  getAdminImageApiKeys(options = {}) {
+    return callApi({
+      action: "getAdminImageApiKeys",
+      retryLimit: options.retryLimit === undefined
+        ? 0
+        : options.retryLimit,
+      silent: true
+    });
+  },
   getAdminGenerationQueue(limit = 20) {
     return callApi({
       action: "getAdminGenerationQueue",

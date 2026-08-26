@@ -56,6 +56,7 @@ const jsFiles = [
   "pages/photo-guide/photo-guide.js",
   "pages/points/points.js",
   "pages/admin/admin.js",
+  "scripts/admin-image-api-key-display-smoke.js",
   "scripts/admin-runtime-compat-smoke.js",
   "scripts/admin-loading-smoke.js",
   "scripts/admin-layout-state-smoke.js",
@@ -243,6 +244,7 @@ const required = [
   "scripts/install-git-hooks.ps1",
   "scripts/install-git-hooks.cmd",
   "scripts/write-release-record.ps1",
+  "scripts/admin-image-api-key-display-smoke.js",
   "一键刷新预览.cmd",
   "pages/publish-export/publish-export.js",
   "pages/publish-export/publish-export.json",
@@ -996,16 +998,32 @@ if (
   throw new Error("四个模型配置区的字段中文名称或 Endpoint 删除不完整。");
 }
 const adminApiKeyInputs = adminWxml.match(/<input[^>]*data-key="apiKey"[^>]*>/g) || [];
+const adminApiKeyInputBySection = adminApiKeyInputs.reduce((result, input) => {
+  const sectionMatch = input.match(/data-section="([^"]+)"/);
+  if (sectionMatch) result[sectionMatch[1]] = input;
+  return result;
+}, {});
 if (
   adminApiKeyInputs.length !== 5
-  || adminApiKeyInputs.some((input) => !/\bpassword\b/.test(input))
+  || !["face", "analysis", "video"].every((section) => (
+    adminApiKeyInputBySection[section]
+    && /\bpassword\b/.test(adminApiKeyInputBySection[section])
+  ))
+  || !["image", "imageBackup"].every((section) => (
+    adminApiKeyInputBySection[section]
+    && !/\bpassword\b/.test(adminApiKeyInputBySection[section])
+  ))
   || !adminWxml.includes("effective.image.apiKeyConfigured")
   || !adminWxml.includes("effective.imageBackup.apiKeyConfigured")
-  || (adminWxml.match(/已配置（不显示内容）/g) || []).length < 2
+  || (adminWxml.match(/已显示完整 Key/g) || []).length < 2
+  || !clientCloudJs.includes('action: "getAdminImageApiKeys"')
+  || !cloudJs.includes("async function getAdminImageApiKeys")
+  || !adminJs.includes("fetchAdminConfigBundle")
+  || !adminJs.includes("adminConfigSavePayload")
   || !adminWxss.includes(".api-key-config-state")
   || !adminWxss.includes(".api-key-field-tip")
 ) {
-  throw new Error("五个主备模型 API Key 输入框、密码保护或脱敏配置状态不完整。");
+  throw new Error("管理员生图完整 Key 显示、其他密钥密码保护或专用接口不完整。");
 }
 if (
   !clientCloudJs.includes('action: "getModelUsageStats"')

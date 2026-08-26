@@ -80,16 +80,24 @@ const jsFiles = [
   "cloudfunctions/api/lib/publish-export-core.js",
   "cloudfunctions/api/lib/action-registry.js",
   "cloudfunctions/api/lib/generation-execution-kernel.js",
+  "cloudfunctions/api/lib/generation-queue-monitor.js",
   "cloudfunctions/api/lib/generation-state-machine.js",
+  "cloudfunctions/api/lib/video-execution-kernel.js",
   "cloudfunctions/api/lib/image-pixel-codec.js",
   "cloudfunctions/api/lib/image-composite.js",
   "cloudfunctions/api/lib/pixel-acceptance.js",
   "cloudfunctions/api/lib/pixel-protection-flow.js",
   "cloudfunctions/api/tests/pixel-protection.test.js",
   "scripts/database-index-core.js",
+  "scripts/action-registry-contract-smoke.js",
   "scripts/action-registry-smoke.js",
+  "scripts/dependency-security-audit.js",
+  "scripts/dependency-security-audit-smoke.js",
   "scripts/generation-execution-kernel-smoke.js",
+  "scripts/generation-queue-monitor-smoke.js",
   "scripts/generation-state-machine-smoke.js",
+  "scripts/generation-worker-concurrency-smoke.js",
+  "scripts/video-execution-kernel-smoke.js",
   "scripts/database-index-smoke.js",
   "scripts/cloud-database-index-manager/index.js",
   "scripts/check-deployment.js",
@@ -281,16 +289,24 @@ const required = [
   "cloudfunctions/api/lib/publish-export-core.js",
   "cloudfunctions/api/lib/action-registry.js",
   "cloudfunctions/api/lib/generation-execution-kernel.js",
+  "cloudfunctions/api/lib/generation-queue-monitor.js",
   "cloudfunctions/api/lib/generation-state-machine.js",
+  "cloudfunctions/api/lib/video-execution-kernel.js",
   "cloudfunctions/api/lib/image-pixel-codec.js",
   "cloudfunctions/api/lib/image-composite.js",
   "cloudfunctions/api/lib/pixel-acceptance.js",
   "cloudfunctions/api/lib/pixel-protection-flow.js",
   "cloudfunctions/api/tests/pixel-protection.test.js",
   "scripts/canvas-gesture-smoke.js",
+  "scripts/action-registry-contract-smoke.js",
   "scripts/action-registry-smoke.js",
+  "scripts/dependency-security-audit.js",
+  "scripts/dependency-security-audit-smoke.js",
   "scripts/generation-execution-kernel-smoke.js",
+  "scripts/generation-queue-monitor-smoke.js",
   "scripts/generation-state-machine-smoke.js",
+  "scripts/generation-worker-concurrency-smoke.js",
+  "scripts/video-execution-kernel-smoke.js",
   "scripts/circle-gesture-smoke.js",
   "scripts/auto-face-fallback-smoke.js",
   "scripts/database-init-smoke.js",
@@ -477,6 +493,14 @@ const generationKernelJs = fs.readFileSync(
   path.join(root, "cloudfunctions/api/lib/generation-execution-kernel.js"),
   "utf8"
 );
+const videoKernelJs = fs.readFileSync(
+  path.join(root, "cloudfunctions/api/lib/video-execution-kernel.js"),
+  "utf8"
+);
+const dependencyAuditJs = fs.readFileSync(
+  path.join(root, "scripts/dependency-security-audit.js"),
+  "utf8"
+);
 const clientCloudJs = fs.readFileSync(path.join(root, "services/cloud.js"), "utf8");
 const diagnosticLogJs = fs.readFileSync(
   path.join(root, "utils/diagnostic-log.js"),
@@ -535,7 +559,7 @@ if (
   !cloudJs.includes("createGenerationExecutionKernel")
   || !cloudJs.includes("const generationExecutionKernel = createGenerationKernel()")
   || !cloudJs.includes("generationExecutionKernel.generate(event, context)")
-  || !cloudJs.includes("operation.kind === \"image\"")
+  || !cloudJs.includes('operation && operation.kind === "video"')
   || !generationKernelJs.includes("async function generate")
   || !generationKernelJs.includes("async function processGenerationQueue")
   || !generationKernelJs.includes("async function reconcileGenerationOperations")
@@ -546,6 +570,35 @@ if (
   )
 ) {
   throw new Error("生图执行内核、依赖注入、统一状态写入或内核专项测试不完整。");
+}
+if (
+  !cloudJs.includes("createVideoExecutionKernel")
+  || !cloudJs.includes("const videoExecutionKernel = createVideoKernel()")
+  || !cloudJs.includes('name: "createVideoTask"')
+  || !cloudJs.includes('name: "queryVideoTask"')
+  || !cloudJs.includes('["image", "video"].includes(operationKind)')
+  || !cloudJs.includes('["image", "video"].includes(item.kind)')
+  || !videoKernelJs.includes("async function createVideoTask")
+  || !videoKernelJs.includes("async function queryVideoTask")
+  || !videoKernelJs.includes("async function reconcileVideoOperation")
+  || !videoKernelJs.includes("video-result-materialized")
+  || !fs.existsSync(
+    path.join(root, "scripts/video-execution-kernel-smoke.js")
+  )
+) {
+  throw new Error("视频执行内核、Registry、状态机、结果补写或回收测试不完整。");
+}
+if (
+  !dependencyAuditJs.includes('["audit", "--json", "--omit=dev"]')
+  || !dependencyAuditJs.includes("criticalBlocksRelease: true")
+  || !dependencyAuditJs.includes("moderateHighReportOnly: true")
+  || !dependencyAuditJs.includes("automaticFix: false")
+  || !dependencyAuditJs.includes("redactText")
+  || !fs.existsSync(
+    path.join(root, "scripts/dependency-security-audit-smoke.js")
+  )
+) {
+  throw new Error("双项目依赖审计、critical 阻断、脱敏或离线测试不完整。");
 }
 if (
   appConfig.imageMode !== "edits"
@@ -1640,7 +1693,7 @@ if (
   || !cloudJs.includes('action === "queryVideoTask"')
   || !cloudJs.includes('action === "buildAndroidMotionPhoto"')
   || !cloudJs.includes('action === "buildAppleLivePhoto"')
-  || !cloudJs.includes("VIDEO_PROVIDER_NOT_CONFIGURED")
+  || !videoKernelJs.includes("VIDEO_PROVIDER_NOT_CONFIGURED")
   || !cloudJs.includes("buildVideoGenerationPayload")
   || !cloudJs.includes("normalizeVideoCreateResponse")
   || !cloudJs.includes("normalizeVideoQueryResponse")

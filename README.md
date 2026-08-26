@@ -440,6 +440,22 @@ Remove-Item Env:TENCENTCLOUD_SESSION_TOKEN -ErrorAction SilentlyContinue
 系统相册按住播放。若要做真正的 Live Photo/Motion Photo，需要原生照片库或按
 厂商分别验证的后续实验，不能只依赖微信小程序的相册保存 API。
 
+## 依赖安全审计
+
+项目提供只读审计脚本，同时检查 `cloudfunctions/api` 和 `media-worker`：
+
+```powershell
+node scripts/dependency-security-audit.js --output-dir D:\aips小程序\dependency-security-audit
+```
+
+审计会生成 JSON 和 Markdown 两份报告。`critical` 漏洞会阻止正式发布；
+`moderate/high` 只记录风险，不自动升级，也不会执行 `npm audit fix` 或
+`npm audit fix --force`。离线 smoke 使用固定 JSON，不访问网络：
+
+```powershell
+node scripts/dependency-security-audit-smoke.js
+```
+
 ## 当前生图接口约定
 
 百炼视觉默认使用 OpenAI-compatible 接口：

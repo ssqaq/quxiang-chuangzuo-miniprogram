@@ -381,6 +381,11 @@ function emptyForm() {
       video720p: "",
       video1080p: "",
       videoDefaultDuration: "3"
+    },
+    generationQueue: {
+      workerConcurrency: "1",
+      alertThreshold: "5",
+      alertCooldownMinutes: "10"
     }
   };
 }
@@ -546,6 +551,7 @@ function configEditorSelector(section) {
 }
 
 const MONITOR_SECTION_KEYS = Object.freeze([
+  "generationQueue",
   "autoFaceFailure",
   "diagnosticLogs",
   "deployment"
@@ -826,6 +832,41 @@ function emptyAdminDiagnosticLogs() {
   };
 }
 
+function emptyGenerationQueue() {
+  return {
+    snapshot: {
+      total: 0,
+      counts: {
+        reserved: 0,
+        queued: 0,
+        processing: 0,
+        succeeded: 0,
+        failed: 0,
+        refunding: 0,
+        refunded: 0
+      },
+      kinds: { image: 0, video: 0 },
+      queuedCount: 0,
+      processingCount: 0,
+      pendingRefundCount: 0,
+      oldestQueuedAgeSeconds: 0,
+      workerConcurrency: 1,
+      alertThreshold: 5,
+      alertCooldownMinutes: 10,
+      alertActive: false,
+      generatedAt: ""
+    },
+    tasks: [],
+    visibleTasks: [],
+    unavailable: false,
+    message: "",
+    tone: "normal",
+    statusText: "队列正常",
+    oldestQueuedText: "暂无排队",
+    generatedAtText: "尚未更新"
+  };
+}
+
 function emptyCostTrend() {
   return {
     days: [],
@@ -844,6 +885,7 @@ function buildTodayFailureText(usageStats, moduleStates) {
 }
 
 const ADMIN_MODULE_KEYS = [
+  "generationQueue",
   "usage",
   "users",
   "diagnosticLogs",
@@ -944,6 +986,132 @@ function formatAdminDate(value) {
   const pad = (number) => String(number).padStart(2, "0");
   return `${shanghai.getUTCFullYear()}-${pad(shanghai.getUTCMonth() + 1)}-${pad(shanghai.getUTCDate())} `
     + `${pad(shanghai.getUTCHours())}:${pad(shanghai.getUTCMinutes())}`;
+}
+
+function generationOperationStatusText(status) {
+  const labels = {
+    reserved: "已预留",
+    queued: "排队中",
+    processing: "处理中",
+    succeeded: "已完成",
+    failed: "失败",
+    refunding: "退款中",
+    refunded: "已退款"
+  };
+  return labels[String(status || "")] || "未知";
+}
+
+function generationOperationKindText(kind) {
+  return String(kind || "") === "video" ? "视频" : "图片";
+}
+
+function formatQueueDuration(seconds) {
+  const value = Math.max(0, Number(seconds) || 0);
+  if (!value) return "暂无排队";
+  if (value < 60) return `${Math.floor(value)}秒`;
+  if (value < 3600) return `${Math.floor(value / 60)}分钟`;
+  return `${Math.floor(value / 3600)}小时${Math.floor((value % 3600) / 60)}分钟`;
+}
+
+function applyGenerationQueueFilters(queue, kind = "all", status = "all") {
+  const source = queue || emptyGenerationQueue();
+  return Object.assign({}, source, {
+    visibleTasks: (Array.isArray(source.tasks) ? source.tasks : []).filter((item) => (
+      (kind === "all" || item.kind === kind)
+      && (status === "all" || item.status === status)
+    ))
+  });
+}
+
+function formatGenerationQueue(result) {
+  const source = result || {};
+  const snapshot = Object.assign(
+    {},
+    emptyGenerationQueue().snapshot,
+    source.snapshot || {}
+  );
+  snapshot.counts = Object.assign(
+    {},
+    emptyGenerationQueue().snapshot.counts,
+    snapshot.counts || {}
+  );
+  snapshot.kinds = Object.assign(
+    {},
+    emptyGenerationQueue().snapshot.kinds,
+    snapshot.kinds || {}
+  );
+  const tasks = (Array.isArray(source.tasks) ? source.tasks : []).map((item) => ({
+    operationId: item.operationId || "",
+    requestId: item.requestId || "",
+    userHash: item.userHash || "",
+    kind: item.kind === "video" ? "video" : "image",
+    kindText: generationOperationKindText(item.kind),
+    status: item.status || "failed",
+    statusText: generationOperationStatusText(item.status),
+    stage: item.stage || item.status || "",
+    progress: Math.max(0, Math.min(100, Number(item.progress) || 0)),
+    attemptCount: Math.max(0, Number(item.attemptCount) || 0),
+    errorCode: item.error && item.error.code || "",
+    refundPending: Boolean(item.refundPending),
+    cleanupPending: Boolean(item.cleanupPending),
+    createdAtText: formatAdminDate(item.createdAt),
+    updatedAtText: formatAdminDate(item.updatedAt),
+    idleText: formatQueueDuration(item.idleSeconds)
+  }));
+  const warningThreshold = Math.max(1, Math.ceil(Number(snapshot.alertThreshold) * 0.7));
+  const tone = snapshot.alertActive
+    ? "danger"
+    : Number(snapshot.queuedCount) >= warningThreshold
+      ? "warning"
+      : "normal";
+  const queue = {
+    snapshot,
+    tasks,
+    visibleTasks: tasks.slice(),
+    unavailable: Boolean(source.unavailable),
+    message: source.message || "",
+    tone,
+    statusText: snapshot.alertActive
+      ? "队列已积压"
+      : tone === "warning"
+        ? "接近告警线"
+        : "队列正常",
+    oldestQueuedText: formatQueueDuration(snapshot.oldestQueuedAgeSeconds),
+    generatedAtText: snapshot.generatedAt
+      ? formatAdminDate(snapshot.generatedAt)
+      : "尚未更新"
+  };
+  return queue;
+}
+
+function formatGenerationOperationHistory(result) {
+  const source = result || {};
+  const task = source.task || {};
+  return {
+    task: {
+      requestId: task.requestId || "",
+      kindText: generationOperationKindText(task.kind),
+      statusText: generationOperationStatusText(task.status),
+      stage: task.stage || "",
+      progress: Math.max(0, Math.min(100, Number(task.progress) || 0)),
+      attemptCount: Math.max(0, Number(task.attemptCount) || 0),
+      errorCode: task.error && task.error.code || "",
+      updatedAtText: formatAdminDate(task.updatedAt)
+    },
+    billing: source.billing || {},
+    history: (Array.isArray(source.history) ? source.history : []).map((item) => ({
+      atText: formatAdminDate(item.at),
+      fromStatusText: item.fromStatus
+        ? generationOperationStatusText(item.fromStatus)
+        : "初始",
+      statusText: generationOperationStatusText(item.status),
+      stage: item.stage || "",
+      progress: Math.max(0, Math.min(100, Number(item.progress) || 0)),
+      attemptCount: Math.max(0, Number(item.attemptCount) || 0),
+      actor: item.actor || "system",
+      code: item.code || ""
+    }))
+  };
 }
 
 function formatAutoFaceFailureStats(result) {
@@ -2335,6 +2503,7 @@ function formFromConfig(result) {
   const analysisCosts = costs.analysis || faceCosts;
   const imageCosts = costs.image || {};
   const videoCosts = costs.video || {};
+  const generationQueue = source.generationQueue || {};
   return {
     face: {
       provider: face.provider || "",
@@ -2461,6 +2630,11 @@ function formFromConfig(result) {
           : ""
       ),
       videoDefaultDuration: String(videoCosts.defaultDurationSeconds || 3)
+    },
+    generationQueue: {
+      workerConcurrency: String(generationQueue.workerConcurrency || 1),
+      alertThreshold: String(generationQueue.alertThreshold || 5),
+      alertCooldownMinutes: String(generationQueue.alertCooldownMinutes || 10)
     }
   };
 }
@@ -2577,6 +2751,11 @@ function formToConfig(form) {
         },
         defaultDurationSeconds: Number(form.costs.videoDefaultDuration || 0)
       }
+    },
+    generationQueue: {
+      workerConcurrency: Number(form.generationQueue.workerConcurrency || 1),
+      alertThreshold: Number(form.generationQueue.alertThreshold || 5),
+      alertCooldownMinutes: Number(form.generationQueue.alertCooldownMinutes || 10)
     }
   };
 }
@@ -2806,6 +2985,27 @@ Page({
     selectedUserDetail: null,
     diagnosticLogsLoading: false,
     diagnosticLogs: emptyAdminDiagnosticLogs(),
+    generationQueueLoading: false,
+    generationQueue: emptyGenerationQueue(),
+    generationQueueKind: "all",
+    generationQueueStatus: "all",
+    generationQueueKindOptions: [
+      { value: "all", label: "全部任务" },
+      { value: "image", label: "图片" },
+      { value: "video", label: "视频" }
+    ],
+    generationQueueStatusOptions: [
+      { value: "all", label: "全部状态" },
+      { value: "queued", label: "排队中" },
+      { value: "processing", label: "处理中" },
+      { value: "failed", label: "失败" },
+      { value: "refunding", label: "退款中" },
+      { value: "refunded", label: "已退款" },
+      { value: "succeeded", label: "已完成" }
+    ],
+    generationHistoryLoading: false,
+    generationHistoryVisible: false,
+    generationHistory: null,
     diagnosticHours: 72,
     diagnosticLevel: "all",
     diagnosticCategory: "all",
@@ -2871,6 +3071,7 @@ Page({
     monitorExpanded: true,
     usageExpanded: true,
     monitorSections: {
+      generationQueue: true,
       autoFaceFailure: false,
       diagnosticLogs: false,
       deployment: false
@@ -3064,6 +3265,23 @@ Page({
     return Promise.all([
       this.loadAdminModule(
         token,
+        "generationQueue",
+        () => cloud.getAdminGenerationQueue(20),
+        formatGenerationQueue,
+        (generationQueue) => ({
+          generationQueue: applyGenerationQueueFilters(
+            generationQueue,
+            this.data.generationQueueKind,
+            this.data.generationQueueStatus
+          )
+        }),
+        {
+          label: "生图队列",
+          loadingKey: "generationQueueLoading"
+        }
+      ),
+      this.loadAdminModule(
+        token,
         "usage",
         () => cloud.getModelUsageStats(30),
         formatUsageStats,
@@ -3161,6 +3379,7 @@ Page({
       isAdmin: false,
       canRetry: false,
       moduleStates: emptyAdminModuleStates(),
+      generationQueueLoading: false,
       usageLoading: false,
       userStatsLoading: false,
       diagnosticLogsLoading: false,
@@ -3235,6 +3454,103 @@ Page({
       });
       diagnosticLog.error("admin", "config-load-failed", "管理员配置读取失败", { error });
     }
+  },
+
+  async refreshGenerationQueue(silent = false) {
+    if (this.data.generationQueueLoading) return;
+    const result = await this.loadAdminModule(
+      this._adminLoadToken || 0,
+      "generationQueue",
+      () => cloud.getAdminGenerationQueue(20),
+      formatGenerationQueue,
+      (generationQueue) => ({
+        generationQueue: applyGenerationQueueFilters(
+          generationQueue,
+          this.data.generationQueueKind,
+          this.data.generationQueueStatus
+        )
+      }),
+      {
+        label: "生图队列",
+        loadingKey: "generationQueueLoading"
+      }
+    );
+    if (result && result.ok && !silent) {
+      wx.showToast({ title: "队列已刷新", icon: "success" });
+    } else if (result && !result.ok && !silent) {
+      this.showError("队列刷新失败", result.error || new Error("队列读取失败"));
+    }
+  },
+
+  selectGenerationQueueKind(event) {
+    const kind = String(
+      event && event.currentTarget && event.currentTarget.dataset
+        ? event.currentTarget.dataset.kind
+        : "all"
+    );
+    if (!["all", "image", "video"].includes(kind)) return;
+    this.setData({
+      generationQueueKind: kind,
+      generationQueue: applyGenerationQueueFilters(
+        this.data.generationQueue,
+        kind,
+        this.data.generationQueueStatus
+      )
+    });
+  },
+
+  selectGenerationQueueStatus(event) {
+    const status = String(
+      event && event.currentTarget && event.currentTarget.dataset
+        ? event.currentTarget.dataset.status
+        : "all"
+    );
+    const allowed = this.data.generationQueueStatusOptions.map((item) => item.value);
+    if (!allowed.includes(status)) return;
+    this.setData({
+      generationQueueStatus: status,
+      generationQueue: applyGenerationQueueFilters(
+        this.data.generationQueue,
+        this.data.generationQueueKind,
+        status
+      )
+    });
+  },
+
+  async openGenerationOperationHistory(event) {
+    if (this.data.generationHistoryLoading) return;
+    const operationId = String(
+      event && event.currentTarget && event.currentTarget.dataset
+        ? event.currentTarget.dataset.operationId
+        : ""
+    );
+    if (!operationId) return;
+    this.setData({
+      generationHistoryLoading: true,
+      generationHistoryVisible: true,
+      generationHistory: null
+    });
+    try {
+      const result = await cloud.getAdminGenerationOperationHistory(operationId);
+      this.setData({
+        generationHistoryLoading: false,
+        generationHistory: formatGenerationOperationHistory(result)
+      });
+    } catch (error) {
+      this.setData({
+        generationHistoryLoading: false,
+        generationHistoryVisible: false
+      });
+      this.showError("任务历史读取失败", error);
+    }
+  },
+
+  closeGenerationOperationHistory() {
+    this.setData({
+      generationHistoryVisible: false,
+      generationHistoryLoading: false,
+      generationHistory: null
+    });
   },
 
   async refreshModelUsage(options = {}) {
@@ -3723,6 +4039,7 @@ Page({
       refreshingAll: true,
       message: "正在刷新全部数据...",
       moduleStates: loadingStates,
+      generationQueueLoading: true,
       usageLoading: true,
       userStatsLoading: true,
       diagnosticLogsLoading: true,
@@ -3757,6 +4074,20 @@ Page({
     })();
 
     const moduleTasks = [
+      this.loadAdminModule(
+        token,
+        "generationQueue",
+        () => cloud.getAdminGenerationQueue(20),
+        formatGenerationQueue,
+        (generationQueue) => ({
+          generationQueue: applyGenerationQueueFilters(
+            generationQueue,
+            this.data.generationQueueKind,
+            this.data.generationQueueStatus
+          )
+        }),
+        { label: "生图队列", loadingKey: "generationQueueLoading" }
+      ),
       this.loadAdminModule(
         token,
         "usage",
@@ -3830,6 +4161,7 @@ Page({
     parts.forEach((part, index) => {
       if (!part || part.ok) return;
       const labels = [
+        "生图队列",
         "模型用量和成本",
         "用户统计",
         "用户端日志",

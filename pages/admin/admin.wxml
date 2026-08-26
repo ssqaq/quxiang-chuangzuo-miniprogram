@@ -1561,6 +1561,187 @@
         </view>
       </view>
 
+      <view
+        id="monitor-section-generationQueue"
+        class="card admin-section generation-queue-card monitor-fold-card tone-{{generationQueue.tone}} {{monitorSections.generationQueue ? 'is-open' : 'is-collapsed'}}"
+      >
+        <view class="admin-section-head">
+          <view class="monitor-section-head-main">
+            <view class="monitor-section-title-row">
+              <text class="monitor-status-dot {{generationQueue.tone === 'danger' ? 'is-danger' : ''}}"></text>
+              <text class="monitor-section-title">生图任务队列</text>
+            </view>
+            <text class="monitor-section-summary">
+              {{generationQueue.statusText}} · 排队 {{generationQueue.snapshot.queuedCount}} · 处理中 {{generationQueue.snapshot.processingCount}} · 最近更新 {{generationQueue.generatedAtText}}
+            </text>
+          </view>
+          <view class="admin-section-tools">
+            <view class="config-state {{generationQueue.tone === 'danger' ? 'is-off' : 'is-ready'}}">
+              {{moduleStates.generationQueue.label}}
+            </view>
+            <button
+              class="usage-refresh-button"
+              catchtap="refreshGenerationQueue"
+              loading="{{generationQueueLoading}}"
+              disabled="{{generationQueueLoading}}"
+            >{{generationQueueLoading ? '读取中' : '刷新'}}</button>
+            <view class="admin-action-slot">
+              <view
+                class="monitor-section-toggle-button"
+                data-section="generationQueue"
+                catchtap="toggleMonitorSection"
+                hover-class="control-tap"
+                role="button"
+                aria-label="{{monitorSections.generationQueue ? '收起生图任务队列' : '展开生图任务队列'}}"
+              >
+                <text>{{monitorSections.generationQueue ? '收起' : '展开'}}</text>
+                <text class="monitor-section-chevron {{monitorSections.generationQueue ? 'is-open' : ''}}">⌄</text>
+              </view>
+            </view>
+          </view>
+        </view>
+
+        <view wx:if="{{monitorSections.generationQueue}}" class="monitor-fold-body generation-queue-body">
+          <view wx:if="{{moduleStates.generationQueue.status === 'loading'}}" class="usage-message">
+            正在读取任务队列...
+          </view>
+          <view wx:if="{{moduleStates.generationQueue.status === 'failed'}}" class="usage-message is-warn">
+            {{moduleStates.generationQueue.message || '任务队列读取失败，请点击刷新。'}}
+          </view>
+          <view wx:if="{{generationQueue.message}}" class="usage-message {{generationQueue.unavailable ? 'is-warn' : ''}}">
+            {{generationQueue.message}}
+          </view>
+
+          <view class="generation-queue-summary">
+            <view><text>排队</text><text>{{generationQueue.snapshot.queuedCount}}</text></view>
+            <view><text>处理中</text><text>{{generationQueue.snapshot.processingCount}}</text></view>
+            <view><text>待退款</text><text>{{generationQueue.snapshot.pendingRefundCount}}</text></view>
+            <view><text>最老等待</text><text>{{generationQueue.oldestQueuedText}}</text></view>
+            <view><text>图片任务</text><text>{{generationQueue.snapshot.kinds.image}}</text></view>
+            <view><text>视频任务</text><text>{{generationQueue.snapshot.kinds.video}}</text></view>
+          </view>
+
+          <view class="generation-queue-settings">
+            <view class="generation-queue-settings-title">Worker 设置</view>
+            <view class="admin-form-grid generation-queue-settings-grid">
+              <view class="admin-field">
+                <text>同时处理任务数（1-4）</text>
+                <input
+                  type="number"
+                  value="{{form.generationQueue.workerConcurrency}}"
+                  data-section="generationQueue"
+                  data-key="workerConcurrency"
+                  bindinput="onInput"
+                />
+              </view>
+              <view class="admin-field">
+                <text>积压告警线（1-100）</text>
+                <input
+                  type="number"
+                  value="{{form.generationQueue.alertThreshold}}"
+                  data-section="generationQueue"
+                  data-key="alertThreshold"
+                  bindinput="onInput"
+                />
+              </view>
+              <view class="admin-field">
+                <text>重复告警间隔（分钟）</text>
+                <input
+                  type="number"
+                  value="{{form.generationQueue.alertCooldownMinutes}}"
+                  data-section="generationQueue"
+                  data-key="alertCooldownMinutes"
+                  bindinput="onInput"
+                />
+              </view>
+            </view>
+            <view class="admin-section-help">修改后点击页面上方“保存全部配置”才会生效。</view>
+          </view>
+
+          <view class="generation-queue-filter-block">
+            <view class="diagnostic-admin-filter-title">任务类型</view>
+            <view class="diagnostic-admin-filter-row">
+              <view
+                wx:for="{{generationQueueKindOptions}}"
+                wx:key="value"
+                class="diagnostic-admin-filter-chip {{generationQueueKind === item.value ? 'is-active' : ''}}"
+                data-kind="{{item.value}}"
+                bindtap="selectGenerationQueueKind"
+              >{{item.label}}</view>
+            </view>
+          </view>
+          <view class="generation-queue-filter-block">
+            <view class="diagnostic-admin-filter-title">任务状态</view>
+            <scroll-view class="diagnostic-admin-filter-scroll" scroll-x enhanced show-scrollbar="{{false}}">
+              <view class="diagnostic-admin-filter-row">
+                <view
+                  wx:for="{{generationQueueStatusOptions}}"
+                  wx:key="value"
+                  class="diagnostic-admin-filter-chip {{generationQueueStatus === item.value ? 'is-active' : ''}}"
+                  data-status="{{item.value}}"
+                  bindtap="selectGenerationQueueStatus"
+                >{{item.label}}</view>
+              </view>
+            </scroll-view>
+          </view>
+
+          <view wx:if="{{generationQueue.visibleTasks.length}}" class="generation-task-list">
+            <view
+              wx:for="{{generationQueue.visibleTasks}}"
+              wx:key="operationId"
+              class="generation-task-row"
+              data-operation-id="{{item.operationId}}"
+              bindtap="openGenerationOperationHistory"
+              hover-class="control-tap"
+            >
+              <view class="generation-task-row-head">
+                <view class="generation-task-tags">
+                  <text class="generation-task-kind">{{item.kindText}}</text>
+                  <text class="generation-task-status status-{{item.status}}">{{item.statusText}}</text>
+                </view>
+                <text class="generation-task-time">{{item.updatedAtText}}</text>
+              </view>
+              <view class="generation-task-id">{{item.requestId}}</view>
+              <view class="generation-task-meta">
+                <text>阶段 {{item.stage}}</text>
+                <text>进度 {{item.progress}}%</text>
+                <text>尝试 {{item.attemptCount}} 次</text>
+                <text wx:if="{{item.errorCode}}">代码 {{item.errorCode}}</text>
+              </view>
+            </view>
+          </view>
+          <view wx:else class="admin-empty usage-empty">当前筛选条件下没有任务。</view>
+
+          <view wx:if="{{generationHistoryVisible}}" class="generation-history-panel">
+            <view class="generation-history-head">
+              <view>
+                <view class="generation-history-title">任务阶段历史</view>
+                <view wx:if="{{generationHistory}}" class="generation-history-subtitle">
+                  {{generationHistory.task.kindText}} · {{generationHistory.task.statusText}} · {{generationHistory.task.requestId}}
+                </view>
+              </view>
+              <button class="copy-error-button" bindtap="closeGenerationOperationHistory">关闭</button>
+            </view>
+            <view wx:if="{{generationHistoryLoading}}" class="usage-message">正在读取阶段历史...</view>
+            <view wx:elif="{{generationHistory && generationHistory.history.length}}" class="generation-history-list">
+              <view wx:for="{{generationHistory.history}}" wx:key="atText" class="generation-history-row">
+                <view class="generation-history-row-head">
+                  <text>{{item.fromStatusText}} → {{item.statusText}}</text>
+                  <text>{{item.atText}}</text>
+                </view>
+                <view class="generation-task-meta">
+                  <text>阶段 {{item.stage}}</text>
+                  <text>进度 {{item.progress}}%</text>
+                  <text>尝试 {{item.attemptCount}} 次</text>
+                  <text wx:if="{{item.code}}">代码 {{item.code}}</text>
+                </view>
+              </view>
+            </view>
+            <view wx:elif="{{generationHistory}}" class="admin-empty usage-empty">这条任务还没有阶段历史。</view>
+          </view>
+        </view>
+      </view>
+
       <view id="monitor-section-diagnosticLogs" class="card admin-section diagnostic-admin-section monitor-fold-card {{monitorSections.diagnosticLogs ? 'is-open' : 'is-collapsed'}}">
         <view class="admin-section-head">
           <view class="monitor-section-head-main">

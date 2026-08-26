@@ -747,6 +747,23 @@ module.exports = {
       silent: Boolean(options.silent)
     });
   },
+  getAdminGenerationQueue(limit = 20) {
+    return callApi({
+      action: "getAdminGenerationQueue",
+      limit: Math.max(1, Math.min(50, Number(limit) || 20)),
+      retryLimit: 0,
+      silent: true
+    });
+  },
+  getAdminGenerationOperationHistory(operationId, requestId = "") {
+    return callApi({
+      action: "getAdminGenerationOperationHistory",
+      operationId: String(operationId || "").trim().slice(0, 180),
+      requestId: String(requestId || "").trim().slice(0, 120),
+      retryLimit: 0,
+      silent: true
+    });
+  },
   getAdminUserStats(offset = 0, limit = 20, filters = {}) {
     return callApi({
       action: "getAdminUserStats",

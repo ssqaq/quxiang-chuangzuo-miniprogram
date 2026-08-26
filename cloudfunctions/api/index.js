@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.43.2";
-const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0432";
+const API_BUILD_VERSION = "0.43.3";
+const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0433";
 const DEFAULT_IMAGE_MODE = "edits";
 // 图片和视频默认成本只在云函数入口维护；管理员页读取云端有效配置，
 // 避免前后端各写一份价格。入口保持单文件可启动，兼容 CloudBase 部署。
@@ -46,10 +46,14 @@ const pixelAcceptance = require("./lib/pixel-acceptance");
 const pixelProtectionFlow = require("./lib/pixel-protection-flow");
 const { ACCESS, createActionRegistry } = require("./lib/action-registry");
 const generationStateMachine = require("./lib/generation-state-machine");
+const generationQueueMonitor = require("./lib/generation-queue-monitor");
 const {
   createGenerationExecutionKernel
 } = require("./lib/generation-execution-kernel");
 const imageProviderFailover = require("./lib/image-provider-failover");
+const {
+  createVideoExecutionKernel
+} = require("./lib/video-execution-kernel");
 const XLSX = require("xlsx");
 const publishExportCore = (() => {
   const module = { exports: {} };
@@ -6006,6 +6010,10 @@ function normalizeRuntimePatch(input = {}) {
   const videoSource = source.video && typeof source.video === "object" ? source.video : {};
   const pointsSource = source.points && typeof source.points === "object" ? source.points : {};
   const costsSource = source.costs && typeof source.costs === "object" ? source.costs : {};
+  const generationQueueSource = source.generationQueue
+    && typeof source.generationQueue === "object"
+    ? source.generationQueue
+    : {};
   const faceCostSource = costsSource.face && typeof costsSource.face === "object"
     ? costsSource.face
     : {};
@@ -6079,6 +6087,11 @@ function normalizeRuntimePatch(input = {}) {
     "defaultResolution",
     "defaultDurationSeconds"
   ];
+  const generationQueueKeys = [
+    "workerConcurrency",
+    "alertThreshold",
+    "alertCooldownMinutes"
+  ];
   const faceConfig = {};
   const analysis = {};
   const image = {};
@@ -6090,6 +6103,7 @@ function normalizeRuntimePatch(input = {}) {
   const analysisPricing = {};
   const imagePricing = {};
   const videoPricing = {};
+  const generationQueue = {};
   faceKeys.forEach((key) => {
     if (hasOwn(faceSource, key)) {
       faceConfig[key] = key === "apiKey"
@@ -6161,6 +6175,11 @@ function normalizeRuntimePatch(input = {}) {
       });
     }
   });
+  generationQueueKeys.forEach((key) => {
+    if (hasOwn(generationQueueSource, key)) {
+      generationQueue[key] = generationQueueSource[key];
+    }
+  });
   if (Object.keys(face).length) costs.face = face;
   if (Object.keys(analysisPricing).length) costs.analysis = analysisPricing;
   if (Object.keys(imagePricing).length) costs.image = imagePricing;
@@ -6172,7 +6191,8 @@ function normalizeRuntimePatch(input = {}) {
     imageBackup,
     video,
     points,
-    costs
+    costs,
+    generationQueue
   };
 }
 
@@ -6221,6 +6241,7 @@ function validateRuntimePatch(patch) {
   const analysisCosts = costs.analysis || {};
   const imageCosts = costs.image || {};
   const videoCosts = costs.video || {};
+  const generationQueue = patch.generationQueue || {};
   [
     ["face.baseUrl", face.baseUrl],
     ["face.endpoint", face.endpoint],
@@ -6400,6 +6421,23 @@ function validateRuntimePatch(patch) {
   ) {
     errors.push("costs.video.defaultResolution 只能是 480p、720p 或 1080p");
   }
+  [
+    ["generationQueue.workerConcurrency", generationQueue.workerConcurrency, 1, 4],
+    ["generationQueue.alertThreshold", generationQueue.alertThreshold, 1, 100],
+    ["generationQueue.alertCooldownMinutes", generationQueue.alertCooldownMinutes, 1, 60]
+  ].forEach(([field, value, minimum, maximum]) => {
+    if (
+      value !== undefined
+      && (
+        !Number.isFinite(Number(value))
+        || Math.round(Number(value)) !== Number(value)
+        || Number(value) < minimum
+        || Number(value) > maximum
+      )
+    ) {
+      errors.push(`${field} 必须是 ${minimum}～${maximum} 的整数`);
+    }
+  });
   return errors;
 }
 
@@ -6418,6 +6456,13 @@ function mergeRuntimeConfig(current, patch) {
     ),
     video: Object.assign({}, existing.video || {}, patch.video || {}),
     points: Object.assign({}, existing.points || {}, patch.points || {}),
+    generationQueue: generationQueueMonitor.normalizeQueueSettings(
+      Object.assign(
+        {},
+        existing.generationQueue || {},
+        patch.generationQueue || {}
+      )
+    ),
     costs: Object.assign({}, existingCosts, patchCosts, {
       face: Object.assign({}, existingCosts.face || {}, patchCosts.face || {}),
       analysis: Object.assign({}, existingCosts.analysis || {}, patchCosts.analysis || {}),
@@ -6543,6 +6588,9 @@ function redactConfig(config, defaults) {
   const video = config.video || {};
   const points = config.points || {};
   const costs = resolveCostConfig(config.costs || {});
+  const generationQueue = generationQueueMonitor.normalizeQueueSettings(
+    config.generationQueue
+  );
   return {
     face: {
       provider: face.provider || "",
@@ -6646,7 +6694,8 @@ function redactConfig(config, defaults) {
         perSecond: Object.assign({}, costs.video.perSecond),
         defaultDurationSeconds: costs.video.defaultDurationSeconds
       }
-    }
+    },
+    generationQueue
   };
 }
 
@@ -6759,6 +6808,13 @@ async function loadAdminRuntimeConfig(force = false) {
     }
     const value = rawConfig
       ? Object.assign(costMigration.value, {
+          generationQueue: generationQueueMonitor.normalizeQueueSettings(
+            costMigration.value && costMigration.value.generationQueue
+          ),
+          generationQueueAlertState: rawConfig.generationQueueAlertState
+            && typeof rawConfig.generationQueueAlertState === "object"
+            ? Object.assign({}, rawConfig.generationQueueAlertState)
+            : {},
           version: Number(rawConfig.version) || 0,
           updatedAt: rawConfig.updatedAt || "",
           updatedBy: rawConfig.updatedBy || ""
@@ -6791,7 +6847,8 @@ async function resolveEffectiveConfigs() {
       imageBackup: {},
       video: {},
       points: {},
-      costs: {}
+      costs: {},
+      generationQueue: generationQueueMonitor.normalizeQueueSettings()
     },
     face: resolveFaceConfig(runtime && runtime.face),
     analysis: resolveAnalysisConfig(runtime && runtime.analysis),
@@ -6799,7 +6856,10 @@ async function resolveEffectiveConfigs() {
     imageBackup: resolveImageBackupConfig(runtime && runtime.imageBackup),
     video: resolveVideoConfig(runtime && runtime.video),
     points: resolvePointsConfig(runtime && runtime.points),
-    costs: resolveCostConfig(runtime && runtime.costs)
+    costs: resolveCostConfig(runtime && runtime.costs),
+    generationQueue: generationQueueMonitor.normalizeQueueSettings(
+      runtime && runtime.generationQueue
+    )
   };
 }
 
@@ -6811,6 +6871,7 @@ function adminConfigView(configs, runtime, metadata = {}) {
   const videoDefaults = resolveVideoConfig();
   const pointDefaults = resolvePointsConfig();
   const costDefaults = resolveCostConfig();
+  const generationQueueDefaults = generationQueueMonitor.normalizeQueueSettings();
   const overrides = runtime || {
     face: {},
     analysis: {},
@@ -6818,7 +6879,8 @@ function adminConfigView(configs, runtime, metadata = {}) {
     imageBackup: {},
     video: {},
     points: {},
-    costs: {}
+    costs: {},
+    generationQueue: generationQueueDefaults
   };
   return {
     defaults: redactConfig({
@@ -6828,7 +6890,8 @@ function adminConfigView(configs, runtime, metadata = {}) {
       imageBackup: imageBackupDefaults,
       video: videoDefaults,
       points: pointDefaults,
-      costs: costDefaults
+      costs: costDefaults,
+      generationQueue: generationQueueDefaults
     }, {
       face: faceDefaults,
       analysis: analysisDefaults,
@@ -6836,7 +6899,8 @@ function adminConfigView(configs, runtime, metadata = {}) {
       imageBackup: imageBackupDefaults,
       video: videoDefaults,
       points: pointDefaults,
-      costs: costDefaults
+      costs: costDefaults,
+      generationQueue: generationQueueDefaults
     }),
     overrides: redactConfig(overrides, {
       face: faceDefaults,
@@ -6854,7 +6918,8 @@ function adminConfigView(configs, runtime, metadata = {}) {
       imageBackup: configs.imageBackup,
       video: configs.video,
       points: configs.points,
-      costs: configs.costs
+      costs: configs.costs,
+      generationQueue: configs.generationQueue
     }, {
       face: configs.face,
       analysis: configs.analysis,
@@ -6862,7 +6927,8 @@ function adminConfigView(configs, runtime, metadata = {}) {
       imageBackup: configs.imageBackup,
       video: configs.video,
       points: configs.points,
-      costs: configs.costs
+      costs: configs.costs,
+      generationQueue: configs.generationQueue
     }),
     updatedAt: metadata.updatedAt || "",
     version: Number(metadata.version || 0),
@@ -6900,6 +6966,312 @@ async function getAdminConfig(context) {
     }
   }
   return jsonResponse(true, adminConfigView(configs, runtime, metadata));
+}
+
+function operationRows(result) {
+  return result && Array.isArray(result.data) ? result.data : [];
+}
+
+async function countGenerationOperations(where = {}, store = db) {
+  let query = store.collection(GENERATION_OPERATION_COLLECTION);
+  if (where && Object.keys(where).length) query = query.where(where);
+  if (typeof query.count === "function") {
+    const result = await query.count();
+    return Math.max(0, Number(result && result.total) || 0);
+  }
+  const result = await query.limit(100).get();
+  return operationRows(result).length;
+}
+
+async function loadRecentGenerationOperations(limit = 20, store = db) {
+  const safeLimit = Math.max(1, Math.min(50, Number(limit) || 20));
+  try {
+    const result = await store
+      .collection(GENERATION_OPERATION_COLLECTION)
+      .orderBy("updatedAt", "desc")
+      .limit(safeLimit)
+      .get();
+    return operationRows(result);
+  } catch (error) {
+    if (isCollectionMissingError(error)) throw error;
+    const batches = await Promise.all(
+      GENERATION_OPERATION_STATUSES.map(async (status) => {
+        try {
+          const result = await store
+            .collection(GENERATION_OPERATION_COLLECTION)
+            .where({ status })
+            .limit(safeLimit)
+            .get();
+          return operationRows(result);
+        } catch (queryError) {
+          if (isCollectionMissingError(queryError)) throw queryError;
+          return [];
+        }
+      })
+    );
+    const unique = new Map();
+    batches.flat().forEach((operation) => {
+      if (!operation) return;
+      unique.set(
+        String(operation._id || `${operation.openid || ""}:${operation.requestId || ""}`),
+        operation
+      );
+    });
+    return [...unique.values()]
+      .sort((left, right) => operationUpdatedAtMs(right) - operationUpdatedAtMs(left))
+      .slice(0, safeLimit);
+  }
+}
+
+async function loadOldestQueuedGenerationOperation(store = db) {
+  const collection = store.collection(GENERATION_OPERATION_COLLECTION);
+  try {
+    const result = await collection
+      .where({ status: "queued" })
+      .orderBy("queuedAt", "asc")
+      .limit(1)
+      .get();
+    return operationRows(result)[0] || null;
+  } catch (error) {
+    if (isCollectionMissingError(error)) throw error;
+    try {
+      const result = await collection
+        .where({ status: "queued" })
+        .orderBy("createdAt", "asc")
+        .limit(1)
+        .get();
+      return operationRows(result)[0] || null;
+    } catch (fallbackError) {
+      if (isCollectionMissingError(fallbackError)) throw fallbackError;
+      const result = await collection
+        .where({ status: "queued" })
+        .limit(50)
+        .get();
+      return operationRows(result)
+        .sort((left, right) => operationUpdatedAtMs(left) - operationUpdatedAtMs(right))[0]
+        || null;
+    }
+  }
+}
+
+async function loadGenerationQueueOverview(options = {}) {
+  const store = options.store || db;
+  const now = options.now instanceof Date
+    ? options.now
+    : new Date(options.now || Date.now());
+  const settings = generationQueueMonitor.normalizeQueueSettings(
+    options.settings
+    || (await resolveEffectiveConfigs()).generationQueue
+  );
+  const includeTasks = options.includeTasks !== false;
+  const limit = Math.max(1, Math.min(50, Number(options.limit) || 20));
+  try {
+    const [statusCounts, imageCount, videoCount, oldestQueued, recent] = await Promise.all([
+      Promise.all(GENERATION_OPERATION_STATUSES.map(
+        (status) => countGenerationOperations({ status }, store)
+      )),
+      countGenerationOperations({ kind: "image" }, store),
+      countGenerationOperations({ kind: "video" }, store),
+      loadOldestQueuedGenerationOperation(store),
+      includeTasks ? loadRecentGenerationOperations(limit, store) : Promise.resolve([])
+    ]);
+    const counts = {};
+    GENERATION_OPERATION_STATUSES.forEach((status, index) => {
+      counts[status] = Math.max(0, Number(statusCounts[index]) || 0);
+    });
+    const queuedCount = counts.queued;
+    const oldestQueuedAtMs = operationUpdatedAtMs(
+      oldestQueued && Object.assign({}, oldestQueued, {
+        lastHeartbeatAt: oldestQueued.queuedAt
+          || oldestQueued.createdAt
+          || oldestQueued.updatedAt
+      })
+    );
+    const snapshot = Object.assign(
+      generationQueueMonitor.buildQueueSnapshot([], { now, settings }),
+      {
+        total: GENERATION_OPERATION_STATUSES.reduce(
+          (total, status) => total + counts[status],
+          0
+        ),
+        counts,
+        kinds: {
+          image: Math.max(0, Number(imageCount) || 0),
+          video: Math.max(0, Number(videoCount) || 0)
+        },
+        queuedCount,
+        processingCount: counts.processing,
+        pendingRefundCount: counts.failed + counts.refunding,
+        oldestQueuedAt: oldestQueuedAtMs
+          ? new Date(oldestQueuedAtMs).toISOString()
+          : "",
+        oldestQueuedAgeSeconds: oldestQueuedAtMs
+          ? Math.max(0, Math.floor((now.getTime() - oldestQueuedAtMs) / 1000))
+          : 0,
+        alertActive: queuedCount >= settings.alertThreshold
+      }
+    );
+    return {
+      snapshot,
+      tasks: recent.map((operation) => generationQueueMonitor.buildAdminOperationSummary(
+        Object.assign({}, operation, {
+          userHash: operation.openid ? usageUserHash(operation.openid) : ""
+        }),
+        { now }
+      )),
+      unavailable: false,
+      message: ""
+    };
+  } catch (error) {
+    if (!isCollectionMissingError(error)) throw error;
+    return {
+      snapshot: generationQueueMonitor.buildQueueSnapshot([], { now, settings }),
+      tasks: [],
+      unavailable: true,
+      message: "任务集合还没有初始化，部署后先执行数据库初始化。"
+    };
+  }
+}
+
+async function findAdminGenerationOperation(event = {}, store = db) {
+  const operationId = String(
+    event.operationId
+    || event.id
+    || event.payload && event.payload.operationId
+    || ""
+  ).trim().slice(0, 180);
+  if (operationId) {
+    return readDocument(
+      store.collection(GENERATION_OPERATION_COLLECTION).doc(operationId)
+    );
+  }
+  const requestId = String(
+    event.requestId
+    || event.payload && event.payload.requestId
+    || ""
+  ).trim().slice(0, 120);
+  if (!requestId) return null;
+  const result = await store
+    .collection(GENERATION_OPERATION_COLLECTION)
+    .where({ requestId })
+    .limit(2)
+    .get();
+  return operationRows(result)[0] || null;
+}
+
+async function getAdminGenerationQueue(event = {}, context) {
+  if (!isAdminContext(context)) return adminForbidden();
+  const overview = await loadGenerationQueueOverview({
+    limit: event.limit
+  });
+  return jsonResponse(true, overview);
+}
+
+async function getAdminGenerationOperationHistory(event = {}, context) {
+  if (!isAdminContext(context)) return adminForbidden();
+  try {
+    const operation = await findAdminGenerationOperation(event);
+    if (!operation) {
+      return fail("没有找到这个任务。", "GENERATION_OPERATION_NOT_FOUND");
+    }
+    return jsonResponse(
+      true,
+      generationQueueMonitor.buildAdminOperationHistory(
+        Object.assign({}, operation, {
+          userHash: operation.openid ? usageUserHash(operation.openid) : ""
+        }),
+        { now: new Date() }
+      )
+    );
+  } catch (error) {
+    if (isCollectionMissingError(error)) {
+      return fail(
+        "任务集合还没有初始化。",
+        "GENERATION_OPERATION_COLLECTION_MISSING"
+      );
+    }
+    throw error;
+  }
+}
+
+async function persistGenerationQueueAlertState(state) {
+  const safeState = state && typeof state === "object"
+    ? {
+        active: Boolean(state.active),
+        signature: String(state.signature || "").slice(0, 160),
+        lastAlertAt: state.lastAlertAt || "",
+        lastRecoveredAt: state.lastRecoveredAt || ""
+      }
+    : {};
+  await db
+    .collection(ADMIN_RUNTIME_CONFIG_COLLECTION)
+    .doc(ADMIN_RUNTIME_CONFIG_ID)
+    .update({
+      data: {
+        generationQueueAlertState: safeState
+      }
+    });
+  if (adminRuntimeCache.value) {
+    adminRuntimeCache = {
+      value: Object.assign({}, adminRuntimeCache.value, {
+        generationQueueAlertState: safeState
+      }),
+      expiresAt: adminRuntimeCache.expiresAt
+    };
+  }
+  return safeState;
+}
+
+async function observeGenerationQueue(options = {}) {
+  try {
+    const runtime = await loadAdminRuntimeConfig();
+    const settings = generationQueueMonitor.normalizeQueueSettings(
+      options.settings || runtime && runtime.generationQueue
+    );
+    const overview = await loadGenerationQueueOverview({
+      includeTasks: false,
+      settings,
+      now: options.now
+    });
+    if (overview.unavailable) return overview;
+    const decision = generationQueueMonitor.decideQueueAlert(
+      overview.snapshot,
+      runtime && runtime.generationQueueAlertState,
+      { now: options.now }
+    );
+    if (decision.shouldLog) {
+      const eventName = decision.action === "recovered"
+        ? "generation.queue-backlog-recovered"
+        : "generation.queue-backlog-alert";
+      log(decision.action === "recovered" ? "info" : "warn", eventName, {
+        queuedCount: overview.snapshot.queuedCount,
+        processingCount: overview.snapshot.processingCount,
+        oldestQueuedAgeSeconds: overview.snapshot.oldestQueuedAgeSeconds,
+        workerConcurrency: overview.snapshot.workerConcurrency,
+        alertThreshold: overview.snapshot.alertThreshold
+      });
+      try {
+        await persistGenerationQueueAlertState(decision.nextState);
+      } catch (stateError) {
+        log("warn", "generation.queue-alert-state-write-failed", {
+          action: decision.action,
+          error: sanitizeFailureMessage(stateError && stateError.message)
+        });
+      }
+    }
+    return Object.assign({}, overview, {
+      alertDecision: decision.action
+    });
+  } catch (error) {
+    log("warn", "generation.queue-observe-failed", {
+      error: sanitizeFailureMessage(error && error.message)
+    });
+    return {
+      unavailable: true,
+      message: "队列状态读取失败。",
+      errorCode: String(error && error.code || "generation-queue-observe-failed")
+    };
+  }
 }
 
 function isCollectionMissingError(error) {
@@ -7052,6 +7424,12 @@ async function saveAdminConfig(event, context) {
     video: next.video,
     points: next.points,
     costs: next.costs,
+    generationQueue: next.generationQueue,
+    generationQueueAlertState: current
+      && current.generationQueueAlertState
+      && typeof current.generationQueueAlertState === "object"
+      ? current.generationQueueAlertState
+      : {},
     version: previousVersion + 1,
     updatedAt: new Date(),
     updatedBy: getOpenId(context)
@@ -7068,7 +7446,12 @@ async function saveAdminConfig(event, context) {
       imageBackup: next.imageBackup,
       video: next.video,
       points: next.points,
-      costs: next.costs
+      costs: next.costs,
+      generationQueue: next.generationQueue,
+      generationQueueAlertState: data.generationQueueAlertState,
+      version: data.version,
+      updatedAt: data.updatedAt,
+      updatedBy: data.updatedBy
     },
     expiresAt: Date.now() + ADMIN_RUNTIME_CACHE_TTL_MS
   };
@@ -7081,7 +7464,8 @@ async function saveAdminConfig(event, context) {
     imageBackupFields: Object.keys(patch.imageBackup),
     videoFields: Object.keys(patch.video),
     pointsFields: Object.keys(patch.points),
-    costFields: Object.keys(patch.costs)
+    costFields: Object.keys(patch.costs),
+    generationQueueFields: Object.keys(patch.generationQueue)
   });
   const configs = await resolveEffectiveConfigs();
   return jsonResponse(true, adminConfigView(configs, next, data));
@@ -11377,7 +11761,7 @@ async function saveGenerationOperation(
     || ""
   );
   const enforceState = options.enforceState === undefined
-    ? operationKind === "image"
+    ? ["image", "video"].includes(operationKind)
     : Boolean(options.enforceState);
   const patch = enforceState
     ? generationStateMachine.applyTransition(existing || {}, data, {
@@ -11512,7 +11896,7 @@ async function claimGenerationOperation(openid, requestId, kind) {
       attemptCount: (Number(operation.attemptCount) || 0) + 1,
       lastError: null
     }, transaction, {
-      enforceState: kind === "image",
+      enforceState: ["image", "video"].includes(kind),
       actor: "worker",
       historyStage: "processing"
     });
@@ -11535,7 +11919,7 @@ async function updateGenerationOperation(openid, requestId, patch, options = {})
     }
     return saveGenerationOperation(openid, requestId, patch, transaction, {
       enforceState: options.enforceState === undefined
-        ? operation.kind === "image"
+        ? ["image", "video"].includes(operation.kind)
         : Boolean(options.enforceState),
       actor: options.actor,
       historyStage: options.historyStage,
@@ -11798,7 +12182,7 @@ async function reserveUsage(openid, requestId, kind) {
       billing,
       ledgerId: ledger._id
     }, transaction, {
-      enforceState: kind === "image",
+      enforceState: ["image", "video"].includes(kind),
       actor: "billing",
       historyStage: "reserved"
     });
@@ -11897,7 +12281,7 @@ async function refundUsage(openid, requestId, reason) {
           refundPending: false,
           refundLastError: ""
         }, transaction, {
-          enforceState: operation.kind === "image",
+          enforceState: ["image", "video"].includes(operation.kind),
           actor: "billing",
           historyStage: "refunded",
           historyCode: "refund-ledger-created"
@@ -14231,7 +14615,12 @@ async function loadGenerationReconcileCandidates(dependencies = {}) {
   }));
   const unique = new Map();
   batches.flat().forEach((item) => {
-    if (!item || item.kind !== "image" || !item.openid || !item.requestId) return;
+    if (
+      !item
+      || !["image", "video"].includes(item.kind)
+      || !item.openid
+      || !item.requestId
+    ) return;
     const key = String(item._id || `${item.openid}:${item.requestId}`);
     unique.set(key, item);
   });
@@ -15110,177 +15499,100 @@ async function materializeVideoResult(openid, requestId, taskId, videoURL, meta 
   };
 }
 
-async function createVideoTask(event, context) {
-  const configs = await resolveEffectiveConfigs();
-  const video = configs.video;
-  if (!video.configured) {
-    return fail(
-      "视频服务未配置，请联系管理员配置 AI_VIDEO_PROVIDER、AI_VIDEO_BASE_URL、AI_VIDEO_MODEL 和 AI_VIDEO_API_KEY。",
-      "VIDEO_PROVIDER_NOT_CONFIGURED"
-    );
+function sanitizeVideoOperationResult(result = {}) {
+  const source = result && typeof result === "object" ? result : {};
+  const safe = {};
+  [
+    ["requestId", 120],
+    ["taskId", 160],
+    ["status", 40],
+    ["providerStatus", 80],
+    ["provider", 80],
+    ["model", 160],
+    ["resolution", 32],
+    ["videoURL", 4096],
+    ["videoFileID", 512],
+    ["videoCloudPath", 1024],
+    ["sourceImageFileID", 512]
+  ].forEach(([key, maxLength]) => {
+    if (source[key] === undefined || source[key] === null) return;
+    safe[key] = String(source[key]).trim().slice(0, maxLength);
+  });
+  [
+    "sourceImageWidth",
+    "sourceImageHeight",
+    "sourceImageBytes",
+    "videoBytes"
+  ].forEach((key) => {
+    if (source[key] === undefined || source[key] === null) return;
+    safe[key] = Math.max(0, Number(source[key]) || 0);
+  });
+  if (source.error) {
+    safe.error = sanitizeFailureMessage(source.error, 240);
   }
-  const payload = event.payload || {};
-  if (!payload.imageFileID) {
-    return fail("缺少视频源图片，请重新选择照片。", "VIDEO_SOURCE_IMAGE_MISSING");
-  }
-  const requestId = event.requestId;
-  const openid = getOpenId(context);
-  let billing = null;
-  let claimed = false;
-  let providerAccepted = false;
-  try {
-    billing = await reserveUsage(openid, requestId, "video");
-    const claim = billing.untracked
-      ? { claimed: true, operation: null, completed: false }
-      : await claimGenerationOperation(openid, requestId, "video");
-    if (claim.completed && claim.operation && claim.operation.result) {
-      return jsonResponse(true, Object.assign({}, claim.operation.result, {
-        deduplicated: true,
-        billing
-      }));
-    }
-    if (!claim.claimed) {
-      if (claim.operation && claim.operation.providerTaskId) {
-        return jsonResponse(true, Object.assign({}, claim.operation.result || {
-          taskId: claim.operation.providerTaskId,
-          status: "processing",
-          providerStatus: "processing"
-        }, {
-          requestId,
-          provider: video.provider,
-          deduplicated: true,
-          billing
-        }));
-      }
-      throw operationStateError(claim.operation);
-    }
-    claimed = true;
-    const originalImageBuffer = await downloadCloudFile(payload.imageFileID, {
-      requestId,
-      action: "video.create",
-      fileType: "video-source"
-    });
-    const standardized = normalizeSourceToJpeg(Buffer.from(originalImageBuffer), {
-      maxEdge: 1280,
-      quality: 95
-    });
-    const sourceCloudPath = normalizedVideoSourceCloudPath(openid, requestId);
-    const sourceImageFileID = await uploadCloudBuffer(
-      sourceCloudPath,
-      standardized.buffer
-    );
-    const requestPayload = buildVideoGenerationPayload(
-      payload,
-      standardized.buffer,
-      video
-    );
-    if (!billing.untracked) {
-      await updateGenerationOperation(openid, requestId, {
-        sourceOriginalFileID: String(payload.imageFileID),
-        sourceImageFileID,
-        sourceCloudPath,
-        sourceImageWidth: standardized.width,
-        sourceImageHeight: standardized.height,
-        sourceImageBytes: standardized.buffer.length
-      }, {
-        allowedStatuses: ["processing"]
-      });
-    }
-    log("info", "video.create.start", {
-      requestId,
-      provider: video.provider,
-      model: requestPayload.model,
-      resolution: requestPayload.resolution || "",
-      duration: requestPayload.duration || null,
-      imageBytes: standardized.buffer.length,
-      imageWidth: standardized.width,
-      imageHeight: standardized.height,
-      prompt: requestPayload.prompt,
-      billingSource: billing.source,
-      pointsCharged: billing.pointsCharged
-    });
-    const response = await requestJsonMethod(
-      videoCreateUrl(video),
-      requestPayload,
-      video.apiKey,
-      "POST",
-      { "Idempotency-Key": requestId },
-      videoRequestMeta(requestId, "video.create", video, false, {
-        costs: configs.costs,
-        userHash: usageUserHash(openid),
-        videoResolution: requestPayload.resolution,
-        videoDurationSeconds: requestPayload.duration
-      })
-    );
-    const normalized = normalizeVideoCreateResponse(response);
-    providerAccepted = true;
-    log("info", "video.create.finish", {
-      requestId,
-      provider: video.provider,
-      taskId: normalized.taskId,
-      providerStatus: normalized.providerStatus,
-      durationMs: null
-    });
-    const result = Object.assign({}, normalized, {
-      requestId,
-      provider: video.provider,
-      model: requestPayload.model,
-      resolution: requestPayload.resolution || "",
-      sourceImageFileID,
-      sourceImageWidth: standardized.width,
-      sourceImageHeight: standardized.height,
-      sourceImageBytes: standardized.buffer.length,
-      billing
-    });
-    if (!billing.untracked) {
-      await updateGenerationOperation(openid, requestId, {
-        status: normalized.status === "succeeded" ? "succeeded" : "processing",
-        providerTaskId: normalized.taskId,
-        providerStatus: normalized.providerStatus,
-        result: Object.assign({}, result, { billing: null }),
-        providerCreatedAt: new Date()
-      }, {
-        allowedStatuses: ["processing"]
-      });
-    }
-    return jsonResponse(true, result);
-  } catch (error) {
-    if (claimed && billing && !billing.untracked && !providerAccepted) {
-      await failGenerationOperation(openid, requestId, error);
-      await refundUsage(openid, requestId, "视频任务创建失败，已退回本次使用额度");
-    }
-    throw error;
-  }
+  return safe;
 }
 
-async function queryVideoTask(event, context) {
-  const configs = await resolveEffectiveConfigs();
-  const video = configs.video;
-  if (!video.configured) {
-    return fail(
-      "视频服务未配置，无法查询动态视频任务。",
-      "VIDEO_PROVIDER_NOT_CONFIGURED"
-    );
-  }
-  const openid = getOpenId(context);
-  const taskId = String(event.taskId || "").trim();
-  if (!taskId) {
-    return fail("缺少视频任务编号。", "VIDEO_TASK_ID_MISSING");
-  }
-  const requestId = String(event.requestId || "").trim();
-  const operation = openid !== "anonymous" && requestId
-    ? await findGenerationOperation(openid, requestId)
-    : null;
-  if (operation) {
-    if (["refunding", "refunded"].includes(String(operation.status || ""))) {
-      throw operationStateError(operation);
-    }
-    if (operation.providerTaskId && String(operation.providerTaskId) !== taskId) {
-      return fail("视频任务编号与原请求不匹配。", "VIDEO_TASK_OWNERSHIP_MISMATCH");
-    }
-  } else if (openid !== "anonymous" && requestId) {
-    return fail("找不到这次视频生成请求。", "VIDEO_OPERATION_NOT_FOUND");
-  }
+async function prepareVideoSource(imageFileID, meta = {}) {
+  const originalImageBuffer = await downloadCloudFile(imageFileID, {
+    requestId: meta.requestId,
+    action: meta.action || "video.create",
+    fileType: "video-source"
+  });
+  const standardized = normalizeSourceToJpeg(Buffer.from(originalImageBuffer), {
+    maxEdge: 1280,
+    quality: 95
+  });
+  const sourceCloudPath = normalizedVideoSourceCloudPath(
+    meta.openid,
+    meta.requestId
+  );
+  const sourceImageFileID = await uploadCloudBuffer(
+    sourceCloudPath,
+    standardized.buffer
+  );
+  return {
+    buffer: standardized.buffer,
+    sourceOriginalFileID: String(imageFileID || ""),
+    sourceImageFileID,
+    sourceCloudPath,
+    width: standardized.width,
+    height: standardized.height,
+    bytes: standardized.buffer.length
+  };
+}
+
+async function createVideoProviderTaskAdapter({
+  openid,
+  requestId,
+  configs,
+  video,
+  requestPayload
+}) {
+  const response = await requestJsonMethod(
+    videoCreateUrl(video),
+    requestPayload,
+    video.apiKey,
+    "POST",
+    { "Idempotency-Key": requestId },
+    videoRequestMeta(requestId, "video.create", video, false, {
+      costs: configs.costs,
+      userHash: usageUserHash(openid),
+      videoResolution: requestPayload.resolution,
+      videoDurationSeconds: requestPayload.duration
+    })
+  );
+  return Object.assign(
+    normalizeVideoCreateResponse(response),
+    { videoURL: extractVideoUrl(response) }
+  );
+}
+
+async function queryVideoProviderTaskAdapter({
+  requestId,
+  taskId,
+  video
+}) {
   const response = await requestJsonMethod(
     videoQueryUrl(video, taskId),
     null,
@@ -15289,76 +15601,102 @@ async function queryVideoTask(event, context) {
     {},
     videoRequestMeta(requestId, "video.query", video, true)
   );
-  const normalized = normalizeVideoQueryResponse(response);
-  if (
-    ["failed", "cancelled"].includes(normalized.status)
-    && openid !== "anonymous"
-  ) {
-    if (operation) {
-      await updateGenerationOperation(openid, requestId, {
-        status: "failed",
-        providerStatus: normalized.providerStatus,
-        result: normalized,
-        failedAt: new Date(),
-        lastError: normalized.error || "视频任务失败"
-      }, {
-        allowedStatuses: ["processing", "failed"]
-      });
-      await refundUsage(openid, requestId, "视频任务失败，已退回本次使用额度");
+  return normalizeVideoQueryResponse(response);
+}
+
+async function completeVideoGenerationOperation(
+  openid,
+  requestId,
+  result,
+  options = {}
+) {
+  const safeResult = sanitizeVideoOperationResult(result);
+  return updateGenerationOperation(openid, requestId, {
+    status: "succeeded",
+    pipelineStage: "succeeded",
+    progress: 100,
+    providerTaskId: safeResult.taskId || "",
+    providerStatus: safeResult.providerStatus || "succeeded",
+    provider: safeResult.provider || "",
+    model: safeResult.model || "",
+    resolution: safeResult.resolution || "",
+    videoURL: safeResult.videoURL || "",
+    videoFileID: safeResult.videoFileID || "",
+    resultFileID: safeResult.videoFileID || "",
+    videoCloudPath: safeResult.videoCloudPath || "",
+    videoBytes: safeResult.videoBytes || 0,
+    sourceImageFileID: safeResult.sourceImageFileID || "",
+    result: safeResult,
+    succeededAt: new Date(),
+    lastHeartbeatAt: new Date(),
+    reconcilePending: false,
+    refundPending: false,
+    cleanupPending: false,
+    lastError: null
+  }, {
+    allowedStatuses: ["processing", "failed", "succeeded"],
+    enforceState: options.enforceState !== false,
+    actor: options.actor || "worker",
+    historyStage: "succeeded",
+    historyCode: "video-result-recorded"
+  });
+}
+
+async function failVideoGenerationOperation(
+  openid,
+  requestId,
+  error,
+  patch = {},
+  options = {}
+) {
+  const safeResult = patch.result && typeof patch.result === "object"
+    ? sanitizeVideoOperationResult(patch.result)
+    : undefined;
+  return updateGenerationOperation(openid, requestId, Object.assign({}, patch, {
+    status: "failed",
+    pipelineStage: String(
+      options.historyStage
+      || error && error.pipelineStage
+      || "failed"
+    ).slice(0, 40),
+    progress: 0,
+    providerTaskId: String(patch.providerTaskId || "").slice(0, 160),
+    providerStatus: String(patch.providerStatus || "").slice(0, 80),
+    ...(safeResult ? { result: safeResult } : {}),
+    failedAt: new Date(),
+    lastHeartbeatAt: new Date(),
+    lastError: {
+      code: String(error && error.code || "video-failed").slice(0, 80),
+      message: sanitizeFailureMessage(error && error.message || "视频任务失败", 240),
+      retryable: Boolean(error && error.retryable)
     }
+  }), {
+    allowedStatuses: ["reserved", "processing", "failed"],
+    enforceState: options.enforceState !== false,
+    actor: options.actor || "worker",
+    historyStage: options.historyStage || "failed",
+    historyCode: options.historyCode
+      || String(error && error.code || "video-failed")
+  });
+}
+
+async function deleteVideoOperationFile(fileID) {
+  try {
+    return await deletePhotoToVideoTempFile(fileID);
+  } catch (error) {
+    if (isPhotoToVideoTempFileMissing(error)) {
+      return { fileList: [{ fileID, status: 0, alreadyMissing: true }] };
+    }
+    throw error;
   }
-  if (normalized.status === "succeeded" && operation) {
-    const storedVideoFileID = String(
-      operation.videoFileID
-      || operation.result && operation.result.videoFileID
-      || operation.result && operation.result.resultFileID
-      || ""
-    ).trim();
-    const materialized = storedVideoFileID
-      ? {
-        videoFileID: storedVideoFileID,
-        videoCloudPath: String(operation.videoCloudPath || "").trim(),
-        videoBytes: Math.max(
-          0,
-          Number(operation.videoBytes || operation.result && operation.result.videoBytes) || 0
-        )
-      }
-      : await materializeVideoResult(
-        openid,
-        requestId,
-        taskId,
-        normalized.videoURL,
-        { requestId, action: "video.query" }
-      );
-    const completedResult = Object.assign({}, normalized, materialized, {
-      taskId,
-      requestId,
-      provider: video.provider
-    });
-    await completeGenerationOperation(openid, requestId, completedResult);
-    Object.assign(normalized, materialized);
-  }
-  if (
-    normalized.status === "succeeded"
-    && !normalized.videoURL
-    && !normalized.videoFileID
-  ) {
-    return fail(
-      "视频任务已完成，但服务没有返回视频地址。",
-      "VIDEO_RESULT_URL_MISSING",
-      {
-        taskId,
-        provider: video.provider,
-        providerStatus: normalized.providerStatus,
-        retryable: false
-      }
-    );
-  }
-  return jsonResponse(true, Object.assign({}, normalized, {
-    requestId,
-    taskId,
-    provider: video.provider
-  }));
+}
+
+async function createVideoTask(event, context) {
+  return videoExecutionKernel.createVideoTask(event, context);
+}
+
+async function queryVideoTask(event, context) {
+  return videoExecutionKernel.queryVideoTask(event, context);
 }
 
 function requireOwnedVideoOperation(operation, openid, requestId, taskId) {
@@ -15701,6 +16039,69 @@ function mapActionErrorResult(action, error, requestId) {
   });
 }
 
+function createVideoKernel() {
+  return createVideoExecutionKernel({
+    identity: {
+      getOpenId
+    },
+    config: {
+      resolve: resolveEffectiveConfigs
+    },
+    billing: {
+      reserve: reserveUsage,
+      refund: refundUsage,
+      publicView: (value) => value || null
+    },
+    operations: {
+      find: findGenerationOperation,
+      claim: claimGenerationOperation,
+      update: updateGenerationOperation,
+      complete: completeVideoGenerationOperation,
+      fail: failVideoGenerationOperation,
+      stateError: operationStateError
+    },
+    source: {
+      prepare: prepareVideoSource
+    },
+    provider: {
+      buildPayload: buildVideoGenerationPayload,
+      create: createVideoProviderTaskAdapter,
+      query: queryVideoProviderTaskAdapter
+    },
+    files: {
+      materialize: ({
+        openid,
+        requestId,
+        taskId,
+        videoURL
+      }) => materializeVideoResult(
+        openid,
+        requestId,
+        taskId,
+        videoURL,
+        { requestId, action: "video.query" }
+      ),
+      delete: deleteVideoOperationFile
+    },
+    response: {
+      ok: (data) => jsonResponse(true, data),
+      fail
+    },
+    serialization: {
+      sanitizeError: sanitizeFailureMessage
+    },
+    recovery: {
+      reservedStaleMs: GENERATION_QUEUE_STALE_MS,
+      processingStaleMs: GENERATION_PROCESSING_STALE_MS,
+      maxAttempts: GENERATION_MAX_RECOVERY_ATTEMPTS
+    },
+    log,
+    now: () => new Date()
+  });
+}
+
+const videoExecutionKernel = createVideoKernel();
+
 function createGenerationKernel() {
   return createGenerationExecutionKernel({
     access: {
@@ -15781,9 +16182,21 @@ function createGenerationKernel() {
         store: db,
         log
       }),
-      reconcile: reconcileGenerationOperation,
+      reconcile: (operation, options) => (
+        operation && operation.kind === "video"
+          ? videoExecutionKernel.reconcileVideoOperation(operation, {
+              now: options && options.now
+            })
+          : reconcileGenerationOperation(operation, options)
+      ),
       update: updateGenerationOperation,
       complete: completeGenerationOperation
+    },
+    queue: {
+      settings: async () => (
+        await resolveEffectiveConfigs()
+      ).generationQueue,
+      observe: observeGenerationQueue
     },
     results: {
       persist: persistGenerationResult
@@ -15835,6 +16248,18 @@ function createGenerationActionRegistry() {
     handler: ({ event, context }) => getGenerationStatus(event, context)
   });
   registry.register({
+    name: "createVideoTask",
+    access: ACCESS.USER,
+    metadata: { workflow: "video-generation-v1" },
+    handler: ({ event, context }) => createVideoTask(event, context)
+  });
+  registry.register({
+    name: "queryVideoTask",
+    access: ACCESS.USER,
+    metadata: { workflow: "video-generation-v1" },
+    handler: ({ event, context }) => queryVideoTask(event, context)
+  });
+  registry.register({
     name: "processGenerationQueue",
     triggerName: "generation-queue-worker",
     access: ACCESS.TIMER_OR_ADMIN,
@@ -15847,6 +16272,18 @@ function createGenerationActionRegistry() {
     access: ACCESS.TIMER_OR_ADMIN,
     metadata: { workflow: "image-generation-v1" },
     handler: ({ event, context }) => reconcileGenerationOperations(event, context)
+  });
+  registry.register({
+    name: "getAdminGenerationQueue",
+    access: ACCESS.ADMIN,
+    metadata: { workflow: "generation-admin-v1" },
+    handler: ({ event, context }) => getAdminGenerationQueue(event, context)
+  });
+  registry.register({
+    name: "getAdminGenerationOperationHistory",
+    access: ACCESS.ADMIN,
+    metadata: { workflow: "generation-admin-v1" },
+    handler: ({ event, context }) => getAdminGenerationOperationHistory(event, context)
   });
   return registry;
 }
@@ -16300,7 +16737,11 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     processGenerationQueue,
     generationActionRegistry,
     generationExecutionKernel,
+    videoExecutionKernel,
     generationStateMachine,
+    sanitizeVideoOperationResult,
+    completeVideoGenerationOperation,
+    failVideoGenerationOperation,
     refundUsage,
     claimGenerationOperation,
     completeGenerationOperation,

@@ -8,8 +8,10 @@ const cp = require("child_process");
 const root = path.resolve(__dirname, "..");
 const scriptPath = path.join(root, "scripts", "deploy-and-verify-api.ps1");
 const verifyScriptPath = path.join(root, "scripts", "verify-online-api.ps1");
+const safetyScriptPath = path.join(root, "scripts", "cloud-deploy-safety.ps1");
 const source = fs.readFileSync(scriptPath, "utf8");
 const verifySource = fs.readFileSync(verifyScriptPath, "utf8");
+const safetySource = fs.readFileSync(safetyScriptPath, "utf8");
 const apiSource = fs.readFileSync(
   path.join(root, "cloudfunctions", "api", "index.js"),
   "utf8"
@@ -89,8 +91,8 @@ assert.ok(
     && !source.includes("throw \"CloudBase CLI 请求失败：$text\""),
   "CloudBase 详情可能包含环境变量，失败时不能回显原始输出"
 );
-const verifyBranchStart = source.indexOf("if ($VerifyOnly)");
-const verifyBranchEnd = source.indexOf('Write-Host "1/5 Check WechatIDE login"', verifyBranchStart);
+const verifyBranchEnd = source.indexOf('Write-Host "1/7 Check WechatIDE login"');
+const verifyBranchStart = source.lastIndexOf("if ($VerifyOnly)", verifyBranchEnd);
 assert.ok(verifyBranchStart >= 0 && verifyBranchEnd > verifyBranchStart, "只读核验分支缺失");
 const verifyBranch = source.slice(verifyBranchStart, verifyBranchEnd);
 assert.ok(
@@ -128,6 +130,37 @@ assert.ok(
 assert.ok(
   source.includes('"--remote-npm-install"'),
   "部署脚本必须强制远程安装 npm 依赖"
+);
+assert.ok(
+  source.includes("check-cloudfunction-dependencies.js")
+    && source.includes("Assert-RuntimeDependencies"),
+  "部署脚本必须执行本地依赖扫描并断言线上依赖健康状态"
+);
+assert.ok(
+  apiSource.includes("runtimeDependencies")
+    && apiSource.includes("checkRuntimeDependencies")
+    && apiSource.includes('"local-modules"'),
+  "checkDeployment 必须返回脱敏的运行依赖健康状态"
+);
+assert.ok(
+  source.includes("Enter-CloudDeployLock")
+    && source.includes("Exit-CloudDeployLock")
+    && source.includes("Assert-CloudDeploySourceSnapshotStable"),
+  "真实部署必须使用独占锁并检查源码快照"
+);
+assert.ok(
+  source.includes("[switch]$ResumePendingDeploy")
+    && source.includes("Write-CloudDeployPending")
+    && source.includes("Read-CloudDeployPending")
+    && source.includes("DEPLOY_CONFIRMATION_REQUIRED")
+    && source.includes("duplicate uploads are blocked"),
+  "部署确认任务必须落盘并支持只恢复旧任务，禁止重复上传"
+);
+assert.ok(
+  safetySource.includes("[IO.FileShare]::None")
+    && safetySource.includes("Get-CloudDeploySourceSnapshot")
+    && safetySource.includes("ApiFingerprint"),
+  "部署保护脚本必须使用独占文件锁和 API 源码指纹"
 );
 assert.ok(
   source.includes("-SkipRemoteNpmInstall is disabled"),
@@ -175,6 +208,23 @@ assert.strictEqual(
   verifyParse.status,
   0,
   `只读线上核验脚本 PowerShell 语法错误\n${verifyParse.stdout}\n${verifyParse.stderr}`
+);
+const safetyParse = cp.spawnSync(
+  "pwsh",
+  [
+    "-NoProfile",
+    "-Command",
+    `[scriptblock]::Create([IO.File]::ReadAllText('${safetyScriptPath.replace(/'/g, "''")}')) | Out-Null`,
+  ],
+  {
+    cwd: root,
+    encoding: "utf8",
+  }
+);
+assert.strictEqual(
+  safetyParse.status,
+  0,
+  `部署保护脚本 PowerShell 语法错误\n${safetyParse.stdout}\n${safetyParse.stderr}`
 );
 
 const blocked = cp.spawnSync(

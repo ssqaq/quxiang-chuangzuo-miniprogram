@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.46.2";
-const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0462";
+const API_BUILD_VERSION = "0.46.3";
+const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0463";
 const DEFAULT_IMAGE_MODE = "edits";
 // 图片和视频默认成本只在云函数入口维护；管理员页读取云端有效配置，
 // 避免前后端各写一份价格。入口保持单文件可启动，兼容 CloudBase 部署。
@@ -67,6 +67,59 @@ const {
   createVideoExecutionKernel
 } = require("./lib/video-execution-kernel");
 const XLSX = require("xlsx");
+const RUNTIME_DEPENDENCY_PROBES = Object.freeze([
+  {
+    name: "jpeg-js",
+    verify: () => require("jpeg-js")
+  },
+  {
+    name: "pngjs",
+    verify: () => require("pngjs")
+  },
+  {
+    name: "wx-server-sdk",
+    verify: () => require("wx-server-sdk")
+  },
+  {
+    name: "xlsx",
+    verify: () => require("xlsx")
+  },
+  {
+    name: "local-modules",
+    verify: () => [
+      "./lib/action-registry",
+      "./lib/generation-execution-kernel",
+      "./lib/generation-operation-retention",
+      "./lib/generation-queue-monitor",
+      "./lib/generation-state-machine",
+      "./lib/image-composite",
+      "./lib/image-pixel-codec",
+      "./lib/image-provider-failover",
+      "./lib/pixel-acceptance",
+      "./lib/pixel-protection-flow",
+      "./lib/video-execution-kernel"
+    ].forEach((specifier) => require.resolve(specifier))
+  }
+]);
+
+function checkRuntimeDependencies() {
+  const verified = [];
+  const failed = [];
+  RUNTIME_DEPENDENCY_PROBES.forEach((probe) => {
+    try {
+      probe.verify();
+      verified.push(probe.name);
+    } catch (_error) {
+      failed.push(probe.name);
+    }
+  });
+  return {
+    healthy: failed.length === 0,
+    verified,
+    failed
+  };
+}
+
 const publishExportCore = (() => {
   const module = { exports: {} };
   const LOCAL_LIMITS = Object.freeze({
@@ -8358,6 +8411,7 @@ async function writeDeploymentLog(entry) {
 async function checkDeployment(event, context) {
   if (!isAdminContext(context)) return adminForbidden();
   const readOnly = Boolean(event && event.readOnly);
+  const runtimeDependencies = checkRuntimeDependencies();
   const configs = await resolveEffectiveConfigs({
     allowMigrations: !readOnly,
     cache: !readOnly
@@ -8475,6 +8529,7 @@ async function checkDeployment(event, context) {
         totalSteps: 2
       }
     },
+    runtimeDependencies,
     video: {
       ready: videoReady,
       provider: configs.video.provider || "",
@@ -18155,6 +18210,7 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     requiredDatabaseCollections: REQUIRED_DATABASE_COLLECTIONS.slice(),
     saveAdminConfig,
     getAdminConfigAuditLogs,
+    checkRuntimeDependencies,
     checkDeployment,
     modelProbeUrl,
     listedModelIds,

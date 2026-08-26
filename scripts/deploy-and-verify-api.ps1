@@ -4,7 +4,11 @@ param(
   [string]$ClientName = "default",
   [switch]$SkipRemoteNpmInstall,
   [switch]$DryRun,
-  [switch]$VerifyOnly
+  [switch]$VerifyOnly,
+  [switch]$ResumePendingDeploy,
+  [ValidateRange(1, 300)]
+  [int]$LockWaitSeconds = 60,
+  [string]$DeployLockPath = ""
 )
 
 # Keep this file ASCII-only so Windows PowerShell 5.1 can parse it without BOM.
@@ -13,6 +17,15 @@ $ErrorActionPreference = "Stop"
 if ($SkipRemoteNpmInstall) {
   throw "-SkipRemoteNpmInstall is disabled because WechatIDE strips node_modules from cloud function packages. Re-run without this switch so dependencies are installed remotely."
 }
+if ($ResumePendingDeploy -and ($VerifyOnly -or $DryRun)) {
+  throw "-ResumePendingDeploy cannot be combined with -VerifyOnly or -DryRun."
+}
+
+$deploySafetyScript = Join-Path $PSScriptRoot "cloud-deploy-safety.ps1"
+if (-not (Test-Path -LiteralPath $deploySafetyScript -PathType Leaf)) {
+  throw "Cloud deployment safety helper was not found: $deploySafetyScript"
+}
+. $deploySafetyScript
 
 function Find-WechatIde {
   param([string]$Preferred)
@@ -111,7 +124,8 @@ function Invoke-WechatIde {
 function Resolve-ToolPayload {
   param(
     [string]$CliPath,
-    [object]$Response
+    [object]$Response,
+    [switch]$ReturnPendingImmediately
   )
 
   $payload = Get-ToolPayload $Response
@@ -121,6 +135,9 @@ function Resolve-ToolPayload {
     $null
   }
   if ($null -eq $taskIdProperty -or [string]::IsNullOrWhiteSpace([string]$taskIdProperty.Value)) {
+    return $payload
+  }
+  if ($ReturnPendingImmediately) {
     return $payload
   }
 
@@ -154,11 +171,15 @@ function Resolve-ToolPayload {
 function Invoke-WechatIdeTool {
   param(
     [string]$CliPath,
-    [string[]]$Arguments
+    [string[]]$Arguments,
+    [switch]$ReturnPendingImmediately
   )
 
   $response = Invoke-WechatIde -CliPath $CliPath -Arguments $Arguments
-  return Resolve-ToolPayload -CliPath $CliPath -Response $response
+  return Resolve-ToolPayload `
+    -CliPath $CliPath `
+    -Response $response `
+    -ReturnPendingImmediately:$ReturnPendingImmediately
 }
 
 function Repair-CloudFunctionTimeout {
@@ -556,6 +577,54 @@ function Assert-DeploymentImageConfiguration {
   }
 }
 
+function Assert-RuntimeDependencies {
+  param([object]$Deployment)
+
+  $runtimeDependencies = Get-ObjectPropertyValue `
+    -Value $Deployment `
+    -Name "runtimeDependencies"
+  if ($null -eq $runtimeDependencies) {
+    throw "线上核验失败：云函数没有返回运行依赖健康状态。"
+  }
+  $healthy = [bool](
+    Get-ObjectPropertyValue -Value $runtimeDependencies -Name "healthy"
+  )
+  $verified = @(
+    Get-ObjectPropertyValue -Value $runtimeDependencies -Name "verified"
+  )
+  $failed = @(
+    Get-ObjectPropertyValue -Value $runtimeDependencies -Name "failed"
+  ) | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }
+  $failed = @($failed)
+  $verifiedNames = @($verified | ForEach-Object { [string]$_ })
+  $required = @(
+    "jpeg-js",
+    "pngjs",
+    "wx-server-sdk",
+    "xlsx",
+    "local-modules"
+  )
+  $missing = @(
+    $required |
+      Where-Object { [string]$_ -notin $verifiedNames }
+  )
+  $missing = @($missing)
+  if (-not $healthy -or $failed.Count -gt 0 -or $missing.Count -gt 0) {
+    $failedText = if ($failed.Count -gt 0) {
+      ($failed | ForEach-Object { [string]$_ }) -join ", "
+    } else {
+      "none"
+    }
+    $missingText = if ($missing.Count -gt 0) {
+      $missing -join ", "
+    } else {
+      "none"
+    }
+    throw "线上运行依赖不完整：failed=$failedText; missing=$missingText"
+  }
+  Write-Host "Online runtime dependencies: healthy ($($verified.Count) verified)"
+}
+
 $project = [IO.Path]::GetFullPath($ProjectPath)
 $configPath = Join-Path $project "config.js"
 $projectConfigPath = Join-Path $project "project.config.json"
@@ -615,6 +684,8 @@ Write-Host "Expected image mode: $imageMode"
 Write-Host "Expected function timeout: $expectedFunctionTimeout seconds"
 if ($VerifyOnly) {
   Write-Host "Mode: read-only online verification (no source upload, no remote write)"
+} elseif ($ResumePendingDeploy) {
+  Write-Host "Mode: resume existing confirmed cloud deployment task"
 }
 Write-Host "Remote npm install: required"
 if ($expectedMarker) {
@@ -627,8 +698,45 @@ if ($DryRun) {
   exit 0
 }
 
-Push-Location $project
+$deployLock = $null
+$sourceSnapshot = $null
+$locationPushed = $false
 try {
+  if (-not $VerifyOnly) {
+    Write-Host "Acquire exclusive cloud deployment lock"
+    $deployLock = Enter-CloudDeployLock `
+      -ProjectPath $project `
+      -TargetVersion $appVersion `
+      -FunctionName $functionName `
+      -WaitSeconds $LockWaitSeconds `
+      -LockPath $DeployLockPath
+    $sourceSnapshot = Get-CloudDeploySourceSnapshot `
+      -ProjectPath $project `
+      -ApiPath $apiPath
+    $pendingDeployment = Read-CloudDeployPending `
+      -PendingPath $deployLock.PendingPath
+    if ($ResumePendingDeploy) {
+      if ($null -eq $pendingDeployment) {
+        throw "No pending cloud deployment record was found to resume."
+      }
+      if (
+        [string]$pendingDeployment.targetVersion -ne $appVersion -or
+        [string]$pendingDeployment.functionName -ne $functionName -or
+        [string]$pendingDeployment.environmentId -ne $cloudEnvId -or
+        [string]$pendingDeployment.apiFingerprint -ne $sourceSnapshot.ApiFingerprint
+      ) {
+        throw "Pending cloud deployment does not match the current version or API source."
+      }
+    }
+    elseif ($null -ne $pendingDeployment) {
+      throw "A cloud deployment is waiting for confirmation. Resume the existing task with -ResumePendingDeploy; do not upload again."
+    }
+    Write-Host "Cloud deployment lock acquired: PID=$PID"
+    Write-Host "API source fingerprint: $($sourceSnapshot.ApiFingerprint)"
+  }
+
+  Push-Location $project
+  $locationPushed = $true
   if ($VerifyOnly) {
     Write-Host "Read-only verification: inspect CloudBase code snapshot"
     $cloudBaseSnapshot = Get-CloudBaseFunctionSnapshot `
@@ -712,11 +820,12 @@ try {
     Assert-DeploymentImageConfiguration `
       -Deployment $deployment `
       -ExpectedImageMode $imageMode
+    Assert-RuntimeDependencies -Deployment $deployment
     Write-Host "Read-only online verification passed. No source upload or remote write was sent." -ForegroundColor Green
     return
   }
 
-  Write-Host "1/5 Check WechatIDE login"
+  Write-Host "1/7 Check WechatIDE login"
   $ideStatus = Invoke-WechatIdeTool -CliPath $cli -Arguments @(
     "-c", $ClientName,
     "check_wechatide_status"
@@ -725,7 +834,7 @@ try {
     throw "WechatIDE login has expired. Log in again before deploying."
   }
 
-  Write-Host "2/5 Run local deployment checks"
+  Write-Host "2/7 Run local deployment checks"
   & node (Join-Path $project "scripts\validate.js")
   if ($LASTEXITCODE -ne 0) {
     throw "Local project validation failed."
@@ -734,8 +843,19 @@ try {
   if ($LASTEXITCODE -ne 0) {
     throw "Strict deployment check failed."
   }
+  & node (Join-Path $project "scripts\check-cloudfunction-dependencies.js")
+  if ($LASTEXITCODE -ne 0) {
+    throw "Cloud function dependency check failed."
+  }
 
-  Write-Host "3/5 Open project runtime"
+  Write-Host "3/7 Verify local source snapshot"
+  Assert-CloudDeploySourceSnapshotStable `
+    -Snapshot $sourceSnapshot `
+    -ProjectPath $project `
+    -ApiPath $apiPath `
+    -Stage "local checks"
+
+  Write-Host "4/7 Open project runtime"
   Invoke-WechatIdeTool -CliPath $cli -Arguments @(
     "-c", $ClientName,
     "open_project_window",
@@ -744,24 +864,73 @@ try {
   ) | Out-Null
   Start-Sleep -Seconds 2
 
-  Write-Host "4/5 Deploy cloud function"
+  Write-Host "5/7 Deploy cloud function"
   Wait-CloudFunctionReady `
     -CliPath $cli `
     -AppId $appId `
     -EnvironmentId $cloudEnvId `
     -FunctionName $functionName
-  $deployArguments = @(
-    "-c", $ClientName,
-    "cloud_fn_deploy",
-    "--appid", $appId,
-    "--env", $cloudEnvId,
-    "--path", $apiPath,
-    "--remote-npm-install"
-  )
-  $deployPayload = Invoke-WechatIdeTool -CliPath $cli -Arguments $deployArguments
+  if ($ResumePendingDeploy) {
+    $taskId = [string]$pendingDeployment.taskId
+    if ([string]::IsNullOrWhiteSpace($taskId)) {
+      throw "Pending cloud deployment record is missing taskId."
+    }
+    Write-Host "Resume pending cloud deployment task: $taskId"
+    $pollResponse = Invoke-WechatIde -CliPath $cli -Arguments @(
+      "-c", $ClientName,
+      "polling_task_result",
+      "--task-id", $taskId
+    )
+    $deployPayload = Get-ToolPayload $pollResponse
+    $pendingStatus = [string](
+      Get-ObjectPropertyValue -Value $deployPayload -Name "status"
+    )
+    if ($pendingStatus -eq "pending") {
+      throw "DEPLOY_CONFIRMATION_REQUIRED: Open WeChat Developer Tools and confirm the existing cloud deployment task, then run with -ResumePendingDeploy again."
+    }
+    if ($pendingStatus -in @("failed", "cancelled", "expired")) {
+      Remove-CloudDeployPending -PendingPath $deployLock.PendingPath
+      throw "Pending cloud deployment ended with status: $pendingStatus"
+    }
+  }
+  else {
+    $deployArguments = @(
+      "-c", $ClientName,
+      "cloud_fn_deploy",
+      "--appid", $appId,
+      "--env", $cloudEnvId,
+      "--path", $apiPath,
+      "--remote-npm-install"
+    )
+    $deployPayload = Invoke-WechatIdeTool `
+      -CliPath $cli `
+      -Arguments $deployArguments `
+      -ReturnPendingImmediately
+    $taskId = [string](
+      Get-ObjectPropertyValue -Value $deployPayload -Name "taskId"
+    )
+    if (-not [string]::IsNullOrWhiteSpace($taskId)) {
+      Write-CloudDeployPending `
+        -PendingPath $deployLock.PendingPath `
+        -Record ([ordered]@{
+          taskId = $taskId
+          toolName = "cloud_fn_deploy"
+          targetVersion = $appVersion
+          buildMarker = $expectedMarker
+          functionName = $functionName
+          environmentId = $cloudEnvId
+          apiFingerprint = $sourceSnapshot.ApiFingerprint
+          createdAt = [DateTime]::UtcNow.ToString("o")
+        })
+      throw "DEPLOY_CONFIRMATION_REQUIRED: Open WeChat Developer Tools and confirm cloud function deployment. The pending task was saved and duplicate uploads are blocked."
+    }
+  }
   Assert-CloudFunctionDeploymentResult `
     -Payload $deployPayload `
     -FunctionName $functionName
+  if ($ResumePendingDeploy) {
+    Remove-CloudDeployPending -PendingPath $deployLock.PendingPath
+  }
   Wait-CloudFunctionReady `
     -CliPath $cli `
     -AppId $appId `
@@ -801,7 +970,13 @@ try {
     }
   }
 
-  Write-Host "5/6 Verify CloudBase code snapshot"
+  Assert-CloudDeploySourceSnapshotStable `
+    -Snapshot $sourceSnapshot `
+    -ProjectPath $project `
+    -ApiPath $apiPath `
+    -Stage "cloud upload"
+
+  Write-Host "6/7 Verify CloudBase code snapshot"
   $cloudBaseSnapshot = Get-CloudBaseFunctionSnapshot `
     -EnvironmentId $cloudEnvId `
     -FunctionName $functionName
@@ -813,7 +988,7 @@ try {
     -ExpectedTimeout $expectedFunctionTimeout
   Write-Host "CloudBase code snapshot: version=$($cloudBaseSnapshot.BuildVersion), timeout=$($cloudBaseSnapshot.Timeout), status=$($cloudBaseSnapshot.Status)"
 
-  Write-Host "6/6 Verify online runtime configuration"
+  Write-Host "7/7 Verify online runtime configuration"
   $deployment = Get-DeploymentResult `
     -CliPath $cli `
     -Project $project `
@@ -843,8 +1018,20 @@ try {
   Assert-DeploymentImageConfiguration `
     -Deployment $deployment `
     -ExpectedImageMode $imageMode
+  Assert-RuntimeDependencies -Deployment $deployment
+  Assert-CloudDeploySourceSnapshotStable `
+    -Snapshot $sourceSnapshot `
+    -ProjectPath $project `
+    -ApiPath $apiPath `
+    -Stage "online verification"
   Write-Host "Cloud function deployment verified successfully." -ForegroundColor Green
 }
 finally {
-  Pop-Location
+  if ($locationPushed) {
+    Pop-Location
+  }
+  if ($null -ne $deployLock) {
+    Exit-CloudDeployLock -LockHandle $deployLock
+    Write-Host "Cloud deployment lock released."
+  }
 }

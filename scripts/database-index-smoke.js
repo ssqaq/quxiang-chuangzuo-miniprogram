@@ -16,7 +16,24 @@ function assertNonBlankString(value, label) {
 
 assert.strictEqual(manifest.version, 1, "manifest.version 必须为 1");
 assert.ok(Array.isArray(manifest.indexes), "manifest.indexes 必须是数组");
-assert.strictEqual(manifest.indexes.length, 12, "manifest.indexes.length 必须为 12");
+assert.strictEqual(manifest.indexes.length, 13, "manifest.indexes.length 必须为 13");
+assert.deepStrictEqual(
+  manifest.indexes.find((index) => (
+    index.collection === "generation_operations"
+    && index.name === "idx_status_updated_at"
+  )),
+  {
+    collection: "generation_operations",
+    name: "idx_status_updated_at",
+    keys: [
+      { name: "status", direction: 1 },
+      { name: "updatedAt", direction: 1 }
+    ],
+    unique: false,
+    reason: "按终态和更新时间查找超过保留期的旧任务记录"
+  },
+  "generation_operations 旧任务清理索引不完整"
+);
 
 const identities = new Set();
 

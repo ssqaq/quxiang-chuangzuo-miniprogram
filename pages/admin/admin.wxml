@@ -1676,6 +1676,28 @@
             <view class="admin-section-help">修改后点击页面上方“保存全部配置”才会生效。</view>
           </view>
 
+          <view class="generation-retention-panel">
+            <view class="generation-retention-copy">
+              <view class="generation-queue-settings-title">旧任务记录清理</view>
+              <view class="admin-section-help">
+                默认保留90天，每天自动清理一次，单次最多50条。只删已完成或已退款的后台任务记录，不删作品、云文件和积分流水。
+              </view>
+              <view
+                wx:if="{{generationCleanupResult}}"
+                class="generation-retention-result {{generationCleanupResult.failed ? 'is-warn' : ''}}"
+              >
+                扫描 {{generationCleanupResult.scanned}} 条 · 删除 {{generationCleanupResult.removed}} 条 · 跳过 {{generationCleanupResult.skipped}} 条 · 失败 {{generationCleanupResult.failed}} 条
+                <text wx:if="{{generationCleanupResult.message}}"> · {{generationCleanupResult.message}}</text>
+              </view>
+            </view>
+            <button
+              class="usage-refresh-button generation-retention-button"
+              bindtap="cleanupOldGenerationOperations"
+              loading="{{generationCleanupLoading}}"
+              disabled="{{generationCleanupLoading}}"
+            >{{generationCleanupLoading ? '清理中' : '手动清理'}}</button>
+          </view>
+
           <view class="generation-queue-filter-block">
             <view class="diagnostic-admin-filter-title">任务类型</view>
             <view class="diagnostic-admin-filter-row">

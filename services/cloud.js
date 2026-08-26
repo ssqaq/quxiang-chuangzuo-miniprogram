@@ -764,6 +764,13 @@ module.exports = {
       silent: true
     });
   },
+  cleanupGenerationOperationHistory() {
+    return callApi({
+      action: "cleanupGenerationOperationHistory",
+      retryLimit: 0,
+      silent: true
+    });
+  },
   getAdminUserStats(offset = 0, limit = 20, filters = {}) {
     return callApi({
       action: "getAdminUserStats",

@@ -135,7 +135,9 @@ imageCompression: {
 → 上传并部署：云端安装依赖
 ```
 
-云函数目录里的 `package.json` 会自动安装 `wx-server-sdk`。
+云函数目录里的 `package.json` 会自动安装依赖。主 `api` 云函数把
+`wx-server-sdk` 固定为 `4.0.2`，避免以后重新安装时悄悄换版本；Excel 导出使用仓库内
+`cloudfunctions/api/vendor/xlsx` 的官方 `xlsx@0.20.3`，部署时不依赖第三方下载站临时可用。
 
 媒体解析功能使用独立云函数，不和主 `api` 云函数混在一起：
 
@@ -367,6 +369,11 @@ watermark_transfer_temp_assets
 立即删除；失败或中途退出时，`api` 每 15 分钟检查一次，到期后删除云文件并移除登记，
 删除失败会保留记录继续重试。手机相册里的文件不受这个 2 小时清理影响。
 
+`generation_operations` 的旧任务历史默认保留 90 天。每天凌晨 04:20 自动检查一次，
+每次最多删除 50 条；只删除已经完成或已经退款、且没有待退款、待回收或待清理标记的
+后台任务文档。不会删除 `generation_records`、用户作品、云文件、积分账户或积分流水。
+管理员也可以在“生图任务队列”里手动执行同一套清理，并看到扫描、删除、跳过和失败数量。
+
 ### 7. 检查数据库索引
 
 集合已经创建，不代表查询需要的索引也已经存在。先在当前 PowerShell
@@ -465,6 +472,10 @@ node scripts/dependency-security-audit.js --output-dir D:\aips小程序\dependen
 ```powershell
 node scripts/dependency-security-audit-smoke.js
 ```
+
+当前直接依赖已处理：`xlsx` 使用官方 `0.20.3`，`wx-server-sdk` 固定为 `4.0.2`。
+剩余告警来自微信 SDK 内部的 CloudBase、Axios 和 Lodash 等传递依赖；不能为了让报告变成
+零告警而强制降级 SDK 或硬覆盖内部包。发布要求仍是 0 critical，并在报告中保留其余风险。
 
 ## 当前生图接口约定
 

@@ -3149,6 +3149,8 @@ Page({
     diagnosticLogs: emptyAdminDiagnosticLogs(),
     generationQueueLoading: false,
     generationQueue: emptyGenerationQueue(),
+    generationCleanupLoading: false,
+    generationCleanupResult: null,
     generationQueueKind: "all",
     generationQueueStatus: "all",
     generationQueueKindOptions: [
@@ -3714,6 +3716,51 @@ Page({
       generationHistoryLoading: false,
       generationHistory: null
     });
+  },
+
+  async cleanupOldGenerationOperations() {
+    if (this.data.generationCleanupLoading) return;
+    const confirmed = await new Promise((resolve) => {
+      wx.showModal({
+        title: "清理旧任务记录",
+        content: "只删除90天前已完成或已退款、且没有待退款或待清理标记的后台任务记录。不会删除作品、云文件和积分流水。继续吗？",
+        confirmText: "开始清理",
+        success: (result) => resolve(Boolean(result && result.confirm)),
+        fail: () => resolve(false)
+      });
+    });
+    if (!confirmed) return;
+    this.setData({
+      generationCleanupLoading: true,
+      generationCleanupResult: null
+    });
+    try {
+      const result = await cloud.cleanupGenerationOperationHistory();
+      const summary = {
+        retentionDays: Math.max(30, Number(result.retentionDays) || 90),
+        batchSize: Math.max(1, Number(result.batchSize) || 50),
+        scanned: Math.max(0, Number(result.scanned) || 0),
+        removed: Math.max(0, Number(result.removed) || 0),
+        skipped: Math.max(0, Number(result.skipped) || 0),
+        failed: Math.max(0, Number(result.failed) || 0),
+        unavailable: Boolean(result.unavailable),
+        message: result.message || ""
+      };
+      this.setData({
+        generationCleanupLoading: false,
+        generationCleanupResult: summary
+      });
+      wx.showToast({
+        title: summary.unavailable
+          ? "任务集合未初始化"
+          : `已清理${summary.removed}条`,
+        icon: summary.unavailable ? "none" : "success"
+      });
+      await this.refreshGenerationQueue(true);
+    } catch (error) {
+      this.setData({ generationCleanupLoading: false });
+      this.showError("旧任务清理失败", error);
+    }
   },
 
   async refreshModelUsage(options = {}) {

@@ -6123,6 +6123,19 @@ page {
   background: #edf1f6;
 }
 
+@media (max-width: 560px) {
+  .generation-queue-card .generation-retention-panel {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .generation-queue-card .generation-retention-button {
+    width: 100%;
+    min-width: 0;
+    flex: 0 0 auto;
+  }
+}
+
 /* 所有“展开/收起”控件统一与用户端日志的右边界和视觉规格。 */
 .admin-action-slot {
   display: flex;
@@ -6249,6 +6262,37 @@ page {
 
 .generation-queue-settings-grid {
   margin-top: 16rpx;
+}
+
+.generation-retention-panel {
+  display: flex;
+  gap: 20rpx;
+  padding: 20rpx;
+  align-items: center;
+  justify-content: space-between;
+  border: 1rpx solid #dce7f3;
+  border-radius: 20rpx;
+  background: #f9fbfe;
+}
+
+.generation-retention-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.generation-retention-button {
+  flex: 0 0 auto;
+}
+
+.generation-retention-result {
+  margin-top: 12rpx;
+  color: #247446;
+  font-size: 20rpx;
+  line-height: 1.6;
+}
+
+.generation-retention-result.is-warn {
+  color: #a35b21;
 }
 
 .generation-queue-filter-block {

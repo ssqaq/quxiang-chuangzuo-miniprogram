@@ -60,6 +60,17 @@ async function main() {
     })
   });
   registry.register({
+    name: "cleanupGenerationOperationHistory",
+    triggerName: "generation-operation-history-cleanup",
+    access: ACCESS.TIMER_OR_ADMIN,
+    handler: ({ matchedBy, triggerName }) => ({
+      ok: true,
+      matchedBy,
+      triggerName,
+      cleanup: true
+    })
+  });
+  registry.register({
     name: "explode",
     access: ACCESS.USER,
     handler: () => {
@@ -128,6 +139,37 @@ async function main() {
   );
   assert.strictEqual(manualAdmin.denied, false);
   assert.strictEqual(manualAdmin.result.matchedBy, "action");
+
+  const cleanupTimer = await registry.dispatch(
+    {
+      triggerName: "generation-operation-history-cleanup",
+      requestId: "request-cleanup-timer"
+    },
+    {}
+  );
+  assert.strictEqual(cleanupTimer.denied, false);
+  assert.strictEqual(cleanupTimer.result.cleanup, true);
+  assert.strictEqual(cleanupTimer.result.matchedBy, "trigger");
+
+  const cleanupNearTimer = await registry.dispatch(
+    { triggerName: "generation-operation-history-cleanup-copy" },
+    {}
+  );
+  assert.deepStrictEqual(cleanupNearTimer, { handled: false });
+
+  const cleanupDenied = await registry.dispatch(
+    { action: "cleanupGenerationOperationHistory" },
+    {}
+  );
+  assert.strictEqual(cleanupDenied.denied, true);
+  assert.strictEqual(cleanupDenied.result.errorCode, "ADMIN_FORBIDDEN");
+
+  const cleanupAdmin = await registry.dispatch(
+    { action: "cleanupGenerationOperationHistory" },
+    { admin: true }
+  );
+  assert.strictEqual(cleanupAdmin.denied, false);
+  assert.strictEqual(cleanupAdmin.result.cleanup, true);
 
   const unknown = await registry.dispatch(
     { action: "legacyAction" },

@@ -81,6 +81,7 @@ const jsFiles = [
   "cloudfunctions/api/lib/action-registry.js",
   "cloudfunctions/api/lib/generation-execution-kernel.js",
   "cloudfunctions/api/lib/generation-queue-monitor.js",
+  "cloudfunctions/api/lib/generation-operation-retention.js",
   "cloudfunctions/api/lib/generation-state-machine.js",
   "cloudfunctions/api/lib/video-execution-kernel.js",
   "cloudfunctions/api/lib/image-pixel-codec.js",
@@ -95,6 +96,8 @@ const jsFiles = [
   "scripts/dependency-security-audit.js",
   "scripts/dependency-security-audit-smoke.js",
   "scripts/generation-execution-kernel-smoke.js",
+  "scripts/generation-operation-cleanup-smoke.js",
+  "scripts/generation-operation-retention-smoke.js",
   "scripts/generation-queue-monitor-smoke.js",
   "scripts/generation-state-machine-smoke.js",
   "scripts/generation-worker-concurrency-smoke.js",
@@ -291,6 +294,7 @@ const required = [
   "cloudfunctions/api/lib/action-registry.js",
   "cloudfunctions/api/lib/generation-execution-kernel.js",
   "cloudfunctions/api/lib/generation-queue-monitor.js",
+  "cloudfunctions/api/lib/generation-operation-retention.js",
   "cloudfunctions/api/lib/generation-state-machine.js",
   "cloudfunctions/api/lib/video-execution-kernel.js",
   "cloudfunctions/api/lib/image-pixel-codec.js",
@@ -305,6 +309,8 @@ const required = [
   "scripts/dependency-security-audit.js",
   "scripts/dependency-security-audit-smoke.js",
   "scripts/generation-execution-kernel-smoke.js",
+  "scripts/generation-operation-cleanup-smoke.js",
+  "scripts/generation-operation-retention-smoke.js",
   "scripts/generation-queue-monitor-smoke.js",
   "scripts/generation-state-machine-smoke.js",
   "scripts/generation-worker-concurrency-smoke.js",
@@ -341,7 +347,9 @@ const required = [
   "scripts/check-cloud-database-indexes.ps1",
   "scripts/cloud-database-index-manager/package.json",
   "scripts/cloud-database-index-manager/package-lock.json",
-  "scripts/cloud-database-index-manager/index.js"
+  "scripts/cloud-database-index-manager/index.js",
+  "cloudfunctions/api/vendor/xlsx/package.json",
+  "cloudfunctions/api/vendor/xlsx/xlsx.js"
 ];
 for (const relative of required) {
   if (!fs.existsSync(path.join(root, relative))) {
@@ -359,7 +367,7 @@ const databaseIndexPs1 = fs.readFileSync(
 if (
   databaseIndexes.version !== 1
   || !Array.isArray(databaseIndexes.indexes)
-  || databaseIndexes.indexes.length !== 12
+  || databaseIndexes.indexes.length !== 13
   || !databaseIndexes.indexes.some((item) => (
     item
     && item.collection === "watermark_transfer_temp_assets"
@@ -368,6 +376,18 @@ if (
     && item.keys.length === 1
     && item.keys[0].name === "cleanupAfter"
     && item.keys[0].direction === 1
+  ))
+  || !databaseIndexes.indexes.some((item) => (
+    item
+    && item.collection === "generation_operations"
+    && item.name === "idx_status_updated_at"
+    && Array.isArray(item.keys)
+    && item.keys.length === 2
+    && item.keys[0].name === "status"
+    && item.keys[0].direction === 1
+    && item.keys[1].name === "updatedAt"
+    && item.keys[1].direction === 1
+    && item.unique === false
   ))
   || !databaseIndexPs1.includes("TENCENTCLOUD_SECRET_ID")
   || !databaseIndexPs1.includes("TENCENTCLOUD_SECRET_KEY")
@@ -392,6 +412,12 @@ const apiPackage = JSON.parse(
 );
 const apiLock = JSON.parse(
   fs.readFileSync(path.join(root, "cloudfunctions/api/package-lock.json"), "utf8")
+);
+const vendorXlsxPackage = JSON.parse(
+  fs.readFileSync(
+    path.join(root, "cloudfunctions/api/vendor/xlsx/package.json"),
+    "utf8"
+  )
 );
 const watermarkGatewayPackage = JSON.parse(
   fs.readFileSync(
@@ -495,6 +521,10 @@ const generationKernelJs = fs.readFileSync(
   path.join(root, "cloudfunctions/api/lib/generation-execution-kernel.js"),
   "utf8"
 );
+const generationRetentionJs = fs.readFileSync(
+  path.join(root, "cloudfunctions/api/lib/generation-operation-retention.js"),
+  "utf8"
+);
 const videoKernelJs = fs.readFileSync(
   path.join(root, "cloudfunctions/api/lib/video-execution-kernel.js"),
   "utf8"
@@ -546,6 +576,10 @@ if (
   || apiPackage.version !== appConfig.appVersion
   || apiLock.version !== appConfig.appVersion
   || watermarkGatewayPackage.version !== appConfig.appVersion
+  || apiPackage.dependencies["wx-server-sdk"] !== "4.0.2"
+  || apiPackage.dependencies.xlsx !== "file:vendor/xlsx"
+  || vendorXlsxPackage.name !== "xlsx"
+  || vendorXlsxPackage.version !== "0.20.3"
   || !new RegExp(
     `const API_BUILD_VERSION = "${appConfig.appVersion.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`
   ).test(cloudJs)
@@ -555,7 +589,7 @@ if (
   || appConfig.photoToVideo.cleanup.idlePeriodMs !== 2 * 60 * 60 * 1000
   || appConfig.photoToVideo.cleanup.gracePeriodMs !== 3 * 24 * 60 * 60 * 1000
 ) {
-  throw new Error("小程序、主云函数、媒体解析网关、云函数锁文件版本不一致，或照片转视频 2 小时/3×24 小时清理配置不正确。");
+  throw new Error("小程序、云函数版本、固定依赖版本或照片转视频清理配置不正确。");
 }
 if (
   !cloudJs.includes("createGenerationExecutionKernel")
@@ -572,6 +606,40 @@ if (
   )
 ) {
   throw new Error("生图执行内核、依赖注入、统一状态写入或内核专项测试不完整。");
+}
+const generationRetentionTriggers = cloudTriggerConfig.triggers.filter((trigger) => (
+  trigger && trigger.name === "generation-operation-history-cleanup"
+));
+if (
+  !generationRetentionJs.includes(
+    'Object.freeze(["succeeded", "refunded"])'
+  )
+  || !generationRetentionJs.includes("cleanupPending === true")
+  || !generationRetentionJs.includes("refundPending === true")
+  || !generationRetentionJs.includes("reconcilePending === true")
+  || !generationRetentionJs.includes("readOperation(id)")
+  || !generationRetentionJs.includes("removeOperation(id, current)")
+  || generationRetentionTriggers.length !== 1
+  || generationRetentionTriggers[0].type !== "timer"
+  || generationRetentionTriggers[0].config !== "0 20 4 * * * *"
+  || !cloudJs.includes('name: "cleanupGenerationOperationHistory"')
+  || !cloudJs.includes(
+    'triggerName: "generation-operation-history-cleanup"'
+  )
+  || !cloudJs.includes(
+    'metadata: { workflow: "generation-retention-v1" }'
+  )
+  || !clientCloudJs.includes("cleanupGenerationOperationHistory()")
+  || !adminJs.includes("async cleanupOldGenerationOperations()")
+  || !adminWxml.includes(
+    'bindtap="cleanupOldGenerationOperations"'
+  )
+  || !adminWxml.includes("默认保留90天")
+  || !adminWxml.includes("单次最多50条")
+  || !/@media\s*\(max-width:\s*560px\)[\s\S]*?\.generation-queue-card\s+\.generation-retention-panel\s*\{[\s\S]*?flex-direction:\s*column;/.test(adminWxss)
+  || !/@media\s*\(max-width:\s*560px\)[\s\S]*?\.generation-queue-card\s+\.generation-retention-button\s*\{[\s\S]*?width:\s*100%;/.test(adminWxss)
+) {
+  throw new Error("旧任务90天清理、精确定时器、管理员入口或小屏布局不完整。");
 }
 if (
   !cloudJs.includes("createVideoExecutionKernel")

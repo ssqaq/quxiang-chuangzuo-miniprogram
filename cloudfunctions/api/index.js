@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.45.0";
-const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0450";
+const API_BUILD_VERSION = "0.45.1";
+const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0451";
 const DEFAULT_IMAGE_MODE = "edits";
 // 图片和视频默认成本只在云函数入口维护；管理员页读取云端有效配置，
 // 避免前后端各写一份价格。入口保持单文件可启动，兼容 CloudBase 部署。
@@ -56,6 +56,9 @@ const pixelProtectionFlow = require("./lib/pixel-protection-flow");
 const { ACCESS, createActionRegistry } = require("./lib/action-registry");
 const generationStateMachine = require("./lib/generation-state-machine");
 const generationQueueMonitor = require("./lib/generation-queue-monitor");
+const generationOperationRetention = require(
+  "./lib/generation-operation-retention"
+);
 const {
   createGenerationExecutionKernel
 } = require("./lib/generation-execution-kernel");
@@ -7274,6 +7277,82 @@ async function loadRecentGenerationOperations(limit = 20, store = db) {
   }
 }
 
+async function loadGenerationOperationCleanupCandidates(options = {}) {
+  const store = options.store || db;
+  const cutoff = options.cutoff instanceof Date
+    ? options.cutoff
+    : generationOperationRetention.retentionCutoff(
+        options.now,
+        options
+      );
+  const settings = generationOperationRetention.normalizeRetentionSettings(
+    options
+  );
+  const command = store.command || db.command;
+  const statuses = generationOperationRetention.TERMINAL_STATUSES;
+  const queryLimit = Math.max(
+    settings.batchSize,
+    Math.min(100, settings.batchSize * 2)
+  );
+
+  const batches = await Promise.all(statuses.map(async (status) => {
+    const collection = store.collection(GENERATION_OPERATION_COLLECTION);
+    try {
+      const result = await collection
+        .where({
+          status,
+          updatedAt: command.lte(cutoff)
+        })
+        .orderBy("updatedAt", "asc")
+        .limit(queryLimit)
+        .get();
+      return operationRows(result);
+    } catch (error) {
+      if (isCollectionMissingError(error)) throw error;
+      const fallback = await collection
+        .where({ status })
+        .limit(queryLimit)
+        .get();
+      return operationRows(fallback).filter((operation) => (
+        generationOperationRetention.operationRetentionDecision(operation, {
+          cutoff,
+          settings
+        }).eligible
+      ));
+    }
+  }));
+
+  const unique = new Map();
+  batches.flat().forEach((operation) => {
+    if (!operation) return;
+    const id = String(operation._id || operation.id || "");
+    if (id && !unique.has(id)) unique.set(id, operation);
+  });
+  return [...unique.values()]
+    .sort((left, right) => (
+      operationUpdatedAtMs(left) - operationUpdatedAtMs(right)
+    ))
+    .slice(0, settings.batchSize);
+}
+
+async function readGenerationOperationForCleanup(operationId, store = db) {
+  const id = String(operationId || "").trim().slice(0, 180);
+  if (!id) return null;
+  return readDocument(
+    store.collection(GENERATION_OPERATION_COLLECTION).doc(id)
+  );
+}
+
+async function removeGenerationOperationForCleanup(operationId, store = db) {
+  const id = String(operationId || "").trim().slice(0, 180);
+  if (!id) {
+    const error = new Error("旧任务清理缺少任务记录编号。");
+    error.code = "generation-history-cleanup-id-missing";
+    throw error;
+  }
+  return store.collection(GENERATION_OPERATION_COLLECTION).doc(id).remove();
+}
+
 async function loadOldestQueuedGenerationOperation(store = db) {
   const collection = store.collection(GENERATION_OPERATION_COLLECTION);
   try {
@@ -7416,6 +7495,55 @@ async function getAdminGenerationQueue(event = {}, context) {
     limit: event.limit
   });
   return jsonResponse(true, overview);
+}
+
+const generationOperationRetentionService = (
+  generationOperationRetention.createGenerationOperationRetentionService({
+    listCandidates: (options) => (
+      loadGenerationOperationCleanupCandidates(Object.assign({}, options, {
+        store: db
+      }))
+    ),
+    readOperation: (operationId) => (
+      readGenerationOperationForCleanup(operationId, db)
+    ),
+    removeOperation: (operationId) => (
+      removeGenerationOperationForCleanup(operationId, db)
+    ),
+    log,
+    now: () => new Date()
+  })
+);
+
+async function cleanupGenerationOperationHistory(event = {}, context = {}) {
+  const triggerName = timerTriggerName(event);
+  const timerCall = triggerName === "generation-operation-history-cleanup";
+  if (!timerCall && !isAdminContext(context)) return adminForbidden();
+  const settings = generationOperationRetention.normalizeRetentionSettings({
+    retentionDays: event.retentionDays,
+    batchSize: event.batchSize
+  });
+  try {
+    const result = await generationOperationRetentionService.cleanup({
+      source: timerCall ? "timer" : "admin",
+      retentionDays: settings.retentionDays,
+      batchSize: settings.batchSize
+    });
+    return jsonResponse(true, result);
+  } catch (error) {
+    if (!isCollectionMissingError(error)) throw error;
+    return jsonResponse(true, generationOperationRetention.sanitizeCleanupSummary({
+      source: timerCall ? "timer" : "admin",
+      retentionDays: settings.retentionDays,
+      batchSize: settings.batchSize,
+      cutoffAt: generationOperationRetention.retentionCutoff(
+        new Date(),
+        settings
+      ),
+      unavailable: true,
+      message: "任务集合还没有初始化，本次没有清理记录。"
+    }));
+  }
 }
 
 async function getAdminGenerationOperationHistory(event = {}, context) {
@@ -16752,6 +16880,13 @@ function createGenerationActionRegistry() {
     metadata: { workflow: "generation-admin-v1" },
     handler: ({ event, context }) => getAdminGenerationOperationHistory(event, context)
   });
+  registry.register({
+    name: "cleanupGenerationOperationHistory",
+    triggerName: "generation-operation-history-cleanup",
+    access: ACCESS.TIMER_OR_ADMIN,
+    metadata: { workflow: "generation-retention-v1" },
+    handler: ({ event, context }) => cleanupGenerationOperationHistory(event, context)
+  });
   return registry;
 }
 
@@ -17202,6 +17337,12 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     enqueueGenerationOperation,
     touchGenerationOperation,
     getGenerationStatus,
+    generationOperationRetention,
+    generationOperationRetentionService,
+    loadGenerationOperationCleanupCandidates,
+    readGenerationOperationForCleanup,
+    removeGenerationOperationForCleanup,
+    cleanupGenerationOperationHistory,
     rebuildResultFromOperation,
     deleteGenerationResultFile,
     reconcileGenerationOperation,

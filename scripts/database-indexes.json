@@ -164,6 +164,22 @@
       ],
       "unique": false,
       "reason": "按用户和父记录查找修复子记录"
+    },
+    {
+      "collection": "generation_operations",
+      "name": "idx_status_updated_at",
+      "keys": [
+        {
+          "name": "status",
+          "direction": 1
+        },
+        {
+          "name": "updatedAt",
+          "direction": 1
+        }
+      ],
+      "unique": false,
+      "reason": "按终态和更新时间查找超过保留期的旧任务记录"
     }
   ]
 }

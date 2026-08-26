@@ -12,6 +12,11 @@
       "config": "0 */5 * * * * *"
     },
     {
+      "name": "generation-operation-history-cleanup",
+      "type": "timer",
+      "config": "0 20 4 * * * *"
+    },
+    {
       "name": "photo-to-video-idle-cleanup",
       "type": "timer",
       "config": "0 */15 * * * * *"

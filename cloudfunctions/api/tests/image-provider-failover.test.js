@@ -279,6 +279,13 @@ function testErrorClassification() {
     })).fallbackAllowed,
     false
   );
+  assert.strictEqual(
+    classifyImageProviderError(upstreamError("IMAGE_REQUEST_TOO_LARGE", {
+      status: 413,
+      retryable: false
+    })).fallbackAllowed,
+    false
+  );
 }
 
 async function main() {

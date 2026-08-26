@@ -50,7 +50,9 @@ const AUTO_FACE_HEIGHT_SCALE = 1.15;
 const AUTO_FACE_MIN_WIDTH = 48;
 const AUTO_FACE_MIN_HEIGHT = 56;
 const GENERATION_TIMEOUT_MS = 120000;
-const GENERATION_RETRY_LIMIT = 2;
+const GENERATION_POLL_DELAYS_MS = [2000, 4000, 6000];
+const GENERATION_POLL_TIMEOUT_MS = 15 * 60 * 1000;
+const GENERATION_PENDING_STORAGE_KEY = "pendingGenerationTask";
 const GENERATION_PHASES = [
   { key: "prepare", label: "准备素材" },
   { key: "upload", label: "上传素材" },
@@ -599,6 +601,12 @@ Page({
     generationElapsedSeconds: 0,
     generationRetryCount: 0,
     generationTimedOut: false,
+    generationTaskId: "",
+    generationTaskStatus: "idle",
+    generationTaskStage: "",
+    generationTaskProgress: 0,
+    generationTaskMessage: "",
+    generationSubmitting: false,
     analysisAction: "",
     statusText: "先上传主图",
     clothingTargets: CLOTHING_TARGETS,
@@ -618,6 +626,14 @@ Page({
     this._mainImageUploadState = null;
     this._autoFaceDetectionCache = null;
     this._pageDestroyed = false;
+    this._pageVisible = true;
+    this._generationPollTimer = null;
+    this._generationPollInFlight = false;
+    this._generationPollToken = 0;
+    this._generationPollingRequestId = "";
+    this._generationPollAttempt = 0;
+    this._generationPollStartedAt = 0;
+    this._appliedGenerationRequestId = "";
     this._pageScrollTop = 0;
     this._canvasViewportRect = null;
     this._canvasDocumentRect = null;
@@ -693,12 +709,20 @@ Page({
   },
 
   onShow() {
+    this._pageVisible = true;
     const pending = app && app.globalData && app.globalData.pendingNewCreation;
     if (pending) {
       this.resetForNewCreation(pending.mode);
       app.globalData.pendingNewCreation = null;
     }
     this.refreshCloudState();
+    this.restorePendingGenerationTask();
+  },
+
+  onHide() {
+    this._pageVisible = false;
+    this.stopGenerationPolling();
+    this.stopGenerationTimer();
   },
 
   onPageScroll(event = {}) {
@@ -750,6 +774,12 @@ Page({
       generationElapsedSeconds: 0,
       generationRetryCount: 0,
       generationTimedOut: false,
+      generationTaskId: "",
+      generationTaskStatus: "idle",
+      generationTaskStage: "",
+      generationTaskProgress: 0,
+      generationTaskMessage: "",
+      generationSubmitting: false,
       analysisAction: "",
       statusText: "先上传主图",
       lockPanelOpen: false,
@@ -769,6 +799,7 @@ Page({
     this._pinchAwaitingRelease = false;
     this._gestureCoordinateContext = null;
     this.clearCanvasDrawTimer();
+    this.stopGenerationPolling();
     this.stopGenerationTimer();
     diagnosticLog.info("creation", "page-unload", "制作页离开", {
       step: this.data.step,
@@ -776,9 +807,18 @@ Page({
     });
   },
 
-  startGenerationTimer() {
+  startGenerationTimer(startedAt = Date.now()) {
     this.stopGenerationTimer();
-    this._generationStartedAt = Date.now();
+    const numericStartedAt = Number(startedAt);
+    this._generationStartedAt = Number.isFinite(numericStartedAt) && numericStartedAt > 0
+      ? numericStartedAt
+      : Date.now();
+    this.setData({
+      generationElapsedSeconds: Math.max(
+        0,
+        Math.floor((Date.now() - this._generationStartedAt) / 1000)
+      )
+    });
     this._generationTimer = setInterval(() => {
       if (!this.data.loading || !this._generationStartedAt) return;
       this.setData({
@@ -787,6 +827,10 @@ Page({
         )
       });
     }, 1000);
+    const timeoutDelay = Math.max(
+      0,
+      GENERATION_TIMEOUT_MS - (Date.now() - this._generationStartedAt)
+    );
     this._generationTimeoutTimer = setTimeout(() => {
       if (
         this._pageDestroyed
@@ -810,7 +854,7 @@ Page({
         step: "generate",
         durationMs: GENERATION_TIMEOUT_MS
       });
-    }, GENERATION_TIMEOUT_MS);
+    }, timeoutDelay);
   },
 
   stopGenerationTimer() {
@@ -837,6 +881,399 @@ Page({
       step: stage,
       loadingText
     });
+  },
+
+  savePendingGenerationTask(task) {
+    try {
+      const requestId = String(task && task.requestId || "").trim();
+      if (!requestId) {
+        wx.removeStorageSync(GENERATION_PENDING_STORAGE_KEY);
+        return null;
+      }
+      const value = {
+        requestId,
+        taskId: String(task.taskId || requestId),
+        submittedAt: Number(task.submittedAt) || Date.now(),
+        projectName: String(task.projectName || "").slice(0, 80)
+      };
+      wx.setStorageSync(GENERATION_PENDING_STORAGE_KEY, value);
+      return value;
+    } catch (error) {
+      diagnosticLog.warn("generation", "pending-save-failed", "未完成生图任务保存失败", {
+        step: "poll",
+        requestId: String(task && task.requestId || ""),
+        error
+      });
+      return null;
+    }
+  },
+
+  loadPendingGenerationTask() {
+    try {
+      const value = wx.getStorageSync(GENERATION_PENDING_STORAGE_KEY);
+      const requestId = String(value && value.requestId || "").trim();
+      if (!requestId) return null;
+      return {
+        requestId,
+        taskId: String(value.taskId || requestId),
+        submittedAt: Number(value.submittedAt) || Date.now(),
+        projectName: String(value.projectName || "")
+      };
+    } catch (error) {
+      diagnosticLog.warn("generation", "pending-load-failed", "未完成生图任务读取失败", {
+        step: "poll",
+        error
+      });
+      return null;
+    }
+  },
+
+  stopGenerationPolling() {
+    this._generationPollToken = (Number(this._generationPollToken) || 0) + 1;
+    if (this._generationPollTimer) {
+      clearTimeout(this._generationPollTimer);
+      this._generationPollTimer = null;
+    }
+    this._generationPollInFlight = false;
+    this._generationPollingRequestId = "";
+  },
+
+  setGenerationTaskState(task = {}) {
+    const status = String(task.status || "queued").toLowerCase();
+    const stage = String(task.stage || task.pipelineStage || status).toLowerCase();
+    const stageMap = {
+      queued: {
+        phase: "generate",
+        loadingText: "任务已提交，正在排队...",
+        waitText: "任务已经交给后台，系统会自动开始生成。"
+      },
+      validate: {
+        phase: "upload",
+        loadingText: "正在检查素材...",
+        waitText: "正在确认主图、红圈和参考素材是否完整。"
+      },
+      upstream: {
+        phase: "generate",
+        loadingText: "AI正在生成图片...",
+        waitText: "凌云正在生成图片，页面退出后任务也会继续。"
+      },
+      download: {
+        phase: "generate",
+        loadingText: "正在接收生成结果...",
+        waitText: "图片已经生成，正在从上游接收结果。"
+      },
+      upload: {
+        phase: "save",
+        loadingText: "正在保存图片...",
+        waitText: "正在把生成结果保存到云端。"
+      },
+      record: {
+        phase: "save",
+        loadingText: "正在保存制作记录...",
+        waitText: "图片已保存，正在补齐制作记录。"
+      },
+      succeeded: {
+        phase: "save",
+        loadingText: "生成完成",
+        waitText: "图片生成完成。"
+      }
+    };
+    const view = stageMap[stage] || stageMap[status] || stageMap.upstream;
+    const phaseIndex = GENERATION_PHASES.findIndex((item) => item.key === view.phase);
+    const next = {
+      loading: !["succeeded", "failed", "refunded"].includes(status),
+      loadingText: view.loadingText,
+      generationStage: status === "failed" || status === "refunded"
+        ? "timeout"
+        : view.phase,
+      generationPhaseIndex: phaseIndex >= 0 ? phaseIndex : 2,
+      generationWaitText: String(task.message || view.waitText),
+      generationTaskId: String(task.taskId || task.requestId || this.data.generationTaskId || ""),
+      generationTaskStatus: status,
+      generationTaskStage: stage,
+      generationTaskProgress: Math.max(0, Math.min(100, Number(task.progress) || 0)),
+      generationTaskMessage: String(task.message || view.waitText),
+      generationSubmitting: false
+    };
+    this.setData(next);
+    return next;
+  },
+
+  restorePendingGenerationTask() {
+    if (
+      this._pageDestroyed
+      || !this._pageVisible
+      || !this.data.cloudReady
+    ) {
+      return;
+    }
+    const pending = this.loadPendingGenerationTask();
+    if (!pending) return;
+    if (
+      this._generationPollingRequestId === pending.requestId
+      && (this._generationPollTimer || this._generationPollInFlight)
+    ) {
+      return;
+    }
+    this.setData({
+      loading: true,
+      loadingText: "正在恢复后台生图任务...",
+      generationStage: "generate",
+      generationPhaseIndex: 2,
+      generationWaitText: "已找到未完成任务，正在查询最新状态。",
+      generationTaskId: pending.taskId,
+      generationTaskStatus: "restoring",
+      generationTaskStage: "restoring",
+      generationTaskMessage: "正在恢复后台生图任务",
+      generationSubmitting: false
+    });
+    this.startGenerationTimer(pending.submittedAt);
+    this.startGenerationPolling(pending.requestId, pending);
+    diagnosticLog.info("generation", "pending-restored", "已恢复未完成生图任务", {
+      step: "poll",
+      requestId: pending.requestId
+    });
+  },
+
+  startGenerationPolling(requestId, options = {}) {
+    const normalizedRequestId = String(requestId || "").trim();
+    if (!normalizedRequestId) return;
+    this.stopGenerationPolling();
+    const token = this._generationPollToken;
+    this._generationPollingRequestId = normalizedRequestId;
+    this._generationPollAttempt = 0;
+    this._generationPollStartedAt = Number(options.submittedAt) || Date.now();
+    Promise.resolve().then(() => (
+      this.pollGenerationStatus(normalizedRequestId, token)
+    ));
+  },
+
+  scheduleGenerationPoll(requestId, token) {
+    if (
+      this._pageDestroyed
+      || !this._pageVisible
+      || token !== this._generationPollToken
+      || requestId !== this._generationPollingRequestId
+    ) {
+      return;
+    }
+    const delayIndex = Math.min(
+      this._generationPollAttempt,
+      GENERATION_POLL_DELAYS_MS.length - 1
+    );
+    const delay = GENERATION_POLL_DELAYS_MS[delayIndex];
+    this._generationPollAttempt += 1;
+    this._generationPollTimer = setTimeout(() => {
+      this._generationPollTimer = null;
+      this.pollGenerationStatus(requestId, token);
+    }, delay);
+  },
+
+  async pollGenerationStatus(requestId, token) {
+    if (
+      this._pageDestroyed
+      || !this._pageVisible
+      || token !== this._generationPollToken
+      || requestId !== this._generationPollingRequestId
+      || this._generationPollInFlight
+    ) {
+      return;
+    }
+    this._generationPollInFlight = true;
+    let shouldContinue = true;
+    try {
+      const task = await cloud.getGenerationStatus(requestId, { silent: true });
+      if (
+        token !== this._generationPollToken
+        || requestId !== this._generationPollingRequestId
+      ) {
+        return;
+      }
+      const elapsedMs = Math.max(0, Date.now() - this._generationPollStartedAt);
+      if (!task || task.unavailable || task.ok === false) {
+        const errorCode = String(task && (task.errorCode || task.code) || "");
+        if (
+          errorCode === "generation-task-not-found"
+          && elapsedMs >= 30000
+        ) {
+          shouldContinue = false;
+          this.finishGenerationTaskFailure({
+            requestId,
+            taskId: requestId,
+            status: "failed",
+            message: "后台没有找到这条任务，本次提交没有成功，请重新生成。",
+            error: {
+              code: errorCode,
+              message: "生图任务未成功入队。"
+            }
+          });
+          return;
+        }
+        this.setData({
+          generationTaskMessage: "暂时查不到任务状态，网络恢复后会继续。",
+          generationWaitText: "网络有波动，后台任务不会重复提交。"
+        });
+      } else {
+        this.setGenerationTaskState(task);
+        if (task.status === "succeeded" && task.result) {
+          shouldContinue = false;
+          this.stopGenerationPolling();
+          this.stopGenerationTimer();
+          this.savePendingGenerationTask(null);
+          this.applyGenerationResult(task.result, this.data.project);
+          this.setData({
+            loading: false,
+            loadingText: "",
+            generationStage: "idle",
+            generationTaskStatus: "succeeded",
+            generationTaskStage: "succeeded",
+            generationTaskProgress: 100,
+            generationTaskMessage: "图片生成完成",
+            generationSubmitting: false
+          });
+          wx.showToast({ title: "生成完成", icon: "success" });
+          diagnosticLog.info("generation", "async-success", "异步生图完成并保存记录", {
+            step: "save",
+            requestId,
+            recordId: task.result.recordId || "",
+            fileID: redactAssetID(task.result.fileID || "")
+          });
+          return;
+        }
+        if (task.status === "failed" || task.status === "refunded") {
+          shouldContinue = false;
+          this.finishGenerationTaskFailure(task);
+          return;
+        }
+        if (elapsedMs >= GENERATION_POLL_TIMEOUT_MS) {
+          shouldContinue = false;
+          this.setData({
+            generationStage: "timeout",
+            generationTimedOut: true,
+            generationTaskMessage: "任务仍在后台处理，可以先离开，稍后回来会再次查询。",
+            generationWaitText: "已等待较长时间，任务编号已保留，不会重复扣费。"
+          });
+        }
+      }
+    } catch (error) {
+      diagnosticLog.warn("generation", "poll-failed", "生图任务状态查询失败", {
+        step: "poll",
+        requestId,
+        error
+      });
+      this.setData({
+        generationTaskMessage: "状态查询失败，稍后自动重试。",
+        generationWaitText: "后台任务仍会继续，请不要重复点击。"
+      });
+    } finally {
+      if (token === this._generationPollToken) {
+        this._generationPollInFlight = false;
+        if (shouldContinue) {
+          this.scheduleGenerationPoll(requestId, token);
+        }
+      }
+    }
+  },
+
+  finishGenerationTaskFailure(task = {}) {
+    const requestId = String(task.requestId || task.taskId || this.data.generationTaskId || "");
+    const status = String(task.status || "failed");
+    const message = String(
+      task.error && task.error.message
+      || task.message
+      || (status === "refunded"
+        ? "图片生成失败，本次使用额度已退回。"
+        : "图片生成失败，请稍后重新提交。")
+    );
+    this.stopGenerationPolling();
+    this.stopGenerationTimer();
+    this.savePendingGenerationTask(null);
+    this.setData({
+      loading: false,
+      loadingText: "",
+      generationStage: "idle",
+      generationPhaseIndex: 0,
+      generationWaitText: "",
+      generationElapsedSeconds: 0,
+      generationRetryCount: 0,
+      generationTimedOut: false,
+      generationTaskId: requestId,
+      generationTaskStatus: status,
+      generationTaskStage: status,
+      generationTaskProgress: 0,
+      generationTaskMessage: message,
+      generationSubmitting: false
+    });
+    wx.showModal({
+      title: status === "refunded" ? "生成失败，额度已退回" : "生图失败",
+      content: `${message}${requestId ? `\n请求编号：${requestId}` : ""}`,
+      showCancel: false
+    });
+  },
+
+  applyGenerationResult(result = {}, project = this.data.project) {
+    const requestId = String(result.requestId || "");
+    if (
+      requestId
+      && this._appliedGenerationRequestId === requestId
+    ) {
+      return null;
+    }
+    const sourceProject = project && typeof project === "object"
+      ? project
+      : createProject();
+    const record = decorateRecordForRepair(Object.assign({}, result.record || {}, {
+      id: result.recordId
+        || result.record && (result.record.id || result.record._id)
+        || `local-${Date.now()}`,
+      fileID: result.fileID || result.record && result.record.fileID || "",
+      tempFileURL: result.tempFileURL || result.record && result.record.tempFileURL || "",
+      projectName: result.record && result.record.projectName || sourceProject.projectName,
+      prompt: result.record && result.record.prompt || sourceProject.promptDraft,
+      createdAt: result.createdAt
+        || result.record && result.record.createdAt
+        || new Date().toISOString(),
+      generationType: "normal",
+      revisionNumber: 0,
+      repairContext: Object.assign({
+        sourceFileID: result.fileID || "",
+        originalMainFileID: sourceProject.mainImage && sourceProject.mainImage.fileID || "",
+        mainInputFileID: sourceProject.mainImage && sourceProject.mainImage.fileID || "",
+        maskFileID: sourceProject.maskFileID || "",
+        maskGeometry: sourceProject.maskCircle || {},
+        faceFileIDs: (sourceProject.faceRefs || []).map((item) => item.fileID).filter(Boolean),
+        wardrobeFileIDs: (sourceProject.wardrobeRefs || []).map((item) => item.fileID).filter(Boolean),
+        backgroundFileIDs: (sourceProject.backgroundRefs || []).map((item) => item.fileID).filter(Boolean)
+      }, result.record && result.record.repairContext || {})
+    }), this.data.cloudReady);
+    const sameRecord = (item) => (
+      item
+      && (
+        String(item.id || item._id || "") === String(record.id || "")
+        || (
+          record.fileID
+          && String(item.fileID || "") === String(record.fileID)
+        )
+      )
+    );
+    const records = [record]
+      .concat((this.data.records || []).filter((item) => !sameRecord(item)))
+      .slice(0, 50);
+    const nextProject = Object.assign({}, sourceProject, {
+      results: [record]
+        .concat((sourceProject.results || []).filter((item) => !sameRecord(item)))
+        .slice(0, 20)
+    });
+    this._appliedGenerationRequestId = requestId;
+    this.setData({
+      project: nextProject,
+      records,
+      generatedResults: nextProject.results,
+      step: 4
+    });
+    storage.saveProject(nextProject);
+    storage.saveRecords(records);
+    return record;
   },
 
   backToWorkbench() {
@@ -2540,25 +2977,32 @@ Page({
       return;
     }
     const requestId = createClientRequestId();
+    const submittedAt = Date.now();
+    let submissionAttempted = false;
+    let preparedProject = null;
     diagnosticLog.info("generation", "submit-start", "开始提交生图任务", {
       step: "prepare",
-      requestId,
-      retryLimit: GENERATION_RETRY_LIMIT
+      requestId
     });
     this.setData({
       loading: true,
       generationPhaseIndex: 0,
       generationRetryCount: 0,
       generationTimedOut: false,
-      generationElapsedSeconds: 0
+      generationElapsedSeconds: 0,
+      generationTaskId: requestId,
+      generationTaskStatus: "preparing",
+      generationTaskStage: "prepare",
+      generationTaskProgress: 0,
+      generationTaskMessage: "正在准备素材",
+      generationSubmitting: true
     });
     this.setGenerationPhase(
       "prepare",
       "正在准备素材...",
       "正在整理图片、红圈和参考素材，预计还需要几秒。"
     );
-    this.startGenerationTimer();
-    let generationSucceeded = false;
+    this.startGenerationTimer(submittedAt);
     try {
       const promptProject = this.refreshPromptDraft();
       const generationMode = resolveImageGenerationMode(promptProject);
@@ -2571,10 +3015,11 @@ Page({
         includeMask: generationMode === "edits",
         project: promptProject
       });
+      preparedProject = project;
       this.setGenerationPhase(
         "generate",
-        "AI正在生成图片...",
-        "预计需要 20～60 秒，网络较慢时可能更久，请耐心等待。",
+        "正在提交后台生图任务...",
+        "提交成功后可以离开页面，后台会继续生成。",
         { generationRetryCount: 0 }
       );
       const submittedPrompt = appendWebPosePromptBlock(
@@ -2585,8 +3030,8 @@ Page({
         step: "generate",
         requestId,
         projectName: project.projectName,
-        prompt: submittedPrompt,
-        negativePrompt: project.negativePrompt,
+        promptLength: submittedPrompt.length,
+        negativePromptLength: String(project.negativePrompt || "").length,
         mainImageUploaded: Boolean(project.mainImage && project.mainImage.fileID),
         maskUploaded: Boolean(project.maskFileID),
         faceReferenceCount: project.faceRefs.length,
@@ -2613,7 +3058,7 @@ Page({
       if (generationMode === "edits" && !maskFileID) {
         throw createGenerationAssetError("MASK_FILE_MISSING");
       }
-      diagnosticLog.info("generation", "generate-call", "即将调用 cloud.generateImage", {
+      diagnosticLog.info("generation", "generate-call", "即将提交异步生图任务", {
         step: "generate",
         requestId,
         generationMode,
@@ -2623,7 +3068,14 @@ Page({
         maskFileID: redactAssetID(maskFileID),
         faceReferenceCount: project.faceRefs.length
       });
-      const result = await cloud.generateImage(
+      const pendingTask = this.savePendingGenerationTask({
+        requestId,
+        taskId: requestId,
+        submittedAt,
+        projectName: project.projectName
+      });
+      submissionAttempted = true;
+      const result = await cloud.submitGeneration(
         {
           generationType: "normal",
           mode: generationMode,
@@ -2640,81 +3092,79 @@ Page({
           size: "1024x1024"
         },
         {
-          requestId,
-          maxRetries: GENERATION_RETRY_LIMIT,
-          onRetry: ({ attempt, maxRetries }) => {
-            diagnosticLog.warn("generation", "retry", "生图请求准备重试", {
-              step: "generate",
-              requestId,
-              attempt,
-              maxRetries
-            });
-            if (this._pageDestroyed || !this.data.loading) return;
-            this.setData({
-              generationStage: "retry",
-              generationPhaseIndex: 2,
-              generationRetryCount: attempt,
-              generationWaitText: `网络有点慢，正在进行第 ${attempt}/${maxRetries} 次重试，请不要重复点击。`
-            });
-            this.setData({
-              loadingText: `正在重试生成（${attempt}/${maxRetries}）...`
-            });
-          }
+          requestId
         }
       );
-      this.setGenerationPhase(
-        "save",
-        "正在保存生成结果...",
-        "图片已经生成，正在保存到制作记录。"
-      );
-      const record = decorateRecordForRepair(Object.assign({}, result.record || {}, {
-        id: result.recordId || `local-${Date.now()}`,
-        fileID: result.fileID || "",
-        tempFileURL: result.tempFileURL || "",
-        projectName: project.projectName,
-        prompt: submittedPrompt,
-        createdAt: result.createdAt || new Date().toISOString(),
-        generationType: "normal",
-        revisionNumber: 0,
-        repairContext: Object.assign({
-          sourceFileID: result.fileID || "",
-          originalMainFileID: project.mainImage && project.mainImage.fileID || "",
-          mainInputFileID: project.mainImage && project.mainImage.fileID || "",
-          maskFileID: project.maskFileID || "",
-          maskGeometry: project.maskCircle || {},
-          faceFileIDs: project.faceRefs.map((item) => item.fileID).filter(Boolean),
-          wardrobeFileIDs: project.wardrobeRefs.map((item) => item.fileID).filter(Boolean),
-          backgroundFileIDs: project.backgroundRefs.map((item) => item.fileID).filter(Boolean)
-        }, result.record && result.record.repairContext || {})
-      }), this.data.cloudReady);
-      const records = [record].concat(this.data.records || []).slice(0, 50);
-      const nextProject = Object.assign({}, project, {
-        results: [record].concat(project.results || []).slice(0, 20)
-      });
-      this.setData({
-        project: nextProject,
-        records,
-        generatedResults: nextProject.results,
-        step: 4
-      });
-      generationSucceeded = true;
-      storage.saveProject(nextProject);
-      storage.saveRecords(records);
-      wx.showToast({ title: "生成完成", icon: "success" });
-      diagnosticLog.info("generation", "success", "生图完成并保存记录", {
-        step: "save",
+      if (result.status === "succeeded" && result.result) {
+        this.savePendingGenerationTask(null);
+        this.stopGenerationTimer();
+        this.setGenerationTaskState(result);
+        this.applyGenerationResult(result.result, project);
+        this.setData({
+          loading: false,
+          loadingText: "",
+          generationStage: "idle",
+          generationTaskStatus: "succeeded",
+          generationTaskStage: "succeeded",
+          generationTaskProgress: 100,
+          generationTaskMessage: "图片生成完成",
+          generationSubmitting: false
+        });
+        wx.showToast({ title: "生成完成", icon: "success" });
+        return;
+      }
+      const storedTask = this.savePendingGenerationTask({
         requestId,
-        recordId: record.id,
-        fileID: record.fileID
+        taskId: result.taskId || requestId,
+        submittedAt: pendingTask && pendingTask.submittedAt || submittedAt,
+        projectName: project.projectName
       });
-    } catch (error) {
-      diagnosticLog.error("generation", "failed", "生图流程失败", {
+      this.setGenerationTaskState(result);
+      this.setData({ loading: true, generationSubmitting: false });
+      this.startGenerationPolling(requestId, storedTask || {
+        submittedAt,
+        requestId,
+        taskId: result.taskId || requestId
+      });
+      wx.showToast({ title: "任务已提交", icon: "success" });
+      diagnosticLog.info("generation", "queued", "生图任务已提交后台", {
         step: "generate",
         requestId,
+        taskId: result.taskId || requestId,
+        status: result.status || "queued"
+      });
+    } catch (error) {
+      diagnosticLog.error("generation", "submit-failed", "生图任务提交阶段出现异常", {
+        step: "generate",
+        requestId,
+        submissionAttempted,
         error
       });
-      this.showError("生图失败", error);
-    } finally {
+      if (submissionAttempted) {
+        const pendingTask = this.savePendingGenerationTask({
+          requestId,
+          taskId: requestId,
+          submittedAt,
+          projectName: preparedProject && preparedProject.projectName || ""
+        });
+        this.setData({
+          loading: true,
+          loadingText: "正在确认任务是否已提交...",
+          generationStage: "generate",
+          generationPhaseIndex: 2,
+          generationWaitText: "提交回包中断，正在用同一个任务编号查询，不会重复生成。",
+          generationTaskId: requestId,
+          generationTaskStatus: "confirming",
+          generationTaskStage: "confirming",
+          generationTaskMessage: "正在确认后台任务状态",
+          generationSubmitting: false
+        });
+        this.startGenerationPolling(requestId, pendingTask || { submittedAt });
+        wx.showToast({ title: "正在确认任务", icon: "none" });
+        return;
+      }
+      this.savePendingGenerationTask(null);
+      this.stopGenerationPolling();
       this.stopGenerationTimer();
       this.setData({
         loading: false,
@@ -2724,8 +3174,14 @@ Page({
         generationWaitText: "",
         generationElapsedSeconds: 0,
         generationRetryCount: 0,
-        generationTimedOut: false
+        generationTimedOut: false,
+        generationTaskStatus: "failed",
+        generationTaskStage: "prepare",
+        generationTaskProgress: 0,
+        generationTaskMessage: String(error && error.message || "素材准备失败"),
+        generationSubmitting: false
       });
+      this.showError("生图失败", error);
     }
   },
 

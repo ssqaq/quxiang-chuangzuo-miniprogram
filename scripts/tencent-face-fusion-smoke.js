@@ -129,7 +129,8 @@ async function main() {
         logoAdd: false,
         timeoutMs: 5000,
         maxImageBytes: 1024 * 1024,
-        model: "FuseFaceUltra"
+        model: "FuseFaceUltra",
+        allowTestEndpoint: true
       },
       "smoke-tencent-request"
     );

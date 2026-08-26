@@ -236,12 +236,14 @@ async function main() {
         }));
       });
     }, async (url) => {
-      process.env.AI_IMAGE_EDIT_ENDPOINT = url;
+      process.env.AI_IMAGE_EDIT_ENDPOINT = `${url}/v1/images/edits`;
       const imageConfig = test.resolveImageConfig({
         image: {
           mode: "edits",
-          baseUrl: url,
-          model: "smoke-edit-model",
+          provider: "lingyun",
+          baseUrl: `${url}/v1`,
+          endpoint: `${url}/v1/images/edits`,
+          model: "gpt-image-2",
           compatibilityMode: true,
           timeoutMs: 5000,
           retryEnabled: false,
@@ -291,14 +293,19 @@ async function main() {
   assert.strictEqual(requests.length, 2, "普通编辑和腾讯前置编辑必须各发送一次");
   assert.strictEqual(requests[0].method, "POST");
   assert.ok(
-    String(requests[0].headers["content-type"] || "").includes("multipart/form-data"),
-    "编辑请求必须是 multipart/form-data"
+    String(requests[0].headers["content-type"] || "").includes("application/json"),
+    "凌云编辑请求必须是 application/json"
   );
-  assert.ok(requests[0].body.includes('name="image"; filename="main.png"'));
-  assert.ok(requests[0].body.includes('name="mask"; filename="mask.png"'));
-  assert.ok(requests[0].body.includes('name="image[]"; filename="face-1.png"'));
-  assert.ok(requests[1].body.includes('name="image"; filename="main.png"'));
-  assert.ok(requests[1].body.includes('name="mask"; filename="mask.png"'));
+  const firstEditBody = JSON.parse(requests[0].body);
+  assert.strictEqual(firstEditBody.model, "gpt-image-2");
+  assert.strictEqual(firstEditBody.images.length, 2);
+  assert.ok(firstEditBody.mask && firstEditBody.mask.image_url);
+  assert.strictEqual(firstEditBody.output_format, "png");
+  const firstTencentEditBody = JSON.parse(requests[1].body);
+  assert.strictEqual(firstTencentEditBody.model, "gpt-image-2");
+  assert.strictEqual(firstTencentEditBody.images.length, 1);
+  assert.ok(firstTencentEditBody.mask && firstTencentEditBody.mask.image_url);
+  assert.strictEqual(firstTencentEditBody.output_format, "png");
   assert.ok(!requests[1].body.includes("images/generations"));
 
   assert.strictEqual(
@@ -341,7 +348,7 @@ async function main() {
         }));
       });
     }, async (url) => {
-      process.env.AI_IMAGE_EDIT_ENDPOINT = url;
+      process.env.AI_IMAGE_EDIT_ENDPOINT = `${url}/v1/images/edits`;
       const imageConfig = test.resolveImageConfig({
         image: {
           provider: "lingyun",
@@ -478,12 +485,14 @@ async function main() {
         }));
       });
     }, async (url) => {
-      process.env.AI_IMAGE_EDIT_ENDPOINT = url;
+      process.env.AI_IMAGE_EDIT_ENDPOINT = `${url}/v1/images/edits`;
       const imageConfig = test.resolveImageConfig({
         image: {
           mode: "edits",
-          baseUrl: url,
-          model: "smoke-edit-model",
+          provider: "lingyun",
+          baseUrl: `${url}/v1`,
+          endpoint: `${url}/v1/images/edits`,
+          model: "gpt-image-2",
           compatibilityMode: true,
           timeoutMs: 5000,
           retryEnabled: true,
@@ -526,9 +535,11 @@ async function main() {
   assert.strictEqual(capabilityRequests.length, 1, "能力不支持错误不能重试");
   assert.strictEqual(capabilityRequests[0].method, "POST");
   assert.ok(!String(capabilityRequests[0].path).includes("generations"));
-  assert.ok(capabilityRequests[0].body.includes('name="image"; filename="main.png"'));
-  assert.ok(capabilityRequests[0].body.includes('name="mask"; filename="mask.png"'));
-  assert.ok(capabilityRequests[0].body.includes('name="image[]"; filename="face-1.png"'));
+  const capabilityBody = JSON.parse(capabilityRequests[0].body);
+  assert.strictEqual(capabilityBody.model, "gpt-image-2");
+  assert.strictEqual(capabilityBody.images.length, 2);
+  assert.ok(capabilityBody.mask && capabilityBody.mask.image_url);
+  assert.strictEqual(capabilityBody.output_format, "png");
 
   console.log("image edit routing smoke: OK");
   console.log(JSON.stringify({

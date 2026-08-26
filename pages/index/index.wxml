@@ -350,6 +350,16 @@
           </view>
         </view>
         <view class="generation-waiting-note">
+          <view wx:if="{{generationTaskId}}" class="generation-task-meta">
+            <view class="generation-task-message">{{generationTaskMessage}}</view>
+            <view class="generation-task-id">任务编号：{{generationTaskId}}</view>
+            <view wx:if="{{generationTaskStatus === 'queued'}}" class="generation-task-hint">
+              任务已提交，后台会自动生成，可以先离开页面
+            </view>
+            <view wx:elif="{{generationTaskProgress}}" class="generation-task-hint">
+              当前进度：{{generationTaskProgress}}%
+            </view>
+          </view>
           <view class="generation-waiting-title">
             {{generationStage === 'timeout' ? '任务仍在处理中' : (generationStage === 'retry' ? '网络有点慢' : '请稍等，系统会自动继续')}}
           </view>

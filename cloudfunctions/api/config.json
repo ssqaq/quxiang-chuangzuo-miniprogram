@@ -1,6 +1,16 @@
 {
   "triggers": [
     {
+      "name": "generation-queue-worker",
+      "type": "timer",
+      "config": "0 * * * * * *"
+    },
+    {
+      "name": "generation-operation-reconcile",
+      "type": "timer",
+      "config": "0 */5 * * * * *"
+    },
+    {
       "name": "photo-to-video-idle-cleanup",
       "type": "timer",
       "config": "0 */15 * * * * *"

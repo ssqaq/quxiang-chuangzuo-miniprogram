@@ -1,8 +1,11 @@
 {
   "name": "display-tool-cloud-api",
-  "version": "0.42.7",
+  "version": "0.42.8",
   "private": true,
   "main": "index.js",
+  "scripts": {
+    "test:pixel-protection": "node tests/pixel-protection.test.js"
+  },
   "dependencies": {
     "jpeg-js": "^0.4.4",
     "pngjs": "^7.0.0",

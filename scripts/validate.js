@@ -77,6 +77,11 @@ const jsFiles = [
   "cloudfunctions/api/lib/multipart.js",
   "cloudfunctions/api/lib/web-pose.js",
   "cloudfunctions/api/lib/publish-export-core.js",
+  "cloudfunctions/api/lib/image-pixel-codec.js",
+  "cloudfunctions/api/lib/image-composite.js",
+  "cloudfunctions/api/lib/pixel-acceptance.js",
+  "cloudfunctions/api/lib/pixel-protection-flow.js",
+  "cloudfunctions/api/tests/pixel-protection.test.js",
   "scripts/database-index-core.js",
   "scripts/database-index-smoke.js",
   "scripts/cloud-database-index-manager/index.js",
@@ -266,6 +271,11 @@ const required = [
   "utils/publish-export-core.js",
   "workers/publish-export-worker.js",
   "cloudfunctions/api/lib/publish-export-core.js",
+  "cloudfunctions/api/lib/image-pixel-codec.js",
+  "cloudfunctions/api/lib/image-composite.js",
+  "cloudfunctions/api/lib/pixel-acceptance.js",
+  "cloudfunctions/api/lib/pixel-protection-flow.js",
+  "cloudfunctions/api/tests/pixel-protection.test.js",
   "scripts/canvas-gesture-smoke.js",
   "scripts/circle-gesture-smoke.js",
   "scripts/auto-face-fallback-smoke.js",
@@ -1973,7 +1983,7 @@ if (
   || !indexWxml.includes("generation-waiting-footer")
   || !indexWxml.includes('id="generation-results"')
   || !indexWxml.includes("generationElapsedSeconds")
-  || !indexJs.includes("startGenerationTimer()")
+  || !/startGenerationTimer\s*\(/.test(indexJs)
   || !indexJs.includes("stopGenerationTimer()")
   || !indexJs.includes("generationWaitText")
   || indexJs.includes("scrollToGenerationResults()")

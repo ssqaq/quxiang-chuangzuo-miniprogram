@@ -53,7 +53,11 @@ assert.strictEqual(test.normalizePhotoToVideoTempKind("SOURCE"), "source");
 assert.strictEqual(test.normalizePhotoToVideoTempKind("RESULT"), "result");
 assert.strictEqual(test.normalizePhotoToVideoTempKind("RECORD"), "record");
 assert.strictEqual(test.normalizePhotoToVideoTempKind("formal"), "");
-assert.ok(test.isPhotoToVideoCleanupTrigger({ Type: "Timer" }));
+assert.strictEqual(
+  test.isPhotoToVideoCleanupTrigger({ Type: "Timer" }),
+  false,
+  "泛化 Timer 事件不能再误进照片转视频清理"
+);
 assert.ok(test.isPhotoToVideoCleanupTrigger({
   triggerName: "photo-to-video-temp-cleanup"
 }));
@@ -63,6 +67,20 @@ assert.ok(test.isPhotoToVideoCleanupTrigger({
 assert.ok(test.isPhotoToVideoCleanupTrigger({
   action: "cleanupPhotoToVideoTempAssets"
 }));
+assert.ok(test.isGenerationQueueWorkerTrigger({
+  triggerName: "generation-queue-worker"
+}));
+assert.ok(test.isGenerationReconcileTrigger({
+  triggerName: "generation-operation-reconcile"
+}));
+assert.strictEqual(
+  test.isPhotoToVideoCleanupTrigger({
+    triggerName: "generation-queue-worker",
+    Type: "Timer"
+  }),
+  false,
+  "生图 worker 不能被照片转视频清理抢走"
+);
 assert.strictEqual(
   test.photoToVideoTempAssetDocumentId("cloud://tmp/a.jpg", "source"),
   test.photoToVideoTempAssetDocumentId("cloud://tmp/a.jpg", "source"),

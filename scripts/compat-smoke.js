@@ -130,7 +130,9 @@ async function main() {
         }));
       });
     }, async (url) => {
-      process.env.AI_IMAGE_EDIT_ENDPOINT = url;
+      process.env.AI_IMAGE_PROVIDER = "lingyun";
+      process.env.AI_IMAGE_MODEL = "gpt-image-2";
+      process.env.AI_IMAGE_EDIT_ENDPOINT = `${url}/v1/images/edits`;
       const result = await cloud.__test.requestImageEdits({
         mainFileID: "main-file",
         maskFileID: "mask-file",
@@ -146,18 +148,19 @@ async function main() {
   }
   assert.strictEqual(editRequests.length, 1);
   assert.ok(
-    editRequests[0].headers["content-type"].includes("multipart/form-data")
+    editRequests[0].headers["content-type"].includes("application/json")
   );
+  const editBody = JSON.parse(editRequests[0].body);
+  assert.strictEqual(editBody.model, "gpt-image-2");
+  assert.strictEqual(editBody.images.length, 3);
+  assert.ok(editBody.mask && editBody.mask.image_url);
+  assert.strictEqual(editBody.output_format, "png");
   assert.ok(
-    editRequests[0].body.includes('name="image"; filename="main.png"')
+    editBody.images.every((item) => (
+      item && typeof item.image_url === "string"
+      && item.image_url.startsWith("data:")
+    ))
   );
-  assert.ok(
-    editRequests[0].body.includes('name="mask"; filename="mask.png"')
-  );
-  assert.ok(
-    editRequests[0].body.includes('name="image[]"; filename="face-1.png"')
-  );
-  assert.ok(editRequests[0].body.includes("reference_manifest"));
 
   const unknown = await cloud.main({ action: "unknown" }, {});
   assert.strictEqual(unknown.errorCode, "unsupported-action");
@@ -166,7 +169,7 @@ async function main() {
   console.log("compat smoke: OK");
   console.log(JSON.stringify({
     maskRects: rects.length,
-    multipartBytes: multipart.body.length,
+    jsonBytes: editRequests[0].body.length,
     safeRetryAttempts: attempts,
     imageRetryAttempts: imageAttempts,
     editRequests: editRequests.length,

@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.42.7";
-const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0427";
+const API_BUILD_VERSION = "0.42.8";
+const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0428";
 const DEFAULT_IMAGE_MODE = "edits";
 // 图片和视频默认成本只在云函数入口维护；管理员页读取云端有效配置，
 // 避免前后端各写一份价格。入口保持单文件可启动，兼容 CloudBase 部署。
@@ -40,6 +40,10 @@ const http = require("http");
 const crypto = require("crypto");
 const jpeg = require("jpeg-js");
 const { PNG } = require("pngjs");
+const pixelCodec = require("./lib/image-pixel-codec");
+const pixelComposite = require("./lib/image-composite");
+const pixelAcceptance = require("./lib/pixel-acceptance");
+const pixelProtectionFlow = require("./lib/pixel-protection-flow");
 const XLSX = require("xlsx");
 const publishExportCore = (() => {
   const module = { exports: {} };
@@ -1242,6 +1246,21 @@ const USER_QUOTA_COLLECTION = "user_quotas";
 const GENERATION_OPERATION_COLLECTION = "generation_operations";
 const POINTS_TIME_ZONE = "Asia/Shanghai";
 const GENERATION_OPERATION_STALE_MS = 10 * 60 * 1000;
+const GENERATION_QUEUE_BATCH_SIZE = 1;
+const GENERATION_QUEUE_STALE_MS = 5 * 60 * 1000;
+const GENERATION_PROCESSING_STALE_MS = 10 * 60 * 1000;
+const GENERATION_MAX_RECOVERY_ATTEMPTS = 2;
+const GENERATION_RECONCILE_BATCH_SIZE = 20;
+const GENERATION_RESULT_TTL_MS = 24 * 60 * 60 * 1000;
+const GENERATION_OPERATION_STATUSES = Object.freeze([
+  "reserved",
+  "queued",
+  "processing",
+  "succeeded",
+  "failed",
+  "refunding",
+  "refunded"
+]);
 const ASSET_UPLOAD_TICKET_COLLECTION = "asset_upload_tickets";
 const USER_ASSET_COLLECTION = "user_assets";
 const TENCENT_FACEFUSION_STATUS_COLLECTION = "tencent_facefusion_status";
@@ -1487,11 +1506,11 @@ function resolveImageConfig(overrides = {}) {
     provider: overrideString(
       image,
       "provider",
-      firstEnv(["AI_IMAGE_PROVIDER", "AI_PROVIDER"], "openai-compatible")
+      firstEnv(["AI_IMAGE_PROVIDER", "AI_PROVIDER"], "lingyun")
     ),
     baseUrl: overrideString(image, "baseUrl", firstEnv(
       ["AI_IMAGE_BASE_URL", "AI_BASE_URL"],
-      "https://api.openai.com/v1"
+      "https://api.lingyunapi.xyz/v1"
     )),
     endpoint: overrideString(image, "endpoint", env("AI_IMAGE_ENDPOINT")),
     apiKey: normalizeApiKey(
@@ -3318,22 +3337,55 @@ function photoToVideoCleanupState(row = {}, baseDate = new Date()) {
   };
 }
 
+function timerTriggerName(event = {}) {
+  const source = event && typeof event === "object" ? event : {};
+  return String(
+    source.triggerName
+    || source.TriggerName
+    || source.name
+    || ""
+  ).trim();
+}
+
 function isPhotoToVideoCleanupTrigger(event = {}) {
   const source = event && typeof event === "object" ? event : {};
+  const triggerName = timerTriggerName(source);
   return (
-    source.Type === "Timer"
-    || source.type === "timer"
-    || source.triggerName === "photo-to-video-temp-cleanup"
-    || source.triggerName === "photo-to-video-idle-cleanup"
+    triggerName === "photo-to-video-temp-cleanup"
+    || triggerName === "photo-to-video-idle-cleanup"
     || source.action === "cleanupPhotoToVideoTempAssets"
+  );
+}
+
+function isGenerationQueueWorkerTrigger(event = {}) {
+  const source = event && typeof event === "object" ? event : {};
+  return (
+    timerTriggerName(source) === "generation-queue-worker"
+    || source.action === "processGenerationQueue"
+  );
+}
+
+function isGenerationReconcileTrigger(event = {}) {
+  const source = event && typeof event === "object" ? event : {};
+  return (
+    timerTriggerName(source) === "generation-operation-reconcile"
+    || source.action === "reconcileGenerationOperations"
   );
 }
 
 function isWatermarkTransferCleanupTrigger(event = {}) {
   const source = event && typeof event === "object" ? event : {};
   return (
-    source.triggerName === "watermark-transfer-temp-cleanup"
+    timerTriggerName(source) === "watermark-transfer-temp-cleanup"
     || source.action === "cleanupWatermarkTransferTempAssets"
+  );
+}
+
+function isTencentFaceFusionCleanupTrigger(event = {}) {
+  const source = event && typeof event === "object" ? event : {};
+  return (
+    timerTriggerName(source) === "tencent-facefusion-intermediate-cleanup"
+    || source.action === "cleanupTencentFaceFusionIntermediateAssets"
   );
 }
 
@@ -4273,6 +4325,36 @@ function normalizeModelUsageEvent(value = {}) {
   };
 }
 
+function modelUsageDetailFromEvent(value = {}) {
+  const event = normalizeModelUsageEvent(value);
+  if (!event) return null;
+  return {
+    dateKey: event.dateKey,
+    createdAt: event.createdAt instanceof Date
+      ? event.createdAt.toISOString()
+      : String(event.createdAt || ""),
+    userHash: event.userHash,
+    requestId: event.requestId,
+    usageType: event.usageType,
+    provider: event.provider,
+    model: event.model,
+    imageResolution: event.imageResolution,
+    videoResolution: event.videoResolution,
+    unitPrice: event.unitPrice,
+    quantity: event.usageType === "image"
+      ? 1
+      : event.usageType === "video"
+        ? event.videoDurationSeconds
+        : event.totalTokens,
+    estimatedCost: event.estimatedCost,
+    billingSource: event.billingSource,
+    status: event.status,
+    success: event.success,
+    durationMs: event.durationMs,
+    costConfigVersion: event.costConfigVersion
+  };
+}
+
 async function recordModelUsageEvent(value = {}) {
   const event = normalizeModelUsageEvent(value);
   if (!event) return false;
@@ -4531,6 +4613,7 @@ function aggregateModelUsageEvents(events = [], days = 30, now = new Date()) {
   const failureReasonMap = {};
   const failureDetails = [];
   const failureHistoryDetails = [];
+  const usageDetails = [];
 
   for (let offset = 0; offset < rangeDays; offset += 1) {
     const dateKey = shiftDateKey(todayKey, -offset);
@@ -4558,6 +4641,8 @@ function aggregateModelUsageEvents(events = [], days = 30, now = new Date()) {
     const daily = dailyMap[event.dateKey];
     const inDailyRange = event.dateKey >= rangeStartKey;
     if (inDailyRange) {
+      const usageDetail = modelUsageDetailFromEvent(event);
+      if (usageDetail) usageDetails.push(usageDetail);
       const typeCounter = summary[event.usageType];
       addUsageEvent(typeCounter, event);
     }
@@ -4661,6 +4746,9 @@ function aggregateModelUsageEvents(events = [], days = 30, now = new Date()) {
       .sort((left, right) => right.localeCompare(left))
       .map((dateKey) => dailyMap[dateKey]),
     models,
+    details: usageDetails.sort((left, right) => (
+      String(right.createdAt || "").localeCompare(String(left.createdAt || ""))
+    )),
     failureStats: buildFailureStats(
       failureReasonMap,
       modelMap,
@@ -5964,6 +6052,22 @@ function isValidEndpointOrPath(value) {
   return isValidHttpUrl(value);
 }
 
+function validateCostNumber(value, field) {
+  const label = String(field || "成本");
+  if (value === undefined || value === null || String(value).trim() === "") {
+    return `${label} 不能为空`;
+  }
+  const text = String(value).trim();
+  if (!/^(?:0|[1-9]\d*)(?:\.\d{1,4})?$/.test(text)) {
+    return `${label} 必须是非负数字，最多 4 位小数`;
+  }
+  const number = Number(text);
+  if (!Number.isFinite(number) || number < 0 || number > 100000) {
+    return `${label} 必须在 0～100000 之间`;
+  }
+  return "";
+}
+
 function validateRuntimePatch(patch) {
   const errors = [];
   const face = patch.face || {};
@@ -6093,12 +6197,9 @@ function validateRuntimePatch(patch) {
     ["costs.video.perSecond.1080p", videoCosts.perSecond && videoCosts.perSecond["1080p"]],
     ["costs.video.defaultDurationSeconds", videoCosts.defaultDurationSeconds]
   ].forEach(([field, value]) => {
-    if (
-      value !== undefined
-      && (!Number.isFinite(Number(value)) || Number(value) < 0 || Number(value) > 100000)
-    ) {
-      errors.push(`${field} 必须在 0～100000 之间`);
-    }
+    if (value === undefined) return;
+    const error = validateCostNumber(value, field);
+    if (error) errors.push(error);
   });
   if (
     costs.currency !== undefined
@@ -7376,6 +7477,57 @@ function formatExportDateTime(value) {
   }).format(date);
 }
 
+function buildModelUsageDetailRows(events = []) {
+  const rows = [[
+    "日期",
+    "时间",
+    "脱敏用户编号",
+    "请求编号",
+    "功能",
+    "Provider",
+    "模型",
+    "图片清晰度",
+    "视频清晰度",
+    "单价",
+    "数量/时长",
+    "成本",
+    "成本来源",
+    "HTTP状态",
+    "是否成功",
+    "耗时毫秒",
+    "成本配置版本"
+  ]];
+  (Array.isArray(events) ? events : [])
+    .map((item) => modelUsageDetailFromEvent(item))
+    .filter(Boolean)
+    .sort((left, right) => (
+      String(right.createdAt || "").localeCompare(String(left.createdAt || ""))
+    ))
+    .forEach((item) => {
+      const priced = item.billingSource !== "unavailable";
+      rows.push([
+        safeExportText(item.dateKey, 10),
+        formatExportDateTime(item.createdAt),
+        safeExportText(item.userHash || "anonymous", 40),
+        safeExportText(item.requestId, 80),
+        safeExportText(modelUsageTypeLabel(item.usageType), 20),
+        safeExportText(item.provider, 80),
+        safeExportText(item.model, 120),
+        safeExportText(item.imageResolution, 10),
+        safeExportText(item.videoResolution, 10),
+        priced ? formatExportNumber(item.unitPrice) : "未计价",
+        formatExportNumber(item.quantity, 3),
+        priced ? formatExportNumber(item.estimatedCost) : "未计价",
+        safeExportText(item.billingSource || "unavailable", 20),
+        Number(item.status) || 0,
+        item.success ? "是" : "否",
+        Math.max(0, Number(item.durationMs) || 0),
+        safeExportText(item.costConfigVersion, 40)
+      ]);
+    });
+  return rows;
+}
+
 function buildModelUsageExportWorkbook(stats = {}) {
   const workbook = XLSX.utils.book_new();
   const dailyRows = [[
@@ -7523,6 +7675,15 @@ function buildModelUsageExportWorkbook(stats = {}) {
     ]);
   });
   XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(monthlyRows), "按月份");
+
+  const detailRows = buildModelUsageDetailRows(
+    Array.isArray(stats.details) ? stats.details : []
+  );
+  XLSX.utils.book_append_sheet(
+    workbook,
+    XLSX.utils.aoa_to_sheet(detailRows),
+    "成本调用明细"
+  );
 
   const failureRows = [[
     "日期",
@@ -8488,34 +8649,8 @@ function invertMask(buffer, requestId) {
   }
 }
 
-async function requestImageEdits(
-  payload,
-  apiKey,
-  requestId,
-  imageConfig = resolveImageConfig(),
-  costs = resolveCostConfig(),
-  userHash = "anonymous"
-) {
-  if (!payload.mainFileID || !payload.maskFileID) {
-    const error = new Error("编辑模式需要主图和 mask 文件。");
-    error.code = "missing-edit-asset";
-    throw error;
-  }
-  const mainBuffer = await downloadCloudFile(payload.mainFileID, {
-    requestId,
-    action: "generate",
-    fileType: "main"
-  });
-  const maskBuffer = invertMask(
-    await downloadCloudFile(payload.maskFileID, {
-      requestId,
-      action: "generate",
-      fileType: "mask"
-    }),
-    requestId
-  );
-
-  const references = []
+function imageEditReferences(payload = {}) {
+  return []
     .concat(payload.identityFileID ? [{
       fileID: payload.identityFileID,
       role: "identity",
@@ -8536,14 +8671,50 @@ async function requestImageEdits(
       role: "background",
       index
     })));
-  const referenceBuffers = await Promise.all(references.map(async (reference) => ({
-    reference,
-    buffer: await downloadCloudFile(reference.fileID, {
-      requestId,
-      action: "generate",
-      fileType: reference.role
-    })
-  })));
+}
+
+async function requestImageEdits(
+  payload,
+  apiKey,
+  requestId,
+  imageConfig = resolveImageConfig(),
+  costs = resolveCostConfig(),
+  userHash = "anonymous",
+  preparedAssets = null
+) {
+  if (!payload.mainFileID || !payload.maskFileID) {
+    const error = new Error("编辑模式需要主图和 mask 文件。");
+    error.code = "missing-edit-asset";
+    throw error;
+  }
+  const references = imageEditReferences(payload);
+  const [mainBuffer, rawMaskBuffer, referenceBuffers] = await Promise.all([
+    preparedAssets && Buffer.isBuffer(preparedAssets.mainBuffer)
+      ? Promise.resolve(preparedAssets.mainBuffer)
+      : downloadCloudFile(payload.mainFileID, {
+        requestId,
+        action: "generate",
+        fileType: "main"
+      }),
+    preparedAssets && Buffer.isBuffer(preparedAssets.maskBuffer)
+      ? Promise.resolve(preparedAssets.maskBuffer)
+      : downloadCloudFile(payload.maskFileID, {
+        requestId,
+        action: "generate",
+        fileType: "mask"
+      }),
+    preparedAssets && Array.isArray(preparedAssets.referenceBuffers)
+      ? Promise.resolve(preparedAssets.referenceBuffers)
+      : Promise.all(references.map(async (reference) => ({
+          reference,
+          buffer: await downloadCloudFile(reference.fileID, {
+            requestId,
+            action: "generate",
+            fileType: reference.role
+          })
+        })))
+  ]);
+  const maskBuffer = invertMask(rawMaskBuffer, requestId);
 
   const mainMime = detectMime(mainBuffer);
   const maskMime = detectMime(maskBuffer);
@@ -8553,6 +8724,7 @@ async function requestImageEdits(
   const fields = buildImageEditFields(payload, imageConfig, references);
   const endpointInfo = resolveImageEditEndpoint(imageConfig);
   const url = endpointInfo.url;
+  pixelProtectionFlow.assertLingyunImageEditFlow(imageConfig, url);
   const useLingyunJson = isLingyunImageProvider(imageConfig, url);
 
   const files = [
@@ -8765,6 +8937,7 @@ function tencentFaceFusionError(response) {
 }
 
 async function requestTencentFaceFusion(modelBuffer, faceBuffer, config, requestId) {
+  pixelProtectionFlow.assertTencentFaceFusionFlow(config);
   if (!Buffer.isBuffer(modelBuffer) || !modelBuffer.length) {
     const error = new Error("腾讯换脸模板图为空。");
     error.code = "TENCENT_TEMPLATE_IMAGE_EMPTY";
@@ -8912,6 +9085,7 @@ async function requestTencentPipelineImageEdit(
   const mainField = env("AI_IMAGE_MAIN_FIELD", "image");
   const maskField = env("AI_IMAGE_MASK_FIELD", "mask");
   const endpointInfo = resolveImageEditEndpoint(imageConfig);
+  pixelProtectionFlow.assertLingyunImageEditFlow(imageConfig, endpointInfo.url);
   const useLingyunJson = isLingyunImageProvider(imageConfig, endpointInfo.url);
   let requestBody;
   let requestHeaders;
@@ -9073,6 +9247,13 @@ function pointsLedgerId(openid, requestId) {
 function generationOperationId(openid, requestId) {
   return crypto.createHash("sha256")
     .update(`operation:${openid}:${requestId}`)
+    .digest("hex")
+    .slice(0, 32);
+}
+
+function normalGenerationRecordId(openid, requestId) {
+  return crypto.createHash("sha256")
+    .update(`generation-record:${openid}:${requestId}`)
     .digest("hex")
     .slice(0, 32);
 }
@@ -10332,26 +10513,23 @@ async function validateGenerationAssets(openid, payload) {
   if (Number(payload && payload.assetRegistrationVersion) < 1) return;
   const mainFileID = String(payload.mainFileID || "").trim();
   const maskFileID = String(payload.maskFileID || "").trim();
-  if (mainFileID) await findUserAsset(openid, mainFileID, "main");
-  if (maskFileID) await findUserAsset(openid, maskFileID, "mask");
-  await Promise.all(
-    (Array.isArray(payload.faceFileIDs) ? payload.faceFileIDs : [])
-      .filter(Boolean)
-      .slice(0, 6)
-      .map((fileID) => findUserAsset(openid, fileID, "face"))
-  );
-  await Promise.all(
-    (Array.isArray(payload.wardrobeFileIDs) ? payload.wardrobeFileIDs : [])
-      .filter(Boolean)
-      .slice(0, 12)
-      .map((fileID) => findUserAsset(openid, fileID, "wardrobe"))
-  );
-  await Promise.all(
-    (Array.isArray(payload.backgroundFileIDs) ? payload.backgroundFileIDs : [])
-      .filter(Boolean)
-      .slice(0, 3)
-      .map((fileID) => findUserAsset(openid, fileID, "background"))
-  );
+  const faceFileIDs = (Array.isArray(payload.faceFileIDs) ? payload.faceFileIDs : [])
+    .filter(Boolean)
+    .slice(0, 6);
+  const wardrobeFileIDs = (Array.isArray(payload.wardrobeFileIDs) ? payload.wardrobeFileIDs : [])
+    .filter(Boolean)
+    .slice(0, 12);
+  const backgroundFileIDs = (Array.isArray(payload.backgroundFileIDs)
+    ? payload.backgroundFileIDs
+    : []
+  ).filter(Boolean).slice(0, 3);
+  const checks = [];
+  if (mainFileID) checks.push(findUserAsset(openid, mainFileID, "main"));
+  if (maskFileID) checks.push(findUserAsset(openid, maskFileID, "mask"));
+  checks.push(...faceFileIDs.map((fileID) => findUserAsset(openid, fileID, "face")));
+  checks.push(...wardrobeFileIDs.map((fileID) => findUserAsset(openid, fileID, "wardrobe")));
+  checks.push(...backgroundFileIDs.map((fileID) => findUserAsset(openid, fileID, "background")));
+  if (checks.length) await Promise.all(checks);
 }
 
 async function releaseUserAssets(openid, references, store = db) {
@@ -10455,6 +10633,218 @@ async function removePointLedgerForUser(openid) {
   return removed;
 }
 
+function sanitizeGenerationPayload(payload = {}) {
+  const source = payload && typeof payload === "object" ? payload : {};
+  const list = (value, limit) => (
+    Array.isArray(value)
+      ? value
+        .filter(Boolean)
+        .slice(0, limit)
+        .map((item) => String(item).trim().slice(0, 512))
+        .filter(Boolean)
+      : []
+  );
+  const geometrySource = source.maskGeometry && typeof source.maskGeometry === "object"
+    ? source.maskGeometry
+    : {};
+  const maskGeometry = {};
+  [
+    "x",
+    "y",
+    "width",
+    "height",
+    "left",
+    "top",
+    "right",
+    "bottom",
+    "centerX",
+    "centerY",
+    "radius",
+    "scale",
+    "rotation",
+    "coordinateSystem"
+  ].forEach((key) => {
+    if (!Object.prototype.hasOwnProperty.call(geometrySource, key)) return;
+    const value = geometrySource[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      maskGeometry[key] = Math.max(-100000, Math.min(100000, value));
+    } else if (typeof value === "string") {
+      maskGeometry[key] = value.trim().slice(0, 64);
+    }
+  });
+  return {
+    generationType: "normal",
+    mode: String(source.mode || "").trim().slice(0, 16),
+    projectName: String(source.projectName || "未命名项目").trim().slice(0, 80),
+    prompt: String(source.prompt || "").slice(0, 8000),
+    negativePrompt: String(source.negativePrompt || "").slice(0, 4000),
+    mainFileID: String(source.mainFileID || "").trim().slice(0, 512),
+    maskFileID: String(source.maskFileID || "").trim().slice(0, 512),
+    identityFileID: String(source.identityFileID || "").trim().slice(0, 512),
+    maskGeometry,
+    assetRegistrationVersion: Number(source.assetRegistrationVersion) || 0,
+    faceFileIDs: list(source.faceFileIDs, 6),
+    wardrobeFileIDs: list(source.wardrobeFileIDs, 12),
+    backgroundFileIDs: list(source.backgroundFileIDs, 3),
+    size: String(source.size || "").trim().slice(0, 32),
+    n: Math.max(1, Math.min(4, Math.round(Number(source.n) || 1)))
+  };
+}
+
+function normalizeGenerationStatus(value) {
+  const status = String(value || "").trim().toLowerCase();
+  return GENERATION_OPERATION_STATUSES.includes(status) ? status : "failed";
+}
+
+function statusMessageForGenerationOperation(status, stage) {
+  if (status === "queued") return "生图任务已提交，正在排队。";
+  if (status === "processing") {
+    if (stage === "validate") return "正在检查生图素材。";
+    if (stage === "download") return "正在接收生成结果。";
+    if (stage === "upload") return "正在保存生成图片。";
+    if (stage === "record") return "正在保存制作记录。";
+    return "AI 正在生成图片。";
+  }
+  if (status === "succeeded") return "图片生成完成。";
+  if (status === "refunding") return "生成失败，正在退回使用额度。";
+  if (status === "refunded") return "生成失败，使用额度已退回。";
+  if (status === "failed") return "图片生成失败。";
+  return "任务状态未知。";
+}
+
+function serializeGenerationDate(value) {
+  if (!value) return "";
+  try {
+    if (value instanceof Date) return value.toISOString();
+    if (typeof value.toDate === "function") {
+      const date = value.toDate();
+      return date instanceof Date ? date.toISOString() : new Date(date).toISOString();
+    }
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? "" : date.toISOString();
+  } catch (_) {
+    return "";
+  }
+}
+
+function sanitizeGenerationResult(result = {}) {
+  const source = result && typeof result === "object" ? result : {};
+  const safe = {};
+  [
+    "requestId",
+    "recordId",
+    "fileID",
+    "tempFileURL",
+    "createdAt",
+    "model",
+    "size",
+    "resolution",
+    "pipelineStage"
+  ].forEach((key) => {
+    if (source[key] === undefined || source[key] === null) return;
+    safe[key] = key === "createdAt"
+      ? serializeGenerationDate(source[key])
+      : String(source[key]).slice(0, key === "tempFileURL" ? 4096 : 512);
+  });
+  if (source.quota && typeof source.quota === "object") {
+    safe.quota = {
+      freeUsed: Math.max(0, Number(source.quota.freeUsed) || 0),
+      freeLimit: Math.max(0, Number(source.quota.freeLimit) || 0),
+      freeRemaining: Math.max(0, Number(source.quota.freeRemaining) || 0),
+      billingMode: String(source.quota.billingMode || "").slice(0, 32)
+    };
+  }
+  if (source.billing && typeof source.billing === "object") {
+    safe.billing = {
+      source: String(source.billing.source || "").slice(0, 32),
+      kind: String(source.billing.kind || "").slice(0, 32),
+      pointsCharged: Math.max(0, Number(source.billing.pointsCharged) || 0),
+      cost: Math.max(0, Number(source.billing.cost) || 0),
+      dateKey: String(source.billing.dateKey || "").slice(0, 16)
+    };
+  }
+  if (source.record && typeof source.record === "object") {
+    const record = Object.assign({}, source.record);
+    [
+      "_id",
+      "openid",
+      "payload",
+      "ledgerId",
+      "refundLedgerId",
+      "headers",
+      "apiKey",
+      "authorization"
+    ].forEach((key) => delete record[key]);
+    safe.record = record;
+  }
+  return safe;
+}
+
+function buildPublicGenerationBilling(billing) {
+  if (!billing || typeof billing !== "object") return null;
+  return {
+    source: String(billing.source || "").slice(0, 32),
+    kind: String(billing.kind || "").slice(0, 32),
+    pointsCharged: Math.max(0, Number(billing.pointsCharged) || 0),
+    cost: Math.max(0, Number(billing.cost) || 0),
+    dateKey: String(billing.dateKey || "").slice(0, 16),
+    quota: billing.quota && typeof billing.quota === "object"
+      ? {
+          freeUsed: Math.max(0, Number(billing.quota.freeUsed) || 0),
+          freeLimit: Math.max(0, Number(billing.quota.freeLimit) || 0),
+          freeRemaining: Math.max(0, Number(billing.quota.freeRemaining) || 0),
+          billingMode: String(billing.quota.billingMode || "").slice(0, 32)
+        }
+      : null
+  };
+}
+
+function buildGenerationStatusResult(operation = {}) {
+  const status = normalizeGenerationStatus(operation.status);
+  const stage = String(operation.pipelineStage || status).trim() || status;
+  const progress = status === "queued"
+    ? 0
+    : status === "processing"
+      ? Math.max(5, Math.min(95, Number(operation.progress) || 10))
+      : status === "succeeded"
+        ? 100
+        : 0;
+  const result = status === "succeeded"
+    ? sanitizeGenerationResult(operation.result || {
+        requestId: operation.requestId,
+        recordId: operation.recordId,
+        fileID: operation.resultFileID,
+        tempFileURL: operation.tempFileURL,
+        createdAt: operation.succeededAt,
+        model: operation.model,
+        resolution: operation.resolution
+      })
+    : null;
+  const rawError = operation.lastError && typeof operation.lastError === "object"
+    ? operation.lastError
+    : null;
+  const error = status === "failed" && rawError
+    ? {
+        code: String(rawError.code || "generation-failed").slice(0, 80),
+        message: sanitizeFailureMessage(rawError.message || "生成失败", 240),
+        retryable: Boolean(rawError.retryable)
+      }
+    : null;
+  return {
+    taskId: String(operation.requestId || ""),
+    requestId: String(operation.requestId || ""),
+    status,
+    stage,
+    progress,
+    message: statusMessageForGenerationOperation(status, stage),
+    result,
+    error,
+    queuedAt: serializeGenerationDate(operation.queuedAt),
+    processingAt: serializeGenerationDate(operation.processingAt),
+    updatedAt: serializeGenerationDate(operation.updatedAt)
+  };
+}
+
 async function findGenerationOperation(openid, requestId, store = db) {
   if (!openid || !requestId) return null;
   return readDocument(
@@ -10485,6 +10875,42 @@ async function saveGenerationOperation(openid, requestId, data, store = db) {
   return record;
 }
 
+async function enqueueGenerationOperation(
+  openid,
+  requestId,
+  payload,
+  billing,
+  metadata = {}
+) {
+  return db.runTransaction(async (transaction) => {
+    const existing = await findGenerationOperation(openid, requestId, transaction);
+    const existingStatus = normalizeGenerationStatus(existing && existing.status);
+    if (
+      existing
+      && ["queued", "processing", "succeeded", "refunding", "refunded"].includes(existingStatus)
+    ) {
+      return existing;
+    }
+    const now = new Date();
+    return saveGenerationOperation(openid, requestId, {
+      kind: "image",
+      status: "queued",
+      payload: sanitizeGenerationPayload(payload),
+      pipelineStage: "queued",
+      progress: 0,
+      queuedAt: existing && existing.queuedAt ? existing.queuedAt : now,
+      lastHeartbeatAt: now,
+      attemptCount: Math.max(0, Number(existing && existing.attemptCount) || 0),
+      billing: billing || (existing && existing.billing) || {},
+      model: String(metadata.model || (existing && existing.model) || "").slice(0, 160),
+      resolution: String(metadata.resolution || (existing && existing.resolution) || "").slice(0, 16),
+      size: String(metadata.size || (existing && existing.size) || "").slice(0, 32),
+      expiresAt: new Date(now.getTime() + GENERATION_RESULT_TTL_MS),
+      lastError: null
+    }, transaction);
+  }, 5);
+}
+
 function operationStateError(operation, message) {
   const status = String(operation && operation.status || "");
   const error = new Error(message || (
@@ -10506,8 +10932,10 @@ function operationStateError(operation, message) {
 
 function operationUpdatedAtMs(operation) {
   const value = operation && (
-    operation.processingAt
+    operation.lastHeartbeatAt
     || operation.updatedAt
+    || operation.processingAt
+    || operation.queuedAt
     || operation.createdAt
   );
   if (!value) return 0;
@@ -10561,7 +10989,7 @@ async function updateGenerationOperation(openid, requestId, patch, options = {})
     const operation = await findGenerationOperation(openid, requestId, transaction);
     if (!operation) return null;
     const status = String(operation.status || "");
-    if (status === "refunded") return operation;
+    if (status === "refunded" && !options.allowRefunded) return operation;
     if (
       Array.isArray(options.allowedStatuses)
       && options.allowedStatuses.length
@@ -10573,29 +11001,76 @@ async function updateGenerationOperation(openid, requestId, patch, options = {})
   }, 5);
 }
 
+async function touchGenerationOperation(openid, requestId, stage, progress) {
+  const safeStage = String(stage || "processing").trim().slice(0, 40) || "processing";
+  const numericProgress = Number(progress);
+  const safeProgress = Number.isFinite(numericProgress)
+    ? Math.max(0, Math.min(99, Math.round(numericProgress)))
+    : 10;
+  return updateGenerationOperation(openid, requestId, {
+    pipelineStage: safeStage,
+    progress: safeProgress,
+    lastHeartbeatAt: new Date()
+  }, {
+    allowedStatuses: ["queued", "processing"]
+  });
+}
+
 async function completeGenerationOperation(openid, requestId, result) {
+  const safeResult = sanitizeGenerationResult(result);
   return updateGenerationOperation(openid, requestId, {
     status: "succeeded",
-    result,
+    pipelineStage: "succeeded",
+    progress: 100,
+    result: safeResult,
+    recordId: safeResult.recordId || "",
+    resultFileID: safeResult.fileID || "",
+    tempFileURL: safeResult.tempFileURL || "",
     succeededAt: new Date(),
+    lastHeartbeatAt: new Date(),
+    reconcilePending: false,
+    refundPending: false,
+    cleanupPending: false,
     lastError: null
   }, {
-    allowedStatuses: ["processing", "succeeded"]
+    allowedStatuses: ["processing", "failed", "succeeded"]
   });
 }
 
 async function failGenerationOperation(openid, requestId, error) {
   return updateGenerationOperation(openid, requestId, {
     status: "failed",
+    pipelineStage: String(error && error.pipelineStage || "failed").slice(0, 40),
+    progress: 0,
     failedAt: new Date(),
+    lastHeartbeatAt: new Date(),
     lastError: {
       code: String(error && error.code || "generation-failed"),
-      message: String(error && error.message || "生成失败"),
+      message: sanitizeFailureMessage(error && error.message || "生成失败", 240),
       retryable: Boolean(error && error.retryable)
     }
   }, {
-    allowedStatuses: ["processing", "failed"]
+    allowedStatuses: ["reserved", "queued", "processing", "failed"]
   });
+}
+
+async function getGenerationStatus(event, context) {
+  const openid = getOpenId(context);
+  const payload = event && event.payload && typeof event.payload === "object"
+    ? event.payload
+    : {};
+  const requestId = String(
+    event && (event.requestId || event.taskId)
+      || payload.requestId
+      || ""
+  ).trim().slice(0, 100);
+  if (!requestId) return fail("缺少任务编号。", "missing-generation-task");
+  const operation = await findGenerationOperation(openid, requestId);
+  if (!operation) return fail("没有找到这个生图任务。", "generation-task-not-found");
+  return jsonResponse(true, Object.assign(
+    buildGenerationStatusResult(operation),
+    { billing: buildPublicGenerationBilling(operation.billing) }
+  ));
 }
 
 function pointsSummary(account, quota, points, dateKey) {
@@ -10876,7 +11351,9 @@ async function refundUsage(openid, requestId, reason) {
           status: "refunded",
           refundLedgerId: refundLedger._id,
           refundReason: reason || "",
-          refundedAt: new Date()
+          refundedAt: new Date(),
+          refundPending: false,
+          refundLastError: ""
         }, transaction)
       : null;
     return {
@@ -11168,6 +11645,20 @@ async function claimTencentPipelineResume(openid, requestId) {
       error.code = "TENCENT_RETRY_INTERMEDIATE_MISSING";
       throw error;
     }
+    if (
+      !operation.pixelProtection
+      || Number(operation.pixelProtection.version)
+        !== pixelProtectionFlow.PIXEL_PROTECTION_VERSION
+      || !Array.isArray(operation.pixelProtection.faceProtectionRects)
+      || !operation.pixelProtection.faceProtectionRects.length
+      || !operation.pixelProtectionMetrics
+      || !operation.pixelProtectionMetrics.lingyunIntermediate
+    ) {
+      const error = new Error("这次任务缺少已验收的人脸保护数据，不能安全重试腾讯换脸。");
+      error.code = "TENCENT_RETRY_PIXEL_PROTECTION_MISSING";
+      error.retryable = false;
+      throw error;
+    }
     const next = await saveGenerationOperation(openid, requestId, {
       status: "processing",
       pipelineStage: "facefusion",
@@ -11221,6 +11712,15 @@ async function getTencentFaceFusionPipelineStatus(event, context) {
     "image-edit": "正在修改衣服、背景和光影",
     facefusion: "正在融合参考人脸"
   };
+  const canRetryTencent = operation.status === "refunded"
+    && Boolean(operation.intermediateFileID)
+    && operation.pixelProtection
+    && Number(operation.pixelProtection.version)
+      === pixelProtectionFlow.PIXEL_PROTECTION_VERSION
+    && Array.isArray(operation.pixelProtection.faceProtectionRects)
+    && operation.pixelProtection.faceProtectionRects.length > 0
+    && operation.pixelProtectionMetrics
+    && operation.pixelProtectionMetrics.lingyunIntermediate;
   return jsonResponse(true, Object.assign({
     requestId,
     stage,
@@ -11236,7 +11736,7 @@ async function getTencentFaceFusionPipelineStatus(event, context) {
         : stageTextByStage[operation.pipelineStage] || "正在准备图片",
     status: operation.status || "",
     intermediateAvailable: Boolean(operation.intermediateFileID),
-    canRetryTencent: operation.status === "refunded" && Boolean(operation.intermediateFileID)
+    canRetryTencent: Boolean(canRetryTencent)
   }, operation.status === "succeeded" ? {
     result: operation.result || {}
   } : {}));
@@ -11444,6 +11944,9 @@ async function tencentFaceFusionPipeline(event, context) {
     mode: "edits"
   });
   const tencent = resolveTencentFaceFusionConfig();
+  const imageEditEndpoint = resolveImageEditEndpoint(imageConfig);
+  pixelProtectionFlow.assertLingyunImageEditFlow(imageConfig, imageEditEndpoint.url);
+  pixelProtectionFlow.assertTencentFaceFusionFlow(tencent);
   if (!imageConfig.apiKey) {
     return fail(
       "普通生图配置还没有设置 AI_IMAGE_API_KEY，暂时不能执行第一阶段。",
@@ -11475,6 +11978,37 @@ async function tencentFaceFusionPipeline(event, context) {
   }
   await findUserAsset(openid, mainFileID, "main");
   await findUserAsset(openid, faceFileID, "face");
+
+  let preparedMainBuffer = null;
+  let preparedFaceBuffer = null;
+  let mainPixelImage = null;
+  let facePixelImage = null;
+  let faceProtectionRects = null;
+  let tencentPixelProtection = null;
+  if (!retryTencentOnly) {
+    [preparedMainBuffer, preparedFaceBuffer] = await Promise.all([
+      downloadCloudFile(mainFileID, {
+        requestId,
+        action: "tencent.pipeline.preflight",
+        fileType: "main"
+      }),
+      downloadCloudFile(faceFileID, {
+        requestId,
+        action: "tencent.pipeline.preflight",
+        fileType: "face"
+      })
+    ]);
+    const preflight = pixelProtectionFlow.preflightTencentAssets(
+      preparedMainBuffer,
+      preparedFaceBuffer,
+      {
+        maxPixels: pixelCodec.DEFAULT_MAX_PIXELS,
+        maxTencentBytes: tencent.maxImageBytes
+      }
+    );
+    mainPixelImage = preflight.mainImage;
+    facePixelImage = preflight.faceImage;
+  }
 
   let billing = null;
   let claim = null;
@@ -11538,12 +12072,19 @@ async function tencentFaceFusionPipeline(event, context) {
         requestId,
         context
       );
-      const mainBuffer = await downloadCloudFile(mainFileID, {
+      const mainBuffer = preparedMainBuffer || await downloadCloudFile(mainFileID, {
         requestId,
         action: "tencent.pipeline.image-edit",
         fileType: "main"
       });
+      if (!mainPixelImage) {
+        mainPixelImage = pixelCodec.decodeImage(mainBuffer, {
+          label: "腾讯版主图",
+          maxPixels: pixelCodec.DEFAULT_MAX_PIXELS
+        });
+      }
       const faceProtectionMask = createFaceProtectionMask(mainBuffer, detectedFaces);
+      faceProtectionRects = faceProtectionMask.rects;
       log("info", "tencent.pipeline.face-protection-ready", {
         requestId,
         faceCount: faceProtectionMask.faceCount,
@@ -11578,9 +12119,19 @@ async function tencentFaceFusionPipeline(event, context) {
         requestId,
         action: "tencent.pipeline.image-result"
       });
+      const protectedIntermediate = pixelProtectionFlow.protectTencentIntermediate(
+        mainPixelImage,
+        gptBuffer,
+        faceProtectionMask.rects,
+        {
+          maxPixels: pixelCodec.DEFAULT_MAX_PIXELS,
+          maxTencentBytes: tencent.maxImageBytes
+        }
+      );
+      tencentPixelProtection = protectedIntermediate;
       const intermediate = await cloud.uploadFile({
-        cloudPath: `tencent-facefusion/intermediate/${openid}/${Date.now()}-${crypto.randomBytes(4).toString("hex")}.${imageExtension(gptImage.mime)}`,
-        fileContent: gptBuffer
+        cloudPath: `tencent-facefusion/intermediate/${openid}/${Date.now()}-${crypto.randomBytes(4).toString("hex")}.png`,
+        fileContent: protectedIntermediate.buffer
       });
       intermediateFileID = intermediate.fileID;
       await registerTencentFaceFusionIntermediateAsset(
@@ -11592,7 +12143,17 @@ async function tencentFaceFusionPipeline(event, context) {
         await updateGenerationOperation(openid, requestId, {
           pipelineStage: "facefusion",
           intermediateFileID,
-          intermediateExpiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000)
+          intermediateExpiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000),
+          pixelProtection: {
+            version: protectedIntermediate.protection.version,
+            width: protectedIntermediate.protection.width,
+            height: protectedIntermediate.protection.height,
+            faceProtectionRects: protectedIntermediate.protection.rects,
+            featherPixels: protectedIntermediate.protection.featherPixels
+          },
+          pixelProtectionMetrics: {
+            lingyunIntermediate: protectedIntermediate.metrics
+          }
         }, { allowedStatuses: ["processing"] });
       }
     } else {
@@ -11614,7 +12175,7 @@ async function tencentFaceFusionPipeline(event, context) {
       error.code = "TENCENT_PIPELINE_INTERMEDIATE_MISSING";
       throw error;
     }
-    const faceBuffer = await downloadCloudFile(faceFileID, {
+    const faceBuffer = preparedFaceBuffer || await downloadCloudFile(faceFileID, {
       requestId,
       action: "tencent.facefusion",
       fileType: "face"
@@ -11624,20 +12185,74 @@ async function tencentFaceFusionPipeline(event, context) {
       action: "tencent.facefusion",
       fileType: "intermediate"
     });
+    const intermediateImage = pixelCodec.decodeImage(intermediateBuffer, {
+      label: "腾讯版已验收中间图",
+      maxPixels: pixelCodec.DEFAULT_MAX_PIXELS
+    });
+    if (retryTencentOnly) {
+      const restored = pixelProtectionFlow.restoreTencentProtectionState(
+        operation,
+        intermediateImage
+      );
+      faceProtectionRects = restored.rects;
+      tencentPixelProtection = {
+        metrics: restored.metrics.lingyunIntermediate,
+        protection: {
+          version: restored.version,
+          rects: restored.rects,
+          width: restored.width,
+          height: restored.height,
+          featherPixels: Number(
+            operation
+            && operation.pixelProtection
+            && operation.pixelProtection.featherPixels
+          ) || 0
+        }
+      };
+    }
+    if (!Array.isArray(faceProtectionRects) || !faceProtectionRects.length) {
+      throw new Error("腾讯版缺少已验收的人脸保护矩形。");
+    }
+    if (!mainPixelImage) {
+      const originalBuffer = await downloadCloudFile(mainFileID, {
+        requestId,
+        action: "tencent.facefusion-metrics",
+        fileType: "main"
+      });
+      mainPixelImage = pixelCodec.decodeImage(originalBuffer, {
+        label: "腾讯版原始主图",
+        maxPixels: pixelCodec.DEFAULT_MAX_PIXELS
+      });
+    }
+    if (!facePixelImage) {
+      facePixelImage = pixelCodec.decodeImage(faceBuffer, {
+        label: "腾讯版参考脸",
+        maxPixels: pixelCodec.DEFAULT_MAX_PIXELS
+      });
+    }
     if (!billing || !billing.untracked) {
       await updateGenerationOperation(openid, requestId, {
         pipelineStage: "facefusion"
       }, { allowedStatuses: ["processing"] });
     }
-    const finalBuffer = await requestTencentFaceFusion(
+    const rawFinalBuffer = await requestTencentFaceFusion(
       intermediateBuffer,
       faceBuffer,
       tencent,
       requestId
     );
+    const protectedFinal = pixelProtectionFlow.protectTencentFinal(
+      intermediateImage,
+      rawFinalBuffer,
+      faceProtectionRects,
+      {
+        originalImage: mainPixelImage,
+        maxPixels: pixelCodec.DEFAULT_MAX_PIXELS
+      }
+    );
     const finalUploaded = await cloud.uploadFile({
       cloudPath: `results/${openid}/${Date.now()}-${crypto.randomBytes(4).toString("hex")}.png`,
-      fileContent: finalBuffer
+      fileContent: protectedFinal.buffer
     });
     const tempResult = await cloud.getTempFileURL({
       fileList: [finalUploaded.fileID]
@@ -11657,6 +12272,18 @@ async function tencentFaceFusionPipeline(event, context) {
       model: imageConfig.model,
       tencentModel: tencent.model,
       tencentRegion: tencent.region,
+      pixelProtection: {
+        version: pixelProtectionFlow.PIXEL_PROTECTION_VERSION,
+        mode: "tencent-rect-before-and-after",
+        rects: faceProtectionRects,
+        metrics: {
+          lingyunIntermediate: tencentPixelProtection
+            ? tencentPixelProtection.metrics
+            : null,
+          tencentFinalRelativeIntermediate: protectedFinal.addedMetrics,
+          tencentFinalRelativeOriginal: protectedFinal.originalMetrics
+        }
+      },
       imageMode: "tencent-face-fusion",
       generationType: "tencent-face-fusion",
       pipelineVersion,
@@ -11776,6 +12403,1016 @@ async function tencentFaceFusionPipeline(event, context) {
   }
 }
 
+function buildImageRequestFromOperation(operation, imageConfig = resolveImageConfig()) {
+  const payload = operation && operation.payload && typeof operation.payload === "object"
+    ? operation.payload
+    : {};
+  const mode = resolveGenerationMode(payload, imageConfig);
+  if (mode !== "edits") return buildImageGenerationPayload(payload, imageConfig);
+  return {
+    model: String(imageConfig.model || payload.model || "").trim(),
+    prompt: `${String(payload.prompt || "").trim()}${
+      payload.negativePrompt
+        ? `\n\n负面约束：${String(payload.negativePrompt).trim()}`
+        : ""
+    }`,
+    size: resolveImageOutputSize(imageConfig, payload.size),
+    quality: imageConfig.compatibilityMode ? "" : "auto",
+    n: 1
+  };
+}
+
+function buildImageRequestMeta(
+  operation,
+  imageConfig = resolveImageConfig(),
+  costs = resolveCostConfig()
+) {
+  const request = buildImageRequestFromOperation(operation, imageConfig);
+  return {
+    requestId: String(operation && operation.requestId || ""),
+    action: "generate",
+    provider: imageConfig.provider || "",
+    model: imageConfig.model || "",
+    imageGeneration: true,
+    allowRetry: imageConfig.retryEnabled,
+    maxAttempts: imageConfig.retryEnabled ? imageConfig.maxRetries + 1 : 1,
+    timeoutMs: imageConfig.timeoutMs,
+    costs,
+    userHash: usageUserHash(operation && operation.openid || "anonymous"),
+    imageResolution: imageConfig.resolution
+      || normalizeImageResolution(request.size, "1K")
+  };
+}
+
+function buildGenerationRecordData(openid, operation, result, billing = {}) {
+  const payload = operation && operation.payload && typeof operation.payload === "object"
+    ? operation.payload
+    : {};
+  const createdAtValue = result && result.createdAt ? new Date(result.createdAt) : new Date();
+  const createdAt = Number.isNaN(createdAtValue.getTime()) ? new Date() : createdAtValue;
+  const mode = String(
+    result && result.imageMode
+    || operation && operation.imageMode
+    || payload.mode
+    || "generations"
+  );
+  const fileID = String(result && result.fileID || operation && operation.resultFileID || "");
+  const quota = billing && billing.quota && typeof billing.quota === "object"
+    ? billing.quota
+    : {};
+  return {
+    openid,
+    projectName: payload.projectName || "未命名项目",
+    prompt: String(payload.prompt || ""),
+    negativePrompt: String(payload.negativePrompt || ""),
+    fileID,
+    tempFileURL: String(result && result.tempFileURL || operation && operation.tempFileURL || ""),
+    model: String(result && result.model || operation && operation.model || ""),
+    createdAt,
+    size: String(result && result.size || operation && operation.size || ""),
+    resolution: String(result && result.resolution || operation && operation.resolution || ""),
+    quality: String(result && result.quality || operation && operation.quality || ""),
+    compatibilityMode: Boolean(
+      result && result.compatibilityMode !== undefined
+        ? result.compatibilityMode
+        : operation && operation.compatibilityMode
+    ),
+    imageMode: mode,
+    pixelProtection: result && result.pixelProtection
+      || operation && operation.pixelProtection
+      || null,
+    requestId: String(operation && operation.requestId || ""),
+    quotaUsed: Math.max(0, Number(quota.freeUsed) || 0),
+    dailyLimit: Math.max(0, Number(quota.freeLimit) || 0),
+    billingSource: String(billing.source || ""),
+    pointsCharged: Math.max(0, Number(billing.pointsCharged) || 0),
+    generationType: "normal",
+    revisionNumber: 0,
+    repairContext: {
+      sourceFileID: fileID,
+      originalMainFileID: String(payload.mainFileID || ""),
+      mainInputFileID: String(payload.mainFileID || ""),
+      maskFileID: String(payload.maskFileID || ""),
+      maskGeometry: payload.maskGeometry && typeof payload.maskGeometry === "object"
+        ? payload.maskGeometry
+        : {},
+      assetRegistrationVersion: Number(payload.assetRegistrationVersion) || 0,
+      faceFileIDs: Array.isArray(payload.faceFileIDs)
+        ? payload.faceFileIDs.filter(Boolean).slice(0, 6)
+        : [],
+      wardrobeFileIDs: Array.isArray(payload.wardrobeFileIDs)
+        ? payload.wardrobeFileIDs.filter(Boolean).slice(0, 12)
+        : [],
+      backgroundFileIDs: Array.isArray(payload.backgroundFileIDs)
+        ? payload.backgroundFileIDs.filter(Boolean).slice(0, 3)
+        : []
+    }
+  };
+}
+
+async function persistGenerationResult(openid, operation, result, billing = {}) {
+  const requestId = String(operation && operation.requestId || "");
+  const existing = await findGenerationRecord(openid, requestId);
+  if (existing) {
+    return {
+      created: false,
+      recordId: existing._id || existing.id || "",
+      fileID: existing.fileID || result && result.fileID || "",
+      tempFileURL: existing.tempFileURL || result && result.tempFileURL || "",
+      createdAt: serializeGenerationDate(existing.createdAt || result && result.createdAt),
+      record: Object.assign({}, existing, {
+        id: existing._id || existing.id || "",
+        createdAt: serializeGenerationDate(existing.createdAt)
+      })
+    };
+  }
+  const recordData = buildGenerationRecordData(openid, operation, result, billing);
+  const recordId = normalGenerationRecordId(openid, requestId);
+  await db.collection("generation_records").doc(recordId).set({
+    data: stripDocumentId(recordData)
+  });
+  if (Number(operation && operation.payload && operation.payload.assetRegistrationVersion) >= 1) {
+    try {
+      const latest = await findGenerationOperation(openid, requestId);
+      if (!latest || !latest.assetsRetainedAt) {
+        const payload = operation.payload || {};
+        await db.runTransaction(async (transaction) => {
+          await retainUserAssets(openid, [payload.mainFileID], "main", transaction);
+          await retainUserAssets(openid, [payload.maskFileID], "mask", transaction);
+          await retainUserAssets(openid, payload.faceFileIDs, "face", transaction);
+          await retainUserAssets(openid, payload.wardrobeFileIDs, "wardrobe", transaction);
+          await retainUserAssets(openid, payload.backgroundFileIDs, "background", transaction);
+        }, 5);
+        await updateGenerationOperation(openid, requestId, {
+          assetsRetainedAt: new Date()
+        }, {
+          allowedStatuses: ["processing", "failed", "succeeded"]
+        });
+      }
+    } catch (error) {
+      log("warn", "generation.asset_retain_failed", {
+        requestId,
+        recordId,
+        message: sanitizeFailureMessage(error && error.message)
+      });
+    }
+  }
+  return {
+    created: true,
+    recordId,
+    fileID: recordData.fileID,
+    tempFileURL: recordData.tempFileURL,
+    createdAt: recordData.createdAt.toISOString(),
+    record: Object.assign({}, recordData, {
+      id: recordId,
+      createdAt: recordData.createdAt.toISOString()
+    })
+  };
+}
+
+async function generationTempFileUrl(fileID, requestId) {
+  if (!fileID) return "";
+  try {
+    const tempResult = await cloud.getTempFileURL({ fileList: [fileID] });
+    return tempResult
+      && Array.isArray(tempResult.fileList)
+      && tempResult.fileList[0]
+      && tempResult.fileList[0].tempFileURL
+      || "";
+  } catch (error) {
+    log("warn", "generation.temp-url-failed", {
+      requestId,
+      fileID,
+      error: sanitizeFailureMessage(error && error.message)
+    });
+    return "";
+  }
+}
+
+async function executeImageGeneration(operation, context = {}) {
+  const payload = operation && operation.payload && typeof operation.payload === "object"
+    ? operation.payload
+    : {};
+  const requestId = String(operation && operation.requestId || "");
+  const openid = String(operation && operation.openid || "");
+  const imageConfig = context.imageConfig || resolveImageConfig();
+  const costs = context.costs || resolveCostConfig();
+  if (!imageConfig.apiKey) {
+    const error = new Error("云函数还没有配置图片服务密钥。");
+    error.code = "missing-api-key";
+    error.retryable = false;
+    throw error;
+  }
+  await touchGenerationOperation(openid, requestId, "validate", 5);
+  await validateGenerationAssets(openid, payload);
+  const imageRequest = buildImageRequestFromOperation(operation, imageConfig);
+  const mode = resolveGenerationMode(payload, imageConfig);
+  let normalPixelPreflight = null;
+  let preparedAssets = null;
+  if (mode === "edits") {
+    const editEndpoint = resolveImageEditEndpoint(imageConfig);
+    pixelProtectionFlow.assertLingyunImageEditFlow(imageConfig, editEndpoint.url);
+    const references = imageEditReferences(payload);
+    const [mainBuffer, maskBuffer, referenceBuffers] = await Promise.all([
+      downloadCloudFile(payload.mainFileID, {
+        requestId,
+        action: "generate.preflight",
+        fileType: "main"
+      }),
+      downloadCloudFile(payload.maskFileID, {
+        requestId,
+        action: "generate.preflight",
+        fileType: "mask"
+      }),
+      Promise.all(references.map(async (reference) => ({
+        reference,
+        buffer: await downloadCloudFile(reference.fileID, {
+          requestId,
+          action: "generate.preflight",
+          fileType: reference.role
+        })
+      })))
+    ]);
+    normalPixelPreflight = pixelProtectionFlow.preflightNormalAssets(
+      mainBuffer,
+      maskBuffer,
+      payload.maskGeometry,
+      { maxPixels: pixelCodec.DEFAULT_MAX_PIXELS }
+    );
+    preparedAssets = {
+      mainBuffer,
+      maskBuffer,
+      referenceBuffers
+    };
+  }
+  await touchGenerationOperation(openid, requestId, "upstream", 35);
+  const upstream = mode === "edits"
+    ? await requestImageEdits(
+        Object.assign({}, payload, { __action: "generate" }),
+        imageConfig.apiKey,
+        requestId,
+        imageConfig,
+        costs,
+        usageUserHash(openid),
+        preparedAssets
+      )
+    : await requestJson(
+        imageConfig.endpoint || endpoint(imageConfig.baseUrl, "images/generations"),
+        imageRequest,
+        imageConfig.apiKey,
+        { "Idempotency-Key": requestId },
+        buildImageRequestMeta(operation, imageConfig, costs)
+      );
+  await touchGenerationOperation(openid, requestId, "download", 70);
+  const image = extractImageItem(upstream);
+  if (!image) {
+    const error = new Error("图片接口没有返回图片。");
+    error.code = "empty-image-result";
+    error.retryable = false;
+    throw error;
+  }
+  const rawBuffer = image.buffer || await downloadUrl(image.url, {
+    requestId,
+    action: "generate-result"
+  });
+  const protectedNormal = normalPixelPreflight
+    ? pixelProtectionFlow.protectNormalResult(
+        normalPixelPreflight,
+        rawBuffer,
+        { maxPixels: pixelCodec.DEFAULT_MAX_PIXELS }
+      )
+    : null;
+  const buffer = protectedNormal ? protectedNormal.buffer : rawBuffer;
+  const mime = protectedNormal ? "image/png" : image.mime || detectMime(buffer);
+  const pixelProtection = protectedNormal
+    ? {
+        version: protectedNormal.protection.version,
+        mode: protectedNormal.protection.mode,
+        geometry: protectedNormal.protection.geometry,
+        featherPixels: protectedNormal.protection.featherPixels,
+        metrics: protectedNormal.metrics,
+        outputBytes: protectedNormal.protection.outputBytes
+      }
+    : null;
+  await touchGenerationOperation(openid, requestId, "upload", 85);
+  const uploaded = await cloud.uploadFile({
+    cloudPath: `results/${openid}/${Date.now()}-${crypto.randomBytes(4).toString("hex")}.${imageExtension(mime)}`,
+    fileContent: buffer
+  });
+  const fileID = String(uploaded && uploaded.fileID || "");
+  if (!fileID) {
+    const error = new Error("生成图片上传失败。");
+    error.code = "result-upload-failed";
+    error.retryable = true;
+    throw error;
+  }
+  const createdAt = new Date();
+  const resolution = imageConfig.resolution
+    || normalizeImageResolution(imageRequest.size, "1K");
+  await updateGenerationOperation(openid, requestId, {
+    pipelineStage: "upload",
+    progress: 90,
+    resultFileID: fileID,
+    resultCreatedAt: createdAt,
+    model: imageConfig.model || "",
+    size: imageRequest.size || "",
+    resolution,
+    quality: imageRequest.quality || "",
+    compatibilityMode: Boolean(imageConfig.compatibilityMode),
+    imageMode: mode,
+    pixelProtection,
+    lastHeartbeatAt: new Date()
+  }, {
+    allowedStatuses: ["processing"]
+  });
+  const tempFileURL = await generationTempFileUrl(fileID, requestId);
+  return {
+    requestId,
+    fileID,
+    tempFileURL,
+    createdAt: createdAt.toISOString(),
+    model: imageConfig.model || "",
+    size: imageRequest.size || "",
+    resolution,
+    quality: imageRequest.quality || "",
+    compatibilityMode: Boolean(imageConfig.compatibilityMode),
+    imageMode: mode,
+    pixelProtection
+  };
+}
+
+async function claimNextQueuedGenerationOperation() {
+  const result = await db.collection(GENERATION_OPERATION_COLLECTION)
+    .where({ status: "queued" })
+    .limit(Math.max(5, GENERATION_QUEUE_BATCH_SIZE * 5))
+    .get();
+  const rows = (result && Array.isArray(result.data) ? result.data : [])
+    .filter((item) => item && item.kind === "image" && item.openid && item.requestId)
+    .sort((left, right) => (
+      operationUpdatedAtMs(left) - operationUpdatedAtMs(right)
+    ));
+  for (const candidate of rows) {
+    const claimed = await db.runTransaction(async (transaction) => {
+      const current = await findGenerationOperation(
+        candidate.openid,
+        candidate.requestId,
+        transaction
+      );
+      if (!current || current.kind !== "image" || current.status !== "queued") return null;
+      return saveGenerationOperation(current.openid, current.requestId, {
+        status: "processing",
+        pipelineStage: "validate",
+        progress: 5,
+        processingAt: new Date(),
+        lastHeartbeatAt: new Date(),
+        attemptCount: (Number(current.attemptCount) || 0) + 1,
+        lastError: null,
+        reconcilePending: false
+      }, transaction);
+    }, 5);
+    if (claimed) return claimed;
+  }
+  return null;
+}
+
+async function processQueuedGenerationOperation(operation) {
+  const openid = String(operation && operation.openid || "");
+  const requestId = String(operation && operation.requestId || "");
+  if (!openid || !requestId) {
+    return { ok: false, errorCode: "generation-operation-invalid" };
+  }
+  try {
+    let current = operation;
+    if (current.status === "queued") {
+      current = await updateGenerationOperation(openid, requestId, {
+        status: "processing",
+        pipelineStage: "validate",
+        progress: 5,
+        processingAt: new Date(),
+        lastHeartbeatAt: new Date(),
+        attemptCount: (Number(current.attemptCount) || 0) + 1
+      }, {
+        allowedStatuses: ["queued"]
+      }) || current;
+    }
+    const configs = await resolveEffectiveConfigs();
+    const result = await executeImageGeneration(current, {
+      imageConfig: configs.image,
+      costs: configs.costs
+    });
+    await touchGenerationOperation(openid, requestId, "record", 95);
+    const saved = await persistGenerationResult(
+      openid,
+      current,
+      result,
+      current.billing || {}
+    );
+    const completedResult = Object.assign({}, result, {
+      recordId: saved.recordId,
+      fileID: saved.fileID || result.fileID,
+      tempFileURL: saved.tempFileURL || result.tempFileURL,
+      createdAt: saved.createdAt || result.createdAt,
+      record: saved.record,
+      quota: current.billing && current.billing.quota || null,
+      billing: buildPublicGenerationBilling(current.billing),
+      pipelineStage: "succeeded"
+    });
+    await completeGenerationOperation(openid, requestId, completedResult);
+    return {
+      ok: true,
+      requestId,
+      recordId: saved.recordId,
+      fileID: saved.fileID || result.fileID
+    };
+  } catch (error) {
+    const latest = await findGenerationOperation(openid, requestId);
+    if (latest && latest.resultFileID) {
+      await updateGenerationOperation(openid, requestId, {
+        status: "processing",
+        pipelineStage: "record",
+        progress: 95,
+        reconcilePending: true,
+        reconcileAttemptCount: Math.max(0, Number(latest.reconcileAttemptCount) || 0),
+        lastHeartbeatAt: new Date(),
+        lastError: {
+          code: String(error && error.code || "generation-record-pending").slice(0, 80),
+          message: sanitizeFailureMessage(error && error.message || "生成结果等待补记录", 240),
+          retryable: true
+        }
+      }, {
+        allowedStatuses: ["processing", "failed"]
+      });
+      return {
+        ok: false,
+        requestId,
+        pendingRepair: true,
+        errorCode: String(error && error.code || "generation-record-pending")
+      };
+    }
+    await failGenerationOperation(openid, requestId, error);
+    try {
+      await refundUsage(openid, requestId, "生图失败，已退回本次使用额度");
+    } catch (refundError) {
+      await updateGenerationOperation(openid, requestId, {
+        refundPending: true,
+        refundLastError: sanitizeFailureMessage(refundError && refundError.message, 240)
+      }, {
+        allowedStatuses: ["failed", "refunding"]
+      });
+      log("error", "generation.refund-failed", {
+        requestId,
+        error: sanitizeFailureMessage(refundError && refundError.message)
+      });
+    }
+    return {
+      ok: false,
+      requestId,
+      errorCode: String(error && error.code || "generation-failed"),
+      error: sanitizeFailureMessage(error && error.message || "生图失败")
+    };
+  }
+}
+
+async function processGenerationQueue(event = {}, context = {}) {
+  if (event.action === "processGenerationQueue" && !isAdminContext(context)) {
+    return adminForbidden();
+  }
+  const operation = await claimNextQueuedGenerationOperation();
+  if (!operation) {
+    return jsonResponse(true, {
+      processed: 0,
+      message: "暂无排队任务。"
+    });
+  }
+  const result = await processQueuedGenerationOperation(operation);
+  return jsonResponse(true, {
+    processed: 1,
+    result
+  });
+}
+
+function generationDateMs(value) {
+  if (!value) return 0;
+  if (value instanceof Date) return value.getTime();
+  if (typeof value.toDate === "function") {
+    const date = value.toDate();
+    return date instanceof Date ? date.getTime() : new Date(date).getTime();
+  }
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function generationReconcileError(code, message, retryable = false) {
+  const error = new Error(message);
+  error.code = code;
+  error.retryable = retryable;
+  error.pipelineStage = "reconcile";
+  return error;
+}
+
+async function deleteGenerationResultFile(operation, dependencies = {}) {
+  const openid = String(operation && operation.openid || "");
+  const requestId = String(operation && operation.requestId || "");
+  const resultFileID = String(
+    operation && operation.resultFileID
+    || operation && operation.result && operation.result.fileID
+    || ""
+  ).trim();
+  const updateOperation = dependencies.updateOperation || updateGenerationOperation;
+  const deleteFile = dependencies.deleteFile || (async (fileID) => (
+    cloud.deleteFile({ fileList: [fileID] })
+  ));
+  if (!resultFileID) {
+    await updateOperation(openid, requestId, {
+      cleanupPending: false,
+      cleanupLastError: "",
+      cleanupCompletedAt: new Date()
+    }, {
+      allowedStatuses: GENERATION_OPERATION_STATUSES,
+      allowRefunded: true
+    });
+    return { cleaned: true, skipped: true, fileID: "" };
+  }
+  try {
+    const response = await deleteFile(resultFileID, operation);
+    const failed = response && Array.isArray(response.fileList)
+      ? response.fileList.find((item) => (
+        item
+        && item.fileID === resultFileID
+        && Number(item.status) !== 0
+      ))
+      : null;
+    if (failed) {
+      const error = generationReconcileError(
+        "generation-orphan-delete-failed",
+        failed.errMsg || "孤儿结果图删除失败。",
+        true
+      );
+      throw error;
+    }
+    await updateOperation(openid, requestId, {
+      resultFileID: "",
+      tempFileURL: "",
+      cleanupPending: false,
+      cleanupLastError: "",
+      cleanupCompletedAt: new Date()
+    }, {
+      allowedStatuses: GENERATION_OPERATION_STATUSES,
+      allowRefunded: true
+    });
+    return { cleaned: true, skipped: false, fileID: resultFileID };
+  } catch (error) {
+    if (isPhotoToVideoTempFileMissing(error)) {
+      await updateOperation(openid, requestId, {
+        resultFileID: "",
+        tempFileURL: "",
+        cleanupPending: false,
+        cleanupLastError: "",
+        cleanupCompletedAt: new Date()
+      }, {
+        allowedStatuses: GENERATION_OPERATION_STATUSES,
+        allowRefunded: true
+      });
+      return {
+        cleaned: true,
+        skipped: false,
+        missing: true,
+        fileID: resultFileID
+      };
+    }
+    await updateOperation(openid, requestId, {
+      cleanupPending: true,
+      cleanupAttemptCount: (Number(operation && operation.cleanupAttemptCount) || 0) + 1,
+      cleanupLastError: sanitizeFailureMessage(error && error.message, 240),
+      cleanupLastAttemptAt: new Date()
+    }, {
+      allowedStatuses: GENERATION_OPERATION_STATUSES,
+      allowRefunded: true
+    });
+    return {
+      cleaned: false,
+      pending: true,
+      fileID: resultFileID,
+      errorCode: String(error && error.code || "generation-orphan-delete-failed"),
+      error: sanitizeFailureMessage(error && error.message || "孤儿结果图删除失败。")
+    };
+  }
+}
+
+async function rebuildResultFromOperation(operation, dependencies = {}) {
+  const requestId = String(operation && operation.requestId || "");
+  const resultFileID = String(
+    operation && operation.resultFileID
+    || operation && operation.result && operation.result.fileID
+    || ""
+  ).trim();
+  if (!resultFileID) {
+    throw generationReconcileError(
+      "generation-result-file-missing",
+      "任务没有可补写记录的结果文件。"
+    );
+  }
+  const tempFileUrl = dependencies.tempFileUrl || generationTempFileUrl;
+  const currentResult = operation && operation.result && typeof operation.result === "object"
+    ? operation.result
+    : {};
+  const currentTempFileURL = String(
+    operation && operation.tempFileURL
+    || operation && operation.resultTempFileURL
+    || currentResult.tempFileURL
+    || ""
+  );
+  const tempFileURL = currentTempFileURL
+    || await tempFileUrl(resultFileID, requestId);
+  return Object.assign({}, currentResult, {
+    requestId,
+    fileID: resultFileID,
+    tempFileURL,
+    createdAt: serializeGenerationDate(
+      operation && operation.resultCreatedAt
+      || currentResult.createdAt
+      || operation && operation.updatedAt
+      || new Date()
+    ),
+    model: String(operation && operation.model || currentResult.model || ""),
+    size: String(operation && operation.size || currentResult.size || ""),
+    resolution: String(operation && operation.resolution || currentResult.resolution || ""),
+    quality: String(operation && operation.quality || currentResult.quality || ""),
+    compatibilityMode: Boolean(
+      operation && operation.compatibilityMode !== undefined
+        ? operation.compatibilityMode
+        : currentResult.compatibilityMode
+    ),
+    imageMode: String(operation && operation.imageMode || currentResult.imageMode || ""),
+    pixelProtection: operation && operation.pixelProtection
+      || currentResult.pixelProtection
+      || null,
+    pipelineStage: "succeeded"
+  });
+}
+
+async function refundGenerationOperation(operation, error, dependencies = {}) {
+  const openid = String(operation && operation.openid || "");
+  const requestId = String(operation && operation.requestId || "");
+  const status = normalizeGenerationStatus(operation && operation.status);
+  const failOperation = dependencies.failOperation || failGenerationOperation;
+  const updateOperation = dependencies.updateOperation || updateGenerationOperation;
+  const refund = dependencies.refund || refundUsage;
+  if (status === "refunded") {
+    return { refunded: true, duplicate: true };
+  }
+  if (!["failed", "refunding"].includes(status)) {
+    await failOperation(openid, requestId, error);
+  }
+  await updateOperation(openid, requestId, {
+    status: "refunding",
+    refundPending: true,
+    refundLastError: "",
+    refundRequestedAt: new Date()
+  }, {
+    allowedStatuses: ["reserved", "queued", "processing", "failed", "refunding"]
+  });
+  try {
+    const result = await refund(
+      openid,
+      requestId,
+      error && error.message
+        ? `生图任务回收：${sanitizeFailureMessage(error.message, 120)}`
+        : "生图任务失败，已退回本次使用额度"
+    );
+    return {
+      refunded: Boolean(result),
+      duplicate: Boolean(result && result.duplicate),
+      skipped: Boolean(result && result.skipped)
+    };
+  } catch (refundError) {
+    await updateOperation(openid, requestId, {
+      status: "refunding",
+      refundPending: true,
+      refundLastError: sanitizeFailureMessage(refundError && refundError.message, 240),
+      refundLastAttemptAt: new Date()
+    }, {
+      allowedStatuses: ["failed", "refunding"]
+    });
+    return {
+      refunded: false,
+      pending: true,
+      errorCode: String(refundError && refundError.code || "generation-refund-failed"),
+      error: sanitizeFailureMessage(refundError && refundError.message || "退款失败。")
+    };
+  }
+}
+
+async function reconcileGenerationOperation(operation, options = {}) {
+  const source = operation && typeof operation === "object" ? operation : {};
+  const openid = String(source.openid || "");
+  const requestId = String(source.requestId || "");
+  if (!openid || !requestId || source.kind !== "image") {
+    return { action: "skip-invalid", requestId };
+  }
+  const now = options.now instanceof Date
+    ? options.now
+    : new Date(options.now || Date.now());
+  const status = normalizeGenerationStatus(source.status);
+  const updateOperation = options.updateOperation || updateGenerationOperation;
+  const persistResult = options.persistResult || persistGenerationResult;
+  const completeOperation = options.completeOperation || completeGenerationOperation;
+  const resultFileID = String(
+    source.resultFileID
+    || source.result && source.result.fileID
+    || ""
+  ).trim();
+  const recordId = String(
+    source.recordId
+    || source.result && source.result.recordId
+    || ""
+  ).trim();
+
+  if (
+    source.cleanupPending
+    || (resultFileID && ["refunding", "refunded"].includes(status))
+  ) {
+    const cleanup = await deleteGenerationResultFile(source, options);
+    if (status === "refunded") {
+      return {
+        action: cleanup.cleaned ? "cleanup-completed" : "cleanup-pending",
+        requestId,
+        cleanup
+      };
+    }
+  }
+
+  if (
+    resultFileID
+    && !recordId
+    && !["refunding", "refunded"].includes(status)
+  ) {
+    try {
+      const rebuilt = await rebuildResultFromOperation(source, options);
+      const saved = await persistResult(
+        openid,
+        source,
+        rebuilt,
+        source.billing || {}
+      );
+      const completedResult = Object.assign({}, rebuilt, {
+        recordId: saved.recordId,
+        fileID: saved.fileID || rebuilt.fileID,
+        tempFileURL: saved.tempFileURL || rebuilt.tempFileURL,
+        createdAt: saved.createdAt || rebuilt.createdAt,
+        record: saved.record,
+        quota: source.billing && source.billing.quota || null,
+        billing: buildPublicGenerationBilling(source.billing),
+        pipelineStage: "succeeded"
+      });
+      await completeOperation(openid, requestId, completedResult);
+      return {
+        action: "record-rebuilt",
+        requestId,
+        recordId: saved.recordId,
+        fileID: saved.fileID || rebuilt.fileID
+      };
+    } catch (error) {
+      const nextAttempt = (Number(source.reconcileAttemptCount) || 0) + 1;
+      if (nextAttempt < GENERATION_MAX_RECOVERY_ATTEMPTS) {
+        await updateOperation(openid, requestId, {
+          status: "processing",
+          pipelineStage: "record",
+          progress: 95,
+          reconcilePending: true,
+          reconcileAttemptCount: nextAttempt,
+          reconcileLastAttemptAt: now,
+          lastHeartbeatAt: now,
+          lastError: {
+            code: String(error && error.code || "generation-record-rebuild-failed").slice(0, 80),
+            message: sanitizeFailureMessage(error && error.message || "补写生成记录失败。", 240),
+            retryable: true
+          }
+        }, {
+          allowedStatuses: ["processing", "failed", "succeeded"]
+        });
+        return {
+          action: "record-retry-pending",
+          requestId,
+          attemptCount: nextAttempt,
+          errorCode: String(error && error.code || "generation-record-rebuild-failed")
+        };
+      }
+      const cleanup = await deleteGenerationResultFile(
+        Object.assign({}, source, {
+          cleanupPending: true,
+          cleanupAttemptCount: Number(source.cleanupAttemptCount) || 0
+        }),
+        options
+      );
+      const failure = generationReconcileError(
+        "generation-record-rebuild-exhausted",
+        "生成结果多次补记录失败，任务已停止并退款。"
+      );
+      const refund = await refundGenerationOperation(source, failure, options);
+      return {
+        action: cleanup.cleaned ? "orphan-cleaned-refund" : "orphan-cleanup-pending-refund",
+        requestId,
+        cleanup,
+        refund
+      };
+    }
+  }
+
+  if (status === "succeeded") {
+    return { action: "skip-succeeded", requestId };
+  }
+
+  if (status === "failed" || status === "refunding" || source.refundPending) {
+    const failure = generationReconcileError(
+      source.lastError && source.lastError.code || "generation-failed-pending-refund",
+      source.lastError && source.lastError.message || "生图任务失败，继续退款。"
+    );
+    return {
+      action: "refund-retried",
+      requestId,
+      refund: await refundGenerationOperation(source, failure, options)
+    };
+  }
+
+  const updatedAt = operationUpdatedAtMs(source);
+  const ageMs = Math.max(0, now.getTime() - updatedAt);
+  const expiresAt = generationDateMs(source.expiresAt);
+  const expired = expiresAt > 0 && expiresAt <= now.getTime();
+  if (
+    status === "reserved"
+    && (ageMs >= GENERATION_QUEUE_STALE_MS || expired)
+  ) {
+    const failure = generationReconcileError(
+      "generation-reservation-stale",
+      "生图任务预留后没有成功入队，已自动退款。"
+    );
+    return {
+      action: "reserved-refund",
+      requestId,
+      refund: await refundGenerationOperation(source, failure, options)
+    };
+  }
+  if (
+    status === "queued"
+    && (ageMs >= GENERATION_QUEUE_STALE_MS || expired)
+  ) {
+    const failure = generationReconcileError(
+      "generation-queue-timeout",
+      "生图任务排队超时，已自动退款。"
+    );
+    return {
+      action: "queued-refund",
+      requestId,
+      refund: await refundGenerationOperation(source, failure, options)
+    };
+  }
+  if (
+    status === "processing"
+    && (ageMs >= GENERATION_PROCESSING_STALE_MS || expired)
+  ) {
+    const recoveryAttemptCount = Math.max(
+      0,
+      Number(source.recoveryAttemptCount) || 0
+    );
+    if (recoveryAttemptCount < GENERATION_MAX_RECOVERY_ATTEMPTS) {
+      if (source.providerTaskId) {
+        await updateOperation(openid, requestId, {
+          reconcilePending: true,
+          recoveryAttemptCount: recoveryAttemptCount + 1,
+          reconcileLastAttemptAt: now,
+          lastHeartbeatAt: now,
+          lastError: {
+            code: "generation-provider-status-pending",
+            message: "上游任务状态暂时无法确认，稍后继续回收。",
+            retryable: true
+          }
+        }, {
+          allowedStatuses: ["processing"]
+        });
+        return {
+          action: "provider-status-pending",
+          requestId,
+          recoveryAttemptCount: recoveryAttemptCount + 1
+        };
+      }
+      await updateOperation(openid, requestId, {
+        status: "queued",
+        pipelineStage: "queued",
+        progress: 0,
+        queuedAt: now,
+        processingAt: null,
+        lastHeartbeatAt: now,
+        recoveryAttemptCount: recoveryAttemptCount + 1,
+        reconcilePending: false,
+        lastError: {
+          code: "generation-processing-requeued",
+          message: "后台处理超时，任务已重新排队。",
+          retryable: true
+        }
+      }, {
+        allowedStatuses: ["processing"]
+      });
+      return {
+        action: "processing-requeued",
+        requestId,
+        recoveryAttemptCount: recoveryAttemptCount + 1
+      };
+    }
+    const failure = generationReconcileError(
+      "generation-processing-timeout",
+      "生图后台处理多次超时，已停止并退款。"
+    );
+    return {
+      action: "processing-refund",
+      requestId,
+      refund: await refundGenerationOperation(source, failure, options)
+    };
+  }
+  return { action: "skip-fresh", requestId };
+}
+
+async function reconcileGenerationOperationForTest(operation, now, hooks = {}) {
+  return reconcileGenerationOperation(operation, Object.assign({}, hooks, { now }));
+}
+
+async function loadGenerationReconcileCandidates() {
+  const descriptors = [
+    { status: "reserved" },
+    { status: "queued" },
+    { status: "processing" },
+    { status: "failed" },
+    { status: "refunding" },
+    { status: "refunded" },
+    { reconcilePending: true },
+    { cleanupPending: true },
+    { refundPending: true }
+  ];
+  const batches = await Promise.all(descriptors.map(async (where) => {
+    try {
+      const result = await db.collection(GENERATION_OPERATION_COLLECTION)
+        .where(where)
+        .limit(GENERATION_RECONCILE_BATCH_SIZE)
+        .get();
+      return result && Array.isArray(result.data) ? result.data : [];
+    } catch (error) {
+      if (!isCollectionMissingError(error)) {
+        log("warn", "generation.reconcile-query-failed", {
+          where,
+          error: sanitizeFailureMessage(error && error.message)
+        });
+      }
+      return [];
+    }
+  }));
+  const unique = new Map();
+  batches.flat().forEach((item) => {
+    if (!item || item.kind !== "image" || !item.openid || !item.requestId) return;
+    const key = String(item._id || `${item.openid}:${item.requestId}`);
+    unique.set(key, item);
+  });
+  return [...unique.values()]
+    .sort((left, right) => operationUpdatedAtMs(left) - operationUpdatedAtMs(right))
+    .slice(0, GENERATION_RECONCILE_BATCH_SIZE);
+}
+
+async function reconcileGenerationOperations(event = {}, context = {}) {
+  if (event.action === "reconcileGenerationOperations" && !isAdminContext(context)) {
+    return adminForbidden();
+  }
+  const now = new Date();
+  const operations = await loadGenerationReconcileCandidates();
+  const results = [];
+  for (const operation of operations) {
+    try {
+      results.push(await reconcileGenerationOperation(operation, { now }));
+    } catch (error) {
+      results.push({
+        action: "reconcile-error",
+        requestId: String(operation && operation.requestId || ""),
+        errorCode: String(error && error.code || "generation-reconcile-failed"),
+        error: sanitizeFailureMessage(error && error.message || "任务回收失败。")
+      });
+      log("error", "generation.reconcile-failed", {
+        requestId: String(operation && operation.requestId || ""),
+        errorCode: String(error && error.code || "generation-reconcile-failed"),
+        error: sanitizeFailureMessage(error && error.message)
+      });
+    }
+  }
+  const summary = results.reduce((accumulator, item) => {
+    const action = String(item && item.action || "unknown");
+    accumulator[action] = (Number(accumulator[action]) || 0) + 1;
+    return accumulator;
+  }, {});
+  return jsonResponse(true, {
+    scanned: operations.length,
+    processed: results.filter((item) => !String(item.action || "").startsWith("skip-")).length,
+    summary,
+    results
+  });
+}
+
 async function generate(event, context) {
   const payload = event.payload || {};
   const openid = getOpenId(context);
@@ -11816,28 +13453,53 @@ async function generate(event, context) {
       }
     : buildImageGenerationPayload(payload, imageConfig);
   const size = imageRequest.size;
-  const prompt = imageRequest.prompt;
   const resolution = imageConfig.resolution || normalizeImageResolution(size, "1K");
   const existingRecord = await findGenerationRecord(openid, requestId);
   if (existingRecord) {
+    const existingOperation = await findGenerationOperation(openid, requestId);
+    const existingResult = {
+      requestId,
+      recordId: existingRecord._id || existingRecord.id,
+      fileID: existingRecord.fileID || "",
+      tempFileURL: existingRecord.tempFileURL || "",
+      createdAt: serializeGenerationDate(existingRecord.createdAt),
+      model: existingRecord.model || model,
+      size: existingRecord.size || size,
+      resolution: existingRecord.resolution || resolution,
+      pipelineStage: "succeeded",
+      record: Object.assign({}, existingRecord, {
+        id: existingRecord._id || existingRecord.id,
+        createdAt: serializeGenerationDate(existingRecord.createdAt)
+      }),
+      billing: buildPublicGenerationBilling(existingOperation && existingOperation.billing)
+    };
     log("info", "generation.idempotent_hit", {
       requestId,
       recordId: existingRecord._id || existingRecord.id
     });
-    return jsonResponse(true, {
-      recordId: existingRecord._id || existingRecord.id,
-      fileID: existingRecord.fileID || "",
-      tempFileURL: existingRecord.tempFileURL || "",
-      createdAt: existingRecord.createdAt instanceof Date
-        ? existingRecord.createdAt.toISOString()
-        : String(existingRecord.createdAt || ""),
-      record: Object.assign({}, existingRecord, {
-        id: existingRecord._id || existingRecord.id
-      }),
-      deduplicated: true
-    });
+    return jsonResponse(true, Object.assign(
+      buildGenerationStatusResult(Object.assign({}, existingOperation || {}, {
+        requestId,
+        status: "succeeded",
+        pipelineStage: "succeeded",
+        progress: 100,
+        result: existingResult,
+        recordId: existingResult.recordId,
+        resultFileID: existingResult.fileID,
+        tempFileURL: existingResult.tempFileURL,
+        succeededAt: existingRecord.createdAt
+      })),
+      {
+        billing: buildPublicGenerationBilling(existingOperation && existingOperation.billing),
+        deduplicated: true
+      }
+    ));
   }
   await validateGenerationAssets(openid, payload);
+  if (mode === "edits") {
+    const editEndpoint = resolveImageEditEndpoint(imageConfig);
+    pixelProtectionFlow.assertLingyunImageEditFlow(imageConfig, editEndpoint.url);
+  }
   log("info", "generation.start", {
     requestId,
     action: "generate",
@@ -11851,153 +13513,44 @@ async function generate(event, context) {
   });
 
   let billing = null;
-  let claimed = false;
-  let resultPersisted = false;
+  let operation = null;
   try {
     billing = await reserveUsage(openid, requestId, "image");
-    const claim = billing.untracked
-      ? { claimed: true, operation: null, completed: false }
-      : await claimGenerationOperation(openid, requestId, "image");
-    if (claim.completed && claim.operation && claim.operation.result) {
-      return jsonResponse(true, Object.assign({}, claim.operation.result, {
-        deduplicated: true,
-        billing
-      }));
-    }
-    if (!claim.claimed) {
-      throw operationStateError(claim.operation);
-    }
-    claimed = true;
-    let response;
-    if (mode === "edits") {
-      response = await requestImageEdits(
-        Object.assign({}, payload, { __action: "generate" }),
-        apiKey,
-        requestId,
-        imageConfig,
-        costs,
-        usageUserHash(openid)
-      );
-    } else {
-      const url = imageConfig.endpoint || endpoint(imageConfig.baseUrl, "images/generations");
-      const body = imageRequest;
-      response = await requestJson(url, body, apiKey, {
-        "Idempotency-Key": requestId
-      }, {
-        requestId,
-        action: "generate",
-        provider: imageConfig.provider || "",
-        model,
-        imageGeneration: true,
-        allowRetry: imageConfig.retryEnabled,
-        maxAttempts: imageConfig.retryEnabled ? imageConfig.maxRetries + 1 : 1,
-        timeoutMs: imageConfig.timeoutMs,
-        costs,
-        userHash: usageUserHash(openid),
-        imageResolution: resolution
-      });
-    }
-    const image = extractImageItem(response);
-    if (!image) {
-      const error = new Error("图片接口没有返回图片。");
-      error.code = "empty-image-result";
-      throw error;
-    }
-    const buffer = image.buffer || await downloadUrl(image.url, {
-      requestId,
-      action: "generate-result"
-    });
-    const extension = imageExtension(image.mime);
-    const fileID = await cloud.uploadFile({
-      cloudPath: `results/${openid}/${Date.now()}-${crypto.randomBytes(4).toString("hex")}.${extension}`,
-      fileContent: buffer
-    });
-    const tempResult = await cloud.getTempFileURL({ fileList: [fileID.fileID] });
-    const tempFileURL = tempResult.fileList && tempResult.fileList[0] && tempResult.fileList[0].tempFileURL;
-    const createdAt = new Date();
-    const recordData = {
+    operation = await enqueueGenerationOperation(
       openid,
-      projectName: payload.projectName || "未命名项目",
-      prompt: String(payload.prompt),
-      negativePrompt: String(payload.negativePrompt || ""),
-      fileID: fileID.fileID,
-      tempFileURL: tempFileURL || "",
-      model,
-      createdAt,
-      size,
-      resolution,
-      quality: imageRequest.quality || "",
-      compatibilityMode: Boolean(imageConfig.compatibilityMode),
-      imageMode: mode,
       requestId,
-      quotaUsed: billing.quota.freeUsed,
-      dailyLimit: billing.quota.freeLimit,
-      billingSource: billing.source,
-      pointsCharged: billing.pointsCharged,
-      generationType: "normal",
-      revisionNumber: 0,
-      repairContext: {
-        sourceFileID: fileID.fileID,
-        originalMainFileID: String(payload.mainFileID || ""),
-        mainInputFileID: String(payload.mainFileID || ""),
-        maskFileID: String(payload.maskFileID || ""),
-        maskGeometry: payload.maskGeometry && typeof payload.maskGeometry === "object"
-          ? payload.maskGeometry
-          : {},
-        assetRegistrationVersion: Number(payload.assetRegistrationVersion) || 0,
-        faceFileIDs: Array.isArray(payload.faceFileIDs)
-          ? payload.faceFileIDs.filter(Boolean).slice(0, 6)
-          : [],
-        wardrobeFileIDs: Array.isArray(payload.wardrobeFileIDs)
-          ? payload.wardrobeFileIDs.filter(Boolean).slice(0, 12)
-          : [],
-        backgroundFileIDs: Array.isArray(payload.backgroundFileIDs)
-          ? payload.backgroundFileIDs.filter(Boolean).slice(0, 3)
-          : []
+      payload,
+      billing,
+      { model, resolution, size }
+    );
+    return jsonResponse(true, Object.assign(
+      buildGenerationStatusResult(operation),
+      {
+        billing: buildPublicGenerationBilling(billing),
+        deduplicated: Boolean(billing && billing.alreadyReserved),
+        message: operation.status === "queued"
+          ? "生图任务已提交"
+          : statusMessageForGenerationOperation(
+            normalizeGenerationStatus(operation.status),
+            operation.pipelineStage
+          )
       }
-    };
-    const saved = await db.collection("generation_records").add({ data: recordData });
-    resultPersisted = true;
-    if (Number(payload.assetRegistrationVersion) >= 1) {
-      try {
-        await db.runTransaction(async (transaction) => {
-          await retainUserAssets(openid, [payload.mainFileID], "main", transaction);
-          await retainUserAssets(openid, [payload.maskFileID], "mask", transaction);
-          await retainUserAssets(openid, payload.faceFileIDs, "face", transaction);
-          await retainUserAssets(openid, payload.wardrobeFileIDs, "wardrobe", transaction);
-          await retainUserAssets(openid, payload.backgroundFileIDs, "background", transaction);
-        }, 5);
-      } catch (error) {
-        log("warn", "generation.asset_retain_failed", {
-          requestId,
-          recordId: saved._id,
-          message: error && error.message
-        });
-      }
-    }
-    const result = {
-      recordId: saved._id,
-      fileID: fileID.fileID,
-      tempFileURL: tempFileURL || "",
-      createdAt: createdAt.toISOString(),
-      record: Object.assign({}, recordData, {
-        id: saved._id,
-        createdAt: createdAt.toISOString()
-      }),
-      quota: billing.quota,
-      billing
-    };
-    if (!billing.untracked) {
-      await completeGenerationOperation(openid, requestId, result);
-    }
-    return jsonResponse(true, result);
+    ));
   } catch (error) {
-    if (claimed) {
-      if (!billing || !billing.untracked) {
-        if (!resultPersisted) {
-          await failGenerationOperation(openid, requestId, error);
-          await refundUsage(openid, requestId, "生图失败，已退回本次使用额度");
-        }
+    if (
+      billing
+      && !billing.untracked
+      && !billing.alreadyReserved
+      && !operation
+    ) {
+      try {
+        await failGenerationOperation(openid, requestId, error);
+        await refundUsage(openid, requestId, "生图任务提交失败，已退回本次使用额度");
+      } catch (refundError) {
+        log("error", "generation.enqueue-refund-failed", {
+          requestId,
+          error: sanitizeFailureMessage(refundError && refundError.message)
+        });
       }
     }
     throw error;
@@ -13446,7 +14999,11 @@ exports.main = async (event = {}, context) => {
   });
   try {
     let result;
-    if (isPhotoToVideoCleanupTrigger(requestEvent)) {
+    if (isGenerationQueueWorkerTrigger(requestEvent)) {
+      result = await processGenerationQueue(requestEvent, context);
+    } else if (isGenerationReconcileTrigger(requestEvent)) {
+      result = await reconcileGenerationOperations(requestEvent, context);
+    } else if (isPhotoToVideoCleanupTrigger(requestEvent)) {
       const cleanupDate = new Date();
       const [
         photoToVideo,
@@ -13472,6 +15029,10 @@ exports.main = async (event = {}, context) => {
       result = jsonResponse(true, {
         watermarkTransfer: await cleanupWatermarkTransferTempAssets(new Date())
       });
+    } else if (isTencentFaceFusionCleanupTrigger(requestEvent)) {
+      result = jsonResponse(true, {
+        tencentFaceFusion: await cleanupTencentFaceFusionIntermediateAssets(new Date())
+      });
     } else if (action === "analyze") result = await analyze(requestEvent, context);
     else if (action === "detectFaceCircle") result = await detectFaceCircle(requestEvent, context);
     else if (action === "probeAutoFace") result = await probeAutoFace(requestEvent, context);
@@ -13486,6 +15047,9 @@ exports.main = async (event = {}, context) => {
       result = await cleanupPublishExportResult(requestEvent, context);
     }
     else if (action === "generate") result = await generate(requestEvent, context);
+    else if (action === "getGenerationStatus") {
+      result = await getGenerationStatus(requestEvent, context);
+    }
     else if (action === "tencentFaceFusionPipeline") {
       result = await tencentFaceFusionPipeline(requestEvent, context);
     }
@@ -13636,6 +15200,10 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     readImageDimensions,
     faceProtectionRects,
     createFaceProtectionMask,
+    pixelCodec,
+    pixelComposite,
+    pixelAcceptance,
+    pixelProtectionFlow,
     detectTencentPipelineFaces,
     tencentFaceFusionPipeline,
     testTencentFaceFusion,
@@ -13714,7 +15282,10 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     photoToVideoIdleCleanupCutoff,
     photoToVideoCleanupState,
     isPhotoToVideoCleanupTrigger,
+    isGenerationQueueWorkerTrigger,
+    isGenerationReconcileTrigger,
     isWatermarkTransferCleanupTrigger,
+    isTencentFaceFusionCleanupTrigger,
     registerPhotoToVideoTempAsset,
     updatePhotoToVideoSession,
     cleanupPhotoToVideoFormalRecord,
@@ -13736,6 +15307,8 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     addModelErrorContext,
     normalizeModelUsageEvent,
     aggregateModelUsageEvents,
+    modelUsageDetailFromEvent,
+    buildModelUsageDetailRows,
     buildModelUsageExportWorkbook,
     buildModelFailureExportWorkbook,
     recordModelUsageEvent,
@@ -13790,6 +15363,7 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     resolveImageRetryEnabled,
     migrateLegacyImageRetryConfig,
     migrateLegacyModelCostConfig,
+    validateCostNumber,
     validateRuntimePatch,
     mergeRuntimeConfig,
     getAdminStatus,
@@ -13842,6 +15416,21 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     exportAutoFaceFailureStats,
     pointsSummary,
     reserveUsage,
+    sanitizeGenerationPayload,
+    normalizeGenerationStatus,
+    statusMessageForGenerationOperation,
+    serializeGenerationDate,
+    buildGenerationStatusResult,
+    buildPublicGenerationBilling,
+    enqueueGenerationOperation,
+    touchGenerationOperation,
+    getGenerationStatus,
+    rebuildResultFromOperation,
+    deleteGenerationResultFile,
+    reconcileGenerationOperation,
+    reconcileGenerationOperationForTest,
+    reconcileGenerationOperations,
+    processGenerationQueue,
     refundUsage,
     claimGenerationOperation,
     completeGenerationOperation,

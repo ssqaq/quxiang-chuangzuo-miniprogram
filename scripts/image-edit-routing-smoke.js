@@ -297,7 +297,11 @@ async function main() {
   assert.ok(lingyunEditBody.images[0].image_url.startsWith("data:image/png;base64,"));
   assert.ok(lingyunEditBody.images[1].image_url.startsWith("data:image/png;base64,"));
   assert.ok(lingyunEditBody.mask.image_url.startsWith("data:image/png;base64,"));
-  assert.strictEqual(lingyunEditBody.response_format, "url");
+  assert.strictEqual(
+    lingyunEditBody.response_format,
+    "b64_json",
+    "凌云默认必须直接返回 Base64，避免云函数二次下载临时 URL"
+  );
   assert.strictEqual(lingyunEditBody.output_format, "png");
 
   const lingyunPipelineBody = JSON.parse(lingyunRequests[1].body);

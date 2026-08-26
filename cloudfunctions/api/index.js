@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.42.3";
-const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0423";
+const API_BUILD_VERSION = "0.42.4";
+const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0424";
 const DEFAULT_IMAGE_MODE = "edits";
 const IMAGE_EDIT_ERROR_CODES = Object.freeze([
   "image-edit-unsupported",
@@ -1863,6 +1863,13 @@ function isLingyunImageProvider(imageConfig = {}, requestUrl = "") {
   });
 }
 
+function resolveLingyunImageResponseFormat() {
+  const configured = env("AI_LINGYUN_RESPONSE_FORMAT", "b64_json")
+    .trim()
+    .toLowerCase();
+  return configured === "url" ? "url" : "b64_json";
+}
+
 function buildLingyunImageEditPayload(
   payload = {},
   imageConfig = resolveImageConfig(),
@@ -1889,7 +1896,7 @@ function buildLingyunImageEditPayload(
     quality: "auto",
     n: Math.max(1, Number(payload.n) || 1),
     background: "auto",
-    response_format: "url",
+    response_format: resolveLingyunImageResponseFormat(),
     output_format: "png",
     images
   };

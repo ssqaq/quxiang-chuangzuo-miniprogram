@@ -52,6 +52,59 @@ function buildNewCreationUrl(mode) {
 const NEW_CREATION_NAVIGATION_TIMEOUT_MS = 1800;
 const ADMIN_ACCESS_RETRY_DELAY_MS = 500;
 const ADMIN_ACCESS_MAX_RETRIES = 8;
+const ADMIN_ACCESS_CACHE_KEY = "workbench_admin_access";
+const ADMIN_ACCESS_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+function isPreviewEnvironment() {
+  if (typeof wx === "undefined" || typeof wx.getAccountInfoSync !== "function") {
+    return false;
+  }
+  try {
+    const accountInfo = wx.getAccountInfoSync() || {};
+    const miniProgram = accountInfo.miniProgram || {};
+    return miniProgram.envVersion === "develop" || miniProgram.envVersion === "trial";
+  } catch (error) {
+    return false;
+  }
+}
+
+function hasCachedAdminAccess() {
+  if (typeof wx === "undefined" || typeof wx.getStorageSync !== "function") {
+    return false;
+  }
+  try {
+    const cached = wx.getStorageSync(ADMIN_ACCESS_CACHE_KEY);
+    const confirmedAt = Number(cached && cached.confirmedAt);
+    return Boolean(
+      cached
+      && cached.granted === true
+      && confirmedAt > 0
+      && Date.now() - confirmedAt < ADMIN_ACCESS_CACHE_TTL_MS
+    );
+  } catch (error) {
+    return false;
+  }
+}
+
+function rememberAdminAccess(granted) {
+  if (typeof wx === "undefined") return;
+  try {
+    if (granted && typeof wx.setStorageSync === "function") {
+      wx.setStorageSync(ADMIN_ACCESS_CACHE_KEY, {
+        granted: true,
+        confirmedAt: Date.now()
+      });
+      return;
+    }
+    if (!granted && typeof wx.removeStorageSync === "function") {
+      wx.removeStorageSync(ADMIN_ACCESS_CACHE_KEY);
+    }
+  } catch (error) {
+    diagnosticLog.warn("admin", "access-cache-failed", "管理员入口状态缓存失败", {
+      error
+    });
+  }
+}
 
 function summarizeAsset(asset) {
   if (!asset || typeof asset !== "object") return null;
@@ -83,6 +136,7 @@ Page({
     pointsCopy: config.points.copy,
     cloudReady: false,
     adminVisible: false,
+    adminEntryVisible: isPreviewEnvironment() || hasCachedAdminAccess(),
     authorQrPath: AUTHOR_QR_PATH,
     savingAuthorQr: false,
     contactAuthorExpanded: false,
@@ -292,7 +346,12 @@ Page({
         return;
       }
       this.clearAdminAccessRetry();
-      this.setData({ adminVisible: Boolean(result && result.isAdmin) });
+      const adminVisible = Boolean(result && result.isAdmin);
+      rememberAdminAccess(adminVisible);
+      this.setData({
+        adminVisible,
+        adminEntryVisible: isPreviewEnvironment() || adminVisible
+      });
     } catch (error) {
       this.scheduleAdminAccessRetry(attempt);
       diagnosticLog.warn("admin", "status-failed", "管理员入口状态读取失败", { error });
@@ -300,7 +359,7 @@ Page({
   },
 
   openAdmin() {
-    if (!this.data.adminVisible) return;
+    if (!this.data.adminEntryVisible) return;
     wx.navigateTo({ url: "/pages/admin/admin" });
   },
 

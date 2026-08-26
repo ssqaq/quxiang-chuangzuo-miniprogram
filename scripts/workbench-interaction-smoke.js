@@ -109,6 +109,11 @@ function hasEvent(event) {
 }
 
 async function main() {
+  assert.strictEqual(
+    page.data.adminEntryVisible,
+    true,
+    "开发版和预览版必须稳定显示管理员入口"
+  );
   page.onShow();
   assert.strictEqual(typeof page.copyDiagnosticReport, "undefined");
   assert.strictEqual(typeof page.clearDiagnosticLogs, "undefined");
@@ -120,6 +125,21 @@ async function main() {
   });
   assert.ok(hasEvent("smoke-ok"));
   assert.ok(hasEvent("smoke-warn"));
+
+  const originalGetAdminStatus = cloudService.getAdminStatus;
+  cloudService.isCloudReady = () => true;
+  cloudService.getAdminStatus = () => Promise.reject(new Error("smoke admin timeout"));
+  await page.refreshAdminAccess();
+  assert.strictEqual(
+    page.data.adminEntryVisible,
+    true,
+    "权限检查失败时不能把预览版管理员入口隐藏"
+  );
+  cloudService.getAdminStatus = () => Promise.resolve({ isAdmin: true });
+  await page.refreshAdminAccess();
+  assert.strictEqual(page.data.adminVisible, true);
+  assert.strictEqual(storage.workbench_admin_access.granted, true);
+  cloudService.getAdminStatus = originalGetAdminStatus;
 
   page.previewAuthorQr();
   assert.strictEqual(page.data.authorQrPreviewVisible, true);

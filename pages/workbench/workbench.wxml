@@ -255,7 +255,7 @@
   </view>
 
   <view
-    wx:if="{{adminVisible}}"
+    wx:if="{{adminEntryVisible}}"
     class="card admin-entry-card home-feature-card workbench-link-card"
     bindtap="openAdmin"
     hover-class="workbench-link-card-hover"

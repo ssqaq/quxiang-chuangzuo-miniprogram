@@ -1363,7 +1363,7 @@ const commonFeatureSubtitleCount = (
   workbenchWxml.match(/class="feature-group-subtitle"/g) || []
 ).length;
 // 统一统计工作台所有可点击入口：积分卡、常用功能、腾讯版、记录、其他服务和管理员入口。
-const workbenchEntryCardCount = workbenchWxml.includes('wx:if="{{adminVisible}}"') ? 8 : 7;
+const workbenchEntryCardCount = workbenchWxml.includes('wx:if="{{adminEntryVisible}}"') ? 8 : 7;
 const serviceFeatureHeadingStyle = workbenchWxss.match(
   /\.service-feature-heading\s*\{([^}]*)\}/
 );
@@ -1543,12 +1543,16 @@ if (
   || workbenchJs.includes("clearDiagnosticLogs()")
   || !workbenchJs.includes("refreshAdminAccess()")
   || !workbenchJs.includes("adminVisible")
+  || !workbenchJs.includes("adminEntryVisible")
+  || !workbenchJs.includes("hasCachedAdminAccess")
+  || !workbenchJs.includes("isPreviewEnvironment")
   || !workbenchJs.includes("new-creation-navigation-timeout")
   || !workbenchJs.includes("draft-auto-clear")
   || !workbenchWxml.includes("<text>其他服务</text>")
   || !workbenchWxml.includes("联系客服和更多工具")
   || !workbenchWxml.includes("联系作者")
   || !workbenchWxml.includes("添加微信咨询")
+  || !workbenchWxml.includes('wx:if="{{adminEntryVisible}}"')
   || workbenchWxml.indexOf('class="card admin-entry-card') < workbenchWxml.indexOf('class="card contact-author-card"')
   || !indexJs.includes('require("../../utils/diagnostic-log")')
   || !indexJs.includes('logMethod("auto-face"')

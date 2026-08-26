@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.43.0";
-const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0430";
+const API_BUILD_VERSION = "0.44.0";
+const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0440";
 const DEFAULT_IMAGE_MODE = "edits";
 // 图片和视频默认成本只在云函数入口维护；管理员页读取云端有效配置，
 // 避免前后端各写一份价格。入口保持单文件可启动，兼容 CloudBase 部署。
@@ -9448,24 +9448,30 @@ async function requestTencentPipelineImageEdit(
   const maskField = env("AI_IMAGE_MASK_FIELD", "mask");
   const endpointInfo = resolveImageEditEndpoint(imageConfig);
   pixelProtectionFlow.assertSupportedImageEditFlow(imageConfig, endpointInfo.url);
-  const useLingyunJson = isLingyunImageProvider(imageConfig, endpointInfo.url);
+  const jsonRequestFormat = imageEditJsonRequestFormat(
+    imageConfig,
+    endpointInfo.url
+  );
+  const useJsonImageEdit = Boolean(jsonRequestFormat);
   let requestBody;
   let requestHeaders;
   let requestFormat;
   let requestSummary;
-  if (useLingyunJson) {
-    const jsonPayload = buildLingyunImageEditPayload(
+  if (useJsonImageEdit) {
+    const jsonPayload = buildImageEditJsonPayload(
       pipelinePayload,
       imageConfig,
       mainBuffer,
-      preparedMaskBuffer
+      preparedMaskBuffer,
+      [],
+      endpointInfo.url
     );
     requestBody = Buffer.from(JSON.stringify(jsonPayload), "utf8");
     requestHeaders = {
       "Content-Type": "application/json",
       "Content-Length": requestBody.length
     };
-    requestFormat = "lingyun-json";
+    requestFormat = jsonRequestFormat;
     requestSummary = imageEditJsonSummary(jsonPayload);
   } else {
     const files = [{
@@ -9488,7 +9494,7 @@ async function requestTencentPipelineImageEdit(
     requestFormat = "multipart";
     requestSummary = imageEditMultipartSummary(fields, files, mainField, maskField);
   }
-  const requestLogFields = useLingyunJson
+  const requestLogFields = useJsonImageEdit
     ? { json: requestSummary }
     : { multipart: requestSummary };
   log("info", "tencent.pipeline.image-edit.request", {
@@ -12723,6 +12729,17 @@ async function tencentFaceFusionPipeline(event, context) {
               maxTencentBytes: tencent.maxImageBytes
             }
           );
+          const dimensionNormalization =
+            protectedIntermediate.protection.dimensionNormalization;
+          if (dimensionNormalization && dimensionNormalization.resized) {
+            log("info", "image-edit.dimension-normalized", {
+              requestId: attempt.idempotencyKey,
+              provider: config.provider || "",
+              model: config.model || "",
+              pipeline: "tencent-first-stage",
+              ...dimensionNormalization
+            });
+          }
           return {
             response,
             image: attemptedImage,
@@ -12770,7 +12787,9 @@ async function tencentFaceFusionPipeline(event, context) {
             width: protectedIntermediate.protection.width,
             height: protectedIntermediate.protection.height,
             faceProtectionRects: protectedIntermediate.protection.rects,
-            featherPixels: protectedIntermediate.protection.featherPixels
+            featherPixels: protectedIntermediate.protection.featherPixels,
+            dimensionNormalization:
+              protectedIntermediate.protection.dimensionNormalization
           },
           pixelProtectionMetrics: {
             imageEditIntermediate: protectedIntermediate.metrics
@@ -13361,6 +13380,17 @@ async function executeImageGeneration(operation, context = {}) {
           attemptedRawBuffer,
           { maxPixels: pixelCodec.DEFAULT_MAX_PIXELS }
         );
+        const dimensionNormalization =
+          attemptedProtected.protection.dimensionNormalization;
+        if (dimensionNormalization && dimensionNormalization.resized) {
+          log("info", "image-edit.dimension-normalized", {
+            requestId: attempt.idempotencyKey,
+            provider: config.provider || "",
+            model: config.model || "",
+            pipeline: "normal",
+            ...dimensionNormalization
+          });
+        }
         return {
           upstream: response,
           image: attemptedImage,
@@ -13416,6 +13446,8 @@ async function executeImageGeneration(operation, context = {}) {
         mode: protectedNormal.protection.mode,
         geometry: protectedNormal.protection.geometry,
         featherPixels: protectedNormal.protection.featherPixels,
+        dimensionNormalization:
+          protectedNormal.protection.dimensionNormalization,
         metrics: protectedNormal.metrics,
         outputBytes: protectedNormal.protection.outputBytes
       }

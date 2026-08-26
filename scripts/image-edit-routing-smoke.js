@@ -251,10 +251,10 @@ async function main() {
       const imageConfig = test.resolveImageConfig({
         image: {
           mode: "edits",
-          provider: "lingyun",
+          provider: "xingju",
           baseUrl: `${url}/v1`,
           endpoint: `${url}/v1/images/edits`,
-          model: "gpt-image-2",
+          model: "jw-gpt-image-2",
           compatibilityMode: true,
           timeoutMs: 5000,
           retryEnabled: false,
@@ -270,7 +270,7 @@ async function main() {
           size: "1024x1024"
         },
         "smoke-image-key",
-        "smoke-routing-multipart",
+        "smoke-routing-xingju-json",
         imageConfig,
         {},
         "smoke-user"
@@ -286,7 +286,7 @@ async function main() {
         },
         Object.assign({}, imageConfig, { apiKey: "smoke-image-key" }),
         {},
-        "smoke-routing-multipart-tencent-pipeline",
+        "smoke-routing-xingju-tencent-pipeline",
         "smoke-user",
         singleFaceMask.buffer
       );
@@ -305,17 +305,19 @@ async function main() {
   assert.strictEqual(requests[0].method, "POST");
   assert.ok(
     String(requests[0].headers["content-type"] || "").includes("application/json"),
-    "凌云编辑请求必须是 application/json"
+    "星炬编辑请求必须是 application/json"
   );
   const firstEditBody = JSON.parse(requests[0].body);
-  assert.strictEqual(firstEditBody.model, "gpt-image-2");
+  assert.strictEqual(firstEditBody.model, "jw-gpt-image-2");
   assert.strictEqual(firstEditBody.images.length, 2);
   assert.ok(firstEditBody.mask && firstEditBody.mask.image_url);
+  assert.strictEqual(firstEditBody.response_format, "b64_json");
   assert.strictEqual(firstEditBody.output_format, "png");
   const firstTencentEditBody = JSON.parse(requests[1].body);
-  assert.strictEqual(firstTencentEditBody.model, "gpt-image-2");
+  assert.strictEqual(firstTencentEditBody.model, "jw-gpt-image-2");
   assert.strictEqual(firstTencentEditBody.images.length, 1);
   assert.ok(firstTencentEditBody.mask && firstTencentEditBody.mask.image_url);
+  assert.strictEqual(firstTencentEditBody.response_format, "b64_json");
   assert.strictEqual(firstTencentEditBody.output_format, "png");
   assert.ok(!requests[1].body.includes("images/generations"));
 
@@ -577,7 +579,7 @@ async function main() {
       { mode: "generations" }
     ),
     missingCode: missing.errorCode,
-    multipartRequests: requests.length,
+    xingjuJsonRequests: requests.length,
     lingyunJsonRequests: lingyunRequests.length,
     capabilityErrorCode: "image-edit-unsupported",
     capabilityRequests: capabilityRequests.length

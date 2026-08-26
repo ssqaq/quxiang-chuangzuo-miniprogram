@@ -5,9 +5,15 @@ const fs = require("fs");
 const path = require("path");
 
 const root = path.resolve(__dirname, "..");
-const wxss = fs.readFileSync(path.join(root, "pages/admin/admin.wxss"), "utf8");
-const wxml = fs.readFileSync(path.join(root, "pages/admin/admin.wxml"), "utf8");
-const adminJs = fs.readFileSync(path.join(root, "pages/admin/admin.js"), "utf8");
+function readText(relativePath) {
+  return fs
+    .readFileSync(path.join(root, relativePath), "utf8")
+    .replace(/\r\n/g, "\n");
+}
+
+const wxss = readText("pages/admin/admin.wxss");
+const wxml = readText("pages/admin/admin.wxml");
+const adminJs = readText("pages/admin/admin.js");
 
 function mediaBlock(startMarker, endMarker) {
   const start = wxss.indexOf(startMarker);
@@ -97,6 +103,7 @@ assert.ok(!adminJs.includes("toggleMonitorOnlyAbnormal"), "异常筛选方法仍
 const usageSectionIndex = wxml.indexOf('id="usage-section"');
 const monitorToggleIndex = wxml.indexOf('bindtap="toggleMonitor"');
 const monitorOverviewIndex = wxml.indexOf('class="monitor-overview-card"');
+const generationQueueIndex = wxml.indexOf('id="monitor-section-generationQueue"');
 const diagnosticLogsIndex = wxml.indexOf('id="monitor-section-diagnosticLogs"');
 const deploymentIndex = wxml.indexOf('id="monitor-section-deployment"');
 const failureIndex = wxml.indexOf('class="usage-failure-panel"');
@@ -104,6 +111,7 @@ const failureIndex = wxml.indexOf('class="usage-failure-panel"');
   ["模型用量统计", usageSectionIndex],
   ["运行监控入口", monitorToggleIndex],
   ["系统运行概览", monitorOverviewIndex],
+  ["生图任务队列", generationQueueIndex],
   ["用户端日志", diagnosticLogsIndex],
   ["部署与探针", deploymentIndex],
   ["模型调用失败统计", failureIndex]
@@ -114,9 +122,15 @@ assert.ok(
   usageSectionIndex < failureIndex
   && failureIndex < monitorToggleIndex
   && monitorToggleIndex < monitorOverviewIndex
-  && monitorOverviewIndex < diagnosticLogsIndex
+  && monitorOverviewIndex < generationQueueIndex
+  && generationQueueIndex < diagnosticLogsIndex
   && diagnosticLogsIndex < deploymentIndex,
   "页面区块顺序应为：模型用量统计、模型调用失败统计、运行监控"
+);
+assert.strictEqual(
+  (wxml.match(/id="monitor-section-generationQueue"/g) || []).length,
+  1,
+  "生图任务队列区块只能保留一个"
 );
 assert.strictEqual(
   (wxml.match(/id="monitor-section-diagnosticLogs"/g) || []).length,
@@ -130,8 +144,8 @@ assert.strictEqual(
 );
 
 const viewTree = inspectViewTree(wxml);
-assert.strictEqual(viewTree.targets.length, 11, "管理员页目标展开按钮数量应为 11 个");
-assert.strictEqual(viewTree.slots.length, 11, "每个目标展开按钮都应有且只有一个统一位置框");
+assert.strictEqual(viewTree.targets.length, 12, "管理员页目标展开按钮数量应为 12 个");
+assert.strictEqual(viewTree.slots.length, 12, "每个目标展开按钮都应有且只有一个统一位置框");
 viewTree.slots.forEach((slot, index) => {
   assert.strictEqual(
     slot.directTargetCount,
@@ -316,4 +330,4 @@ widthCases.forEach(({ width, block, required }) => {
   });
 });
 
-console.log("admin responsive smoke: OK (11 个展开按钮在 375/414 下统一对齐)");
+console.log("admin responsive smoke: OK (12 个展开按钮在 375/414 下统一对齐)");

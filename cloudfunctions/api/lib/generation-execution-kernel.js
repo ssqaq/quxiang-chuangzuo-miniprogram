@@ -25,6 +25,7 @@ function createGenerationExecutionKernel(services = {}) {
   const assets = services.assets || {};
   const billing = services.billing || {};
   const operations = services.operations || {};
+  const queue = services.queue || {};
   const results = services.results || {};
   const files = services.files || {};
   const response = services.response || {};
@@ -52,6 +53,12 @@ function createGenerationExecutionKernel(services = {}) {
   const failOperation = requiredFunction(operations, "fail");
   const claimNextOperation = requiredFunction(operations, "claimNext");
   const processQueuedOperation = requiredFunction(operations, "processQueued");
+  const resolveQueueSettings = optionalFunction(
+    queue,
+    "settings",
+    async () => ({ workerConcurrency: 1 })
+  );
+  const observeQueue = optionalFunction(queue, "observe", async () => null);
   const loadReconcileCandidates = requiredFunction(operations, "loadReconcileCandidates");
   const reconcileOperation = requiredFunction(operations, "reconcile");
   const updateOperation = requiredFunction(operations, "update");
@@ -259,17 +266,75 @@ function createGenerationExecutionKernel(services = {}) {
     if (event.action === "processGenerationQueue" && !isAdmin(context)) {
       return forbidden();
     }
-    const operation = await claimNextOperation();
-    if (!operation) {
+    await observeQueue({ phase: "before", event, context });
+    const settings = await resolveQueueSettings();
+    const requestedConcurrency = Number(
+      settings && settings.workerConcurrency
+    );
+    const concurrency = Number.isFinite(requestedConcurrency)
+      ? Math.max(1, Math.min(4, Math.round(requestedConcurrency)))
+      : 1;
+    const claimed = [];
+    for (let index = 0; index < concurrency; index += 1) {
+      const operation = await claimNextOperation();
+      if (!operation) break;
+      claimed.push(operation);
+    }
+    if (!claimed.length) {
+      await observeQueue({ phase: "after", event, context, claimed: 0 });
       return okResponse({
+        claimed: 0,
         processed: 0,
+        succeeded: 0,
+        failed: 0,
+        results: [],
         message: "暂无排队任务。"
       });
     }
-    const result = await processQueuedOperation(operation);
+    const settled = await Promise.allSettled(
+      claimed.map((operation) => processQueuedOperation(operation))
+    );
+    const results = settled.map((item, index) => {
+      const operation = claimed[index] || {};
+      if (item.status === "fulfilled") {
+        return {
+          ok: true,
+          requestId: String(operation.requestId || ""),
+          result: item.value
+        };
+      }
+      return {
+        ok: false,
+        requestId: String(operation.requestId || ""),
+        errorCode: String(
+          item.reason && item.reason.code
+          || "generation-worker-item-failed"
+        ).slice(0, 80),
+        message: sanitizeError(
+          item.reason && item.reason.message
+          || "生图任务处理失败。"
+        )
+      };
+    });
+    const succeeded = results.filter((item) => item.ok).length;
+    const failed = results.length - succeeded;
+    await observeQueue({
+      phase: "after",
+      event,
+      context,
+      claimed: claimed.length,
+      succeeded,
+      failed
+    });
     return okResponse({
-      processed: 1,
-      result
+      claimed: claimed.length,
+      processed: claimed.length,
+      succeeded,
+      failed,
+      results,
+      result: results.length === 1
+        ? (results[0].result || results[0])
+        : null
     });
   }
 

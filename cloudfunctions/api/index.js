@@ -46,6 +46,7 @@ const pixelAcceptance = require("./lib/pixel-acceptance");
 const pixelProtectionFlow = require("./lib/pixel-protection-flow");
 const { ACCESS, createActionRegistry } = require("./lib/action-registry");
 const generationStateMachine = require("./lib/generation-state-machine");
+const generationQueueMonitor = require("./lib/generation-queue-monitor");
 const {
   createGenerationExecutionKernel
 } = require("./lib/generation-execution-kernel");
@@ -5889,6 +5890,10 @@ function normalizeRuntimePatch(input = {}) {
   const videoSource = source.video && typeof source.video === "object" ? source.video : {};
   const pointsSource = source.points && typeof source.points === "object" ? source.points : {};
   const costsSource = source.costs && typeof source.costs === "object" ? source.costs : {};
+  const generationQueueSource = source.generationQueue
+    && typeof source.generationQueue === "object"
+    ? source.generationQueue
+    : {};
   const faceCostSource = costsSource.face && typeof costsSource.face === "object"
     ? costsSource.face
     : {};
@@ -5962,6 +5967,11 @@ function normalizeRuntimePatch(input = {}) {
     "defaultResolution",
     "defaultDurationSeconds"
   ];
+  const generationQueueKeys = [
+    "workerConcurrency",
+    "alertThreshold",
+    "alertCooldownMinutes"
+  ];
   const faceConfig = {};
   const analysis = {};
   const image = {};
@@ -5972,6 +5982,7 @@ function normalizeRuntimePatch(input = {}) {
   const analysisPricing = {};
   const imagePricing = {};
   const videoPricing = {};
+  const generationQueue = {};
   faceKeys.forEach((key) => {
     if (hasOwn(faceSource, key)) {
       faceConfig[key] = key === "apiKey"
@@ -6034,11 +6045,24 @@ function normalizeRuntimePatch(input = {}) {
       });
     }
   });
+  generationQueueKeys.forEach((key) => {
+    if (hasOwn(generationQueueSource, key)) {
+      generationQueue[key] = generationQueueSource[key];
+    }
+  });
   if (Object.keys(face).length) costs.face = face;
   if (Object.keys(analysisPricing).length) costs.analysis = analysisPricing;
   if (Object.keys(imagePricing).length) costs.image = imagePricing;
   if (Object.keys(videoPricing).length) costs.video = videoPricing;
-  return { face: faceConfig, analysis, image, video, points, costs };
+  return {
+    face: faceConfig,
+    analysis,
+    image,
+    video,
+    points,
+    costs,
+    generationQueue
+  };
 }
 
 function isValidHttpUrl(value) {
@@ -6085,6 +6109,7 @@ function validateRuntimePatch(patch) {
   const analysisCosts = costs.analysis || {};
   const imageCosts = costs.image || {};
   const videoCosts = costs.video || {};
+  const generationQueue = patch.generationQueue || {};
   [
     ["face.baseUrl", face.baseUrl],
     ["face.endpoint", face.endpoint],
@@ -6224,6 +6249,23 @@ function validateRuntimePatch(patch) {
   ) {
     errors.push("costs.video.defaultResolution 只能是 480p、720p 或 1080p");
   }
+  [
+    ["generationQueue.workerConcurrency", generationQueue.workerConcurrency, 1, 4],
+    ["generationQueue.alertThreshold", generationQueue.alertThreshold, 1, 100],
+    ["generationQueue.alertCooldownMinutes", generationQueue.alertCooldownMinutes, 1, 60]
+  ].forEach(([field, value, minimum, maximum]) => {
+    if (
+      value !== undefined
+      && (
+        !Number.isFinite(Number(value))
+        || Math.round(Number(value)) !== Number(value)
+        || Number(value) < minimum
+        || Number(value) > maximum
+      )
+    ) {
+      errors.push(`${field} 必须是 ${minimum}～${maximum} 的整数`);
+    }
+  });
   return errors;
 }
 
@@ -6237,6 +6279,13 @@ function mergeRuntimeConfig(current, patch) {
     image: Object.assign({}, existing.image || {}, patch.image || {}),
     video: Object.assign({}, existing.video || {}, patch.video || {}),
     points: Object.assign({}, existing.points || {}, patch.points || {}),
+    generationQueue: generationQueueMonitor.normalizeQueueSettings(
+      Object.assign(
+        {},
+        existing.generationQueue || {},
+        patch.generationQueue || {}
+      )
+    ),
     costs: Object.assign({}, existingCosts, patchCosts, {
       face: Object.assign({}, existingCosts.face || {}, patchCosts.face || {}),
       analysis: Object.assign({}, existingCosts.analysis || {}, patchCosts.analysis || {}),
@@ -6289,6 +6338,9 @@ function redactConfig(config, defaults) {
   const video = config.video || {};
   const points = config.points || {};
   const costs = resolveCostConfig(config.costs || {});
+  const generationQueue = generationQueueMonitor.normalizeQueueSettings(
+    config.generationQueue
+  );
   return {
     face: {
       provider: face.provider || "",
@@ -6366,7 +6418,8 @@ function redactConfig(config, defaults) {
         perSecond: Object.assign({}, costs.video.perSecond),
         defaultDurationSeconds: costs.video.defaultDurationSeconds
       }
-    }
+    },
+    generationQueue
   };
 }
 
@@ -6467,6 +6520,13 @@ async function loadAdminRuntimeConfig(force = false) {
     }
     const value = rawConfig
       ? Object.assign(costMigration.value, {
+          generationQueue: generationQueueMonitor.normalizeQueueSettings(
+            costMigration.value && costMigration.value.generationQueue
+          ),
+          generationQueueAlertState: rawConfig.generationQueueAlertState
+            && typeof rawConfig.generationQueueAlertState === "object"
+            ? Object.assign({}, rawConfig.generationQueueAlertState)
+            : {},
           version: Number(rawConfig.version) || 0,
           updatedAt: rawConfig.updatedAt || "",
           updatedBy: rawConfig.updatedBy || ""
@@ -6498,14 +6558,18 @@ async function resolveEffectiveConfigs() {
       image: {},
       video: {},
       points: {},
-      costs: {}
+      costs: {},
+      generationQueue: generationQueueMonitor.normalizeQueueSettings()
     },
     face: resolveFaceConfig(runtime && runtime.face),
     analysis: resolveAnalysisConfig(runtime && runtime.analysis),
     image: resolveImageConfig(runtime && runtime.image),
     video: resolveVideoConfig(runtime && runtime.video),
     points: resolvePointsConfig(runtime && runtime.points),
-    costs: resolveCostConfig(runtime && runtime.costs)
+    costs: resolveCostConfig(runtime && runtime.costs),
+    generationQueue: generationQueueMonitor.normalizeQueueSettings(
+      runtime && runtime.generationQueue
+    )
   };
 }
 
@@ -6516,13 +6580,15 @@ function adminConfigView(configs, runtime, metadata = {}) {
   const videoDefaults = resolveVideoConfig();
   const pointDefaults = resolvePointsConfig();
   const costDefaults = resolveCostConfig();
+  const generationQueueDefaults = generationQueueMonitor.normalizeQueueSettings();
   const overrides = runtime || {
     face: {},
     analysis: {},
     image: {},
     video: {},
     points: {},
-    costs: {}
+    costs: {},
+    generationQueue: generationQueueDefaults
   };
   return {
     defaults: redactConfig({
@@ -6531,14 +6597,16 @@ function adminConfigView(configs, runtime, metadata = {}) {
       image: imageDefaults,
       video: videoDefaults,
       points: pointDefaults,
-      costs: costDefaults
+      costs: costDefaults,
+      generationQueue: generationQueueDefaults
     }, {
       face: faceDefaults,
       analysis: analysisDefaults,
       image: imageDefaults,
       video: videoDefaults,
       points: pointDefaults,
-      costs: costDefaults
+      costs: costDefaults,
+      generationQueue: generationQueueDefaults
     }),
     overrides: redactConfig(overrides, {
       face: faceDefaults,
@@ -6554,14 +6622,16 @@ function adminConfigView(configs, runtime, metadata = {}) {
       image: configs.image,
       video: configs.video,
       points: configs.points,
-      costs: configs.costs
+      costs: configs.costs,
+      generationQueue: configs.generationQueue
     }, {
       face: configs.face,
       analysis: configs.analysis,
       image: configs.image,
       video: configs.video,
       points: configs.points,
-      costs: configs.costs
+      costs: configs.costs,
+      generationQueue: configs.generationQueue
     }),
     updatedAt: metadata.updatedAt || "",
     version: Number(metadata.version || 0),
@@ -6599,6 +6669,312 @@ async function getAdminConfig(context) {
     }
   }
   return jsonResponse(true, adminConfigView(configs, runtime, metadata));
+}
+
+function operationRows(result) {
+  return result && Array.isArray(result.data) ? result.data : [];
+}
+
+async function countGenerationOperations(where = {}, store = db) {
+  let query = store.collection(GENERATION_OPERATION_COLLECTION);
+  if (where && Object.keys(where).length) query = query.where(where);
+  if (typeof query.count === "function") {
+    const result = await query.count();
+    return Math.max(0, Number(result && result.total) || 0);
+  }
+  const result = await query.limit(100).get();
+  return operationRows(result).length;
+}
+
+async function loadRecentGenerationOperations(limit = 20, store = db) {
+  const safeLimit = Math.max(1, Math.min(50, Number(limit) || 20));
+  try {
+    const result = await store
+      .collection(GENERATION_OPERATION_COLLECTION)
+      .orderBy("updatedAt", "desc")
+      .limit(safeLimit)
+      .get();
+    return operationRows(result);
+  } catch (error) {
+    if (isCollectionMissingError(error)) throw error;
+    const batches = await Promise.all(
+      GENERATION_OPERATION_STATUSES.map(async (status) => {
+        try {
+          const result = await store
+            .collection(GENERATION_OPERATION_COLLECTION)
+            .where({ status })
+            .limit(safeLimit)
+            .get();
+          return operationRows(result);
+        } catch (queryError) {
+          if (isCollectionMissingError(queryError)) throw queryError;
+          return [];
+        }
+      })
+    );
+    const unique = new Map();
+    batches.flat().forEach((operation) => {
+      if (!operation) return;
+      unique.set(
+        String(operation._id || `${operation.openid || ""}:${operation.requestId || ""}`),
+        operation
+      );
+    });
+    return [...unique.values()]
+      .sort((left, right) => operationUpdatedAtMs(right) - operationUpdatedAtMs(left))
+      .slice(0, safeLimit);
+  }
+}
+
+async function loadOldestQueuedGenerationOperation(store = db) {
+  const collection = store.collection(GENERATION_OPERATION_COLLECTION);
+  try {
+    const result = await collection
+      .where({ status: "queued" })
+      .orderBy("queuedAt", "asc")
+      .limit(1)
+      .get();
+    return operationRows(result)[0] || null;
+  } catch (error) {
+    if (isCollectionMissingError(error)) throw error;
+    try {
+      const result = await collection
+        .where({ status: "queued" })
+        .orderBy("createdAt", "asc")
+        .limit(1)
+        .get();
+      return operationRows(result)[0] || null;
+    } catch (fallbackError) {
+      if (isCollectionMissingError(fallbackError)) throw fallbackError;
+      const result = await collection
+        .where({ status: "queued" })
+        .limit(50)
+        .get();
+      return operationRows(result)
+        .sort((left, right) => operationUpdatedAtMs(left) - operationUpdatedAtMs(right))[0]
+        || null;
+    }
+  }
+}
+
+async function loadGenerationQueueOverview(options = {}) {
+  const store = options.store || db;
+  const now = options.now instanceof Date
+    ? options.now
+    : new Date(options.now || Date.now());
+  const settings = generationQueueMonitor.normalizeQueueSettings(
+    options.settings
+    || (await resolveEffectiveConfigs()).generationQueue
+  );
+  const includeTasks = options.includeTasks !== false;
+  const limit = Math.max(1, Math.min(50, Number(options.limit) || 20));
+  try {
+    const [statusCounts, imageCount, videoCount, oldestQueued, recent] = await Promise.all([
+      Promise.all(GENERATION_OPERATION_STATUSES.map(
+        (status) => countGenerationOperations({ status }, store)
+      )),
+      countGenerationOperations({ kind: "image" }, store),
+      countGenerationOperations({ kind: "video" }, store),
+      loadOldestQueuedGenerationOperation(store),
+      includeTasks ? loadRecentGenerationOperations(limit, store) : Promise.resolve([])
+    ]);
+    const counts = {};
+    GENERATION_OPERATION_STATUSES.forEach((status, index) => {
+      counts[status] = Math.max(0, Number(statusCounts[index]) || 0);
+    });
+    const queuedCount = counts.queued;
+    const oldestQueuedAtMs = operationUpdatedAtMs(
+      oldestQueued && Object.assign({}, oldestQueued, {
+        lastHeartbeatAt: oldestQueued.queuedAt
+          || oldestQueued.createdAt
+          || oldestQueued.updatedAt
+      })
+    );
+    const snapshot = Object.assign(
+      generationQueueMonitor.buildQueueSnapshot([], { now, settings }),
+      {
+        total: GENERATION_OPERATION_STATUSES.reduce(
+          (total, status) => total + counts[status],
+          0
+        ),
+        counts,
+        kinds: {
+          image: Math.max(0, Number(imageCount) || 0),
+          video: Math.max(0, Number(videoCount) || 0)
+        },
+        queuedCount,
+        processingCount: counts.processing,
+        pendingRefundCount: counts.failed + counts.refunding,
+        oldestQueuedAt: oldestQueuedAtMs
+          ? new Date(oldestQueuedAtMs).toISOString()
+          : "",
+        oldestQueuedAgeSeconds: oldestQueuedAtMs
+          ? Math.max(0, Math.floor((now.getTime() - oldestQueuedAtMs) / 1000))
+          : 0,
+        alertActive: queuedCount >= settings.alertThreshold
+      }
+    );
+    return {
+      snapshot,
+      tasks: recent.map((operation) => generationQueueMonitor.buildAdminOperationSummary(
+        Object.assign({}, operation, {
+          userHash: operation.openid ? usageUserHash(operation.openid) : ""
+        }),
+        { now }
+      )),
+      unavailable: false,
+      message: ""
+    };
+  } catch (error) {
+    if (!isCollectionMissingError(error)) throw error;
+    return {
+      snapshot: generationQueueMonitor.buildQueueSnapshot([], { now, settings }),
+      tasks: [],
+      unavailable: true,
+      message: "任务集合还没有初始化，部署后先执行数据库初始化。"
+    };
+  }
+}
+
+async function findAdminGenerationOperation(event = {}, store = db) {
+  const operationId = String(
+    event.operationId
+    || event.id
+    || event.payload && event.payload.operationId
+    || ""
+  ).trim().slice(0, 180);
+  if (operationId) {
+    return readDocument(
+      store.collection(GENERATION_OPERATION_COLLECTION).doc(operationId)
+    );
+  }
+  const requestId = String(
+    event.requestId
+    || event.payload && event.payload.requestId
+    || ""
+  ).trim().slice(0, 120);
+  if (!requestId) return null;
+  const result = await store
+    .collection(GENERATION_OPERATION_COLLECTION)
+    .where({ requestId })
+    .limit(2)
+    .get();
+  return operationRows(result)[0] || null;
+}
+
+async function getAdminGenerationQueue(event = {}, context) {
+  if (!isAdminContext(context)) return adminForbidden();
+  const overview = await loadGenerationQueueOverview({
+    limit: event.limit
+  });
+  return jsonResponse(true, overview);
+}
+
+async function getAdminGenerationOperationHistory(event = {}, context) {
+  if (!isAdminContext(context)) return adminForbidden();
+  try {
+    const operation = await findAdminGenerationOperation(event);
+    if (!operation) {
+      return fail("没有找到这个任务。", "GENERATION_OPERATION_NOT_FOUND");
+    }
+    return jsonResponse(
+      true,
+      generationQueueMonitor.buildAdminOperationHistory(
+        Object.assign({}, operation, {
+          userHash: operation.openid ? usageUserHash(operation.openid) : ""
+        }),
+        { now: new Date() }
+      )
+    );
+  } catch (error) {
+    if (isCollectionMissingError(error)) {
+      return fail(
+        "任务集合还没有初始化。",
+        "GENERATION_OPERATION_COLLECTION_MISSING"
+      );
+    }
+    throw error;
+  }
+}
+
+async function persistGenerationQueueAlertState(state) {
+  const safeState = state && typeof state === "object"
+    ? {
+        active: Boolean(state.active),
+        signature: String(state.signature || "").slice(0, 160),
+        lastAlertAt: state.lastAlertAt || "",
+        lastRecoveredAt: state.lastRecoveredAt || ""
+      }
+    : {};
+  await db
+    .collection(ADMIN_RUNTIME_CONFIG_COLLECTION)
+    .doc(ADMIN_RUNTIME_CONFIG_ID)
+    .update({
+      data: {
+        generationQueueAlertState: safeState
+      }
+    });
+  if (adminRuntimeCache.value) {
+    adminRuntimeCache = {
+      value: Object.assign({}, adminRuntimeCache.value, {
+        generationQueueAlertState: safeState
+      }),
+      expiresAt: adminRuntimeCache.expiresAt
+    };
+  }
+  return safeState;
+}
+
+async function observeGenerationQueue(options = {}) {
+  try {
+    const runtime = await loadAdminRuntimeConfig();
+    const settings = generationQueueMonitor.normalizeQueueSettings(
+      options.settings || runtime && runtime.generationQueue
+    );
+    const overview = await loadGenerationQueueOverview({
+      includeTasks: false,
+      settings,
+      now: options.now
+    });
+    if (overview.unavailable) return overview;
+    const decision = generationQueueMonitor.decideQueueAlert(
+      overview.snapshot,
+      runtime && runtime.generationQueueAlertState,
+      { now: options.now }
+    );
+    if (decision.shouldLog) {
+      const eventName = decision.action === "recovered"
+        ? "generation.queue-backlog-recovered"
+        : "generation.queue-backlog-alert";
+      log(decision.action === "recovered" ? "info" : "warn", eventName, {
+        queuedCount: overview.snapshot.queuedCount,
+        processingCount: overview.snapshot.processingCount,
+        oldestQueuedAgeSeconds: overview.snapshot.oldestQueuedAgeSeconds,
+        workerConcurrency: overview.snapshot.workerConcurrency,
+        alertThreshold: overview.snapshot.alertThreshold
+      });
+      try {
+        await persistGenerationQueueAlertState(decision.nextState);
+      } catch (stateError) {
+        log("warn", "generation.queue-alert-state-write-failed", {
+          action: decision.action,
+          error: sanitizeFailureMessage(stateError && stateError.message)
+        });
+      }
+    }
+    return Object.assign({}, overview, {
+      alertDecision: decision.action
+    });
+  } catch (error) {
+    log("warn", "generation.queue-observe-failed", {
+      error: sanitizeFailureMessage(error && error.message)
+    });
+    return {
+      unavailable: true,
+      message: "队列状态读取失败。",
+      errorCode: String(error && error.code || "generation-queue-observe-failed")
+    };
+  }
 }
 
 function isCollectionMissingError(error) {
@@ -6732,6 +7108,12 @@ async function saveAdminConfig(event, context) {
     video: next.video,
     points: next.points,
     costs: next.costs,
+    generationQueue: next.generationQueue,
+    generationQueueAlertState: current
+      && current.generationQueueAlertState
+      && typeof current.generationQueueAlertState === "object"
+      ? current.generationQueueAlertState
+      : {},
     version: previousVersion + 1,
     updatedAt: new Date(),
     updatedBy: getOpenId(context)
@@ -6747,7 +7129,12 @@ async function saveAdminConfig(event, context) {
       image: next.image,
       video: next.video,
       points: next.points,
-      costs: next.costs
+      costs: next.costs,
+      generationQueue: next.generationQueue,
+      generationQueueAlertState: data.generationQueueAlertState,
+      version: data.version,
+      updatedAt: data.updatedAt,
+      updatedBy: data.updatedBy
     },
     expiresAt: Date.now() + ADMIN_RUNTIME_CACHE_TTL_MS
   };
@@ -6759,7 +7146,8 @@ async function saveAdminConfig(event, context) {
     imageFields: Object.keys(patch.image),
     videoFields: Object.keys(patch.video),
     pointsFields: Object.keys(patch.points),
-    costFields: Object.keys(patch.costs)
+    costFields: Object.keys(patch.costs),
+    generationQueueFields: Object.keys(patch.generationQueue)
   });
   const configs = await resolveEffectiveConfigs();
   return jsonResponse(true, adminConfigView(configs, next, data));
@@ -15048,6 +15436,12 @@ function createGenerationKernel() {
       update: updateGenerationOperation,
       complete: completeGenerationOperation
     },
+    queue: {
+      settings: async () => (
+        await resolveEffectiveConfigs()
+      ).generationQueue,
+      observe: observeGenerationQueue
+    },
     results: {
       persist: persistGenerationResult
     },
@@ -15110,6 +15504,18 @@ function createGenerationActionRegistry() {
     access: ACCESS.TIMER_OR_ADMIN,
     metadata: { workflow: "image-generation-v1" },
     handler: ({ event, context }) => reconcileGenerationOperations(event, context)
+  });
+  registry.register({
+    name: "getAdminGenerationQueue",
+    access: ACCESS.ADMIN,
+    metadata: { workflow: "generation-admin-v1" },
+    handler: ({ event, context }) => getAdminGenerationQueue(event, context)
+  });
+  registry.register({
+    name: "getAdminGenerationOperationHistory",
+    access: ACCESS.ADMIN,
+    metadata: { workflow: "generation-admin-v1" },
+    handler: ({ event, context }) => getAdminGenerationOperationHistory(event, context)
   });
   return registry;
 }

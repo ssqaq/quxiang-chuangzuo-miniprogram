@@ -26,7 +26,7 @@ const event = {
   status: 200,
   success: true,
   durationMs: 59000,
-  costConfigVersion: "2026-08-26-v2",
+  costConfigVersion: "2026-08-26-v3",
   apiKey: "SHOULD_NOT_EXPORT",
   authorization: "SHOULD_NOT_EXPORT"
 };

@@ -21,9 +21,25 @@ const validPatch = test.normalizeRuntimePatch({
   costs: {
     image: {
       perImage: {
-        "1K": "0.0600",
-        "2K": "0.1",
-        "4K": "0.15"
+        "1K": "0.0700",
+        "2K": "0.07",
+        "4K": "0.07"
+      },
+      providers: {
+        xingju: {
+          perImage: {
+            "1K": "0.0700",
+            "2K": "0.07",
+            "4K": "0.07"
+          }
+        },
+        lingyun: {
+          perImage: {
+            "1K": "0.0600",
+            "2K": "0.1",
+            "4K": "0.15"
+          }
+        }
       }
     },
     video: {
@@ -40,18 +56,29 @@ assert.deepStrictEqual(test.validateRuntimePatch(validPatch), []);
 const invalidPatch = test.normalizeRuntimePatch({
   costs: {
     image: {
-      perImage: {
-        "1K": "",
-        "2K": "-0.1",
-        "4K": "0.12345"
+      providers: {
+        xingju: {
+          perImage: {
+            "1K": "",
+            "2K": "-0.1",
+            "4K": "0.12345"
+          }
+        },
+        lingyun: {
+          perImage: {
+            "1K": "0.06",
+            "2K": "0.1",
+            "4K": "0.15"
+          }
+        }
       }
     }
   }
 });
 const invalidErrors = test.validateRuntimePatch(invalidPatch);
-assert.ok(invalidErrors.some((item) => item.includes("costs.image.perImage.1K") && item.includes("不能为空")));
-assert.ok(invalidErrors.some((item) => item.includes("costs.image.perImage.2K") && item.includes("非负数字")));
-assert.ok(invalidErrors.some((item) => item.includes("costs.image.perImage.4K") && item.includes("最多 4 位小数")));
+assert.ok(invalidErrors.some((item) => item.includes("costs.image.providers.xingju.perImage.1K") && item.includes("不能为空")));
+assert.ok(invalidErrors.some((item) => item.includes("costs.image.providers.xingju.perImage.2K") && item.includes("非负数字")));
+assert.ok(invalidErrors.some((item) => item.includes("costs.image.providers.xingju.perImage.4K") && item.includes("最多 4 位小数")));
 
 let pageDefinition = null;
 let saveCalls = 0;
@@ -110,17 +137,17 @@ Object.keys(pageDefinition).forEach((key) => {
 });
 
 page.onInput({
-  currentTarget: { dataset: { section: "costs", key: "image1K" } },
+  currentTarget: { dataset: { section: "costs", key: "imageXingju1K" } },
   detail: { value: "0.12345" }
 });
-assert.ok(page.data.costFieldErrors.image1K, "超过 4 位小数时必须立即显示错误");
+assert.ok(page.data.costFieldErrors.imageXingju1K, "超过 4 位小数时必须立即显示错误");
 
 page.onInput({
-  currentTarget: { dataset: { section: "costs", key: "image1K" } },
-  detail: { value: "0.0600" }
+  currentTarget: { dataset: { section: "costs", key: "imageXingju1K" } },
+  detail: { value: "0.0700" }
 });
-assert.strictEqual(page.data.costFieldErrors.image1K, "");
-assert.strictEqual(page.data.imageQualityOptions[0].label, "1K（¥0.06/张）");
+assert.strictEqual(page.data.costFieldErrors.imageXingju1K, "");
+assert.strictEqual(page.data.imageQualityOptions[0].label, "1K（¥0.07/张）");
 
 page.onInput({
   currentTarget: { dataset: { section: "costs", key: "video720p" } },

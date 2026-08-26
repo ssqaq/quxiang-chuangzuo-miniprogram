@@ -77,13 +77,50 @@ assert.deepStrictEqual(
   "云端成本尚未返回时，视频清晰度不得在客户端重复写默认价格"
 );
 firstPage.onInput({
-  currentTarget: { dataset: { section: "costs", key: "image2K" } },
+  currentTarget: { dataset: { section: "costs", key: "imageXingju2K" } },
   detail: { value: "0.12" }
 });
 assert.strictEqual(
   firstPage.data.imageQualityOptions[1].label,
   "2K（¥0.12/张）",
   "修改生图成本后，下拉框价格必须同步"
+);
+[
+  ["imageXingju1K", "0.07"],
+  ["imageXingju4K", "0.07"],
+  ["imageLingyun1K", "0.06"],
+  ["imageLingyun2K", "0.1"],
+  ["imageLingyun4K", "0.15"]
+].forEach(([key, value]) => {
+  firstPage.onInput({
+    currentTarget: { dataset: { section: "costs", key } },
+    detail: { value }
+  });
+});
+assert.ok(
+  firstPage.data.imageBackupPricingNotice.includes("1K ¥0.06/张")
+    && firstPage.data.imageBackupPricingNotice.includes("2K ¥0.1/张")
+    && firstPage.data.imageBackupPricingNotice.includes("4K ¥0.15/张"),
+  "修改凌云成本后，备用模型价格说明必须同步"
+);
+firstPage.onInput({
+  currentTarget: { dataset: { section: "imageBackup", key: "provider" } },
+  detail: { value: "xingju" }
+});
+assert.ok(
+  firstPage.data.imageBackupPricingNotice.includes("1K ¥0.07/张")
+    && firstPage.data.imageBackupPricingNotice.includes("2K ¥0.12/张")
+    && firstPage.data.imageBackupPricingNotice.includes("4K ¥0.07/张"),
+  "切换备用服务商时，备用价格说明必须马上切换"
+);
+firstPage.onInput({
+  currentTarget: { dataset: { section: "image", key: "provider" } },
+  detail: { value: "lingyun" }
+});
+assert.strictEqual(
+  firstPage.data.imageQualityOptions[0].label,
+  "1K（¥0.06/张）",
+  "切换主服务商时，清晰度下拉框必须显示该服务商价格"
 );
 firstPage.onInput({
   currentTarget: { dataset: { section: "costs", key: "video480p" } },

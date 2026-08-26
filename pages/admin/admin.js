@@ -7,13 +7,36 @@ const IMAGE_QUALITY_OPTIONS = Object.freeze([
   { value: "2K", label: "2K" },
   { value: "4K", label: "4K" }
 ]);
-const IMAGE_COST_KEYS = Object.freeze(["image1K", "image2K", "image4K"]);
-const VIDEO_COST_KEYS = Object.freeze(["video480p", "video720p", "video1080p"]);
-const IMAGE_COST_FIELD_BY_RESOLUTION = Object.freeze({
-  "1K": "image1K",
-  "2K": "image2K",
-  "4K": "image4K"
+const IMAGE_COST_FIELD_BY_PROVIDER = Object.freeze({
+  xingju: Object.freeze({
+    "1K": "imageXingju1K",
+    "2K": "imageXingju2K",
+    "4K": "imageXingju4K"
+  }),
+  lingyun: Object.freeze({
+    "1K": "imageLingyun1K",
+    "2K": "imageLingyun2K",
+    "4K": "imageLingyun4K"
+  })
 });
+const IMAGE_COST_KEYS = Object.freeze([
+  "imageXingju1K",
+  "imageXingju2K",
+  "imageXingju4K",
+  "imageLingyun1K",
+  "imageLingyun2K",
+  "imageLingyun4K"
+]);
+const VIDEO_COST_KEYS = Object.freeze(["video480p", "video720p", "video1080p"]);
+const ADMIN_COST_KEYS = Object.freeze([
+  "faceInputPerMillionTokens",
+  "faceOutputPerMillionTokens",
+  "analysisInputPerMillionTokens",
+  "analysisOutputPerMillionTokens",
+  ...IMAGE_COST_KEYS,
+  ...VIDEO_COST_KEYS,
+  "videoDefaultDuration"
+]);
 const VIDEO_COST_FIELD_BY_RESOLUTION = Object.freeze({
   "480p": "video480p",
   "720p": "video720p",
@@ -56,6 +79,43 @@ function formatAdminPrice(value, fallback = "") {
   return number.toFixed(2).replace(/\.?0+$/, "");
 }
 
+function validateAdminCostInput(value) {
+  const text = String(value === undefined || value === null ? "" : value).trim();
+  if (!text) return "不能为空";
+  if (!/^(?:0|[1-9]\d*)(?:\.\d{1,4})?$/.test(text)) {
+    return "必须是非负数字，最多 4 位小数";
+  }
+  const number = Number(text);
+  if (!Number.isFinite(number) || number < 0 || number > 100000) {
+    return "请输入 0～100000";
+  }
+  return "";
+}
+
+function validateAdminCostFields(costs = {}) {
+  const source = costs && typeof costs === "object" ? costs : {};
+  return ADMIN_COST_KEYS.reduce((errors, key) => {
+    const error = validateAdminCostInput(source[key]);
+    if (error) errors[key] = error;
+    return errors;
+  }, {});
+}
+
+function adminCostText(value) {
+  return String(value === undefined || value === null ? "" : value).trim();
+}
+
+function normalizeAdminImageCostProvider(value) {
+  const text = String(value || "").trim().toLowerCase();
+  if (text === "lingyun" || text === "凌云" || text.includes("lingyunapi")) {
+    return "lingyun";
+  }
+  if (text === "xingju" || text === "星炬" || text.includes("akiyo.fun")) {
+    return "xingju";
+  }
+  return text || "xingju";
+}
+
 function configuredAdminPrice(costs, key, fieldMap) {
   const source = costs && typeof costs === "object" ? costs : {};
   const field = fieldMap[key];
@@ -71,12 +131,38 @@ function configuredAdminPrice(costs, key, fieldMap) {
   return undefined;
 }
 
-function buildAdminImageQualityOptions(costs = {}) {
+function configuredAdminImagePrice(costs, key, provider = "xingju") {
+  const source = costs && typeof costs === "object" ? costs : {};
+  const providerKey = normalizeAdminImageCostProvider(provider);
+  const fieldMap = IMAGE_COST_FIELD_BY_PROVIDER[providerKey]
+    || IMAGE_COST_FIELD_BY_PROVIDER.xingju;
+  const field = fieldMap[key];
+  if (field && Object.prototype.hasOwnProperty.call(source, field)) {
+    return source[field];
+  }
+  const providerCosts = source.providers
+    && source.providers[providerKey]
+    && typeof source.providers[providerKey] === "object"
+    ? source.providers[providerKey]
+    : {};
+  if (
+    providerCosts.perImage
+    && Object.prototype.hasOwnProperty.call(providerCosts.perImage, key)
+  ) {
+    return providerCosts.perImage[key];
+  }
+  if (source.perImage && Object.prototype.hasOwnProperty.call(source.perImage, key)) {
+    return source.perImage[key];
+  }
+  return undefined;
+}
+
+function buildAdminImageQualityOptions(costs = {}, provider = "xingju") {
   return IMAGE_QUALITY_OPTIONS.map((item) => {
-    const price = formatAdminPrice(configuredAdminPrice(
+    const price = formatAdminPrice(configuredAdminImagePrice(
       costs,
       item.value,
-      IMAGE_COST_FIELD_BY_RESOLUTION
+      provider
     ));
     return {
       value: item.value,
@@ -103,13 +189,13 @@ function buildAdminVideoQualityOptions(costs = {}) {
   });
 }
 
-function buildAdminImagePricingNotice(costs = {}) {
+function buildAdminImagePricingNotice(costs = {}, provider = "xingju") {
   const prices = {};
   ["1K", "2K", "4K"].forEach((key) => {
-    prices[key] = formatAdminPrice(configuredAdminPrice(
+    prices[key] = formatAdminPrice(configuredAdminImagePrice(
       costs,
       key,
-      IMAGE_COST_FIELD_BY_RESOLUTION
+      provider
     ));
   });
   if (!prices["1K"] || !prices["2K"] || !prices["4K"]) {
@@ -212,6 +298,10 @@ function knownAdminCapabilities(type, form) {
     || /image2.*(?:1-4k|超分)/i.test(model)
     || provider === "pandatk"
     || provider === "panda"
+    || provider === "xingju"
+    || provider === "星炬"
+    || provider === "lingyun"
+    || provider === "凌云"
   )) {
     return ["1K", "2K", "4K"];
   }
@@ -232,7 +322,10 @@ function buildAdminQualityOptions(type, capabilities, form) {
   );
   const values = upstreamValues.length ? upstreamValues : knownAdminCapabilities(type, form);
   const all = type === "image"
-    ? buildAdminImageQualityOptions(form && form.costs)
+    ? buildAdminImageQualityOptions(
+        form && form.costs,
+        form && form.image && form.image.provider
+      )
     : buildAdminVideoQualityOptions(form && form.costs);
   return {
     options: values.length
@@ -255,6 +348,7 @@ function pickerIndex(options, value, fallback = 0) {
 
 function buildQualityPickerState(form, capabilityPayload = {}) {
   const image = form && form.image ? form.image : {};
+  const imageBackup = form && form.imageBackup ? form.imageBackup : {};
   const video = form && form.video ? form.video : {};
   const imageCapability = capabilityPayload.image || {};
   const videoCapability = capabilityPayload.video || {};
@@ -278,7 +372,11 @@ function buildQualityPickerState(form, capabilityPayload = {}) {
     ),
     imageSizeOptions,
     imageSizeIndex: pickerIndex(imageSizeOptions, imageSizeValue, 0),
-    imagePricingNotice: buildAdminImagePricingNotice(imageCosts),
+    imagePricingNotice: buildAdminImagePricingNotice(imageCosts, image.provider),
+    imageBackupPricingNotice: buildAdminImagePricingNotice(
+      imageCosts,
+      imageBackup.provider
+    ),
     videoQualityOptions: videoQuality.options,
     videoQualityIndex: pickerIndex(videoQuality.options, videoQualityValue, 1),
     videoPricingNotice: buildAdminVideoPricingNotice(imageCosts),
@@ -287,7 +385,7 @@ function buildQualityPickerState(form, capabilityPayload = {}) {
     imageCapabilityNotice: imageQuality.source === "upstream"
       ? "已按上游返回的生图能力显示选项。"
       : imageQuality.source === "known-model-rule"
-        ? "已识别熊猫 image2，支持 1K、2K、4K。"
+        ? "已识别当前生图模型，支持 1K、2K、4K。"
         : "暂未识别上游能力，保留三档选项；未知模型请以实际上游支持为准。",
     videoCapabilityNotice: videoQuality.source === "upstream"
       ? "已按上游返回的视频能力显示选项。"
@@ -374,9 +472,12 @@ function emptyForm() {
       faceOutputPerMillionTokens: "1.5",
       analysisInputPerMillionTokens: "0.15",
       analysisOutputPerMillionTokens: "1.5",
-      image1K: "",
-      image2K: "",
-      image4K: "",
+      imageXingju1K: "",
+      imageXingju2K: "",
+      imageXingju4K: "",
+      imageLingyun1K: "",
+      imageLingyun2K: "",
+      imageLingyun4K: "",
       video480p: "",
       video720p: "",
       video1080p: "",
@@ -2502,6 +2603,23 @@ function formFromConfig(result) {
   const faceCosts = costs.face || {};
   const analysisCosts = costs.analysis || faceCosts;
   const imageCosts = costs.image || {};
+  const imageProviderCosts = imageCosts.providers || {};
+  const xingjuImagePrices = imageProviderCosts.xingju
+    && imageProviderCosts.xingju.perImage
+    || (
+      normalizeAdminImageCostProvider(image.provider) === "xingju"
+        ? imageCosts.perImage
+        : {}
+    )
+    || {};
+  const lingyunImagePrices = imageProviderCosts.lingyun
+    && imageProviderCosts.lingyun.perImage
+    || (
+      normalizeAdminImageCostProvider(image.provider) === "lingyun"
+        ? imageCosts.perImage
+        : {}
+    )
+    || {};
   const videoCosts = costs.video || {};
   const generationQueue = source.generationQueue || {};
   return {
@@ -2599,20 +2717,35 @@ function formFromConfig(result) {
           ? analysisCosts.outputPerMillionTokens
           : faceCosts.outputPerMillionTokens || 1.5
       ),
-      image1K: String(
-        imageCosts.perImage && imageCosts.perImage["1K"] !== undefined
-          ? imageCosts.perImage["1K"]
-          : ""
+      imageXingju1K: String(
+        xingjuImagePrices["1K"] !== undefined
+          ? xingjuImagePrices["1K"]
+          : 0.07
       ),
-      image2K: String(
-        imageCosts.perImage && imageCosts.perImage["2K"] !== undefined
-          ? imageCosts.perImage["2K"]
-          : ""
+      imageXingju2K: String(
+        xingjuImagePrices["2K"] !== undefined
+          ? xingjuImagePrices["2K"]
+          : 0.07
       ),
-      image4K: String(
-        imageCosts.perImage && imageCosts.perImage["4K"] !== undefined
-          ? imageCosts.perImage["4K"]
-          : ""
+      imageXingju4K: String(
+        xingjuImagePrices["4K"] !== undefined
+          ? xingjuImagePrices["4K"]
+          : 0.07
+      ),
+      imageLingyun1K: String(
+        lingyunImagePrices["1K"] !== undefined
+          ? lingyunImagePrices["1K"]
+          : 0.06
+      ),
+      imageLingyun2K: String(
+        lingyunImagePrices["2K"] !== undefined
+          ? lingyunImagePrices["2K"]
+          : 0.1
+      ),
+      imageLingyun4K: String(
+        lingyunImagePrices["4K"] !== undefined
+          ? lingyunImagePrices["4K"]
+          : 0.15
       ),
       video480p: String(
         videoCosts.perSecond && videoCosts.perSecond["480p"] !== undefined
@@ -2640,6 +2773,19 @@ function formFromConfig(result) {
 }
 
 function formToConfig(form) {
+  const xingjuImagePrices = {
+    "1K": adminCostText(form.costs.imageXingju1K),
+    "2K": adminCostText(form.costs.imageXingju2K),
+    "4K": adminCostText(form.costs.imageXingju4K)
+  };
+  const lingyunImagePrices = {
+    "1K": adminCostText(form.costs.imageLingyun1K),
+    "2K": adminCostText(form.costs.imageLingyun2K),
+    "4K": adminCostText(form.costs.imageLingyun4K)
+  };
+  const primaryImagePrices = normalizeAdminImageCostProvider(form.image.provider) === "lingyun"
+    ? lingyunImagePrices
+    : xingjuImagePrices;
   return {
     face: {
       provider: String(form.face.provider || "").trim(),
@@ -2727,29 +2873,34 @@ function formToConfig(form) {
     costs: {
       currency: "CNY",
       face: {
-        inputPerMillionTokens: Number(form.costs.faceInputPerMillionTokens || 0),
-        outputPerMillionTokens: Number(form.costs.faceOutputPerMillionTokens || 0)
+        inputPerMillionTokens: adminCostText(form.costs.faceInputPerMillionTokens),
+        outputPerMillionTokens: adminCostText(form.costs.faceOutputPerMillionTokens)
       },
       analysis: {
-        inputPerMillionTokens: Number(form.costs.analysisInputPerMillionTokens || 0),
-        outputPerMillionTokens: Number(form.costs.analysisOutputPerMillionTokens || 0)
+        inputPerMillionTokens: adminCostText(form.costs.analysisInputPerMillionTokens),
+        outputPerMillionTokens: adminCostText(form.costs.analysisOutputPerMillionTokens)
       },
       image: {
         defaultResolution: "1K",
-        perImage: {
-          "1K": Number(form.costs.image1K || 0),
-          "2K": Number(form.costs.image2K || 0),
-          "4K": Number(form.costs.image4K || 0)
+        // 旧版页面继续读取当前主模型价格。
+        perImage: Object.assign({}, primaryImagePrices),
+        providers: {
+          xingju: {
+            perImage: xingjuImagePrices
+          },
+          lingyun: {
+            perImage: lingyunImagePrices
+          }
         }
       },
       video: {
         defaultResolution: "720p",
         perSecond: {
-          "480p": Number(form.costs.video480p || 0),
-          "720p": Number(form.costs.video720p || 0),
-          "1080p": Number(form.costs.video1080p || 0)
+          "480p": adminCostText(form.costs.video480p),
+          "720p": adminCostText(form.costs.video720p),
+          "1080p": adminCostText(form.costs.video1080p)
         },
-        defaultDurationSeconds: Number(form.costs.videoDefaultDuration || 0)
+        defaultDurationSeconds: adminCostText(form.costs.videoDefaultDuration)
       }
     },
     generationQueue: {
@@ -2932,11 +3083,22 @@ Page({
     refreshingAll: false,
     isAdmin: false,
     form: emptyForm(),
-    imageQualityOptions: buildAdminImageQualityOptions(emptyForm().costs),
+    costFieldErrors: {},
+    imageQualityOptions: buildAdminImageQualityOptions(
+      emptyForm().costs,
+      emptyForm().image.provider
+    ),
     imageQualityIndex: 0,
     imageSizeOptions: IMAGE_SIZE_OPTIONS.slice(),
     imageSizeIndex: 0,
-    imagePricingNotice: buildAdminImagePricingNotice(emptyForm().costs),
+    imagePricingNotice: buildAdminImagePricingNotice(
+      emptyForm().costs,
+      emptyForm().image.provider
+    ),
+    imageBackupPricingNotice: buildAdminImagePricingNotice(
+      emptyForm().costs,
+      emptyForm().imageBackup.provider
+    ),
     videoQualityOptions: buildAdminVideoQualityOptions(emptyForm().costs),
     videoQualityIndex: 1,
     videoPricingNotice: buildAdminVideoPricingNotice(emptyForm().costs),
@@ -3430,6 +3592,7 @@ Page({
         isAdmin: true,
         canRetry: false,
         form,
+        costFieldErrors: {},
         defaults: result.defaults || null,
         effective,
         moduleStates,
@@ -4061,6 +4224,7 @@ Page({
         const form = formFromConfig(result);
         const patch = Object.assign({
           form,
+          costFieldErrors: {},
           defaults: result.defaults || null,
           effective: result.effective || null
         }, buildQualityPickerState(form));
@@ -4238,11 +4402,14 @@ Page({
     const patch = {
       [`form.${section}.${key}`]: event.detail.value
     };
+    if (section === "costs" && ADMIN_COST_KEYS.includes(key)) {
+      patch[`costFieldErrors.${key}`] = validateAdminCostInput(event.detail.value);
+    }
     if (key === "model") {
       patch[`currentConfigModels.${section}`] = displayModelName(event.detail.value);
     }
     if (
-      (section === "image" || section === "video")
+      (section === "image" || section === "imageBackup" || section === "video")
       && (key === "model" || key === "provider")
     ) {
       const nextForm = Object.assign({}, this.data.form, {
@@ -4823,6 +4990,23 @@ Page({
 
   async saveConfig() {
     if (this.data.saving) return;
+    const costFieldErrors = validateAdminCostFields(this.data.form.costs);
+    const invalidCostKeys = Object.keys(costFieldErrors);
+    if (invalidCostKeys.length) {
+      const firstKey = invalidCostKeys[0];
+      this.setData({
+        costFieldErrors,
+        activeConfigSection: "costs",
+        activeConfigTitle: CONFIG_SECTION_TITLES.costs,
+        message: `成本配置有 ${invalidCostKeys.length} 项需要修改。`
+      });
+      wx.showModal({
+        title: "成本价格填写有误",
+        content: costFieldErrors[firstKey],
+        showCancel: false
+      });
+      return;
+    }
     this.setData({ saving: true, message: "" });
     try {
       const result = await cloud.saveAdminConfig(formToConfig(this.data.form));
@@ -4830,6 +5014,7 @@ Page({
       const form = formFromConfig(result);
       const patch = Object.assign({
         form,
+        costFieldErrors: {},
         effective,
         saving: false,
         message: `配置已保存，第 ${result.version || 0} 版；正在自动测试四套模型和生图三档清晰度...`

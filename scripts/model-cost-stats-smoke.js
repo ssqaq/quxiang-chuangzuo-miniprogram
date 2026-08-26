@@ -12,15 +12,68 @@ assert.ok(test, "云函数没有暴露成本统计测试接口");
 
 const costs = test.resolveCostConfig({});
 assert.strictEqual(costs.currency, "CNY");
-assert.strictEqual(costs.version, "2026-08-26-v2");
+assert.strictEqual(costs.version, "2026-08-26-v3");
 assert.strictEqual(costs.face.inputPerMillionTokens, 0.15);
 assert.strictEqual(costs.face.outputPerMillionTokens, 1.5);
-assert.strictEqual(costs.image.perImage["1K"], 0.06);
-assert.strictEqual(costs.image.perImage["2K"], 0.1);
-assert.strictEqual(costs.image.perImage["4K"], 0.15);
+assert.strictEqual(costs.image.primaryProvider, "xingju");
+assert.deepStrictEqual(costs.image.perImage, {
+  "1K": 0.07,
+  "2K": 0.07,
+  "4K": 0.07
+});
+assert.deepStrictEqual(costs.image.providers.xingju.perImage, {
+  "1K": 0.07,
+  "2K": 0.07,
+  "4K": 0.07
+});
+assert.deepStrictEqual(costs.image.providers.lingyun.perImage, {
+  "1K": 0.06,
+  "2K": 0.1,
+  "4K": 0.15
+});
 assert.strictEqual(costs.video.perSecond["480p"], 0.2);
 assert.strictEqual(costs.video.perSecond["720p"], 0.3);
 assert.strictEqual(costs.video.perSecond["1080p"], 1.8);
+
+const lingyunPrimaryCosts = test.resolveCostConfig({}, {
+  imageProvider: "lingyun"
+});
+assert.strictEqual(lingyunPrimaryCosts.image.primaryProvider, "lingyun");
+assert.deepStrictEqual(lingyunPrimaryCosts.image.perImage, {
+  "1K": 0.06,
+  "2K": 0.1,
+  "4K": 0.15
+});
+assert.strictEqual(test.normalizeImageCostProvider("https://newapi.akiyo.fun/v1"), "xingju");
+assert.strictEqual(test.normalizeImageCostProvider("https://api.lingyunapi.xyz/v1"), "lingyun");
+
+const providerAwareCosts = test.resolveCostConfig({
+  image: {
+    perImage: {
+      "1K": 0.07,
+      "2K": 0.07,
+      "4K": 0.07
+    },
+    providers: {
+      xingju: {
+        perImage: {
+          "1K": 0.07,
+          "2K": 0.07,
+          "4K": 0.07
+        }
+      }
+    }
+  }
+});
+assert.deepStrictEqual(
+  providerAwareCosts.image.providers.lingyun.perImage,
+  {
+    "1K": 0.06,
+    "2K": 0.1,
+    "4K": 0.15
+  },
+  "已有 Provider 新结构时，兼容 perImage 不能误当成凌云旧价格"
+);
 
 const legacyImagePrices = {
   "1K": 0.015,
@@ -61,10 +114,28 @@ assert.strictEqual(migratedLegacyCosts.migrated, true);
 assert.deepStrictEqual(
   migratedLegacyCosts.value.costs.image.perImage,
   {
+    "1K": 0.07,
+    "2K": 0.07,
+    "4K": 0.07
+  },
+  "旧版页面兼容价格必须返回当前星炬主模型价格"
+);
+assert.deepStrictEqual(
+  migratedLegacyCosts.value.costs.image.providers.xingju.perImage,
+  {
+    "1K": 0.07,
+    "2K": 0.07,
+    "4K": 0.07
+  }
+);
+assert.deepStrictEqual(
+  migratedLegacyCosts.value.costs.image.providers.lingyun.perImage,
+  {
     "1K": 0.06,
     "2K": 0.1,
     "4K": 0.15
-  }
+  },
+  "旧版默认图片价格必须升级成当前凌云价格"
 );
 assert.deepStrictEqual(
   migratedLegacyCosts.value.costs.video.perSecond,
@@ -100,12 +171,66 @@ const customCosts = test.migrateLegacyModelCostConfig(
     }
   }
 );
-assert.strictEqual(customCosts.migrated, false);
+assert.strictEqual(customCosts.migrated, true);
 assert.deepStrictEqual(customCosts.value.costs.image.perImage, {
+  "1K": 0.07,
+  "2K": 0.07,
+  "4K": 0.07
+});
+assert.deepStrictEqual(customCosts.value.costs.image.providers.xingju.perImage, {
+  "1K": 0.07,
+  "2K": 0.07,
+  "4K": 0.07
+});
+assert.deepStrictEqual(customCosts.value.costs.image.providers.lingyun.perImage, {
   "1K": 0.08,
   "2K": 0.12,
   "4K": 0.18
 });
+
+const currentProviderConfig = {
+  image: {
+    provider: "xingju"
+  },
+  costs: {
+    image: {
+      perImage: {
+        "1K": 0.07,
+        "2K": 0.07,
+        "4K": 0.07
+      },
+      providers: {
+        xingju: {
+          perImage: {
+            "1K": 0.07,
+            "2K": 0.07,
+            "4K": 0.07
+          }
+        },
+        lingyun: {
+          perImage: {
+            "1K": 0.06,
+            "2K": 0.1,
+            "4K": 0.15
+          }
+        }
+      }
+    }
+  }
+};
+const currentProviderCosts = test.migrateLegacyModelCostConfig(
+  test.normalizeRuntimePatch(currentProviderConfig),
+  currentProviderConfig
+);
+assert.strictEqual(currentProviderCosts.migrated, false);
+assert.strictEqual(
+  Object.prototype.hasOwnProperty.call(
+    currentProviderCosts.value.costs.image,
+    "primaryProvider"
+  ),
+  false,
+  "主服务商由真实 image.provider 决定，不重复持久化到成本配置"
+);
 
 const faceBilling = test.buildUsageBilling(
   { action: "detectFaceCircle" },
@@ -126,13 +251,49 @@ assert.strictEqual(faceBilling.outputTokens, 2000000);
 assert.strictEqual(faceBilling.estimatedCost, 3.15);
 
 const imageBilling = test.buildUsageBilling(
-  { action: "generate", imageResolution: "2048x2048" },
+  {
+    action: "generate",
+    provider: "xingju",
+    imageResolution: "2048x2048",
+    success: true
+  },
   { json: {} },
   costs
 );
 assert.strictEqual(imageBilling.billingSource, "estimated");
 assert.strictEqual(imageBilling.imageResolution, "2K");
-assert.strictEqual(imageBilling.estimatedCost, 0.1);
+assert.strictEqual(imageBilling.unitPrice, 0.07);
+assert.strictEqual(imageBilling.estimatedCost, 0.07);
+assert.strictEqual(imageBilling.costBreakdown.provider, "xingju");
+
+const backupImageBilling = test.buildUsageBilling(
+  {
+    action: "generate",
+    provider: "lingyun",
+    imageResolution: "2048x2048",
+    success: true
+  },
+  { json: {} },
+  costs
+);
+assert.strictEqual(backupImageBilling.unitPrice, 0.1);
+assert.strictEqual(backupImageBilling.estimatedCost, 0.1);
+assert.strictEqual(backupImageBilling.costBreakdown.provider, "lingyun");
+
+const failedImageBilling = test.buildUsageBilling(
+  {
+    action: "generate",
+    provider: "xingju",
+    imageResolution: "4096x4096",
+    success: false
+  },
+  { json: {} },
+  costs
+);
+assert.strictEqual(failedImageBilling.billingSource, "unavailable");
+assert.strictEqual(failedImageBilling.unitPrice, 0);
+assert.strictEqual(failedImageBilling.estimatedCost, 0);
+assert.strictEqual(failedImageBilling.costBreakdown.quantity, 0);
 
 const analysisBilling = test.buildUsageBilling(
   { action: "analyze" },
@@ -201,14 +362,14 @@ const events = [
     requestId: "image-1",
     usageType: "image",
     action: "generate",
-    provider: "pandatk",
-    model: "image2超分高质量1-4k",
+    provider: "xingju",
+    model: "jw-gpt-image-2",
     userHash: "user-a",
     dateKey: "2026-08-23",
     success: true,
     billingSource: "estimated",
     imageResolution: "2K",
-    estimatedCost: 0.1
+    estimatedCost: 0.07
   },
   {
     requestId: "video-1",
@@ -239,7 +400,7 @@ const events = [
 const normalized = events.map((item) => test.normalizeModelUsageEvent(item));
 const stats = test.aggregateModelUsageEvents(normalized, 30, baseDate);
 assert.strictEqual(stats.today.total, 3);
-assert.strictEqual(stats.today.estimatedCost, 4.9);
+assert.strictEqual(stats.today.estimatedCost, 4.87);
 assert.strictEqual(stats.last30d.total, 4);
 assert.strictEqual(stats.summary.analysis.total, 1);
 assert.strictEqual(stats.summary.face.total, 1);

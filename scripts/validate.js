@@ -88,6 +88,7 @@ const jsFiles = [
   "cloudfunctions/api/lib/pixel-acceptance.js",
   "cloudfunctions/api/lib/pixel-protection-flow.js",
   "cloudfunctions/api/tests/pixel-protection.test.js",
+  "cloudfunctions/api/tests/image-edit-size-limit.test.js",
   "scripts/database-index-core.js",
   "scripts/action-registry-contract-smoke.js",
   "scripts/action-registry-smoke.js",
@@ -297,6 +298,7 @@ const required = [
   "cloudfunctions/api/lib/pixel-acceptance.js",
   "cloudfunctions/api/lib/pixel-protection-flow.js",
   "cloudfunctions/api/tests/pixel-protection.test.js",
+  "cloudfunctions/api/tests/image-edit-size-limit.test.js",
   "scripts/canvas-gesture-smoke.js",
   "scripts/action-registry-contract-smoke.js",
   "scripts/action-registry-smoke.js",
@@ -616,6 +618,12 @@ if (
   || !cloudJs.includes('imageEdit: true')
   || !cloudJs.includes('"image-edit.upstream-error"')
   || !cloudJs.includes("AI_IMAGE_EDIT_ENDPOINT")
+  || !cloudJs.includes("AI_IMAGE_EDIT_MAX_ASSET_BYTES")
+  || !cloudJs.includes("AI_IMAGE_EDIT_MAX_TOTAL_ASSET_BYTES")
+  || !cloudJs.includes("AI_IMAGE_EDIT_MAX_REQUEST_BYTES")
+  || !cloudJs.includes("IMAGE_ASSET_TOO_LARGE")
+  || !cloudJs.includes("IMAGE_ASSET_TOTAL_TOO_LARGE")
+  || !cloudJs.includes("IMAGE_REQUEST_TOO_LARGE")
   || !indexJs.includes("resolveImageGenerationMode(promptProject)")
   || !adminJs.includes('mode: "edits"')
   || !adminJs.includes('mode: image.mode || "edits"')

@@ -221,14 +221,22 @@ assert.ok(
 );
 
 const billing = test.buildUsageBilling(
-  { action: "generate", imageResolution: "4K" },
+  {
+    action: "generate",
+    provider: "xingju",
+    imageResolution: "4K"
+  },
   {},
   test.resolveCostConfig({
     image: {
-      perImage: {
-        "1K": 1,
-        "2K": 2,
-        "4K": 4
+      providers: {
+        xingju: {
+          perImage: {
+            "1K": 1,
+            "2K": 2,
+            "4K": 4
+          }
+        }
       }
     }
   })

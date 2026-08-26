@@ -1,9 +1,15 @@
-const API_BUILD_VERSION = "0.43.3";
-const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0433";
+const API_BUILD_VERSION = "0.45.0";
+const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0450";
 const DEFAULT_IMAGE_MODE = "edits";
 // 图片和视频默认成本只在云函数入口维护；管理员页读取云端有效配置，
 // 避免前后端各写一份价格。入口保持单文件可启动，兼容 CloudBase 部署。
-const MODEL_COST_CONFIG_VERSION = "2026-08-26-v2";
+const MODEL_COST_CONFIG_VERSION = "2026-08-26-v3";
+const IMAGE_COST_RESOLUTIONS = Object.freeze(["1K", "2K", "4K"]);
+const XINGJU_IMAGE_PRICES_CNY = Object.freeze({
+  "1K": 0.07,
+  "2K": 0.07,
+  "4K": 0.07
+});
 const LINGYUN_IMAGE_PRICES_CNY = Object.freeze({
   "1K": 0.06,
   "2K": 0.1,
@@ -25,6 +31,9 @@ const IMAGE_EDIT_ERROR_CODES = Object.freeze([
   "image-edit-model-unsupported",
   "image-edit-upstream-error"
 ]);
+const IMAGE_EDIT_DEFAULT_MAX_ASSET_BYTES = 5 * 1024 * 1024;
+const IMAGE_EDIT_DEFAULT_MAX_TOTAL_ASSET_BYTES = 20 * 1024 * 1024;
+const IMAGE_EDIT_DEFAULT_MAX_REQUEST_BYTES = 28 * 1024 * 1024;
 const TENCENT_FACE_PROTECTION_MARGIN_RATIO = 0.22;
 const TENCENT_FACE_PROTECTION_MAX_PIXELS = 20000000;
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
@@ -1765,15 +1774,98 @@ function resolvePointsConfig(overrides = {}) {
   };
 }
 
-function resolveCostConfig(overrides = {}) {
+function normalizeImageCostProvider(value) {
+  const text = String(value || "").trim().toLowerCase();
+  if (!text) return "";
+  if (
+    text === "xingju"
+    || text === "星炬"
+    || text.includes("akiyo.fun")
+  ) {
+    return "xingju";
+  }
+  if (
+    text === "lingyun"
+    || text === "凌云"
+    || text.includes("lingyunapi")
+  ) {
+    return "lingyun";
+  }
+  return text;
+}
+
+function resolveImagePriceTable(source, defaults) {
+  const values = source && typeof source === "object" ? source : {};
+  return IMAGE_COST_RESOLUTIONS.reduce((result, resolution) => {
+    result[resolution] = clampNumber(
+      values[resolution],
+      defaults[resolution],
+      0,
+      100000
+    );
+    return result;
+  }, {});
+}
+
+function imageProviderPriceTable(costs, provider) {
+  const image = costs && costs.image && typeof costs.image === "object"
+    ? costs.image
+    : {};
+  const providerKey = normalizeImageCostProvider(provider);
+  const providers = image.providers && typeof image.providers === "object"
+    ? image.providers
+    : {};
+  const providerCosts = providers[providerKey] && typeof providers[providerKey] === "object"
+    ? providers[providerKey]
+    : {};
+  const providerPrices = providerCosts.perImage && typeof providerCosts.perImage === "object"
+    ? providerCosts.perImage
+    : null;
+  return {
+    provider: providerKey,
+    perImage: providerPrices || image.perImage || {}
+  };
+}
+
+function resolveCostConfig(overrides = {}, options = {}) {
   const costs = overrides && overrides.costs ? overrides.costs : overrides;
   const face = costs && costs.face ? costs.face : {};
   const analysis = costs && costs.analysis ? costs.analysis : {};
   const image = costs && costs.image ? costs.image : {};
   const video = costs && costs.video ? costs.video : {};
-  const imagePrices = image.perImage && typeof image.perImage === "object"
+  const legacyImagePrices = image.perImage && typeof image.perImage === "object"
     ? image.perImage
     : {};
+  const imageProviders = image.providers && typeof image.providers === "object"
+    ? image.providers
+    : {};
+  const hasProviderPricing = Object.keys(imageProviders).length > 0;
+  const xingjuSource = imageProviders.xingju && typeof imageProviders.xingju === "object"
+    ? imageProviders.xingju
+    : {};
+  const lingyunSource = imageProviders.lingyun && typeof imageProviders.lingyun === "object"
+    ? imageProviders.lingyun
+    : {};
+  const xingjuPrices = resolveImagePriceTable(
+    xingjuSource.perImage,
+    XINGJU_IMAGE_PRICES_CNY
+  );
+  const lingyunPrices = resolveImagePriceTable(
+    lingyunSource.perImage || (
+      hasProviderPricing
+        ? null
+        : legacyImagePrices
+    ),
+    LINGYUN_IMAGE_PRICES_CNY
+  );
+  const primaryImageProvider = normalizeImageCostProvider(
+    options.imageProvider || image.primaryProvider || "xingju"
+  ) || "xingju";
+  const primaryImagePrices = primaryImageProvider === "lingyun"
+    ? lingyunPrices
+    : primaryImageProvider === "xingju"
+      ? xingjuPrices
+      : resolveImagePriceTable(legacyImagePrices, xingjuPrices);
   const videoPrices = video.perSecond && typeof video.perSecond === "object"
     ? video.perSecond
     : {};
@@ -1815,25 +1907,16 @@ function resolveCostConfig(overrides = {}) {
         image.defaultResolution,
         "1K"
       ),
-      perImage: {
-        "1K": clampNumber(
-          imagePrices["1K"],
-          LINGYUN_IMAGE_PRICES_CNY["1K"],
-          0,
-          100000
-        ),
-        "2K": clampNumber(
-          imagePrices["2K"],
-          LINGYUN_IMAGE_PRICES_CNY["2K"],
-          0,
-          100000
-        ),
-        "4K": clampNumber(
-          imagePrices["4K"],
-          LINGYUN_IMAGE_PRICES_CNY["4K"],
-          0,
-          100000
-        )
+      primaryProvider: primaryImageProvider,
+      // 兼容旧版管理页：始终返回当前主模型的价格。
+      perImage: Object.assign({}, primaryImagePrices),
+      providers: {
+        xingju: {
+          perImage: Object.assign({}, xingjuPrices)
+        },
+        lingyun: {
+          perImage: Object.assign({}, lingyunPrices)
+        }
       }
     },
     video: {
@@ -2423,13 +2506,26 @@ function buildUsageBilling(meta = {}, response = {}, costs = resolveCostConfig()
       meta.imageResolution || meta.size,
       costs.image.defaultResolution
     );
-    const unitPrice = costs.image.perImage[resolution];
+    const providerPricing = imageProviderPriceTable(costs, meta.provider);
+    if (meta.success === false) {
+      return Object.assign(base, {
+        imageResolution: resolution,
+        costBreakdown: {
+          provider: providerPricing.provider,
+          resolution,
+          unitPrice: 0,
+          quantity: 0
+        }
+      });
+    }
+    const unitPrice = providerPricing.perImage[resolution];
     return Object.assign(base, {
       billingSource: "estimated",
       imageResolution: resolution,
       unitPrice,
       estimatedCost: roundCost(unitPrice),
       costBreakdown: {
+        provider: providerPricing.provider,
         resolution,
         unitPrice,
         quantity: 1
@@ -5025,7 +5121,7 @@ async function requestWithRetry(url, options = {}, body = null, meta = {}) {
       const shouldRetry = !success && retryable && attempt < maxAttempts;
       if (!shouldRetry) {
         const billing = buildUsageBilling(
-          meta,
+          Object.assign({}, meta, { success }),
           response,
           meta.costs || resolveCostConfig()
         );
@@ -5076,7 +5172,7 @@ async function requestWithRetry(url, options = {}, body = null, meta = {}) {
       const shouldRetry = allowRetry && retryable && attempt < maxAttempts;
       if (!shouldRetry) {
         const billing = buildUsageBilling(
-          meta,
+          Object.assign({}, meta, { success: false }),
           { json: error && error.payload },
           meta.costs || resolveCostConfig()
         );
@@ -6023,6 +6119,10 @@ function normalizeRuntimePatch(input = {}) {
   const imageCostSource = costsSource.image && typeof costsSource.image === "object"
     ? costsSource.image
     : {};
+  const imageProviderCostSource = imageCostSource.providers
+    && typeof imageCostSource.providers === "object"
+    ? imageCostSource.providers
+    : {};
   const videoCostSource = costsSource.video && typeof costsSource.video === "object"
     ? costsSource.video
     : {};
@@ -6102,6 +6202,7 @@ function normalizeRuntimePatch(input = {}) {
   const face = {};
   const analysisPricing = {};
   const imagePricing = {};
+  const imageProviderPricing = {};
   const videoPricing = {};
   const generationQueue = {};
   faceKeys.forEach((key) => {
@@ -6168,6 +6269,29 @@ function normalizeRuntimePatch(input = {}) {
       });
     }
   });
+  ["xingju", "lingyun"].forEach((provider) => {
+    const providerSource = imageProviderCostSource[provider]
+      && typeof imageProviderCostSource[provider] === "object"
+      ? imageProviderCostSource[provider]
+      : {};
+    ["1K", "2K", "4K"].forEach((key) => {
+      if (!hasOwn(providerSource.perImage, key)) return;
+      imageProviderPricing[provider] = Object.assign(
+        {},
+        imageProviderPricing[provider],
+        {
+          perImage: Object.assign(
+            {},
+            imageProviderPricing[provider] && imageProviderPricing[provider].perImage,
+            { [key]: providerSource.perImage[key] }
+          )
+        }
+      );
+    });
+  });
+  if (Object.keys(imageProviderPricing).length) {
+    imagePricing.providers = imageProviderPricing;
+  }
   ["480p", "720p", "1080p"].forEach((key) => {
     if (hasOwn(videoCostSource.perSecond, key)) {
       videoPricing.perSecond = Object.assign({}, videoPricing.perSecond, {
@@ -6240,6 +6364,7 @@ function validateRuntimePatch(patch) {
   const faceCosts = costs.face || {};
   const analysisCosts = costs.analysis || {};
   const imageCosts = costs.image || {};
+  const imageProviderCosts = imageCosts.providers || {};
   const videoCosts = costs.video || {};
   const generationQueue = patch.generationQueue || {};
   [
@@ -6394,6 +6519,42 @@ function validateRuntimePatch(patch) {
     ["costs.image.perImage.1K", imageCosts.perImage && imageCosts.perImage["1K"]],
     ["costs.image.perImage.2K", imageCosts.perImage && imageCosts.perImage["2K"]],
     ["costs.image.perImage.4K", imageCosts.perImage && imageCosts.perImage["4K"]],
+    [
+      "costs.image.providers.xingju.perImage.1K",
+      imageProviderCosts.xingju
+        && imageProviderCosts.xingju.perImage
+        && imageProviderCosts.xingju.perImage["1K"]
+    ],
+    [
+      "costs.image.providers.xingju.perImage.2K",
+      imageProviderCosts.xingju
+        && imageProviderCosts.xingju.perImage
+        && imageProviderCosts.xingju.perImage["2K"]
+    ],
+    [
+      "costs.image.providers.xingju.perImage.4K",
+      imageProviderCosts.xingju
+        && imageProviderCosts.xingju.perImage
+        && imageProviderCosts.xingju.perImage["4K"]
+    ],
+    [
+      "costs.image.providers.lingyun.perImage.1K",
+      imageProviderCosts.lingyun
+        && imageProviderCosts.lingyun.perImage
+        && imageProviderCosts.lingyun.perImage["1K"]
+    ],
+    [
+      "costs.image.providers.lingyun.perImage.2K",
+      imageProviderCosts.lingyun
+        && imageProviderCosts.lingyun.perImage
+        && imageProviderCosts.lingyun.perImage["2K"]
+    ],
+    [
+      "costs.image.providers.lingyun.perImage.4K",
+      imageProviderCosts.lingyun
+        && imageProviderCosts.lingyun.perImage
+        && imageProviderCosts.lingyun.perImage["4K"]
+    ],
     ["costs.video.perSecond.480p", videoCosts.perSecond && videoCosts.perSecond["480p"]],
     ["costs.video.perSecond.720p", videoCosts.perSecond && videoCosts.perSecond["720p"]],
     ["costs.video.perSecond.1080p", videoCosts.perSecond && videoCosts.perSecond["1080p"]],
@@ -6445,6 +6606,28 @@ function mergeRuntimeConfig(current, patch) {
   const existing = current && typeof current === "object" ? current : {};
   const existingCosts = existing.costs || {};
   const patchCosts = patch.costs || {};
+  const existingImageCosts = existingCosts.image || {};
+  const patchImageCosts = patchCosts.image || {};
+  const existingImageProviders = existingImageCosts.providers || {};
+  const patchImageProviders = patchImageCosts.providers || {};
+  const mergedImageProviders = {};
+  ["xingju", "lingyun"].forEach((provider) => {
+    const existingProvider = existingImageProviders[provider] || {};
+    const patchProvider = patchImageProviders[provider] || {};
+    if (!Object.keys(existingProvider).length && !Object.keys(patchProvider).length) return;
+    mergedImageProviders[provider] = Object.assign(
+      {},
+      existingProvider,
+      patchProvider,
+      {
+        perImage: Object.assign(
+          {},
+          existingProvider.perImage || {},
+          patchProvider.perImage || {}
+        )
+      }
+    );
+  });
   return {
     face: Object.assign({}, existing.face || {}, patch.face || {}),
     analysis: Object.assign({}, existing.analysis || {}, patch.analysis || {}),
@@ -6466,12 +6649,13 @@ function mergeRuntimeConfig(current, patch) {
     costs: Object.assign({}, existingCosts, patchCosts, {
       face: Object.assign({}, existingCosts.face || {}, patchCosts.face || {}),
       analysis: Object.assign({}, existingCosts.analysis || {}, patchCosts.analysis || {}),
-      image: Object.assign({}, existingCosts.image || {}, patchCosts.image || {}, {
+      image: Object.assign({}, existingImageCosts, patchImageCosts, {
         perImage: Object.assign(
           {},
-          existingCosts.image && existingCosts.image.perImage || {},
-          patchCosts.image && patchCosts.image.perImage || {}
-        )
+          existingImageCosts.perImage || {},
+          patchImageCosts.perImage || {}
+        ),
+        providers: mergedImageProviders
       }),
       video: Object.assign({}, existingCosts.video || {}, patchCosts.video || {}, {
         perSecond: Object.assign(
@@ -6587,7 +6771,9 @@ function redactConfig(config, defaults) {
   const imageBackup = config.imageBackup || {};
   const video = config.video || {};
   const points = config.points || {};
-  const costs = resolveCostConfig(config.costs || {});
+  const costs = resolveCostConfig(config.costs || {}, {
+    imageProvider: image.provider || defaults.image && defaults.image.provider
+  });
   const generationQueue = generationQueueMonitor.normalizeQueueSettings(
     config.generationQueue
   );
@@ -6687,7 +6873,22 @@ function redactConfig(config, defaults) {
       analysis: Object.assign({}, costs.analysis),
       image: {
         defaultResolution: costs.image.defaultResolution,
-        perImage: Object.assign({}, costs.image.perImage)
+        primaryProvider: costs.image.primaryProvider,
+        perImage: Object.assign({}, costs.image.perImage),
+        providers: {
+          xingju: {
+            perImage: Object.assign(
+              {},
+              costs.image.providers.xingju.perImage
+            )
+          },
+          lingyun: {
+            perImage: Object.assign(
+              {},
+              costs.image.providers.lingyun.perImage
+            )
+          }
+        }
       },
       video: {
         defaultResolution: costs.video.defaultResolution,
@@ -6718,24 +6919,69 @@ function migrateLegacyModelCostConfig(runtime, rawConfig) {
   const rawImageCosts = rawCosts.image && typeof rawCosts.image === "object"
     ? rawCosts.image
     : {};
-  if (!modelPriceTableMatches(
+  const normalizedCosts = normalized && normalized.costs
+    ? normalized.costs
+    : {};
+  const normalizedImageCosts = normalizedCosts.image || {};
+  const normalizedProviders = normalizedImageCosts.providers || {};
+  const normalizedXingju = normalizedProviders.xingju || {};
+  const normalizedLingyun = normalizedProviders.lingyun || {};
+  const rawProviders = rawImageCosts.providers && typeof rawImageCosts.providers === "object"
+    ? rawImageCosts.providers
+    : {};
+  const rawXingju = rawProviders.xingju && typeof rawProviders.xingju === "object"
+    ? rawProviders.xingju
+    : {};
+  const rawLingyun = rawProviders.lingyun && typeof rawProviders.lingyun === "object"
+    ? rawProviders.lingyun
+    : {};
+  const hasProviderPricing = Object.keys(rawProviders).length > 0;
+  const legacyLingyunSource = modelPriceTableMatches(
     rawImageCosts.perImage,
     LEGACY_LINGYUN_IMAGE_PRICES_CNY
-  )) {
+  )
+    ? LINGYUN_IMAGE_PRICES_CNY
+    : hasProviderPricing
+      ? LINGYUN_IMAGE_PRICES_CNY
+      : normalizedImageCosts.perImage || rawImageCosts.perImage;
+  const xingjuPrices = resolveImagePriceTable(
+    normalizedXingju.perImage,
+    XINGJU_IMAGE_PRICES_CNY
+  );
+  const lingyunPrices = resolveImagePriceTable(
+    normalizedLingyun.perImage || legacyLingyunSource,
+    LINGYUN_IMAGE_PRICES_CNY
+  );
+  const primaryProvider = normalizeImageCostProvider(
+    normalized.image && normalized.image.provider
+      || rawConfig && rawConfig.image && rawConfig.image.provider
+      || "xingju"
+  ) || "xingju";
+  const primaryPrices = primaryProvider === "lingyun"
+    ? lingyunPrices
+    : xingjuPrices;
+  const migrated = !modelPriceTableMatches(rawXingju.perImage, xingjuPrices)
+    || !modelPriceTableMatches(rawLingyun.perImage, lingyunPrices)
+    || !modelPriceTableMatches(rawImageCosts.perImage, primaryPrices);
+  if (!migrated) {
     return {
       value: normalized,
       migrated: false
     };
   }
-  const normalizedCosts = normalized && normalized.costs
-    ? normalized.costs
-    : {};
-  const normalizedImageCosts = normalizedCosts.image || {};
   return {
     value: Object.assign({}, normalized, {
       costs: Object.assign({}, normalizedCosts, {
         image: Object.assign({}, normalizedImageCosts, {
-          perImage: Object.assign({}, LINGYUN_IMAGE_PRICES_CNY)
+          perImage: Object.assign({}, primaryPrices),
+          providers: {
+            xingju: Object.assign({}, normalizedXingju, {
+              perImage: Object.assign({}, xingjuPrices)
+            }),
+            lingyun: Object.assign({}, normalizedLingyun, {
+              perImage: Object.assign({}, lingyunPrices)
+            })
+          }
         })
       })
     }),
@@ -6839,6 +7085,7 @@ async function loadAdminRuntimeConfig(force = false) {
 
 async function resolveEffectiveConfigs() {
   const runtime = await loadAdminRuntimeConfig();
+  const image = resolveImageConfig(runtime && runtime.image);
   return {
     runtime: runtime || {
       face: {},
@@ -6852,11 +7099,13 @@ async function resolveEffectiveConfigs() {
     },
     face: resolveFaceConfig(runtime && runtime.face),
     analysis: resolveAnalysisConfig(runtime && runtime.analysis),
-    image: resolveImageConfig(runtime && runtime.image),
+    image,
     imageBackup: resolveImageBackupConfig(runtime && runtime.imageBackup),
     video: resolveVideoConfig(runtime && runtime.video),
     points: resolvePointsConfig(runtime && runtime.points),
-    costs: resolveCostConfig(runtime && runtime.costs),
+    costs: resolveCostConfig(runtime && runtime.costs, {
+      imageProvider: image.provider
+    }),
     generationQueue: generationQueueMonitor.normalizeQueueSettings(
       runtime && runtime.generationQueue
     )
@@ -6870,7 +7119,9 @@ function adminConfigView(configs, runtime, metadata = {}) {
   const imageBackupDefaults = resolveImageBackupConfig();
   const videoDefaults = resolveVideoConfig();
   const pointDefaults = resolvePointsConfig();
-  const costDefaults = resolveCostConfig();
+  const costDefaults = resolveCostConfig({}, {
+    imageProvider: imageDefaults.provider
+  });
   const generationQueueDefaults = generationQueueMonitor.normalizeQueueSettings();
   const overrides = runtime || {
     face: {},
@@ -9411,6 +9662,160 @@ function imageEditReferences(payload = {}) {
     })));
 }
 
+function imageEditByteLimit(overrides, key, envName, fallback) {
+  const raw = hasOwn(overrides, key)
+    ? overrides[key]
+    : env(envName, String(fallback));
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value <= 0) return fallback;
+  return Math.max(1, Math.min(512 * 1024 * 1024, Math.floor(value)));
+}
+
+function resolveImageEditSizeLimits(overrides = {}) {
+  const source = overrides && typeof overrides === "object" ? overrides : {};
+  return {
+    maxAssetBytes: imageEditByteLimit(
+      source,
+      "maxAssetBytes",
+      "AI_IMAGE_EDIT_MAX_ASSET_BYTES",
+      IMAGE_EDIT_DEFAULT_MAX_ASSET_BYTES
+    ),
+    maxTotalAssetBytes: imageEditByteLimit(
+      source,
+      "maxTotalAssetBytes",
+      "AI_IMAGE_EDIT_MAX_TOTAL_ASSET_BYTES",
+      IMAGE_EDIT_DEFAULT_MAX_TOTAL_ASSET_BYTES
+    ),
+    maxRequestBytes: imageEditByteLimit(
+      source,
+      "maxRequestBytes",
+      "AI_IMAGE_EDIT_MAX_REQUEST_BYTES",
+      IMAGE_EDIT_DEFAULT_MAX_REQUEST_BYTES
+    )
+  };
+}
+
+function imageEditReferenceLabel(reference = {}) {
+  const index = Math.max(0, Number(reference.index) || 0) + 1;
+  const labels = {
+    identity: "身份参考图",
+    face: `人脸参考图第 ${index} 张`,
+    wardrobe: `穿搭参考图第 ${index} 张`,
+    background: `背景参考图第 ${index} 张`
+  };
+  return labels[reference.role] || `参考图第 ${index} 张`;
+}
+
+function imageEditAssetEntries(mainBuffer, maskBuffer, referenceBuffers = []) {
+  return [{
+    kind: "main",
+    label: "主图",
+    buffer: mainBuffer
+  }, {
+    kind: "mask",
+    label: "mask 图片",
+    buffer: maskBuffer
+  }].concat(
+    (Array.isArray(referenceBuffers) ? referenceBuffers : []).map((item, index) => {
+      const reference = item && item.reference && typeof item.reference === "object"
+        ? item.reference
+        : { role: "reference", index };
+      return {
+        kind: String(reference.role || "reference"),
+        label: imageEditReferenceLabel(reference),
+        buffer: item && item.buffer
+      };
+    })
+  );
+}
+
+function formatImageEditBytes(value) {
+  const bytes = Math.max(0, Number(value) || 0);
+  if (bytes >= 1024 * 1024) {
+    const mib = bytes / 1024 / 1024;
+    return `${Number.isInteger(mib) ? mib : mib.toFixed(1)} MB`;
+  }
+  if (bytes >= 1024) {
+    const kib = bytes / 1024;
+    return `${Number.isInteger(kib) ? kib : kib.toFixed(1)} KB`;
+  }
+  return `${bytes} B`;
+}
+
+function imageEditSizeLimitError(code, message, details = {}) {
+  const error = new Error(message);
+  error.code = code;
+  error.status = 413;
+  error.retryable = false;
+  Object.assign(error, details);
+  return error;
+}
+
+function assertImageEditAssetLimits(entries, limits = resolveImageEditSizeLimits()) {
+  const normalizedLimits = resolveImageEditSizeLimits(limits);
+  const summaries = (Array.isArray(entries) ? entries : []).map((entry) => ({
+    kind: String(entry && entry.kind || "image"),
+    label: String(entry && entry.label || "图片"),
+    bytes: Buffer.isBuffer(entry && entry.buffer) ? entry.buffer.length : 0
+  }));
+  for (const item of summaries) {
+    if (item.bytes > normalizedLimits.maxAssetBytes) {
+      throw imageEditSizeLimitError(
+        "IMAGE_ASSET_TOO_LARGE",
+        `${item.label}太大（${formatImageEditBytes(item.bytes)}），`
+          + `单张最多支持 ${formatImageEditBytes(normalizedLimits.maxAssetBytes)}。`
+          + "请先压缩图片再重试。",
+        {
+          assetKind: item.kind,
+          assetLabel: item.label,
+          imageBytes: item.bytes,
+          maxAssetBytes: normalizedLimits.maxAssetBytes
+        }
+      );
+    }
+  }
+  const totalBytes = summaries.reduce((sum, item) => sum + item.bytes, 0);
+  if (totalBytes > normalizedLimits.maxTotalAssetBytes) {
+    throw imageEditSizeLimitError(
+      "IMAGE_ASSET_TOTAL_TOO_LARGE",
+      `这次选择的全部图片加起来有 ${formatImageEditBytes(totalBytes)}，`
+        + `最多支持 ${formatImageEditBytes(normalizedLimits.maxTotalAssetBytes)}。`
+        + "请减少参考图或先压缩图片。",
+      {
+        totalAssetBytes: totalBytes,
+        maxTotalAssetBytes: normalizedLimits.maxTotalAssetBytes,
+        assetCount: summaries.length
+      }
+    );
+  }
+  return {
+    totalBytes,
+    assetCount: summaries.length,
+    assets: summaries,
+    limits: normalizedLimits
+  };
+}
+
+function assertImageEditRequestBodySize(body, limits = resolveImageEditSizeLimits()) {
+  const normalizedLimits = resolveImageEditSizeLimits(limits);
+  const requestBytes = Buffer.isBuffer(body)
+    ? body.length
+    : Buffer.byteLength(String(body === null || body === undefined ? "" : body));
+  if (requestBytes > normalizedLimits.maxRequestBytes) {
+    throw imageEditSizeLimitError(
+      "IMAGE_REQUEST_TOO_LARGE",
+      `图片转成上传数据后有 ${formatImageEditBytes(requestBytes)}，`
+        + `超过 ${formatImageEditBytes(normalizedLimits.maxRequestBytes)} 的请求上限。`
+        + "请压缩图片或减少参考图后重试。",
+      {
+        requestBytes,
+        maxRequestBytes: normalizedLimits.maxRequestBytes
+      }
+    );
+  }
+  return requestBytes;
+}
+
 async function requestImageEdits(
   payload,
   apiKey,
@@ -9453,7 +9858,16 @@ async function requestImageEdits(
           })
         })))
   ]);
+  const sizeLimits = resolveImageEditSizeLimits(requestOptions.sizeLimits);
+  assertImageEditAssetLimits(
+    imageEditAssetEntries(mainBuffer, rawMaskBuffer, referenceBuffers),
+    sizeLimits
+  );
   const maskBuffer = invertMask(rawMaskBuffer, requestId);
+  const assetSummary = assertImageEditAssetLimits(
+    imageEditAssetEntries(mainBuffer, maskBuffer, referenceBuffers),
+    sizeLimits
+  );
 
   const mainMime = detectMime(mainBuffer);
   const maskMime = detectMime(maskBuffer);
@@ -9526,6 +9940,7 @@ async function requestImageEdits(
       maskField
     );
   }
+  const requestBytes = assertImageEditRequestBodySize(requestBody, sizeLimits);
   const requestLogFields = useJsonImageEdit
     ? { json: requestSummary }
     : { multipart: requestSummary };
@@ -9544,7 +9959,12 @@ async function requestImageEdits(
     ...requestLogFields,
     mainImagePresent: Boolean(mainBuffer && mainBuffer.length),
     maskPresent: Boolean(maskBuffer && maskBuffer.length),
-    referenceCount: referenceBuffers.length
+    referenceCount: referenceBuffers.length,
+    assetBytes: assetSummary.totalBytes,
+    requestBytes,
+    maxAssetBytes: sizeLimits.maxAssetBytes,
+    maxTotalAssetBytes: sizeLimits.maxTotalAssetBytes,
+    maxRequestBytes: sizeLimits.maxRequestBytes
   });
   const response = await requestWithRetry(url, {
     method: "POST",
@@ -9802,7 +10222,16 @@ async function requestTencentPipelineImageEdit(
       "TENCENT_PIPELINE_MASK_REQUIRED"
     );
   }
+  const sizeLimits = resolveImageEditSizeLimits(requestOptions.sizeLimits);
+  assertImageEditAssetLimits(
+    imageEditAssetEntries(mainBuffer, maskBuffer),
+    sizeLimits
+  );
   const preparedMaskBuffer = invertMask(maskBuffer, requestId);
+  const assetSummary = assertImageEditAssetLimits(
+    imageEditAssetEntries(mainBuffer, preparedMaskBuffer),
+    sizeLimits
+  );
   const mainDimensions = readImageDimensions(mainBuffer);
   let maskDimensions;
   try {
@@ -9834,24 +10263,30 @@ async function requestTencentPipelineImageEdit(
   const maskField = env("AI_IMAGE_MASK_FIELD", "mask");
   const endpointInfo = resolveImageEditEndpoint(imageConfig);
   pixelProtectionFlow.assertSupportedImageEditFlow(imageConfig, endpointInfo.url);
-  const useLingyunJson = isLingyunImageProvider(imageConfig, endpointInfo.url);
+  const jsonRequestFormat = imageEditJsonRequestFormat(
+    imageConfig,
+    endpointInfo.url
+  );
+  const useJsonImageEdit = Boolean(jsonRequestFormat);
   let requestBody;
   let requestHeaders;
   let requestFormat;
   let requestSummary;
-  if (useLingyunJson) {
-    const jsonPayload = buildLingyunImageEditPayload(
+  if (useJsonImageEdit) {
+    const jsonPayload = buildImageEditJsonPayload(
       pipelinePayload,
       imageConfig,
       mainBuffer,
-      preparedMaskBuffer
+      preparedMaskBuffer,
+      [],
+      endpointInfo.url
     );
     requestBody = Buffer.from(JSON.stringify(jsonPayload), "utf8");
     requestHeaders = {
       "Content-Type": "application/json",
       "Content-Length": requestBody.length
     };
-    requestFormat = "lingyun-json";
+    requestFormat = jsonRequestFormat;
     requestSummary = imageEditJsonSummary(jsonPayload);
   } else {
     const files = [{
@@ -9874,7 +10309,8 @@ async function requestTencentPipelineImageEdit(
     requestFormat = "multipart";
     requestSummary = imageEditMultipartSummary(fields, files, mainField, maskField);
   }
-  const requestLogFields = useLingyunJson
+  const requestBytes = assertImageEditRequestBodySize(requestBody, sizeLimits);
+  const requestLogFields = useJsonImageEdit
     ? { json: requestSummary }
     : { multipart: requestSummary };
   log("info", "tencent.pipeline.image-edit.request", {
@@ -9889,7 +10325,12 @@ async function requestTencentPipelineImageEdit(
     maskPresent: true,
     mainSize: `${mainDimensions.width}x${mainDimensions.height}`,
     maskSize: `${maskDimensions.width}x${maskDimensions.height}`,
-    maskSha256: crypto.createHash("sha256").update(preparedMaskBuffer).digest("hex").slice(0, 16)
+    maskSha256: crypto.createHash("sha256").update(preparedMaskBuffer).digest("hex").slice(0, 16),
+    assetBytes: assetSummary.totalBytes,
+    requestBytes,
+    maxAssetBytes: sizeLimits.maxAssetBytes,
+    maxTotalAssetBytes: sizeLimits.maxTotalAssetBytes,
+    maxRequestBytes: sizeLimits.maxRequestBytes
   });
   const response = await requestWithRetry(
     endpointInfo.url,
@@ -13150,6 +13591,17 @@ async function tencentFaceFusionPipeline(event, context) {
               maxTencentBytes: tencent.maxImageBytes
             }
           );
+          const dimensionNormalization =
+            protectedIntermediate.protection.dimensionNormalization;
+          if (dimensionNormalization && dimensionNormalization.resized) {
+            log("info", "image-edit.dimension-normalized", {
+              requestId: attempt.idempotencyKey,
+              provider: config.provider || "",
+              model: config.model || "",
+              pipeline: "tencent-first-stage",
+              ...dimensionNormalization
+            });
+          }
           return {
             response,
             image: attemptedImage,
@@ -13197,7 +13649,9 @@ async function tencentFaceFusionPipeline(event, context) {
             width: protectedIntermediate.protection.width,
             height: protectedIntermediate.protection.height,
             faceProtectionRects: protectedIntermediate.protection.rects,
-            featherPixels: protectedIntermediate.protection.featherPixels
+            featherPixels: protectedIntermediate.protection.featherPixels,
+            dimensionNormalization:
+              protectedIntermediate.protection.dimensionNormalization
           },
           pixelProtectionMetrics: {
             imageEditIntermediate: protectedIntermediate.metrics
@@ -13811,6 +14265,17 @@ async function executeImageGeneration(operation, context = {}) {
           attemptedRawBuffer,
           { maxPixels: pixelCodec.DEFAULT_MAX_PIXELS }
         );
+        const dimensionNormalization =
+          attemptedProtected.protection.dimensionNormalization;
+        if (dimensionNormalization && dimensionNormalization.resized) {
+          log("info", "image-edit.dimension-normalized", {
+            requestId: attempt.idempotencyKey,
+            provider: config.provider || "",
+            model: config.model || "",
+            pipeline: "normal",
+            ...dimensionNormalization
+          });
+        }
         return {
           upstream: response,
           image: attemptedImage,
@@ -13866,6 +14331,8 @@ async function executeImageGeneration(operation, context = {}) {
         mode: protectedNormal.protection.mode,
         geometry: protectedNormal.protection.geometry,
         featherPixels: protectedNormal.protection.featherPixels,
+        dimensionNormalization:
+          protectedNormal.protection.dimensionNormalization,
         metrics: protectedNormal.metrics,
         outputBytes: protectedNormal.protection.outputBytes
       }
@@ -16507,6 +16974,10 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     normalizeApiKey,
     apiKeyHeaders,
     resolveImageEditEndpoint,
+    resolveImageEditSizeLimits,
+    imageEditAssetEntries,
+    assertImageEditAssetLimits,
+    assertImageEditRequestBodySize,
     classifyImageEditResponse,
     imageEditErrorMessage,
     imageEditMultipartSummary,
@@ -16527,6 +16998,8 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     resolveVideoConfig,
     resolvePointsConfig,
     resolveCostConfig,
+    normalizeImageCostProvider,
+    imageProviderPriceTable,
     normalizeImageResolution,
     buildImageOutputSize,
     resolveImageOutputSize,

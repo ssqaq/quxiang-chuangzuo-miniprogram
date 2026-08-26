@@ -158,6 +158,7 @@ async function main() {
   const requests = [];
   const fixture = pngFixture();
   const costs = test.resolveCostConfig();
+  test.resetModelUsageTestEvents();
   await withServer((request, response) => {
     const chunks = [];
     request.on("data", (chunk) => chunks.push(chunk));
@@ -279,6 +280,23 @@ async function main() {
       "failover-network-smoke:backup:1"
     ]
   );
+  const failoverUsage = test.getModelUsageTestEvents()
+    .filter((item) => String(item.requestId || "").startsWith("failover-network-smoke:"));
+  assert.strictEqual(failoverUsage.length, 3, "三次上游尝试都必须保留成本明细");
+  assert.deepStrictEqual(
+    failoverUsage.map((item) => item.provider),
+    ["xingju", "xingju", "lingyun"]
+  );
+  assert.deepStrictEqual(
+    failoverUsage.map((item) => item.estimatedCost),
+    [0, 0, 0.06],
+    "星炬失败尝试成本必须为 0，凌云成功只累计一次 ¥0.06"
+  );
+  assert.strictEqual(
+    failoverUsage.reduce((sum, item) => sum + Number(item.estimatedCost || 0), 0),
+    0.06,
+    "主备切换不能重复累计图片成本"
+  );
 
   assert.ok(apiSource.includes("imageBackupConfig: configs.imageBackup"));
   assert.ok(apiSource.includes("retryTencentOnly"));
@@ -289,8 +307,8 @@ async function main() {
   assert.ok(tencentPageSource.includes('"image-edit-primary-retry"'));
   assert.ok(tencentPageSource.includes('"image-edit-backup"'));
   assert.ok(adminSource.includes("imageBackup"));
-  assert.ok(adminWxml.includes("主模型：星炬 jw-gpt-image-2"));
-  assert.ok(adminWxml.includes("备用模型：凌云 gpt-image-2"));
+  assert.ok(adminWxml.includes("主模型：{{form.image.provider || '未配置'}} {{form.image.model || '未配置'}}"));
+  assert.ok(adminWxml.includes("备用模型：{{form.imageBackup.provider || '未配置'}} {{form.imageBackup.model || '未配置'}}"));
 
   const pipelineStart = apiSource.indexOf(
     "async function tencentFaceFusionPipeline"

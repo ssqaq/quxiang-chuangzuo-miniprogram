@@ -4169,6 +4169,45 @@ page {
   font-size: 23rpx;
 }
 
+.admin-field input.has-error {
+  border-color: #dc4c64;
+  background: #fff7f8;
+  box-shadow: 0 0 0 2rpx rgba(220, 76, 100, 0.08);
+}
+
+.admin-field-error {
+  margin-top: 7rpx;
+  color: #c63f56;
+  font-size: 18rpx;
+  line-height: 26rpx;
+}
+
+.cost-provider-heading {
+  display: flex;
+  min-width: 0;
+  margin-top: 6rpx;
+  padding: 16rpx 18rpx;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  border: 1rpx solid #d8e4f4;
+  border-radius: 16rpx;
+  background: #f5f8fd;
+}
+
+.cost-provider-heading > text:first-child {
+  color: #214a84;
+  font-size: 22rpx;
+  font-weight: 800;
+}
+
+.cost-provider-heading > text:last-child {
+  color: #72829a;
+  font-size: 18rpx;
+  line-height: 27rpx;
+  text-align: right;
+}
+
 .admin-field picker {
   display: block;
   width: 100%;

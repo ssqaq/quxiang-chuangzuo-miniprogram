@@ -215,6 +215,11 @@ AI_MASK_INVERT=false
 AI_MAX_RETRIES=2
 AI_IMAGE_RETRY_ENABLED=true
 
+# 图片编辑大小保护
+AI_IMAGE_EDIT_MAX_ASSET_BYTES=5242880
+AI_IMAGE_EDIT_MAX_TOTAL_ASSET_BYTES=20971520
+AI_IMAGE_EDIT_MAX_REQUEST_BYTES=29360128
+
 # 转实况/动态视频专用：凌云中转站 + Grok 异步视频任务
 AI_VIDEO_PROVIDER=lingyun
 AI_VIDEO_BASE_URL=https://api.lingyunapi.xyz
@@ -230,6 +235,11 @@ AI_VIDEO_TIMEOUT_MS=90000
 ```
 
 真实密钥只放云函数环境变量，不写进小程序前端。
+
+图片编辑默认会在请求上游前检查三层大小：单张图片最多 5 MB，主图、mask 和全部参考图
+加起来最多 20 MB，转成 JSON + Base64 或 multipart 后的最终请求体最多 28 MB。超过限制
+会直接提示压缩图片或减少参考图，不会重复请求星炬，也不会切换凌云，因为换模型不能解决
+素材本身过大的问题。日志只记录字节数和限制值，不记录 Base64 或图片内容。
 
 ## 管理员配置与部署检查
 

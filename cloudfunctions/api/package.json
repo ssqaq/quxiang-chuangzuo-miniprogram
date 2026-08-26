@@ -1,11 +1,12 @@
 {
   "name": "display-tool-cloud-api",
-  "version": "0.43.3",
+  "version": "0.45.0",
   "private": true,
   "main": "index.js",
   "scripts": {
     "test:pixel-protection": "node tests/pixel-protection.test.js",
-    "test:image-provider-failover": "node tests/image-provider-failover.test.js"
+    "test:image-provider-failover": "node tests/image-provider-failover.test.js",
+    "test:image-edit-size-limit": "node tests/image-edit-size-limit.test.js"
   },
   "dependencies": {
     "jpeg-js": "^0.4.4",

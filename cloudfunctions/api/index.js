@@ -1,11 +1,23 @@
-const API_BUILD_VERSION = "0.42.6";
-const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0426";
+const API_BUILD_VERSION = "0.42.7";
+const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0427";
 const DEFAULT_IMAGE_MODE = "edits";
-// 当前生图上游为凌云：图片生图成本按人民币/张记录。
-const DEFAULT_LINGYUN_IMAGE_PRICES_CNY = Object.freeze({
+// 图片和视频默认成本只在云函数入口维护；管理员页读取云端有效配置，
+// 避免前后端各写一份价格。入口保持单文件可启动，兼容 CloudBase 部署。
+const MODEL_COST_CONFIG_VERSION = "2026-08-26-v2";
+const LINGYUN_IMAGE_PRICES_CNY = Object.freeze({
   "1K": 0.06,
   "2K": 0.1,
   "4K": 0.15
+});
+const LINGYUN_VIDEO_PRICES_CNY = Object.freeze({
+  "480p": 0.2,
+  "720p": 0.3,
+  "1080p": 1.8
+});
+const LEGACY_LINGYUN_IMAGE_PRICES_CNY = Object.freeze({
+  "1K": 0.015,
+  "2K": 0.025,
+  "4K": 0.035
 });
 const IMAGE_EDIT_ERROR_CODES = Object.freeze([
   "image-edit-unsupported",
@@ -1173,7 +1185,6 @@ const WATERMARK_TRANSFER_MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 const WATERMARK_TRANSFER_MAX_VIDEO_BYTES = 110 * 1024 * 1024;
 const WATERMARK_TRANSFER_TIMEOUT_MS = 90000;
 const WATERMARK_TRANSFER_MAX_REDIRECTS = 3;
-const MODEL_COST_CONFIG_VERSION = "2026-08-23-v1";
 const ADMIN_RUNTIME_CACHE_TTL_MS = 15000;
 const POINTS_ACCOUNT_COLLECTION = "user_accounts";
 const USER_PROFILE_COLLECTION = "user_profiles";
@@ -1708,19 +1719,19 @@ function resolveCostConfig(overrides = {}) {
       perImage: {
         "1K": clampNumber(
           imagePrices["1K"],
-          DEFAULT_LINGYUN_IMAGE_PRICES_CNY["1K"],
+          LINGYUN_IMAGE_PRICES_CNY["1K"],
           0,
           100000
         ),
         "2K": clampNumber(
           imagePrices["2K"],
-          DEFAULT_LINGYUN_IMAGE_PRICES_CNY["2K"],
+          LINGYUN_IMAGE_PRICES_CNY["2K"],
           0,
           100000
         ),
         "4K": clampNumber(
           imagePrices["4K"],
-          DEFAULT_LINGYUN_IMAGE_PRICES_CNY["4K"],
+          LINGYUN_IMAGE_PRICES_CNY["4K"],
           0,
           100000
         )
@@ -1732,9 +1743,24 @@ function resolveCostConfig(overrides = {}) {
         "720p"
       ),
       perSecond: {
-        "480p": clampNumber(videoPrices["480p"], 0.2, 0, 100000),
-        "720p": clampNumber(videoPrices["720p"], 0.3, 0, 100000),
-        "1080p": clampNumber(videoPrices["1080p"], 1.8, 0, 100000)
+        "480p": clampNumber(
+          videoPrices["480p"],
+          LINGYUN_VIDEO_PRICES_CNY["480p"],
+          0,
+          100000
+        ),
+        "720p": clampNumber(
+          videoPrices["720p"],
+          LINGYUN_VIDEO_PRICES_CNY["720p"],
+          0,
+          100000
+        ),
+        "1080p": clampNumber(
+          videoPrices["1080p"],
+          LINGYUN_VIDEO_PRICES_CNY["1080p"],
+          0,
+          100000
+        )
       },
       defaultDurationSeconds: clampNumber(
         video.defaultDurationSeconds,
@@ -6238,6 +6264,50 @@ function redactConfig(config, defaults) {
   };
 }
 
+function modelPriceTableMatches(actual, expected) {
+  const source = actual && typeof actual === "object" ? actual : {};
+  return Object.keys(expected).every((key) => (
+    hasOwn(source, key)
+    && Number.isFinite(Number(source[key]))
+    && Math.abs(Number(source[key]) - Number(expected[key])) < 1e-9
+  ));
+}
+
+function migrateLegacyModelCostConfig(runtime, rawConfig) {
+  const normalized = runtime && typeof runtime === "object"
+    ? runtime
+    : normalizeRuntimePatch(rawConfig);
+  const rawCosts = rawConfig && rawConfig.costs && typeof rawConfig.costs === "object"
+    ? rawConfig.costs
+    : {};
+  const rawImageCosts = rawCosts.image && typeof rawCosts.image === "object"
+    ? rawCosts.image
+    : {};
+  if (!modelPriceTableMatches(
+    rawImageCosts.perImage,
+    LEGACY_LINGYUN_IMAGE_PRICES_CNY
+  )) {
+    return {
+      value: normalized,
+      migrated: false
+    };
+  }
+  const normalizedCosts = normalized && normalized.costs
+    ? normalized.costs
+    : {};
+  const normalizedImageCosts = normalizedCosts.image || {};
+  return {
+    value: Object.assign({}, normalized, {
+      costs: Object.assign({}, normalizedCosts, {
+        image: Object.assign({}, normalizedImageCosts, {
+          perImage: Object.assign({}, LINGYUN_IMAGE_PRICES_CNY)
+        })
+      })
+    }),
+    migrated: true
+  };
+}
+
 async function loadAdminRuntimeConfig(force = false) {
   if (
     process.env.WECHAT_MINIAPP_TEST === "1"
@@ -6253,29 +6323,44 @@ async function loadAdminRuntimeConfig(force = false) {
       .get();
     const rawConfig = result && result.data ? result.data : null;
     const normalized = rawConfig ? normalizeRuntimePatch(rawConfig) : null;
-    const migration = migrateLegacyImageRetryConfig(normalized, rawConfig);
-    if (migration.migrated && process.env.WECHAT_MINIAPP_TEST !== "1") {
+    const retryMigration = migrateLegacyImageRetryConfig(normalized, rawConfig);
+    const costMigration = migrateLegacyModelCostConfig(
+      retryMigration.value,
+      rawConfig
+    );
+    if (
+      (retryMigration.migrated || costMigration.migrated)
+      && process.env.WECHAT_MINIAPP_TEST !== "1"
+    ) {
       try {
+        const migrationData = {};
+        if (retryMigration.migrated) {
+          migrationData.image = costMigration.value.image;
+        }
+        if (costMigration.migrated) {
+          migrationData.costs = costMigration.value.costs;
+        }
         await db
           .collection(ADMIN_RUNTIME_CONFIG_COLLECTION)
           .doc(ADMIN_RUNTIME_CONFIG_ID)
           .update({
-            data: {
-              image: migration.value.image
-            }
+            data: migrationData
           });
-        log("info", "admin.runtime-config.retry-default-migrated", {
-          version: Number(rawConfig.version) || 0
+        log("info", "admin.runtime-config.defaults-migrated", {
+          version: Number(rawConfig.version) || 0,
+          retryMigrated: retryMigration.migrated,
+          modelCostsMigrated: costMigration.migrated,
+          costConfigVersion: MODEL_COST_CONFIG_VERSION
         });
       } catch (migrationError) {
         // 当前请求仍使用迁移后的值，写回失败时下一次冷启动还会幂等重试。
-        log("warn", "admin.runtime-config.retry-default-migration-failed", {
+        log("warn", "admin.runtime-config.defaults-migration-failed", {
           error: migrationError && migrationError.message
         });
       }
     }
     const value = rawConfig
-      ? Object.assign(migration.value, {
+      ? Object.assign(costMigration.value, {
           version: Number(rawConfig.version) || 0,
           updatedAt: rawConfig.updatedAt || "",
           updatedBy: rawConfig.updatedBy || ""
@@ -13704,6 +13789,7 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     imageRetryPreferenceVersion,
     resolveImageRetryEnabled,
     migrateLegacyImageRetryConfig,
+    migrateLegacyModelCostConfig,
     validateRuntimePatch,
     mergeRuntimeConfig,
     getAdminStatus,

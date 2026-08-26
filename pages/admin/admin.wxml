@@ -643,7 +643,7 @@
             <view class="admin-field admin-field-wide"><text>创建路径</text><input value="{{form.video.createPath}}" data-section="video" data-key="createPath" bindinput="onInput" /></view>
             <view class="admin-field admin-field-wide"><text>查询路径</text><input value="{{form.video.queryPath}}" data-section="video" data-key="queryPath" bindinput="onInput" /></view>
           <view class="admin-field">
-            <text>清晰度</text>
+            <text>清晰度（价格/秒）</text>
             <picker
               mode="selector"
               range="{{videoQualityOptions}}"
@@ -657,6 +657,7 @@
           <view class="admin-field"><text>宽高比（可空）</text><input value="{{form.video.aspectRatio}}" data-section="video" data-key="aspectRatio" bindinput="onInput" /></view>
           <view class="admin-field"><text>超时毫秒</text><input type="number" value="{{form.video.timeoutMs}}" data-section="video" data-key="timeoutMs" bindinput="onInput" /></view>
         </view>
+        <view class="config-helper">{{videoPricingNotice}}</view>
         <view class="config-helper">{{videoCapabilityNotice}}</view>
         </view>
         <view wx:if="{{activeConfigSection !== 'users'}}" class="admin-actions">
@@ -724,7 +725,7 @@
       </view>
 
       <view wx:if="{{activeConfigSection === 'costs'}}" class="config-editor-body">
-        <view class="config-helper">模型成本配置（人民币）用于计算预计花费；当前凌云生图价格也会显示在上面的清晰度选项里。</view>
+        <view class="config-helper">模型成本配置（人民币）用于计算预计花费；图片和视频价格都会显示在上面的清晰度选项里，修改后自动同步。</view>
         <view class="admin-grid">
           <view class="admin-field"><text>人脸输入 / 百万Token</text><input type="digit" value="{{form.costs.faceInputPerMillionTokens}}" data-section="costs" data-key="faceInputPerMillionTokens" bindinput="onInput" /></view>
           <view class="admin-field"><text>人脸输出 / 百万Token</text><input type="digit" value="{{form.costs.faceOutputPerMillionTokens}}" data-section="costs" data-key="faceOutputPerMillionTokens" bindinput="onInput" /></view>

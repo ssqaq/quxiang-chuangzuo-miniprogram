@@ -12,12 +12,100 @@ assert.ok(test, "云函数没有暴露成本统计测试接口");
 
 const costs = test.resolveCostConfig({});
 assert.strictEqual(costs.currency, "CNY");
+assert.strictEqual(costs.version, "2026-08-26-v2");
 assert.strictEqual(costs.face.inputPerMillionTokens, 0.15);
 assert.strictEqual(costs.face.outputPerMillionTokens, 1.5);
 assert.strictEqual(costs.image.perImage["1K"], 0.06);
 assert.strictEqual(costs.image.perImage["2K"], 0.1);
 assert.strictEqual(costs.image.perImage["4K"], 0.15);
+assert.strictEqual(costs.video.perSecond["480p"], 0.2);
 assert.strictEqual(costs.video.perSecond["720p"], 0.3);
+assert.strictEqual(costs.video.perSecond["1080p"], 1.8);
+
+const legacyImagePrices = {
+  "1K": 0.015,
+  "2K": 0.025,
+  "4K": 0.035
+};
+const migratedLegacyCosts = test.migrateLegacyModelCostConfig(
+  test.normalizeRuntimePatch({
+    costs: {
+      image: {
+        perImage: Object.assign({}, legacyImagePrices)
+      },
+      video: {
+        perSecond: {
+          "480p": 0.2,
+          "720p": 0.3,
+          "1080p": 1.8
+        }
+      }
+    }
+  }),
+  {
+    costs: {
+      image: {
+        perImage: Object.assign({}, legacyImagePrices)
+      },
+      video: {
+        perSecond: {
+          "480p": 0.2,
+          "720p": 0.3,
+          "1080p": 1.8
+        }
+      }
+    }
+  }
+);
+assert.strictEqual(migratedLegacyCosts.migrated, true);
+assert.deepStrictEqual(
+  migratedLegacyCosts.value.costs.image.perImage,
+  {
+    "1K": 0.06,
+    "2K": 0.1,
+    "4K": 0.15
+  }
+);
+assert.deepStrictEqual(
+  migratedLegacyCosts.value.costs.video.perSecond,
+  {
+    "480p": 0.2,
+    "720p": 0.3,
+    "1080p": 1.8
+  },
+  "价格迁移不能改动视频成本"
+);
+
+const customCosts = test.migrateLegacyModelCostConfig(
+  test.normalizeRuntimePatch({
+    costs: {
+      image: {
+        perImage: {
+          "1K": 0.08,
+          "2K": 0.12,
+          "4K": 0.18
+        }
+      }
+    }
+  }),
+  {
+    costs: {
+      image: {
+        perImage: {
+          "1K": 0.08,
+          "2K": 0.12,
+          "4K": 0.18
+        }
+      }
+    }
+  }
+);
+assert.strictEqual(customCosts.migrated, false);
+assert.deepStrictEqual(customCosts.value.costs.image.perImage, {
+  "1K": 0.08,
+  "2K": 0.12,
+  "4K": 0.18
+});
 
 const faceBilling = test.buildUsageBilling(
   { action: "detectFaceCircle" },

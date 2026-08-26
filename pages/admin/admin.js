@@ -7,12 +7,18 @@ const IMAGE_QUALITY_OPTIONS = Object.freeze([
   { value: "2K", label: "2K" },
   { value: "4K", label: "4K" }
 ]);
-const DEFAULT_LINGYUN_IMAGE_PRICES_CNY = Object.freeze({
-  "1K": 0.06,
-  "2K": 0.1,
-  "4K": 0.15
-});
 const IMAGE_COST_KEYS = Object.freeze(["image1K", "image2K", "image4K"]);
+const VIDEO_COST_KEYS = Object.freeze(["video480p", "video720p", "video1080p"]);
+const IMAGE_COST_FIELD_BY_RESOLUTION = Object.freeze({
+  "1K": "image1K",
+  "2K": "image2K",
+  "4K": "image4K"
+});
+const VIDEO_COST_FIELD_BY_RESOLUTION = Object.freeze({
+  "480p": "video480p",
+  "720p": "video720p",
+  "1080p": "video1080p"
+});
 const IMAGE_SIZE_OPTIONS = Object.freeze([
   { value: "1080x1440", label: "照片：1080×1440" },
   { value: "1242x1660", label: "照片：1242×1660" },
@@ -37,24 +43,94 @@ function normalizeAdminImageResolution(value, fallback = "1K") {
   return ["1K", "2K", "4K"].includes(String(fallback)) ? String(fallback) : "1K";
 }
 
-function formatAdminPrice(value, fallback) {
+function formatAdminPrice(value, fallback = "") {
   const raw = String(value === undefined || value === null ? "" : value).trim();
-  const number = raw === "" ? Number(fallback) : Number(raw);
+  const fallbackRaw = String(
+    fallback === undefined || fallback === null ? "" : fallback
+  ).trim();
+  if (raw === "" && fallbackRaw === "") return "";
+  const number = Number(raw === "" ? fallbackRaw : raw);
   if (!Number.isFinite(number) || number < 0) {
-    return Number(fallback).toFixed(2).replace(/\.?0+$/, "");
+    return "";
   }
   return number.toFixed(2).replace(/\.?0+$/, "");
 }
 
-function buildAdminImageQualityOptions(costs = {}) {
+function configuredAdminPrice(costs, key, fieldMap) {
   const source = costs && typeof costs === "object" ? costs : {};
-  return IMAGE_QUALITY_OPTIONS.map((item) => ({
-    value: item.value,
-    label: `${item.value}（¥${formatAdminPrice(
-      source[item.value],
-      DEFAULT_LINGYUN_IMAGE_PRICES_CNY[item.value]
-    )}/张）`
-  }));
+  const field = fieldMap[key];
+  if (field && Object.prototype.hasOwnProperty.call(source, field)) {
+    return source[field];
+  }
+  if (source.perImage && Object.prototype.hasOwnProperty.call(source.perImage, key)) {
+    return source.perImage[key];
+  }
+  if (source.perSecond && Object.prototype.hasOwnProperty.call(source.perSecond, key)) {
+    return source.perSecond[key];
+  }
+  return undefined;
+}
+
+function buildAdminImageQualityOptions(costs = {}) {
+  return IMAGE_QUALITY_OPTIONS.map((item) => {
+    const price = formatAdminPrice(configuredAdminPrice(
+      costs,
+      item.value,
+      IMAGE_COST_FIELD_BY_RESOLUTION
+    ));
+    return {
+      value: item.value,
+      label: price
+        ? `${item.value}（¥${price}/张）`
+        : `${item.value}（价格读取中）`
+    };
+  });
+}
+
+function buildAdminVideoQualityOptions(costs = {}) {
+  return VIDEO_QUALITY_OPTIONS.map((item) => {
+    const price = formatAdminPrice(configuredAdminPrice(
+      costs,
+      item.value,
+      VIDEO_COST_FIELD_BY_RESOLUTION
+    ));
+    return {
+      value: item.value,
+      label: price
+        ? `${item.value}（¥${price}/秒）`
+        : `${item.value}（价格读取中）`
+    };
+  });
+}
+
+function buildAdminImagePricingNotice(costs = {}) {
+  const prices = {};
+  ["1K", "2K", "4K"].forEach((key) => {
+    prices[key] = formatAdminPrice(configuredAdminPrice(
+      costs,
+      key,
+      IMAGE_COST_FIELD_BY_RESOLUTION
+    ));
+  });
+  if (!prices["1K"] || !prices["2K"] || !prices["4K"]) {
+    return "当前图片价格：正在从云端读取。";
+  }
+  return `当前图片价格：1K ¥${prices["1K"]}/张，2K ¥${prices["2K"]}/张，4K ¥${prices["4K"]}/张。`;
+}
+
+function buildAdminVideoPricingNotice(costs = {}) {
+  const prices = {};
+  ["480p", "720p", "1080p"].forEach((key) => {
+    prices[key] = formatAdminPrice(configuredAdminPrice(
+      costs,
+      key,
+      VIDEO_COST_FIELD_BY_RESOLUTION
+    ));
+  });
+  if (!prices["480p"] || !prices["720p"] || !prices["1080p"]) {
+    return "当前视频价格：正在从云端读取。";
+  }
+  return `当前视频价格：480p ¥${prices["480p"]}/秒，720p ¥${prices["720p"]}/秒，1080p ¥${prices["1080p"]}/秒。`;
 }
 
 function adminImageSizeValue(value) {
@@ -157,7 +233,7 @@ function buildAdminQualityOptions(type, capabilities, form) {
   const values = upstreamValues.length ? upstreamValues : knownAdminCapabilities(type, form);
   const all = type === "image"
     ? buildAdminImageQualityOptions(form && form.costs)
-    : VIDEO_QUALITY_OPTIONS;
+    : buildAdminVideoQualityOptions(form && form.costs);
   return {
     options: values.length
       ? all.filter((item) => values.includes(item.value))
@@ -202,18 +278,10 @@ function buildQualityPickerState(form, capabilityPayload = {}) {
     ),
     imageSizeOptions,
     imageSizeIndex: pickerIndex(imageSizeOptions, imageSizeValue, 0),
-    imagePricingNotice: `当前凌云价格：1K ¥${formatAdminPrice(
-      imageCosts.image1K,
-      DEFAULT_LINGYUN_IMAGE_PRICES_CNY["1K"]
-    )}/张，2K ¥${formatAdminPrice(
-      imageCosts.image2K,
-      DEFAULT_LINGYUN_IMAGE_PRICES_CNY["2K"]
-    )}/张，4K ¥${formatAdminPrice(
-      imageCosts.image4K,
-      DEFAULT_LINGYUN_IMAGE_PRICES_CNY["4K"]
-    )}/张。`,
+    imagePricingNotice: buildAdminImagePricingNotice(imageCosts),
     videoQualityOptions: videoQuality.options,
     videoQualityIndex: pickerIndex(videoQuality.options, videoQualityValue, 1),
+    videoPricingNotice: buildAdminVideoPricingNotice(imageCosts),
     imageCapabilitySource: imageQuality.source,
     videoCapabilitySource: videoQuality.source,
     imageCapabilityNotice: imageQuality.source === "upstream"
@@ -291,12 +359,12 @@ function emptyForm() {
       faceOutputPerMillionTokens: "1.5",
       analysisInputPerMillionTokens: "0.15",
       analysisOutputPerMillionTokens: "1.5",
-      image1K: "0.06",
-      image2K: "0.1",
-      image4K: "0.15",
-      video480p: "0.2",
-      video720p: "0.3",
-      video1080p: "1.8",
+      image1K: "",
+      image2K: "",
+      image4K: "",
+      video480p: "",
+      video720p: "",
+      video1080p: "",
       videoDefaultDuration: "3"
     }
   };
@@ -2320,21 +2388,33 @@ function formFromConfig(result) {
       image1K: String(
         imageCosts.perImage && imageCosts.perImage["1K"] !== undefined
           ? imageCosts.perImage["1K"]
-          : DEFAULT_LINGYUN_IMAGE_PRICES_CNY["1K"]
+          : ""
       ),
       image2K: String(
         imageCosts.perImage && imageCosts.perImage["2K"] !== undefined
           ? imageCosts.perImage["2K"]
-          : DEFAULT_LINGYUN_IMAGE_PRICES_CNY["2K"]
+          : ""
       ),
       image4K: String(
         imageCosts.perImage && imageCosts.perImage["4K"] !== undefined
           ? imageCosts.perImage["4K"]
-          : DEFAULT_LINGYUN_IMAGE_PRICES_CNY["4K"]
+          : ""
       ),
-      video480p: String(videoCosts.perSecond && videoCosts.perSecond["480p"] || 0.2),
-      video720p: String(videoCosts.perSecond && videoCosts.perSecond["720p"] || 0.3),
-      video1080p: String(videoCosts.perSecond && videoCosts.perSecond["1080p"] || 1.8),
+      video480p: String(
+        videoCosts.perSecond && videoCosts.perSecond["480p"] !== undefined
+          ? videoCosts.perSecond["480p"]
+          : ""
+      ),
+      video720p: String(
+        videoCosts.perSecond && videoCosts.perSecond["720p"] !== undefined
+          ? videoCosts.perSecond["720p"]
+          : ""
+      ),
+      video1080p: String(
+        videoCosts.perSecond && videoCosts.perSecond["1080p"] !== undefined
+          ? videoCosts.perSecond["1080p"]
+          : ""
+      ),
       videoDefaultDuration: String(videoCosts.defaultDurationSeconds || 3)
     }
   };
@@ -2607,9 +2687,10 @@ Page({
     imageQualityIndex: 0,
     imageSizeOptions: IMAGE_SIZE_OPTIONS.slice(),
     imageSizeIndex: 0,
-    imagePricingNotice: "当前凌云价格：1K ¥0.06/张，2K ¥0.1/张，4K ¥0.15/张。",
-    videoQualityOptions: VIDEO_QUALITY_OPTIONS.slice(),
+    imagePricingNotice: buildAdminImagePricingNotice(emptyForm().costs),
+    videoQualityOptions: buildAdminVideoQualityOptions(emptyForm().costs),
     videoQualityIndex: 1,
+    videoPricingNotice: buildAdminVideoPricingNotice(emptyForm().costs),
     imageCapabilitySource: "known-model-rule",
     videoCapabilitySource: "known-model-rule",
     imageCapabilityNotice: "生图清晰度由 1K、2K、4K 控制，尺寸只控制画面比例。",
@@ -3776,7 +3857,10 @@ Page({
       capabilityPayload[section] = profile || {};
       Object.assign(patch, buildQualityPickerState(nextForm, capabilityPayload));
     }
-    if (section === "costs" && IMAGE_COST_KEYS.includes(key)) {
+    if (
+      section === "costs"
+      && (IMAGE_COST_KEYS.includes(key) || VIDEO_COST_KEYS.includes(key))
+    ) {
       const nextForm = Object.assign({}, this.data.form, {
         costs: Object.assign({}, this.data.form.costs, {
           [key]: event.detail.value

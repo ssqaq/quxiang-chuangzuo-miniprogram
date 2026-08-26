@@ -14,7 +14,9 @@ const costs = test.resolveCostConfig({});
 assert.strictEqual(costs.currency, "CNY");
 assert.strictEqual(costs.face.inputPerMillionTokens, 0.15);
 assert.strictEqual(costs.face.outputPerMillionTokens, 1.5);
-assert.strictEqual(costs.image.perImage["1K"], 0.015);
+assert.strictEqual(costs.image.perImage["1K"], 0.06);
+assert.strictEqual(costs.image.perImage["2K"], 0.1);
+assert.strictEqual(costs.image.perImage["4K"], 0.15);
 assert.strictEqual(costs.video.perSecond["720p"], 0.3);
 
 const faceBilling = test.buildUsageBilling(
@@ -42,7 +44,7 @@ const imageBilling = test.buildUsageBilling(
 );
 assert.strictEqual(imageBilling.billingSource, "estimated");
 assert.strictEqual(imageBilling.imageResolution, "2K");
-assert.strictEqual(imageBilling.estimatedCost, 0.025);
+assert.strictEqual(imageBilling.estimatedCost, 0.1);
 
 const analysisBilling = test.buildUsageBilling(
   { action: "analyze" },
@@ -118,7 +120,7 @@ const events = [
     success: true,
     billingSource: "estimated",
     imageResolution: "2K",
-    estimatedCost: 0.025
+    estimatedCost: 0.1
   },
   {
     requestId: "video-1",
@@ -149,7 +151,7 @@ const events = [
 const normalized = events.map((item) => test.normalizeModelUsageEvent(item));
 const stats = test.aggregateModelUsageEvents(normalized, 30, baseDate);
 assert.strictEqual(stats.today.total, 3);
-assert.strictEqual(stats.today.estimatedCost, 4.825);
+assert.strictEqual(stats.today.estimatedCost, 4.9);
 assert.strictEqual(stats.last30d.total, 4);
 assert.strictEqual(stats.summary.analysis.total, 1);
 assert.strictEqual(stats.summary.face.total, 1);

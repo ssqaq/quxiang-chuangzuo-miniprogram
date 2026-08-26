@@ -1,6 +1,12 @@
-const API_BUILD_VERSION = "0.42.5";
-const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0425";
+const API_BUILD_VERSION = "0.42.6";
+const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0426";
 const DEFAULT_IMAGE_MODE = "edits";
+// 当前生图上游为凌云：图片生图成本按人民币/张记录。
+const DEFAULT_LINGYUN_IMAGE_PRICES_CNY = Object.freeze({
+  "1K": 0.06,
+  "2K": 0.1,
+  "4K": 0.15
+});
 const IMAGE_EDIT_ERROR_CODES = Object.freeze([
   "image-edit-unsupported",
   "image-edit-endpoint-invalid",
@@ -1700,9 +1706,24 @@ function resolveCostConfig(overrides = {}) {
         "1K"
       ),
       perImage: {
-        "1K": clampNumber(imagePrices["1K"], 0.015, 0, 100000),
-        "2K": clampNumber(imagePrices["2K"], 0.025, 0, 100000),
-        "4K": clampNumber(imagePrices["4K"], 0.035, 0, 100000)
+        "1K": clampNumber(
+          imagePrices["1K"],
+          DEFAULT_LINGYUN_IMAGE_PRICES_CNY["1K"],
+          0,
+          100000
+        ),
+        "2K": clampNumber(
+          imagePrices["2K"],
+          DEFAULT_LINGYUN_IMAGE_PRICES_CNY["2K"],
+          0,
+          100000
+        ),
+        "4K": clampNumber(
+          imagePrices["4K"],
+          DEFAULT_LINGYUN_IMAGE_PRICES_CNY["4K"],
+          0,
+          100000
+        )
       }
     },
     video: {

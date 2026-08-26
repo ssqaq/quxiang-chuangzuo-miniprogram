@@ -521,7 +521,7 @@
             <view class="admin-field admin-field-wide"><text>API Key</text><input value="{{form.image.apiKey}}" data-section="image" data-key="apiKey" placeholder="填写后可测试并保存" bindinput="onInput" /></view>
             <view class="admin-field"><text>模式</text><input value="{{form.image.mode}}" data-section="image" data-key="mode" placeholder="generations / edits" bindinput="onInput" /></view>
           <view class="admin-field">
-            <text>清晰度</text>
+            <text>清晰度（价格/张）</text>
             <picker
               mode="selector"
               range="{{imageQualityOptions}}"
@@ -724,7 +724,7 @@
       </view>
 
       <view wx:if="{{activeConfigSection === 'costs'}}" class="config-editor-body">
-        <view class="config-helper">模型成本配置（人民币）用于计算预计花费。</view>
+        <view class="config-helper">模型成本配置（人民币）用于计算预计花费；当前凌云生图价格也会显示在上面的清晰度选项里。</view>
         <view class="admin-grid">
           <view class="admin-field"><text>人脸输入 / 百万Token</text><input type="digit" value="{{form.costs.faceInputPerMillionTokens}}" data-section="costs" data-key="faceInputPerMillionTokens" bindinput="onInput" /></view>
           <view class="admin-field"><text>人脸输出 / 百万Token</text><input type="digit" value="{{form.costs.faceOutputPerMillionTokens}}" data-section="costs" data-key="faceOutputPerMillionTokens" bindinput="onInput" /></view>

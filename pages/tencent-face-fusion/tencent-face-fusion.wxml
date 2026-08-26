@@ -40,7 +40,7 @@
       <view class="pipeline-dot">3</view>
       <view class="pipeline-copy">
         <view class="pipeline-title">{{stage === 'image-edit' ? '正在修改衣服、背景和光影' : '修改衣服、背景和光影'}}</view>
-        <view class="pipeline-desc">使用当前普通生图配置，并携带真实保护 mask。</view>
+        <view class="pipeline-desc">优先使用星炬主模型，失败自动重试并切换凌云备用模型；每次都携带真实保护 mask。</view>
       </view>
     </view>
     <view class="pipeline-step {{stage === 'facefusion' ? 'is-active' : ''}} {{stage === 'succeeded' ? 'is-done' : ''}}">

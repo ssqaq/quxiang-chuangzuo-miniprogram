@@ -188,16 +188,26 @@ AI_VISION_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 AI_VISION_MODEL=qwen3-vl-flash
 AI_FACE_MODEL=qwen3-vl-flash
 
-# 生图专用：和人脸识别、视频模型完全分开
-AI_IMAGE_PROVIDER=lingyun
-AI_IMAGE_API_KEY=你的生图服务 API Key
-AI_IMAGE_BASE_URL=https://api.lingyunapi.xyz/v1
-AI_IMAGE_ENDPOINT=https://api.lingyunapi.xyz/v1/images/generations
-AI_IMAGE_MODEL=gpt-image-2
+# 生图主模型：星炬，单次超时150秒，失败自动重试1次
+AI_IMAGE_PRIMARY_PROVIDER=xingju
+AI_IMAGE_PRIMARY_API_KEY=你的星炬 API Key
+AI_IMAGE_PRIMARY_BASE_URL=https://newapi.akiyo.fun/v1
+AI_IMAGE_PRIMARY_ENDPOINT=https://newapi.akiyo.fun/v1/images/edits
+AI_IMAGE_PRIMARY_MODEL=jw-gpt-image-2
+AI_IMAGE_PRIMARY_TIMEOUT_MS=150000
+AI_IMAGE_PRIMARY_MAX_RETRIES=1
+
+# 生图备用模型：凌云，主模型两次失败后只调用1次
+AI_IMAGE_BACKUP_PROVIDER=lingyun
+AI_IMAGE_BACKUP_API_KEY=你的凌云 API Key
+AI_IMAGE_BACKUP_BASE_URL=https://api.lingyunapi.xyz/v1
+AI_IMAGE_BACKUP_ENDPOINT=https://api.lingyunapi.xyz/v1/images/edits
+AI_IMAGE_BACKUP_MODEL=gpt-image-2
+AI_IMAGE_BACKUP_TIMEOUT_MS=150000
+
 AI_IMAGE_SIZE=1024x1024
 DAILY_GENERATION_LIMIT=5
 AI_IMAGE_MODE=edits
-AI_IMAGE_EDIT_ENDPOINT=https://api.lingyunapi.xyz/v1/images/edits
 AI_IMAGE_MAIN_FIELD=image
 AI_IMAGE_MASK_FIELD=mask
 AI_IMAGE_REFERENCE_FIELD=image[]
@@ -259,8 +269,9 @@ OpenID。管理员进入工作台后会看到“管理员配置”入口，普�
 - 模型：`gpt-image-2`
 - 编辑请求使用 JSON，主图和参考图放到 `images[].image_url`，mask 放到 `mask.image_url`
 
-Key 只填写到云函数环境变量 `AI_IMAGE_API_KEY`，不要写进源码、README、
-日志或发布 ZIP。自动识别人脸继续使用 `AI_VISION_API_KEY` 的 DashScope，
+Key 只填写到云函数环境变量 `AI_IMAGE_PRIMARY_API_KEY` 和
+`AI_IMAGE_BACKUP_API_KEY`，不要写进源码、README、日志或发布 ZIP。
+自动识别人脸继续使用 `AI_VISION_API_KEY` 的 DashScope，
 不会被凌云生图配置替换。
 
 部署前可以在工程根目录执行：
@@ -447,13 +458,15 @@ AI_IMAGE_ENDPOINT=https://example.com/image
 
 ### 编辑模式
 
-默认 `AI_IMAGE_MODE=generations`，保持原来的 JSON 生图流程。
+默认 `AI_IMAGE_MODE=edits`。普通版一次图片编辑同时处理换脸、衣服、背景和
+光影；腾讯版第一步一次编辑衣服、背景和光影，第二步再调用腾讯换脸。
 
 图片编辑模式配置为：
 
 ```text
 AI_IMAGE_MODE=edits
-AI_IMAGE_EDIT_ENDPOINT=https://example.com/v1/images/edits
+AI_IMAGE_PRIMARY_ENDPOINT=https://example.com/v1/images/edits
+AI_IMAGE_BACKUP_ENDPOINT=https://backup.example.com/v1/images/edits
 AI_IMAGE_MAIN_FIELD=image
 AI_IMAGE_MASK_FIELD=mask
 AI_IMAGE_REFERENCE_FIELD=image[]
@@ -461,7 +474,10 @@ AI_IMAGE_REFERENCE_FIELD=image[]
 
 小程序会根据红圈导出透明区域 mask，并把主图、mask、人脸参考图和穿搭参考图交给云函数。凌云图片上游使用 JSON 格式的 `images[].image_url` 和 `mask.image_url`；其他 OpenAI-compatible 上游继续使用 multipart 的 `image`、`mask` 和 `image[]` 字段。页面上传和 `maskFileID` 链路不需要改。
 
-生图默认允许自动重试，最多按 `AI_MAX_RETRIES` 再试；只对网络失败、限流和服务端临时错误重试。若上游已经扣费但客户端没有收到响应，仍可能产生重复生成；对计费敏感的环境可在管理员页面取消勾选，或把 `AI_IMAGE_RETRY_ENABLED=false`。视觉分析、云文件下载和结果图片下载也会按 `AI_MAX_RETRIES` 做退避重试；每次云函数请求都有 `requestId`，排查失败时把请求编号交给后台日志即可。
+图片编辑固定按“星炬第1次 → 星炬第2次 → 凌云第1次”执行。每次 provider
+尝试只发一个上游请求，不再嵌套底层重试；同一创作 `requestId` 只预留一次
+用户额度。腾讯换脸单次超时75秒，失败只重试腾讯1次，不会重新执行图片编辑。
+视觉分析、云文件下载和结果图片下载仍会按通用网络重试规则处理。
 
 ## AI 接口回归测试
 

@@ -22,6 +22,23 @@ function createHarness() {
     existingOperation: null,
     queuedOperation: null,
     reconcileCandidates: [],
+    configs: {
+      image: {
+        apiKey: "test-key",
+        provider: "primary-test",
+        model: "test-image-model",
+        resolution: "1K",
+        compatibilityMode: false
+      },
+      imageBackup: {
+        apiKey: "",
+        provider: "backup-test",
+        model: "backup-image-model",
+        resolution: "1K",
+        compatibilityMode: false
+      },
+      costs: {}
+    },
     reserve: async (openid, requestId, kind) => ({
       requestId,
       kind,
@@ -54,15 +71,7 @@ function createHarness() {
       getOpenId: (context) => String(context && context.OPENID || "anonymous")
     },
     config: {
-      resolve: async () => ({
-        image: {
-          apiKey: "test-key",
-          model: "test-image-model",
-          resolution: "1K",
-          compatibilityMode: false
-        },
-        costs: {}
-      })
+      resolve: async () => state.configs
     },
     image: {
       hasEditAssets: () => false,
@@ -185,6 +194,30 @@ async function main() {
     assert.strictEqual(result.status, "queued");
     assert.strictEqual(result.message, "生图任务已提交");
     assert.strictEqual(harness.calls.validate.length, 1);
+    assert.strictEqual(harness.calls.reserve.length, 1);
+    assert.strictEqual(harness.calls.enqueue.length, 1);
+  }
+
+  {
+    const harness = createHarness();
+    harness.state.configs.image.apiKey = "";
+    harness.state.configs.imageBackup.apiKey = "backup-test-key";
+    harness.services.image.resolveMode = () => "edits";
+    harness.services.image.hasEditAssets = () => true;
+    harness.kernel = createGenerationExecutionKernel(harness.services);
+    const result = await harness.kernel.generate(
+      {
+        requestId: "submit-backup-only-request",
+        payload: {
+          prompt: "只用备用模型提交图片编辑",
+          mainFileID: "cloud://main.png",
+          maskFileID: "cloud://mask.png"
+        }
+      },
+      { OPENID: "backup-only-user" }
+    );
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.status, "queued");
     assert.strictEqual(harness.calls.reserve.length, 1);
     assert.strictEqual(harness.calls.enqueue.length, 1);
   }

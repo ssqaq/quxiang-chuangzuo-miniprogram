@@ -207,7 +207,7 @@ function Assert-CloudFunctionDeploymentResult {
   }
 }
 
-function Get-CloudFunctionStatus {
+function Get-CloudFunctionInfo {
   param(
     [string]$CliPath,
     [string]$AppId,
@@ -230,6 +230,22 @@ function Get-CloudFunctionStatus {
   if ($null -eq $function) {
     throw "Cloud function status result is missing function: $FunctionName."
   }
+  return $function
+}
+
+function Get-CloudFunctionStatus {
+  param(
+    [string]$CliPath,
+    [string]$AppId,
+    [string]$EnvironmentId,
+    [string]$FunctionName
+  )
+
+  $function = Get-CloudFunctionInfo `
+    -CliPath $CliPath `
+    -AppId $AppId `
+    -EnvironmentId $EnvironmentId `
+    -FunctionName $FunctionName
   return [string]$function.status
 }
 
@@ -310,6 +326,7 @@ $configPath = Join-Path $project "config.js"
 $projectConfigPath = Join-Path $project "project.config.json"
 $apiPath = Join-Path $project "cloudfunctions\api"
 $apiIndexPath = Join-Path $apiPath "index.js"
+$apiConfigPath = Join-Path $apiPath "config.json"
 if (-not (Test-Path -LiteralPath $configPath)) {
   throw "config.js was not found under project path: $project"
 }
@@ -318,6 +335,9 @@ if (-not (Test-Path -LiteralPath $projectConfigPath)) {
 }
 if (-not (Test-Path -LiteralPath $apiIndexPath)) {
   throw "cloudfunctions/api/index.js was not found under project path: $project"
+}
+if (-not (Test-Path -LiteralPath $apiConfigPath)) {
+  throw "cloudfunctions/api/config.json was not found under project path: $project"
 }
 
 $configText = Get-Content -LiteralPath $configPath -Raw -Encoding UTF8
@@ -338,6 +358,14 @@ if ([string]::IsNullOrWhiteSpace($appId)) {
 $apiText = Get-Content -LiteralPath $apiIndexPath -Raw -Encoding UTF8
 $markerMatch = [regex]::Match($apiText, 'const API_BUILD_MARKER = "([^"]+)"')
 $expectedMarker = if ($markerMatch.Success) { $markerMatch.Groups[1].Value } else { "" }
+$apiConfig = Get-Content -LiteralPath $apiConfigPath -Raw -Encoding UTF8 |
+  ConvertFrom-Json
+$expectedFunctionTimeout = [int](
+  Get-ObjectPropertyValue -Value $apiConfig -Name "timeout"
+)
+if ($expectedFunctionTimeout -lt 600 -or $expectedFunctionTimeout -gt 900) {
+  throw "cloudfunctions/api/config.json timeout must be between 600 and 900 seconds."
+}
 $cli = Find-WechatIde -Preferred $WechatIde
 if (-not $cli) {
   throw "wechatide.cmd was not found. Set WECHATIDE_CLI or pass -WechatIde."
@@ -349,6 +377,7 @@ Write-Host "Cloud environment: $cloudEnvId"
 Write-Host "Cloud function: $functionName"
 Write-Host "Expected version: $appVersion"
 Write-Host "Expected image mode: $imageMode"
+Write-Host "Expected function timeout: $expectedFunctionTimeout seconds"
 Write-Host "Remote npm install: required"
 if ($expectedMarker) {
   Write-Host "Expected marker: $expectedMarker"
@@ -413,6 +442,18 @@ try {
     -AppId $appId `
     -EnvironmentId $cloudEnvId `
     -FunctionName $functionName
+  $functionInfo = Get-CloudFunctionInfo `
+    -CliPath $cli `
+    -AppId $appId `
+    -EnvironmentId $cloudEnvId `
+    -FunctionName $functionName
+  $actualFunctionTimeout = [int](
+    Get-ObjectPropertyValue -Value $functionInfo -Name "timeout"
+  )
+  Write-Host "Online function timeout: $actualFunctionTimeout seconds"
+  if ($actualFunctionTimeout -lt $expectedFunctionTimeout) {
+    throw "Online function timeout is too short. Expected at least $expectedFunctionTimeout seconds, actual $actualFunctionTimeout seconds."
+  }
 
   Write-Host "5/5 Verify online build"
   $deployment = Get-DeploymentResult `

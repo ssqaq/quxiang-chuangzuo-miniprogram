@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.46.1";
-const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0461";
+const API_BUILD_VERSION = "0.46.2";
+const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0462";
 const DEFAULT_IMAGE_MODE = "edits";
 // 图片和视频默认成本只在云函数入口维护；管理员页读取云端有效配置，
 // 避免前后端各写一份价格。入口保持单文件可启动，兼容 CloudBase 部署。
@@ -7620,6 +7620,23 @@ async function getAdminConfig(context) {
     }
   }
   return jsonResponse(true, adminConfigView(configs, runtime, metadata));
+}
+
+async function getAdminImageApiKeys(context) {
+  if (!isAdminContext(context)) return adminForbidden();
+  const configs = await resolveEffectiveConfigs();
+  return jsonResponse(true, {
+    image: {
+      apiKey: String(configs.image && configs.image.apiKey || "")
+    },
+    imageBackup: {
+      apiKey: String(
+        configs.imageBackup
+        && configs.imageBackup.apiKey
+        || ""
+      )
+    }
+  });
 }
 
 function adminConfigAuditDisplay(value) {
@@ -17796,6 +17813,9 @@ exports.main = async (event = {}, context) => {
       result = await getAdminDiagnosticLogs(requestEvent, context);
     }
     else if (action === "getAdminConfig") result = await getAdminConfig(context);
+    else if (action === "getAdminImageApiKeys") {
+      result = await getAdminImageApiKeys(context);
+    }
     else if (action === "getAdminUserStats") result = await getAdminUserStats(requestEvent, context);
     else if (action === "exportAdminUserStats") result = await exportAdminUserStats(requestEvent, context);
     else if (action === "initializeDatabase") result = await initializeDatabase(context);
@@ -18099,6 +18119,7 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     mergeRuntimeConfig,
     getAdminStatus,
     getAdminConfig,
+    getAdminImageApiKeys,
     normalizeUserGender,
     normalizeUserNickname,
     normalizeAdminUserSearch,

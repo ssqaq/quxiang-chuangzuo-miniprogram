@@ -65,6 +65,7 @@ const jsFiles = [
   "scripts/admin-cost-validation-smoke.js",
   "scripts/image-quality-smoke.js",
   "scripts/image-edit-routing-smoke.js",
+  "scripts/image-provider-failover-smoke.js",
   "scripts/tencent-face-fusion-page-smoke.js",
   "scripts/tencent-face-fusion-smoke.js",
   "scripts/release-safety-smoke.js",
@@ -256,6 +257,7 @@ const required = [
   "scripts/admin-cost-validation-smoke.js",
   "scripts/image-quality-smoke.js",
   "scripts/image-edit-routing-smoke.js",
+  "scripts/image-provider-failover-smoke.js",
   "scripts/tencent-face-fusion-page-smoke.js",
   "scripts/tencent-face-fusion-smoke.js",
   "scripts/release-safety-smoke.js",
@@ -522,7 +524,7 @@ if (
   appConfig.imageMode !== "edits"
   || !configJs.includes('imageMode: "edits"')
   || !/^AI_IMAGE_MODE=edits$/m.test(apiEnvExample)
-  || !cloudJs.includes('env("AI_IMAGE_MODE", DEFAULT_IMAGE_MODE)')
+  || !cloudJs.includes('firstEnv(["AI_IMAGE_PRIMARY_MODE", "AI_IMAGE_MODE"], DEFAULT_IMAGE_MODE)')
   || !cloudJs.includes("function hasImageEditAssets")
   || !cloudJs.includes('if (hasImageEditAssets(payload)) return "edits";')
   || !cloudJs.includes("missing-edit-asset")
@@ -815,10 +817,15 @@ if (
 }
 const adminApiKeyInputs = adminWxml.match(/<input[^>]*data-key="apiKey"[^>]*>/g) || [];
 if (
-  adminApiKeyInputs.length !== 4
-  || adminApiKeyInputs.some((input) => /\bpassword\b/.test(input))
+  adminApiKeyInputs.length !== 5
+  || adminApiKeyInputs.some((input) => !/\bpassword\b/.test(input))
+  || !adminWxml.includes("effective.image.apiKeyConfigured")
+  || !adminWxml.includes("effective.imageBackup.apiKeyConfigured")
+  || (adminWxml.match(/已配置（不显示内容）/g) || []).length < 2
+  || !adminWxss.includes(".api-key-config-state")
+  || !adminWxss.includes(".api-key-field-tip")
 ) {
-  throw new Error("四个 API Key 输入框必须统一使用明文显示。");
+  throw new Error("五个主备模型 API Key 输入框、密码保护或脱敏配置状态不完整。");
 }
 if (
   !clientCloudJs.includes('action: "getModelUsageStats"')

@@ -955,7 +955,22 @@ Page({
       upstream: {
         phase: "generate",
         loadingText: "AI正在生成图片...",
-        waitText: "凌云正在生成图片，页面退出后任务也会继续。"
+        waitText: "图片模型正在生成，页面退出后任务也会继续。"
+      },
+      "image-edit-primary": {
+        phase: "generate",
+        loadingText: "主模型正在生成图片...",
+        waitText: "正在使用星炬主模型生成，页面退出后任务也会继续。"
+      },
+      "image-edit-primary-retry": {
+        phase: "generate",
+        loadingText: "主模型正在重试...",
+        waitText: "主模型刚才没有成功，系统正在自动再试一次。"
+      },
+      "image-edit-backup": {
+        phase: "generate",
+        loadingText: "正在切换备用模型...",
+        waitText: "主模型两次未成功，系统正在改用凌云备用模型。"
       },
       download: {
         phase: "generate",

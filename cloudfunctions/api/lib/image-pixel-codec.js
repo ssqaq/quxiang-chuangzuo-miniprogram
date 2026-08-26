@@ -273,6 +273,84 @@ function assertSameDimensions(left, right, options = {}) {
   }
 }
 
+function resizeDecodedImage(image, targetWidth, targetHeight, options = {}) {
+  const label = String(options.label || "图片");
+  const source = assertDecodedImage(image, Object.assign({}, options, { label }));
+  const width = Number(targetWidth);
+  const height = Number(targetHeight);
+  const pixels = width * height;
+  const maxPixels = Math.max(1, Number(options.maxPixels) || DEFAULT_MAX_PIXELS);
+  if (
+    !Number.isInteger(width)
+    || !Number.isInteger(height)
+    || width < 1
+    || height < 1
+    || !Number.isSafeInteger(pixels)
+  ) {
+    throw imagePixelError(
+      `${label}目标尺寸无效。`,
+      "PIXEL_IMAGE_RESIZE_TARGET_INVALID"
+    );
+  }
+  if (pixels > maxPixels) {
+    throw imagePixelError(
+      `${label}目标像素过大，最多支持 ${maxPixels} 像素。`,
+      "PIXEL_IMAGE_TOO_LARGE"
+    );
+  }
+  const resized = source.width !== width || source.height !== height;
+  if (!resized) {
+    return Object.assign({}, source, {
+      data: Buffer.from(source.data),
+      resized: false,
+      resizeSourceWidth: source.width,
+      resizeSourceHeight: source.height
+    });
+  }
+
+  const output = Buffer.allocUnsafe(pixels * 4);
+  for (let y = 0; y < height; y += 1) {
+    const sourceY = height === 1
+      ? 0
+      : (y / (height - 1)) * (source.height - 1);
+    const y0 = Math.floor(sourceY);
+    const y1 = Math.min(source.height - 1, y0 + 1);
+    const yWeight = sourceY - y0;
+    for (let x = 0; x < width; x += 1) {
+      const sourceX = width === 1
+        ? 0
+        : (x / (width - 1)) * (source.width - 1);
+      const x0 = Math.floor(sourceX);
+      const x1 = Math.min(source.width - 1, x0 + 1);
+      const xWeight = sourceX - x0;
+      const targetIndex = (y * width + x) * 4;
+      const i00 = (y0 * source.width + x0) * 4;
+      const i10 = (y0 * source.width + x1) * 4;
+      const i01 = (y1 * source.width + x0) * 4;
+      const i11 = (y1 * source.width + x1) * 4;
+      for (let channel = 0; channel < 4; channel += 1) {
+        const top = source.data[i00 + channel] * (1 - xWeight)
+          + source.data[i10 + channel] * xWeight;
+        const bottom = source.data[i01 + channel] * (1 - xWeight)
+          + source.data[i11 + channel] * xWeight;
+        output[targetIndex + channel] = Math.max(
+          0,
+          Math.min(255, Math.round(top * (1 - yWeight) + bottom * yWeight))
+        );
+      }
+    }
+  }
+  return assertDecodedImage(Object.assign({}, source, {
+    data: output,
+    width,
+    height,
+    orientation: 1,
+    resized: true,
+    resizeSourceWidth: source.width,
+    resizeSourceHeight: source.height
+  }), Object.assign({}, options, { label }));
+}
+
 function encodePngCandidate(image, compression) {
   const png = new PNG({
     width: image.width,
@@ -361,5 +439,6 @@ module.exports = {
   decodeImage,
   assertDecodedImage,
   assertSameDimensions,
+  resizeDecodedImage,
   encodePngRoundTrip
 };

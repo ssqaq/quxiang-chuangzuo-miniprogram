@@ -181,6 +181,17 @@ assert.strictEqual(
 );
 assert.ok(safeCapabilityProbe.message.includes("不代表上游"));
 
+const xingjuCapabilityProbe = test.buildImageEditCapabilityProbe({
+  provider: "xingju",
+  baseUrl: "https://newapi.akiyo.fun/v1",
+  model: "jw-gpt-image-2",
+  apiKey: "must-not-be-returned"
+});
+assert.strictEqual(xingjuCapabilityProbe.configured, true);
+assert.strictEqual(xingjuCapabilityProbe.requestFormat, "xingju-json");
+assert.strictEqual(xingjuCapabilityProbe.fields.mainImage, "images[0].image_url");
+assert.strictEqual(xingjuCapabilityProbe.fields.mask, "mask.image_url");
+
 async function withServer(handler, callback) {
   const server = http.createServer(handler);
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -323,6 +334,23 @@ async function main() {
     false,
     "其他 OpenAI-compatible provider 必须保留 multipart 协议"
   );
+  assert.strictEqual(
+    test.isXingjuImageProvider({ provider: "xingju" }),
+    true,
+    "星炬 provider 必须走 JSON + Base64 图片编辑协议"
+  );
+  assert.strictEqual(
+    test.isXingjuImageProvider({ baseUrl: "https://newapi.akiyo.fun/v1" }),
+    true,
+    "星炬域名必须自动识别为 JSON + Base64 图片编辑协议"
+  );
+  assert.strictEqual(
+    test.imageEditJsonRequestFormat({
+      provider: "xingju",
+      model: "jw-gpt-image-2"
+    }),
+    "xingju-json"
+  );
 
   const lingyunRequests = [];
   const originalLingyunEditEndpoint = process.env.AI_IMAGE_EDIT_ENDPOINT;
@@ -354,6 +382,7 @@ async function main() {
           provider: "lingyun",
           mode: "edits",
           baseUrl: "https://api.lingyunapi.xyz/v1",
+          endpoint: `${url}/v1/images/edits`,
           model: "gpt-image-2",
           compatibilityMode: false,
           timeoutMs: 5000,

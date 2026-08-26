@@ -207,9 +207,95 @@ function testDimensionGate() {
   );
 }
 
+function testDimensionNormalization() {
+  const main = rgbaImage(896, 1195, [15, 25, 35, 255]);
+  const mask = rgbaImage(896, 1195, [255, 255, 255, 255]);
+  const generated = rgbaImage(1024, 1536, [215, 205, 195, 255]);
+  const mainPng = codec.encodePngRoundTrip(main, {
+    label: "尺寸归一化主图"
+  }).buffer;
+  const maskPng = codec.encodePngRoundTrip(mask, {
+    label: "尺寸归一化 mask"
+  }).buffer;
+  const generatedPng = codec.encodePngRoundTrip(generated, {
+    label: "尺寸归一化模型图"
+  }).buffer;
+  const preflight = flow.preflightNormalAssets(
+    mainPng,
+    maskPng,
+    { x: 448, y: 598, width: 320, height: 420 }
+  );
+  const protectedNormal = flow.protectNormalResult(preflight, generatedPng, {
+    featherPixels: 8
+  });
+  assert.strictEqual(protectedNormal.delivered.width, 896);
+  assert.strictEqual(protectedNormal.delivered.height, 1195);
+  assert.strictEqual(
+    protectedNormal.metrics.supportOutsideExactMismatchCount,
+    0
+  );
+  assert.deepStrictEqual(
+    protectedNormal.protection.dimensionNormalization,
+    {
+      resized: true,
+      strategy: "stretch-to-baseline",
+      sourceWidth: 1024,
+      sourceHeight: 1536,
+      targetWidth: 896,
+      targetHeight: 1195
+    }
+  );
+
+  const protectedTencent = flow.protectTencentIntermediate(
+    preflight.mainImage,
+    generatedPng,
+    [{ x: 320, y: 360, width: 256, height: 300 }],
+    {
+      featherPixels: 8,
+      maxTencentBytes: 5 * 1024 * 1024
+    }
+  );
+  assert.strictEqual(protectedTencent.delivered.width, 896);
+  assert.strictEqual(protectedTencent.delivered.height, 1195);
+  assert.strictEqual(
+    protectedTencent.metrics.supportOutsideExactMismatchCount,
+    0
+  );
+  assert.strictEqual(
+    protectedTencent.protection.dimensionNormalization.resized,
+    true
+  );
+  assert.strictEqual(
+    protectedTencent.protection.dimensionNormalization.sourceWidth,
+    1024
+  );
+  assert.strictEqual(
+    protectedTencent.protection.dimensionNormalization.sourceHeight,
+    1536
+  );
+}
+
 function testModelFlowGuards() {
   assert.deepStrictEqual(
-    flow.assertLingyunImageEditFlow({
+    flow.assertSupportedImageEditFlow({
+      provider: "星炬",
+      model: "jw-gpt-image-2"
+    }, "https://newapi.akiyo.fun/v1/images/edits/"),
+    {
+      provider: "星炬",
+      model: "jw-gpt-image-2",
+      pathname: "/v1/images/edits"
+    }
+  );
+  assert.strictEqual(
+    flow.assertSupportedImageEditFlow({
+      provider: "XING_JU",
+      model: "jw-gpt-image-2"
+    }, "https://example.com/v1/images/edits").provider,
+    "xingju"
+  );
+  assert.deepStrictEqual(
+    flow.assertSupportedImageEditFlow({
       provider: "凌云",
       model: "gpt-image-2"
     }, "https://lingyunapi.xyz/v1/images/edits/"),
@@ -220,28 +306,35 @@ function testModelFlowGuards() {
     }
   );
   assert.strictEqual(
-    flow.assertLingyunImageEditFlow({
+    flow.assertSupportedImageEditFlow({
       provider: "LING_YUN",
       model: "gpt-image-2"
     }, "https://example.com/v1/images/edits").provider,
     "lingyun"
   );
   assert.throws(
-    () => flow.assertLingyunImageEditFlow({
+    () => flow.assertSupportedImageEditFlow({
       provider: "tencent",
       model: "gpt-image-2"
     }, "https://example.com/v1/images/edits"),
     (error) => error && error.code === "PIXEL_MODEL_FLOW_PROVIDER_MISMATCH"
   );
   assert.throws(
-    () => flow.assertLingyunImageEditFlow({
+    () => flow.assertSupportedImageEditFlow({
+      provider: "xingju",
+      model: "gpt-image-2"
+    }, "https://example.com/v1/images/edits"),
+    (error) => error && error.code === "PIXEL_MODEL_FLOW_MODEL_MISMATCH"
+  );
+  assert.throws(
+    () => flow.assertSupportedImageEditFlow({
       provider: "lingyun",
       model: "wrong-model"
     }, "https://example.com/v1/images/edits"),
     (error) => error && error.code === "PIXEL_MODEL_FLOW_MODEL_MISMATCH"
   );
   assert.throws(
-    () => flow.assertLingyunImageEditFlow({
+    () => flow.assertSupportedImageEditFlow({
       provider: "lingyun",
       model: "gpt-image-2"
     }, "https://example.com/v1/images/generations"),
@@ -317,10 +410,25 @@ function testProtectionFlow() {
         faceProtectionRects: intermediate.protection.rects
       },
       pixelProtectionMetrics: {
-        lingyunIntermediate: intermediate.metrics
+        imageEditIntermediate: intermediate.metrics
       }
     }, intermediate.delivered).rects,
     intermediate.protection.rects
+  );
+  assert.deepStrictEqual(
+    flow.restoreTencentProtectionState({
+      pixelProtection: {
+        version: 1,
+        width: 16,
+        height: 16,
+        faceProtectionRects: intermediate.protection.rects
+      },
+      pixelProtectionMetrics: {
+        lingyunIntermediate: intermediate.metrics
+      }
+    }, intermediate.delivered).rects,
+    intermediate.protection.rects,
+    "旧任务的 lingyunIntermediate 字段必须继续兼容"
   );
   assert.throws(
     () => flow.restoreTencentProtectionState({}, intermediate.delivered),
@@ -333,6 +441,7 @@ testEllipseProtection();
 testTencentRectProtection();
 testPngRoundTripAndSizeGate();
 testDimensionGate();
+testDimensionNormalization();
 testModelFlowGuards();
 testProtectionFlow();
 

@@ -356,18 +356,33 @@ function emptyForm() {
       timeoutMs: "30000"
     },
     image: {
-      provider: "",
-      baseUrl: "",
+      provider: "xingju",
+      baseUrl: "https://newapi.akiyo.fun/v1",
       endpoint: "",
       apiKey: "",
-      model: "",
+      model: "jw-gpt-image-2",
       mode: "edits",
       size: "1080x1440",
       resolution: "1K",
       compatibilityMode: false,
-      timeoutMs: "90000",
-      maxRetries: "2",
+      timeoutMs: "150000",
+      maxRetries: "1",
       retryEnabled: true,
+      retryPreferenceVersion: 1
+    },
+    imageBackup: {
+      provider: "lingyun",
+      baseUrl: "https://api.lingyunapi.xyz/v1",
+      endpoint: "",
+      apiKey: "",
+      model: "gpt-image-2",
+      mode: "edits",
+      size: "1080x1440",
+      resolution: "1K",
+      compatibilityMode: false,
+      timeoutMs: "150000",
+      maxRetries: "0",
+      retryEnabled: false,
       retryPreferenceVersion: 1
     },
     video: {
@@ -2313,8 +2328,16 @@ function buildEntryHealth(
       label: !configReady("analysis") || failureFor("analysis") > 0 ? "异常" : "正常"
     },
     image: {
-      abnormal: !configReady("image") || failureFor("image") > 0,
-      label: !configReady("image") || failureFor("image") > 0 ? "异常" : "正常"
+      abnormal: (
+        !configReady("image")
+        || !configReady("imageBackup")
+        || failureFor("image") > 0
+      ),
+      label: (
+        !configReady("image")
+        || !configReady("imageBackup")
+        || failureFor("image") > 0
+      ) ? "异常" : "正常"
     },
     video: {
       abnormal: !configReady("video") || failureFor("video") > 0,
@@ -2344,6 +2367,7 @@ function formFromConfig(result) {
   const face = source.face || {};
   const analysis = source.analysis || {};
   const image = source.image || {};
+  const imageBackup = source.imageBackup || {};
   const video = source.video || {};
   const points = source.points || {};
   const costs = source.costs || {};
@@ -2381,11 +2405,32 @@ function formFromConfig(result) {
         "1K"
       ),
       compatibilityMode: normalizeAdminBoolean(image.compatibilityMode, false),
-      timeoutMs: String(image.timeoutMs || 90000),
+      timeoutMs: String(image.timeoutMs || 150000),
       maxRetries: String(image.maxRetries || 0),
       retryEnabled: image.retryEnabled === undefined
         ? true
         : Boolean(image.retryEnabled),
+      retryPreferenceVersion: 1
+    },
+    imageBackup: {
+      provider: imageBackup.provider || "lingyun",
+      baseUrl: imageBackup.baseUrl || "https://api.lingyunapi.xyz/v1",
+      endpoint: imageBackup.endpoint || "",
+      apiKey: imageBackup.apiKey || "",
+      model: imageBackup.model || "gpt-image-2",
+      mode: imageBackup.mode || "edits",
+      size: imageBackup.size || image.size || "1080x1440",
+      resolution: normalizeAdminImageResolution(
+        imageBackup.resolution || imageBackup.size || image.resolution || image.size,
+        "1K"
+      ),
+      compatibilityMode: normalizeAdminBoolean(
+        imageBackup.compatibilityMode,
+        false
+      ),
+      timeoutMs: String(imageBackup.timeoutMs || 150000),
+      maxRetries: "0",
+      retryEnabled: false,
       retryPreferenceVersion: 1
     },
     video: {
@@ -2494,6 +2539,31 @@ function formToConfig(form) {
       timeoutMs: Number(form.image.timeoutMs || 0),
       maxRetries: Number(form.image.maxRetries || 0),
       retryEnabled: Boolean(form.image.retryEnabled),
+      retryPreferenceVersion: 1
+    },
+    imageBackup: {
+      provider: String(form.imageBackup.provider || "").trim(),
+      baseUrl: String(form.imageBackup.baseUrl || "").trim(),
+      endpoint: String(form.imageBackup.endpoint || "").trim(),
+      apiKey: String(form.imageBackup.apiKey || "").trim(),
+      model: String(form.imageBackup.model || "").trim(),
+      mode: "edits",
+      size: String(
+        form.imageBackup.size
+        || form.image.size
+        || ""
+      ).trim(),
+      resolution: normalizeAdminImageResolution(
+        form.imageBackup.resolution
+        || form.imageBackup.size
+        || form.image.resolution
+        || form.image.size,
+        "1K"
+      ),
+      compatibilityMode: Boolean(form.imageBackup.compatibilityMode),
+      timeoutMs: Number(form.imageBackup.timeoutMs || 0),
+      maxRetries: 0,
+      retryEnabled: false,
       retryPreferenceVersion: 1
     },
     video: {

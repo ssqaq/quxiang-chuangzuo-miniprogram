@@ -8,6 +8,12 @@ const cp = require("child_process");
 const root = path.resolve(__dirname, "..");
 const scriptPath = path.join(root, "scripts", "deploy-and-verify-api.ps1");
 const source = fs.readFileSync(scriptPath, "utf8");
+const apiConfig = JSON.parse(
+  fs.readFileSync(
+    path.join(root, "cloudfunctions", "api", "config.json"),
+    "utf8"
+  )
+);
 
 assert.ok(
   source.includes("Assert-CloudFunctionDeploymentResult"),
@@ -20,6 +26,19 @@ assert.ok(
 assert.ok(
   source.includes('"cloud_fn_info"'),
   "部署脚本必须读取线上云函数状态"
+);
+assert.strictEqual(
+  apiConfig.timeout,
+  900,
+  "api 云函数平台超时必须设置为 900 秒，覆盖图片主备和腾讯两阶段流程"
+);
+assert.ok(
+  source.includes("Online function timeout"),
+  "部署脚本必须输出线上云函数实际超时"
+);
+assert.ok(
+  source.includes("actualFunctionTimeout -lt $expectedFunctionTimeout"),
+  "部署脚本必须拦截线上超时未生效"
 );
 assert.ok(
   source.includes('"--remote-npm-install"'),

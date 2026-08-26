@@ -396,6 +396,9 @@ const apiEnvExample = fs.readFileSync(
 const cloudTriggerConfig = JSON.parse(
   fs.readFileSync(path.join(root, "cloudfunctions/api/config.json"), "utf8")
 );
+if (cloudTriggerConfig.timeout !== 900) {
+  fail("cloudfunctions/api/config.json timeout 必须为 900 秒");
+}
 const configJs = fs.readFileSync(path.join(root, "config.js"), "utf8");
 const appWxss = fs.readFileSync(path.join(root, "app.wxss"), "utf8");
 const appJs = fs.readFileSync(path.join(root, "app.js"), "utf8");

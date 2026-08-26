@@ -1,4 +1,5 @@
 {
+  "timeout": 900,
   "triggers": [
     {
       "name": "generation-queue-worker",

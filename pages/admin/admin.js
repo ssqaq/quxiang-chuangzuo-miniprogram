@@ -446,6 +446,7 @@ const AUTO_FACE_FAILURE_SECTION_KEYS = Object.freeze([
   "monthly"
 ]);
 const MONITOR_LAYOUT_STORAGE_KEY = "admin-monitor-layout-v3";
+const TENCENT_FACEFUSION_LAST_TEST_STORAGE_KEY = "admin-tencent-facefusion-last-test-v1";
 const AUTO_FACE_FAILURE_AUTO_REFRESH_MS = 10 * 60 * 1000;
 const MODEL_FAILURE_AUTO_REFRESH_MS = 10 * 60 * 1000;
 
@@ -1110,6 +1111,7 @@ function emptyTencentFaceFusionStatus() {
     lastDurationMs: 0,
     lastTestType: "",
     lastCalledAt: "",
+    lastCallTimestamp: 0,
     checkedAt: ""
   };
 }
@@ -1130,7 +1132,75 @@ function formatTencentFaceFusionStatus(result) {
     lastDurationMs: Number(source.lastDurationMs) || 0,
     lastTestType: String(source.lastTestType || ""),
     lastCalledAt: source.lastCalledAt ? formatAdminDate(source.lastCalledAt) : "暂无调用",
+    lastCallTimestamp: Number(source.lastCallTimestamp)
+      || (source.lastCalledAt ? Date.parse(source.lastCalledAt) : 0)
+      || 0,
     checkedAt: source.checkedAt ? formatAdminDate(source.checkedAt) : ""
+  });
+}
+
+function readTencentFaceFusionLocalStatus() {
+  try {
+    const value = wx.getStorageSync(TENCENT_FACEFUSION_LAST_TEST_STORAGE_KEY);
+    if (!value || typeof value !== "object") return null;
+    return Object.assign(emptyTencentFaceFusionStatus(), value);
+  } catch (error) {
+    return null;
+  }
+}
+
+function saveTencentFaceFusionLocalStatus(status) {
+  try {
+    wx.setStorageSync(
+      TENCENT_FACEFUSION_LAST_TEST_STORAGE_KEY,
+      Object.assign({}, status, {
+        checkedAt: new Date().toISOString()
+      })
+    );
+  } catch (error) {
+    diagnosticLog.warn(
+      "admin",
+      "tencent-facefusion-local-status-save-failed",
+      "腾讯测试状态本地保存失败",
+      { error }
+    );
+  }
+}
+
+function mergeTencentFaceFusionStatus(remoteStatus) {
+  const remote = formatTencentFaceFusionStatus(remoteStatus);
+  const local = readTencentFaceFusionLocalStatus();
+  if (!local || !local.lastCallTimestamp) return remote;
+  if (
+    !remote.lastCallTimestamp
+    || local.lastCallTimestamp > remote.lastCallTimestamp
+  ) {
+    return Object.assign(remote, local, {
+      configured: remote.configured,
+      region: remote.region,
+      model: remote.model,
+      apiVersion: remote.apiVersion,
+      swapModelType: remote.swapModelType
+    });
+  }
+  return remote;
+}
+
+function buildTencentFaceFusionLocalStatus(result, requestId, status, errorMessage = "") {
+  const now = Date.now();
+  return Object.assign(emptyTencentFaceFusionStatus(), {
+    configured: true,
+    region: String(result && result.region || ""),
+    model: String(result && result.model || "FuseFaceUltra"),
+    lastCallStatus: status,
+    lastCallStage: status === "succeeded" ? "succeeded" : "facefusion",
+    lastErrorMessage: String(errorMessage || ""),
+    lastRequestId: String(requestId || ""),
+    lastDurationMs: Number(result && result.durationMs) || 0,
+    lastTestType: "admin-real-call",
+    lastCalledAt: new Date(now).toISOString(),
+    lastCallTimestamp: now,
+    checkedAt: new Date(now).toISOString()
   });
 }
 
@@ -3598,7 +3668,7 @@ Page({
       );
       if (!this.isCurrentAdminLoad(token) || !this.data.isAdmin) return;
       this.setData({
-        tencentFaceFusionStatus: formatTencentFaceFusionStatus(result)
+        tencentFaceFusionStatus: mergeTencentFaceFusionStatus(result)
       });
     } catch (error) {
       diagnosticLog.warn("admin", "tencent-facefusion-status-failed", "腾讯人脸融合状态读取失败", {
@@ -3681,12 +3751,31 @@ Page({
         requestId
       }, { requestId });
       await this.loadTencentFaceFusionStatus(this._adminLoadToken || 0);
+      const successStatus = buildTencentFaceFusionLocalStatus(
+        result,
+        requestId,
+        "succeeded"
+      );
+      saveTencentFaceFusionLocalStatus(successStatus);
+      this.setData({
+        tencentFaceFusionStatus: mergeTencentFaceFusionStatus(successStatus)
+      });
       wx.showToast({
         title: `真实测试成功 ${Number(result.durationMs) || 0}ms`,
         icon: "success"
       });
     } catch (error) {
       await this.loadTencentFaceFusionStatus(this._adminLoadToken || 0);
+      const failureStatus = buildTencentFaceFusionLocalStatus(
+        error,
+        requestId,
+        "failed",
+        error && error.message
+      );
+      saveTencentFaceFusionLocalStatus(failureStatus);
+      this.setData({
+        tencentFaceFusionStatus: mergeTencentFaceFusionStatus(failureStatus)
+      });
       this.showError("腾讯真实测试失败", error);
     } finally {
       this.setData({

@@ -3,11 +3,12 @@
 /**
  * OpenAI-compatible AI 供应商回归脚本。
  *
- * 默认只做本地 retry/multipart 检查，不会产生费用。
+ * 默认只做本地 retry/图片请求格式检查，不会产生费用。
  * 真实接口测试需要显式传 --real，并从环境变量读取密钥：
  *
  *   $env:AI_BASE_URL = "https://视觉服务/v1"
- *   $env:AI_IMAGE_BASE_URL = "https://api.pandatk.com/v1"
+ *   $env:AI_IMAGE_PROVIDER = "lingyun"
+ *   $env:AI_IMAGE_BASE_URL = "https://api.lingyunapi.xyz/v1"
  *   $env:AI_SMOKE_VISION_API_KEY = "只在当前终端临时设置，不写入文件"
  *   $env:AI_SMOKE_IMAGE_API_KEY = "只在当前终端临时设置，不写入文件"
  *   $env:AI_VISION_MODEL = "实际视觉模型"
@@ -62,6 +63,21 @@ function safeUrl(value) {
   } catch (_) {
     return "";
   }
+}
+
+function isLingyunImageProvider(config = {}) {
+  const provider = String(config.imageProvider || "").trim().toLowerCase();
+  if (provider === "lingyun" || provider === "凌云") return true;
+  try {
+    const hostname = new URL(String(config.imageBaseUrl || "")).hostname.toLowerCase();
+    return hostname === "lingyunapi.xyz" || hostname.endsWith(".lingyunapi.xyz");
+  } catch (_) {
+    return false;
+  }
+}
+
+function dataUrl(buffer, mime) {
+  return `data:${mime || "image/png"};base64,${Buffer.from(buffer).toString("base64")}`;
 }
 
 function sleep(ms) {
@@ -290,6 +306,7 @@ function getRealConfig() {
   return {
     keyName,
     apiKey: sharedKey,
+    imageProvider: env("AI_IMAGE_PROVIDER", "openai-compatible"),
     visionApiKey: process.env.AI_SMOKE_VISION_API_KEY
       || process.env.AI_VISION_API_KEY
       || sharedKey,
@@ -323,6 +340,7 @@ function printConfig(config) {
     imageApiKey: config.imageApiKey ? "已设置（不显示内容）" : "未设置",
     apiKeyVariable: config.keyName || "无",
     baseUrl: safeUrl(config.baseUrl),
+    imageProvider: config.imageProvider,
     imageBaseUrl: safeUrl(config.imageBaseUrl),
     visionEndpoint: safeUrl(config.visionEndpoint || endpoint(config.baseUrl, "chat/completions")),
     imageEndpoint: safeUrl(config.imageEndpoint || endpoint(config.imageBaseUrl, "images/generations")),
@@ -406,11 +424,65 @@ async function runEdits(config) {
   if (!config.imageApiKey) throw new Error("没有生图接口密钥，不能运行编辑真实测试。");
   const main = readRequiredFile(config.mainPath, "编辑主图");
   const mask = readRequiredFile(config.maskPath, "编辑 mask");
+  const mainMime = detectMime(config.mainPath, main);
+  const references = config.referencePaths.map((filePath, index) => {
+    const buffer = readRequiredFile(filePath, `参考图 ${index + 1}`);
+    return {
+      buffer,
+      mime: detectMime(filePath, buffer)
+    };
+  });
+  const editUrl = endpoint(config.imageBaseUrl, "images/edits", config.editEndpoint);
+  if (isLingyunImageProvider(config)) {
+    const payload = {
+      model: config.imageModel,
+      prompt: "只做接口连通性测试：保持主图结构，仅验证 mask 局部编辑。",
+      size: config.size,
+      quality: "auto",
+      n: 1,
+      background: "auto",
+      response_format: "url",
+      output_format: "png",
+      images: [{
+        image_url: dataUrl(main, mainMime)
+      }].concat(references.map((reference) => ({
+        image_url: dataUrl(reference.buffer, reference.mime)
+      }))),
+      mask: {
+        image_url: dataUrl(mask, "image/png")
+      }
+    };
+    const body = JSON.stringify(payload);
+    const response = await requestWithRetry(
+      editUrl,
+      {
+        method: "POST",
+        headers: jsonHeaders(config.imageApiKey, body)
+      },
+      body,
+      {
+        maxRetries: config.maxRetries,
+        allowRetry: boolEnv("AI_SMOKE_RETRY_IMAGES", false),
+        timeoutMs: config.timeoutMs
+      }
+    );
+    assertSuccess(response, "图片编辑接口");
+    return {
+      status: response.status,
+      attempts: response.attempts,
+      protocol: "lingyun-json",
+      requestBytes: Buffer.byteLength(body),
+      responseBytes: response.buffer.length,
+      referenceCount: references.length,
+      hasMainImage: Boolean(payload.images[0] && payload.images[0].image_url),
+      hasMask: Boolean(payload.mask && payload.mask.image_url)
+    };
+  }
   const files = [
     {
       name: env("AI_IMAGE_MAIN_FIELD", "image"),
-      filename: `main.${imageExtension(detectMime(config.mainPath, main))}`,
-      mime: detectMime(config.mainPath, main),
+      filename: `main.${imageExtension(mainMime)}`,
+      mime: mainMime,
       buffer: main
     },
     {
@@ -420,23 +492,19 @@ async function runEdits(config) {
       buffer: mask
     }
   ];
-  const references = config.referencePaths.map((filePath, index) => {
-    const buffer = readRequiredFile(filePath, `参考图 ${index + 1}`);
-    const mime = detectMime(filePath, buffer);
-    return {
-      name: env("AI_IMAGE_REFERENCE_FIELD", "image[]"),
-      filename: `reference-${index + 1}.${imageExtension(mime)}`,
-      mime,
-      buffer
-    };
-  });
+  const multipartReferences = references.map((reference, index) => ({
+    name: env("AI_IMAGE_REFERENCE_FIELD", "image[]"),
+    filename: `reference-${index + 1}.${imageExtension(reference.mime)}`,
+    mime: reference.mime,
+    buffer: reference.buffer
+  }));
   const multipart = createMultipart([
     { name: "model", value: config.imageModel },
     { name: "prompt", value: "只做接口连通性测试：保持主图结构，仅验证编辑接口。" },
     { name: "size", value: config.size }
-  ], files.concat(references));
+  ], files.concat(multipartReferences));
   const response = await requestWithRetry(
-    endpoint(config.imageBaseUrl, "images/edits", config.editEndpoint),
+    editUrl,
     {
       method: "POST",
       headers: Object.assign({

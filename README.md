@@ -189,14 +189,15 @@ AI_VISION_MODEL=qwen3-vl-flash
 AI_FACE_MODEL=qwen3-vl-flash
 
 # 生图专用：和人脸识别、视频模型完全分开
+AI_IMAGE_PROVIDER=lingyun
 AI_IMAGE_API_KEY=你的生图服务 API Key
-AI_IMAGE_BASE_URL=https://api.pandatk.com/v1
-AI_IMAGE_ENDPOINT=https://api.pandatk.com/v1/images/generations
-AI_IMAGE_MODEL=image2超分高质量1-4k
+AI_IMAGE_BASE_URL=https://api.lingyunapi.xyz/v1
+AI_IMAGE_ENDPOINT=https://api.lingyunapi.xyz/v1/images/generations
+AI_IMAGE_MODEL=gpt-image-2
 AI_IMAGE_SIZE=1024x1024
 DAILY_GENERATION_LIMIT=5
-AI_IMAGE_MODE=generations
-AI_IMAGE_EDIT_ENDPOINT=
+AI_IMAGE_MODE=edits
+AI_IMAGE_EDIT_ENDPOINT=https://api.lingyunapi.xyz/v1/images/edits
 AI_IMAGE_MAIN_FIELD=image
 AI_IMAGE_MASK_FIELD=mask
 AI_IMAGE_REFERENCE_FIELD=image[]
@@ -250,16 +251,17 @@ OpenID。管理员进入工作台后会看到“管理员配置”入口，普�
 供应商返回真实 Token 或视频秒数时按真实用量计算；没有返回时按请求分辨率和默认时长估算，
 后台会区分“实际”和“估算”。旧的模型调用记录没有完整成本字段，只保留调用次数，不补造历史金额。
 
-当前 PandaTK 生图配置：
+当前凌云生图配置：
 
-- 中转站根地址：`https://api.pandatk.com`
-- OpenAI 兼容生图接口：`POST https://api.pandatk.com/v1/images/generations`
-- 模型：`image2超分高质量1-4k`
-- 价格：1K 约 0.015、2K 约 0.025、4K 约 0.035
+- 中转站根地址：`https://api.lingyunapi.xyz`
+- 普通生图接口：`POST https://api.lingyunapi.xyz/v1/images/generations`
+- 图片编辑接口：`POST https://api.lingyunapi.xyz/v1/images/edits`
+- 模型：`gpt-image-2`
+- 编辑请求使用 JSON，主图和参考图放到 `images[].image_url`，mask 放到 `mask.image_url`
 
 Key 只填写到云函数环境变量 `AI_IMAGE_API_KEY`，不要写进源码、README、
 日志或发布 ZIP。自动识别人脸继续使用 `AI_VISION_API_KEY` 的 DashScope，
-不会被 PandaTK 生图配置替换。
+不会被凌云生图配置替换。
 
 部署前可以在工程根目录执行：
 
@@ -447,7 +449,7 @@ AI_IMAGE_ENDPOINT=https://example.com/image
 
 默认 `AI_IMAGE_MODE=generations`，保持原来的 JSON 生图流程。
 
-如果中转站支持 multipart 图片编辑，可改成：
+图片编辑模式配置为：
 
 ```text
 AI_IMAGE_MODE=edits
@@ -457,7 +459,7 @@ AI_IMAGE_MASK_FIELD=mask
 AI_IMAGE_REFERENCE_FIELD=image[]
 ```
 
-小程序会根据红圈导出透明区域 mask，并把主图、mask、人脸参考图和穿搭参考图交给云函数组装 multipart 请求。不同供应商如果要求 `reference_images[]` 等字段，只改环境变量，不改页面代码。
+小程序会根据红圈导出透明区域 mask，并把主图、mask、人脸参考图和穿搭参考图交给云函数。凌云图片上游使用 JSON 格式的 `images[].image_url` 和 `mask.image_url`；其他 OpenAI-compatible 上游继续使用 multipart 的 `image`、`mask` 和 `image[]` 字段。页面上传和 `maskFileID` 链路不需要改。
 
 生图默认允许自动重试，最多按 `AI_MAX_RETRIES` 再试；只对网络失败、限流和服务端临时错误重试。若上游已经扣费但客户端没有收到响应，仍可能产生重复生成；对计费敏感的环境可在管理员页面取消勾选，或把 `AI_IMAGE_RETRY_ENABLED=false`。视觉分析、云文件下载和结果图片下载也会按 `AI_MAX_RETRIES` 做退避重试；每次云函数请求都有 `requestId`，排查失败时把请求编号交给后台日志即可。
 

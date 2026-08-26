@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.42.2";
-const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0422";
+const API_BUILD_VERSION = "0.42.3";
+const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0423";
 const DEFAULT_IMAGE_MODE = "edits";
 const IMAGE_EDIT_ERROR_CODES = Object.freeze([
   "image-edit-unsupported",
@@ -1847,6 +1847,83 @@ function buildImageEditFields(payload = {}, imageConfig = resolveImageConfig(), 
   }
   if (payload.n) fields.push({ name: "n", value: String(payload.n) });
   return fields;
+}
+
+function isLingyunImageProvider(imageConfig = {}, requestUrl = "") {
+  const config = imageConfig && typeof imageConfig === "object" ? imageConfig : {};
+  const provider = String(config.provider || "").trim().toLowerCase();
+  if (provider === "lingyun" || provider === "凌云") return true;
+  return [requestUrl, config.baseUrl, config.endpoint].some((value) => {
+    try {
+      const hostname = new URL(String(value || "")).hostname.toLowerCase();
+      return hostname === "lingyunapi.xyz" || hostname.endsWith(".lingyunapi.xyz");
+    } catch (_) {
+      return false;
+    }
+  });
+}
+
+function buildLingyunImageEditPayload(
+  payload = {},
+  imageConfig = resolveImageConfig(),
+  mainBuffer,
+  maskBuffer = null,
+  referenceBuffers = []
+) {
+  const config = imageConfig && typeof imageConfig === "object" ? imageConfig : {};
+  const prompt = `${String(payload.prompt || "").trim()}${
+    payload.negativePrompt ? `\n\n负面约束：${String(payload.negativePrompt).trim()}` : ""
+  }`;
+  const images = [mainBuffer]
+    .concat((Array.isArray(referenceBuffers) ? referenceBuffers : []).map(
+      (item) => item && item.buffer ? item.buffer : item
+    ))
+    .filter((buffer) => Buffer.isBuffer(buffer) && buffer.length)
+    .map((buffer) => ({
+      image_url: toDataUrl(buffer, detectMime(buffer))
+    }));
+  const result = {
+    model: String(config.model || payload.model || "").trim(),
+    prompt,
+    size: resolveImageOutputSize(config, payload.size),
+    quality: "auto",
+    n: Math.max(1, Number(payload.n) || 1),
+    background: "auto",
+    response_format: "url",
+    output_format: "png",
+    images
+  };
+  if (Buffer.isBuffer(maskBuffer) && maskBuffer.length) {
+    result.mask = {
+      image_url: toDataUrl(maskBuffer, detectMime(maskBuffer))
+    };
+  }
+  return result;
+}
+
+function imageEditJsonSummary(payload = {}) {
+  const source = payload && typeof payload === "object" ? payload : {};
+  const images = Array.isArray(source.images) ? source.images : [];
+  const hasMask = Boolean(source.mask && source.mask.image_url);
+  return {
+    textFields: [
+      "model",
+      "prompt",
+      "size",
+      "quality",
+      "n",
+      "background",
+      "response_format",
+      "output_format"
+    ],
+    fileFields: [
+      ...(images.length ? ["images[].image_url"] : []),
+      ...(hasMask ? ["mask.image_url"] : [])
+    ],
+    hasMainImage: Boolean(images[0] && images[0].image_url),
+    hasMask,
+    referenceCount: Math.max(0, images.length - 1)
+  };
 }
 
 function hasFileID(value) {
@@ -8051,6 +8128,9 @@ async function requestImageEdits(
   const mainField = env("AI_IMAGE_MAIN_FIELD", "image");
   const maskField = env("AI_IMAGE_MASK_FIELD", "mask");
   const fields = buildImageEditFields(payload, imageConfig, references);
+  const endpointInfo = resolveImageEditEndpoint(imageConfig);
+  const url = endpointInfo.url;
+  const useLingyunJson = isLingyunImageProvider(imageConfig, url);
 
   const files = [
     {
@@ -8076,27 +8156,56 @@ async function requestImageEdits(
     });
   });
 
-  const multipart = createMultipart(fields, files);
-  const endpointInfo = resolveImageEditEndpoint(imageConfig);
-  const url = endpointInfo.url;
-  const multipartSummary = imageEditMultipartSummary(
-    fields,
-    files,
-    mainField,
-    maskField
-  );
+  let requestBody;
+  let requestHeaders;
+  let requestFormat;
+  let requestSummary;
+  if (useLingyunJson) {
+    const jsonPayload = buildLingyunImageEditPayload(
+      payload,
+      imageConfig,
+      mainBuffer,
+      maskBuffer,
+      referenceBuffers
+    );
+    requestBody = Buffer.from(JSON.stringify(jsonPayload), "utf8");
+    requestHeaders = {
+      "Content-Type": "application/json",
+      "Content-Length": requestBody.length
+    };
+    requestFormat = "lingyun-json";
+    requestSummary = imageEditJsonSummary(jsonPayload);
+  } else {
+    const multipart = createMultipart(fields, files);
+    requestBody = multipart.body;
+    requestHeaders = {
+      "Content-Type": multipart.contentType,
+      "Content-Length": multipart.body.length
+    };
+    requestFormat = "multipart";
+    requestSummary = imageEditMultipartSummary(
+      fields,
+      files,
+      mainField,
+      maskField
+    );
+  }
+  const requestLogFields = useLingyunJson
+    ? { json: requestSummary }
+    : { multipart: requestSummary };
   log("info", "image-edit.request", {
     requestId,
     provider: imageConfig.provider || "",
     model: imageConfig.model || "",
     endpoint: safeUrl(url),
     endpointSource: endpointInfo.source,
+    requestFormat,
     generationEndpoint: safeEndpointUrl(
       imageConfig.baseUrl,
       imageConfig.endpoint,
       "images/generations"
     ),
-    multipart: multipartSummary,
+    ...requestLogFields,
     mainImagePresent: Boolean(mainBuffer && mainBuffer.length),
     maskPresent: Boolean(maskBuffer && maskBuffer.length),
     referenceCount: referenceBuffers.length
@@ -8104,12 +8213,11 @@ async function requestImageEdits(
   const response = await requestWithRetry(url, {
     method: "POST",
     headers: {
-      "Content-Type": multipart.contentType,
-      "Content-Length": multipart.body.length,
+      ...requestHeaders,
       ...apiKeyHeaders(apiKey),
       "Idempotency-Key": requestId
     }
-  }, multipart.body, {
+  }, requestBody, {
     requestId,
     action: payload.__action || "repairImage",
     provider: imageConfig.provider || "",
@@ -8136,7 +8244,8 @@ async function requestImageEdits(
       upstreamCode: classification.upstreamCode,
       upstreamMessage: classification.upstreamMessage,
       retryable: classification.retryable,
-      multipart: multipartSummary
+      requestFormat,
+      ...requestLogFields
     });
     throw imageUpstreamError(response, "图片编辑接口请求失败", {
       imageEdit: true
@@ -8148,7 +8257,8 @@ async function requestImageEdits(
     model: imageConfig.model || "",
     endpoint: safeUrl(url),
     status: response.status,
-    multipart: multipartSummary
+    requestFormat,
+    ...requestLogFields
   });
   return response.json || {};
 }
@@ -8343,25 +8453,45 @@ async function requestTencentPipelineImageEdit(mainBuffer, payload, imageConfig,
   });
   const fields = buildImageEditFields(pipelinePayload, imageConfig, []);
   const mime = detectMime(mainBuffer);
-  const multipart = createMultipart(fields, [{
-    name: env("AI_IMAGE_MAIN_FIELD", "image"),
-    filename: `main.${imageExtension(mime)}`,
-    mime,
-    buffer: mainBuffer
-  }]);
   const endpointInfo = resolveImageEditEndpoint(imageConfig);
+  const useLingyunJson = isLingyunImageProvider(imageConfig, endpointInfo.url);
+  let requestBody;
+  let requestHeaders;
+  if (useLingyunJson) {
+    const jsonPayload = buildLingyunImageEditPayload(
+      pipelinePayload,
+      imageConfig,
+      mainBuffer
+    );
+    requestBody = Buffer.from(JSON.stringify(jsonPayload), "utf8");
+    requestHeaders = {
+      "Content-Type": "application/json",
+      "Content-Length": requestBody.length
+    };
+  } else {
+    const multipart = createMultipart(fields, [{
+      name: env("AI_IMAGE_MAIN_FIELD", "image"),
+      filename: `main.${imageExtension(mime)}`,
+      mime,
+      buffer: mainBuffer
+    }]);
+    requestBody = multipart.body;
+    requestHeaders = {
+      "Content-Type": multipart.contentType,
+      "Content-Length": multipart.body.length
+    };
+  }
   const response = await requestWithRetry(
     endpointInfo.url,
     {
       method: "POST",
       headers: {
-        "Content-Type": multipart.contentType,
-        "Content-Length": multipart.body.length,
+        ...requestHeaders,
         ...apiKeyHeaders(imageConfig.apiKey),
         "Idempotency-Key": requestId
       }
     },
-    multipart.body,
+    requestBody,
     {
       requestId,
       action: "tencent.pipeline.image-edit",
@@ -12946,6 +13076,9 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     resolveImageOutputSize,
     buildImageGenerationPayload,
     buildImageEditFields,
+    isLingyunImageProvider,
+    buildLingyunImageEditPayload,
+    imageEditJsonSummary,
     hasImageEditAssets,
     resolveGenerationMode,
     defaultImageMode: DEFAULT_IMAGE_MODE,

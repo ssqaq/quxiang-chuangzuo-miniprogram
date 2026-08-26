@@ -183,6 +183,133 @@ async function main() {
   assert.ok(requests[0].body.includes('name="mask"; filename="mask.png"'));
   assert.ok(requests[0].body.includes('name="image[]"; filename="face-1.png"'));
 
+  assert.strictEqual(
+    test.isLingyunImageProvider({ provider: "lingyun" }),
+    true,
+    "凌云 provider 必须走 JSON 图片编辑协议"
+  );
+  assert.strictEqual(
+    test.isLingyunImageProvider({ baseUrl: "https://api.lingyunapi.xyz/v1" }),
+    true,
+    "凌云域名必须自动识别为 JSON 图片编辑协议"
+  );
+  assert.strictEqual(
+    test.isLingyunImageProvider({ provider: "openai-compatible" }),
+    false,
+    "其他 OpenAI-compatible provider 必须保留 multipart 协议"
+  );
+
+  const lingyunRequests = [];
+  const originalLingyunEditEndpoint = process.env.AI_IMAGE_EDIT_ENDPOINT;
+  const pngFixture = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/l9F2TQAAAABJRU5ErkJggg==",
+    "base64"
+  );
+  wxCloud.downloadFile = async () => ({
+    fileContent: pngFixture
+  });
+  try {
+    await withServer((request, response) => {
+      const chunks = [];
+      request.on("data", (chunk) => chunks.push(chunk));
+      request.on("end", () => {
+        lingyunRequests.push({
+          method: request.method,
+          path: request.url,
+          headers: request.headers,
+          body: Buffer.concat(chunks).toString("utf8")
+        });
+        response.statusCode = 200;
+        response.setHeader("Content-Type", "application/json");
+        response.end(JSON.stringify({
+          data: [{ b64_json: Buffer.from("lingyun-result").toString("base64") }]
+        }));
+      });
+    }, async (url) => {
+      process.env.AI_IMAGE_EDIT_ENDPOINT = url;
+      const imageConfig = test.resolveImageConfig({
+        image: {
+          provider: "lingyun",
+          mode: "edits",
+          baseUrl: "https://api.lingyunapi.xyz/v1",
+          model: "gpt-image-2",
+          compatibilityMode: false,
+          timeoutMs: 5000,
+          retryEnabled: false,
+          retryPreferenceVersion: 1
+        }
+      });
+      const result = await test.requestImageEdits(
+        {
+          mainFileID: "main-file",
+          maskFileID: "mask-file",
+          faceFileIDs: ["face-file"],
+          prompt: "只修改衣服",
+          size: "1024x1024"
+        },
+        "smoke-image-key",
+        "smoke-routing-lingyun-json",
+        imageConfig,
+        {},
+        "smoke-user"
+      );
+      assert.ok(result.data && result.data[0] && result.data[0].b64_json);
+
+      const pipelineResult = await test.requestTencentPipelineImageEdit(
+        pngFixture,
+        {
+          prompt: "换衣服和背景",
+          negativePrompt: "不要改脸",
+          size: "1024x1024"
+        },
+        Object.assign({}, imageConfig, { apiKey: "smoke-image-key" }),
+        {},
+        "smoke-routing-lingyun-tencent-pipeline",
+        "smoke-user"
+      );
+      assert.ok(
+        pipelineResult.data
+          && pipelineResult.data[0]
+          && pipelineResult.data[0].b64_json
+      );
+    });
+  } finally {
+    wxCloud.downloadFile = originalDownloadFile;
+    if (originalLingyunEditEndpoint === undefined) {
+      delete process.env.AI_IMAGE_EDIT_ENDPOINT;
+    } else {
+      process.env.AI_IMAGE_EDIT_ENDPOINT = originalLingyunEditEndpoint;
+    }
+  }
+
+  assert.strictEqual(lingyunRequests.length, 2, "凌云普通编辑和腾讯前置编辑各请求一次");
+  lingyunRequests.forEach((request) => {
+    assert.strictEqual(request.method, "POST");
+    assert.ok(!String(request.path).includes("generations"));
+    assert.ok(
+      String(request.headers["content-type"] || "").includes("application/json"),
+      "凌云图片编辑必须发送 application/json"
+    );
+  });
+  const lingyunEditBody = JSON.parse(lingyunRequests[0].body);
+  assert.strictEqual(lingyunEditBody.model, "gpt-image-2");
+  assert.strictEqual(lingyunEditBody.images.length, 2);
+  assert.ok(lingyunEditBody.images[0].image_url.startsWith("data:image/png;base64,"));
+  assert.ok(lingyunEditBody.images[1].image_url.startsWith("data:image/png;base64,"));
+  assert.ok(lingyunEditBody.mask.image_url.startsWith("data:image/png;base64,"));
+  assert.strictEqual(lingyunEditBody.response_format, "url");
+  assert.strictEqual(lingyunEditBody.output_format, "png");
+
+  const lingyunPipelineBody = JSON.parse(lingyunRequests[1].body);
+  assert.strictEqual(lingyunPipelineBody.model, "gpt-image-2");
+  assert.strictEqual(lingyunPipelineBody.images.length, 1);
+  assert.strictEqual(
+    Object.prototype.hasOwnProperty.call(lingyunPipelineBody, "mask"),
+    false,
+    "腾讯流程第一阶段没有 mask 时不能伪造 mask"
+  );
+  assert.ok(lingyunPipelineBody.prompt.includes("第一阶段只修改衣服、背景和整体光影"));
+
   const capabilityRequests = [];
   const originalEditEndpointAfterSuccess = process.env.AI_IMAGE_EDIT_ENDPOINT;
   wxCloud.downloadFile = async ({ fileID }) => ({
@@ -269,6 +396,7 @@ async function main() {
     ),
     missingCode: missing.errorCode,
     multipartRequests: requests.length,
+    lingyunJsonRequests: lingyunRequests.length,
     capabilityErrorCode: "image-edit-unsupported",
     capabilityRequests: capabilityRequests.length
   }));

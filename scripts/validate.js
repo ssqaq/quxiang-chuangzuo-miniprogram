@@ -64,6 +64,7 @@ const jsFiles = [
   "scripts/admin-config-layout-smoke.js",
   "scripts/image-quality-smoke.js",
   "scripts/image-edit-routing-smoke.js",
+  "scripts/tencent-face-fusion-page-smoke.js",
   "scripts/tencent-face-fusion-smoke.js",
   "scripts/release-safety-smoke.js",
   "pages/index/index.js",
@@ -245,6 +246,7 @@ const required = [
   "scripts/admin-config-layout-smoke.js",
   "scripts/image-quality-smoke.js",
   "scripts/image-edit-routing-smoke.js",
+  "scripts/tencent-face-fusion-page-smoke.js",
   "scripts/tencent-face-fusion-smoke.js",
   "scripts/release-safety-smoke.js",
   "scripts/diagnostic-admin-logs-smoke.js",
@@ -382,6 +384,14 @@ const profileWxss = fs.readFileSync(path.join(root, "pages/profile/profile.wxss"
 const workbenchJs = fs.readFileSync(path.join(root, "pages/workbench/workbench.js"), "utf8");
 const workbenchWxml = fs.readFileSync(path.join(root, "pages/workbench/workbench.wxml"), "utf8");
 const workbenchWxss = fs.readFileSync(path.join(root, "pages/workbench/workbench.wxss"), "utf8");
+const tencentFaceFusionJs = fs.readFileSync(
+  path.join(root, "pages/tencent-face-fusion/tencent-face-fusion.js"),
+  "utf8"
+);
+const tencentFaceFusionWxml = fs.readFileSync(
+  path.join(root, "pages/tencent-face-fusion/tencent-face-fusion.wxml"),
+  "utf8"
+);
 const publishExportJs = fs.readFileSync(
   path.join(root, "pages/publish-export/publish-export.js"),
   "utf8"
@@ -511,6 +521,27 @@ if (
   || !adminJs.includes('mode: image.mode || "edits"')
 ) {
   throw new Error("人脸替换的 edits 默认模式、素材强制分流或管理员默认配置不完整。");
+}
+if (
+  !cloudJs.includes("function createFaceProtectionMask")
+  || !cloudJs.includes("function faceProtectionRects")
+  || !cloudJs.includes("TENCENT_FACE_PROTECTION_MARGIN_RATIO = 0.22")
+  || !cloudJs.includes("TENCENT_PIPELINE_FACE_NOT_FOUND")
+  || !cloudJs.includes("TENCENT_PIPELINE_MASK_REQUIRED")
+  || !cloudJs.includes("detectTencentPipelineFaces")
+  || !cloudJs.includes("probeImageEditCapability")
+  || !clientCloudJs.includes('action: "probeImageEditCapability"')
+  || !adminJs.includes("runImageEditCapabilityProbe")
+  || !adminWxml.includes("检查图片编辑配置")
+  || !adminJs.includes('liveVerifiedText: "未真实生图"')
+  || !tencentFaceFusionJs.includes("PIPELINE_WAIT_TIMEOUT_MS = 150000")
+  || !tencentFaceFusionJs.includes("continueStatusQuery()")
+  || !tencentFaceFusionJs.includes("TENCENT_PIPELINE_CLIENT_TIMEOUT")
+  || !tencentFaceFusionWxml.includes("生成脸部保护 mask")
+  || !tencentFaceFusionWxml.includes('class="pipeline-dot">4</view>')
+  || !tencentFaceFusionWxml.includes("继续查询结果")
+) {
+  throw new Error("腾讯版脸部保护 mask、管理员图片编辑检查或等待超时恢复逻辑不完整。");
 }
 if (
   !watermarkGatewayJs.includes('process.env.ZHUCEKA_UID')

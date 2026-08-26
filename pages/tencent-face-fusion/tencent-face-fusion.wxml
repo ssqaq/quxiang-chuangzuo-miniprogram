@@ -4,7 +4,7 @@
     <view>
       <view class="page-kicker">GPT IMAGE 2 × TENCENT</view>
       <view class="page-title">腾讯版自动换脸</view>
-      <view class="page-subtitle">先改整体，再最后换脸；一次点击自动完成。</view>
+      <view class="page-subtitle">先检测并保护脸部，再改整体，最后腾讯换脸。</view>
     </view>
   </view>
 
@@ -22,15 +22,29 @@
       <view class="progress-fill {{stage === 'failed' ? 'is-failed' : ''}}" style="width: {{progress}}%;"></view>
     </view>
     <view class="pipeline-line"></view>
-    <view class="pipeline-step {{stage === 'preparing' ? 'is-active' : ''}} {{stage === 'facefusion' || stage === 'succeeded' ? 'is-done' : ''}}">
+    <view class="pipeline-step {{stage === 'preparing' || stage === 'face-detection' ? 'is-active' : ''}} {{stage === 'mask-ready' || stage === 'image-edit' || stage === 'facefusion' || stage === 'succeeded' ? 'is-done' : ''}}">
       <view class="pipeline-dot">1</view>
       <view class="pipeline-copy">
-        <view class="pipeline-title">{{stage === 'preparing' ? '正在修改衣服、背景和光影' : '修改衣服、背景和光影'}}</view>
-        <view class="pipeline-desc">使用当前普通生图配置，不会换掉普通创作设置。</view>
+        <view class="pipeline-title">{{stage === 'preparing' || stage === 'face-detection' ? '正在检测主图人脸' : '检测主图人脸'}}</view>
+        <view class="pipeline-desc">识别主图里所有清晰人脸，检测不到就停止。</view>
+      </view>
+    </view>
+    <view class="pipeline-step {{stage === 'mask-ready' ? 'is-active' : ''}} {{stage === 'image-edit' || stage === 'facefusion' || stage === 'succeeded' ? 'is-done' : ''}}">
+      <view class="pipeline-dot">2</view>
+      <view class="pipeline-copy">
+        <view class="pipeline-title">{{stage === 'mask-ready' ? '正在生成脸部保护 mask' : '生成脸部保护 mask'}}</view>
+        <view class="pipeline-desc">锁住脸部区域，避免修改衣服和背景时把脸改掉。</view>
+      </view>
+    </view>
+    <view class="pipeline-step {{stage === 'image-edit' ? 'is-active' : ''}} {{stage === 'facefusion' || stage === 'succeeded' ? 'is-done' : ''}}">
+      <view class="pipeline-dot">3</view>
+      <view class="pipeline-copy">
+        <view class="pipeline-title">{{stage === 'image-edit' ? '正在修改衣服、背景和光影' : '修改衣服、背景和光影'}}</view>
+        <view class="pipeline-desc">使用当前普通生图配置，并携带真实保护 mask。</view>
       </view>
     </view>
     <view class="pipeline-step {{stage === 'facefusion' ? 'is-active' : ''}} {{stage === 'succeeded' ? 'is-done' : ''}}">
-      <view class="pipeline-dot">2</view>
+      <view class="pipeline-dot">4</view>
       <view class="pipeline-copy">
         <view class="pipeline-title">{{stage === 'facefusion' ? '正在融合参考人脸' : '融合参考人脸'}}</view>
         <view class="pipeline-desc">最后使用腾讯云图片人脸融合专业版。</view>
@@ -86,13 +100,26 @@
     ></textarea>
   </view>
 
-  <view wx:if="{{message}}" class="notice {{stage === 'failed' ? 'notice-error' : 'notice-success'}}">
-    <view class="notice-title">{{stage === 'failed' ? '提示' : '制作链路'}}</view>
+  <view wx:if="{{message}}" class="notice {{stage === 'failed' ? 'notice-error' : (stage === 'timeout' ? 'notice-warn' : 'notice-success')}}">
+    <view class="notice-title">{{stage === 'failed' ? '提示' : (stage === 'timeout' ? '仍在处理' : '制作链路')}}</view>
     <view class="notice-text">{{message}}</view>
     <view wx:if="{{retryHint}}" class="notice-retry">{{retryHint}}</view>
+    <view wx:if="{{timeoutHint}}" class="notice-retry">{{timeoutHint}}</view>
   </view>
 
-  <view class="action-area">
+  <view wx:if="{{timedOut}}" class="action-area">
+    <button
+      class="primary-button"
+      bindtap="continueStatusQuery"
+      loading="{{statusQuerying}}"
+      disabled="{{statusQuerying}}"
+    >
+      {{statusQuerying ? '正在查询原请求' : '继续查询结果'}}
+    </button>
+    <view class="timeout-safe-tip">这里只查原请求，不会重新生图，也不会重复扣费。</view>
+  </view>
+
+  <view wx:else class="action-area">
     <button
       class="primary-button"
       bindtap="startPipeline"
@@ -123,7 +150,7 @@
     </view>
   </view>
 
-  <view class="route-note">当前使用链路：GPT Image 2 → 腾讯人脸融合专业版</view>
+  <view class="route-note">当前使用链路：人脸检测 → 脸部保护 mask → GPT Image 2 → 腾讯人脸融合专业版</view>
   <view class="bottom-safe"></view>
 
   <image-preview

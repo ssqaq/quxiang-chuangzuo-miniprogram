@@ -475,6 +475,44 @@
               role="button"
               aria-label="获取生图模型列表"
             >{{modelActionType === 'image' && modelActionKind === 'list' ? '读取中...' : '获取模型'}}</view>
+            <view
+              class="config-model-button config-image-edit-probe {{imageEditCapabilityLoading ? 'is-disabled' : ''}}"
+              bindtap="runImageEditCapabilityProbe"
+              hover-class="control-tap"
+              role="button"
+              aria-label="不扣费检查图片编辑配置"
+            >{{imageEditCapabilityLoading ? '检查中...' : '检查图片编辑配置'}}</view>
+          </view>
+          <view
+            wx:if="{{imageEditCapabilityProbe.checked}}"
+            class="image-edit-probe-card is-{{imageEditCapabilityProbe.tone}}"
+          >
+            <view class="image-edit-probe-head">
+              <view>
+                <view class="image-edit-probe-title">{{imageEditCapabilityProbe.statusText}}</view>
+                <view class="image-edit-probe-subtitle">
+                  {{imageEditCapabilityProbe.billingRiskText}} · {{imageEditCapabilityProbe.liveVerifiedText}}
+                </view>
+              </view>
+              <view class="config-state {{imageEditCapabilityProbe.ready ? 'is-ready' : 'is-off'}}">
+                {{imageEditCapabilityProbe.ready ? '配置完整' : '需要处理'}}
+              </view>
+            </view>
+            <view class="image-edit-probe-grid">
+              <view><text>服务商</text><text>{{imageEditCapabilityProbe.provider}}</text></view>
+              <view><text>模型</text><text>{{imageEditCapabilityProbe.model}}</text></view>
+              <view><text>请求格式</text><text>{{imageEditCapabilityProbe.requestFormatText}}</text></view>
+              <view><text>API Key</text><text>{{imageEditCapabilityProbe.apiKeyStatusText}}</text></view>
+              <view class="is-wide"><text>edits endpoint</text><text>{{imageEditCapabilityProbe.editEndpoint}}</text></view>
+              <view><text>主图字段</text><text>{{imageEditCapabilityProbe.mainField}}</text></view>
+              <view><text>mask 字段</text><text>{{imageEditCapabilityProbe.maskField}}</text></view>
+              <view><text>参考图字段</text><text>{{imageEditCapabilityProbe.referenceField}}</text></view>
+              <view><text>mask 反转</text><text>{{imageEditCapabilityProbe.maskInvertText}}</text></view>
+            </view>
+            <view class="image-edit-probe-warning">{{imageEditCapabilityProbe.message}}</view>
+            <view wx:if="{{imageEditCapabilityProbe.checkedAt}}" class="image-edit-probe-time">
+              检查时间：{{imageEditCapabilityProbe.checkedAt}}
+            </view>
           </view>
           <view class="admin-grid">
             <view class="admin-field"><text>服务商</text><input value="{{form.image.provider}}" data-section="image" data-key="provider" bindinput="onInput" /></view>

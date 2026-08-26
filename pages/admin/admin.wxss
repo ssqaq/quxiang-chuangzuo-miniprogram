@@ -770,6 +770,98 @@ page {
   background: #2e73dc;
 }
 
+.config-image-edit-probe {
+  color: #6b3fc8;
+  border-color: #cdbcf4;
+  background: #f6f1ff;
+}
+
+.image-edit-probe-card {
+  margin-top: 14rpx;
+  padding: 16rpx;
+  border: 1rpx solid #d7e1ee;
+  border-radius: 18rpx;
+  background: #f8fbff;
+}
+
+.image-edit-probe-card.is-ready {
+  border-color: #b8dfcb;
+  background: #f2fbf6;
+}
+
+.image-edit-probe-card.is-error {
+  border-color: #efc3c8;
+  background: #fff7f8;
+}
+
+.image-edit-probe-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14rpx;
+}
+
+.image-edit-probe-title {
+  color: #263b58;
+  font-size: 22rpx;
+  font-weight: 800;
+}
+
+.image-edit-probe-subtitle,
+.image-edit-probe-time {
+  margin-top: 4rpx;
+  color: #7d8ca1;
+  font-size: 18rpx;
+  line-height: 28rpx;
+}
+
+.image-edit-probe-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8rpx;
+  margin-top: 14rpx;
+}
+
+.image-edit-probe-grid view {
+  min-width: 0;
+  padding: 10rpx 12rpx;
+  border-radius: 12rpx;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.image-edit-probe-grid .is-wide {
+  grid-column: 1 / -1;
+}
+
+.image-edit-probe-grid text {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.image-edit-probe-grid text:first-child {
+  color: #8b99ab;
+  font-size: 17rpx;
+}
+
+.image-edit-probe-grid text:last-child {
+  margin-top: 2rpx;
+  color: #324a68;
+  font-size: 19rpx;
+  font-weight: 700;
+}
+
+.image-edit-probe-warning {
+  margin-top: 12rpx;
+  padding: 12rpx;
+  border-radius: 12rpx;
+  color: #8a5a18;
+  background: #fff5df;
+  font-size: 18rpx;
+  line-height: 29rpx;
+}
+
 .config-helper {
   padding: 14rpx 16rpx;
   border-radius: 16rpx;

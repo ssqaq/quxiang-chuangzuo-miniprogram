@@ -327,6 +327,10 @@ page {
   color: #bd4e58;
 }
 
+.notice-warn .notice-title {
+  color: #9a6619;
+}
+
 .notice-text,
 .notice-retry {
   margin-top: 5rpx;
@@ -341,6 +345,14 @@ page {
 
 .action-area {
   margin: 22rpx 0;
+}
+
+.timeout-safe-tip {
+  margin-top: 10rpx;
+  color: #8a6b32;
+  font-size: 20rpx;
+  line-height: 30rpx;
+  text-align: center;
 }
 
 .primary-button,

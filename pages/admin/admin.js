@@ -1204,6 +1204,73 @@ function buildTencentFaceFusionLocalStatus(result, requestId, status, errorMessa
   });
 }
 
+function emptyImageEditCapabilityProbe() {
+  return {
+    checked: false,
+    ready: false,
+    tone: "neutral",
+    status: "not-run",
+    statusText: "尚未检查",
+    provider: "未配置",
+    model: "未配置",
+    editEndpoint: "未配置",
+    endpointSource: "",
+    requestFormat: "",
+    requestFormatText: "未识别",
+    mainField: "",
+    maskField: "",
+    referenceField: "",
+    maskInvertText: "关闭",
+    apiKeyStatusText: "未配置",
+    liveVerified: false,
+    liveVerifiedText: "未真实生图",
+    billingRiskText: "不扣费",
+    message: "点击后只核对配置，不会调用生图，也不能证明上游已经支持 mask 像素合成。",
+    checkedAt: ""
+  };
+}
+
+function formatImageEditCapabilityProbe(result) {
+  const source = result && result.probe && typeof result.probe === "object"
+    ? result.probe
+    : result && typeof result === "object"
+      ? result
+      : {};
+  const fields = source.fields && typeof source.fields === "object" ? source.fields : {};
+  const ready = Boolean(source.configured);
+  const status = String(source.status || (ready ? "config-ready" : "not-configured"));
+  return Object.assign(emptyImageEditCapabilityProbe(), {
+    checked: true,
+    ready,
+    tone: ready ? "ready" : "error",
+    status,
+    statusText: String(source.statusText || (ready ? "图片编辑配置完整" : "图片编辑配置不完整")),
+    provider: String(source.provider || "未配置"),
+    model: String(source.model || "未配置"),
+    editEndpoint: String(source.editEndpoint || "未配置"),
+    endpointSource: String(source.endpointSource || ""),
+    requestFormat: String(source.requestFormat || ""),
+    requestFormatText: source.requestFormat === "lingyun-json"
+      ? "凌云 JSON"
+      : source.requestFormat === "multipart"
+        ? "multipart/form-data"
+        : "未识别",
+    mainField: String(fields.mainImage || ""),
+    maskField: String(fields.mask || ""),
+    referenceField: String(fields.references || ""),
+    maskInvertText: source.maskInvert ? "已开启" : "关闭",
+    apiKeyStatusText: source.apiKeyConfigured ? "已配置（不显示内容）" : "未配置",
+    liveVerified: Boolean(source.liveVerified),
+    liveVerifiedText: source.liveVerified ? "已真实验证" : "未真实生图",
+    billingRiskText: source.billingRisk ? "可能扣费" : "不扣费",
+    message: String(
+      source.message
+      || "本次只核对配置，不代表上游已经实测支持图片编辑和 mask。"
+    ),
+    checkedAt: source.checkedAt ? formatAdminDate(source.checkedAt) : ""
+  });
+}
+
 function emptyImageQualityProbe() {
   return {
     available: false,
@@ -2593,6 +2660,8 @@ Page({
     tencentTestTemplate: null,
     tencentTestFace: null,
     tencentTestLoading: false,
+    imageEditCapabilityLoading: false,
+    imageEditCapabilityProbe: emptyImageEditCapabilityProbe(),
     entryHealth: buildEntryHealth(),
     activeConfigSection: "",
     activeConfigTitle: "",
@@ -3783,6 +3852,43 @@ Page({
         tencentTestTemplate: null,
         tencentTestFace: null
       });
+    }
+  },
+
+  async runImageEditCapabilityProbe() {
+    if (this.data.imageEditCapabilityLoading) return;
+    this.setData({
+      imageEditCapabilityLoading: true,
+      message: "正在检查图片编辑配置；本次不会调用生图，也不会扣费。"
+    });
+    try {
+      const result = await cloud.probeImageEditCapability(
+        this.data.form && this.data.form.image ? this.data.form.image : null
+      );
+      const probe = formatImageEditCapabilityProbe(result);
+      this.setData({
+        imageEditCapabilityLoading: false,
+        imageEditCapabilityProbe: probe,
+        message: `${probe.statusText}。${probe.message}`
+      });
+      wx.showToast({
+        title: probe.ready ? "配置检查完成" : "配置需要处理",
+        icon: probe.ready ? "success" : "none"
+      });
+    } catch (error) {
+      const probe = Object.assign(emptyImageEditCapabilityProbe(), {
+        checked: true,
+        tone: "error",
+        status: "failed",
+        statusText: "配置检查失败",
+        message: String(error && error.message || "图片编辑配置检查失败")
+      });
+      this.setData({
+        imageEditCapabilityLoading: false,
+        imageEditCapabilityProbe: probe,
+        message: probe.message
+      });
+      this.showError("图片编辑配置检查失败", error);
     }
   },
 

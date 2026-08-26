@@ -43,14 +43,27 @@ assert.ok(
 );
 assert.ok(tencentPageWxml.includes("原始主图"));
 assert.ok(tencentPageWxml.includes("参考脸"));
+assert.ok(tencentPageWxml.includes("检测主图人脸"));
+assert.ok(tencentPageWxml.includes("生成脸部保护 mask"));
 assert.ok(tencentPageWxml.includes("正在修改衣服、背景和光影"));
 assert.ok(tencentPageWxml.includes("正在融合参考人脸"));
-assert.ok(tencentPageWxml.includes("GPT Image 2 → 腾讯人脸融合专业版"));
+assert.ok(tencentPageWxml.includes('class="pipeline-dot">2</view>'));
+assert.ok(tencentPageWxml.includes('class="pipeline-dot">3</view>'));
+assert.ok(tencentPageWxml.includes('class="pipeline-dot">4</view>'));
+assert.ok(tencentPageWxml.includes("脸部保护 mask → GPT Image 2 → 腾讯人脸融合专业版"));
 assert.ok(tencentPageJs.includes("retryTencentOnly"));
+assert.ok(tencentPageJs.includes("PIPELINE_WAIT_TIMEOUT_MS = 150000"));
+assert.ok(tencentPageJs.includes("TENCENT_PIPELINE_CLIENT_TIMEOUT"));
+assert.ok(tencentPageJs.includes("continueStatusQuery()"));
 assert.ok(serviceJs.includes('action: "tencentFaceFusionPipeline"'));
 assert.ok(serviceJs.includes('action: "getTencentFaceFusionPipelineStatus"'));
 assert.ok(serviceJs.includes('action: "testTencentFaceFusion"'));
+assert.ok(serviceJs.includes('action: "probeImageEditCapability"'));
 assert.ok(apiJs.includes("FuseFaceUltra"));
+assert.ok(apiJs.includes("createFaceProtectionMask"));
+assert.ok(apiJs.includes("TENCENT_PIPELINE_MASK_REQUIRED"));
+assert.ok(apiJs.includes("detectTencentPipelineFaces"));
+assert.ok(apiJs.includes("probeImageEditCapability"));
 assert.ok(apiJs.includes("reserveUsage(openid, requestId, \"image\")"));
 assert.ok(apiJs.includes("refundUsage(openid, requestId"));
 assert.ok(apiJs.includes("TENCENT_FACEFUSION_SECRET_ID"));
@@ -124,6 +137,13 @@ async function main() {
   });
 
   const parsed = JSON.parse(requestBody);
+  assert.deepStrictEqual(Object.keys(parsed).sort(), [
+    "LogoAdd",
+    "MergeInfos",
+    "ModelImage",
+    "RspImgType",
+    "SwapModelType"
+  ]);
   assert.strictEqual(parsed.RspImgType, "base64");
   assert.strictEqual(parsed.SwapModelType, 4);
   assert.ok(parsed.ModelImage);

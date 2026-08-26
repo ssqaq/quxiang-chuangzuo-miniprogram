@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.42.4";
-const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0424";
+const API_BUILD_VERSION = "0.42.5";
+const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0425";
 const DEFAULT_IMAGE_MODE = "edits";
 const IMAGE_EDIT_ERROR_CODES = Object.freeze([
   "image-edit-unsupported",
@@ -7,6 +7,8 @@ const IMAGE_EDIT_ERROR_CODES = Object.freeze([
   "image-edit-model-unsupported",
   "image-edit-upstream-error"
 ]);
+const TENCENT_FACE_PROTECTION_MARGIN_RATIO = 0.22;
+const TENCENT_FACE_PROTECTION_MAX_PIXELS = 20000000;
 console.log(`[api] build=${API_BUILD_VERSION} marker=${API_BUILD_MARKER}`);
 
 const cloud = require("wx-server-sdk");
@@ -6655,6 +6657,115 @@ async function checkDeployment(event, context) {
   }));
 }
 
+function buildImageEditCapabilityProbe(imageConfig = {}) {
+  const config = imageConfig && typeof imageConfig === "object" ? imageConfig : {};
+  let endpointInfo = {
+    url: "",
+    source: "invalid",
+    configured: false
+  };
+  let endpointError = null;
+  try {
+    endpointInfo = resolveImageEditEndpoint(config);
+  } catch (error) {
+    endpointError = error;
+  }
+  const requestFormat = isLingyunImageProvider(config, endpointInfo.url)
+    ? "lingyun-json"
+    : "multipart";
+  const fields = requestFormat === "lingyun-json"
+    ? {
+        mainImage: "images[0].image_url",
+        mask: "mask.image_url",
+        references: "images[1...].image_url"
+      }
+    : {
+        mainImage: env("AI_IMAGE_MAIN_FIELD", "image"),
+        mask: env("AI_IMAGE_MASK_FIELD", "mask"),
+        references: env("AI_IMAGE_REFERENCE_FIELD", "image[]")
+      };
+  const configured = Boolean(
+    config.apiKey
+    && String(config.provider || "").trim()
+    && String(config.model || "").trim()
+    && endpointInfo.url
+    && !endpointError
+  );
+  const status = endpointError
+    ? "endpoint-invalid"
+    : configured
+      ? "config-ready"
+      : "not-configured";
+  const missing = [];
+  if (!String(config.provider || "").trim()) missing.push("provider");
+  if (!String(config.model || "").trim()) missing.push("model");
+  if (!config.apiKey) missing.push("apiKey");
+  if (!endpointInfo.url) missing.push("editEndpoint");
+  return {
+    status,
+    statusText: status === "config-ready"
+      ? "图片编辑配置完整"
+      : status === "endpoint-invalid"
+        ? "图片编辑 endpoint 无效"
+        : "图片编辑配置不完整",
+    configured,
+    provider: String(config.provider || ""),
+    model: String(config.model || ""),
+    mode: "edits",
+    editEndpoint: safeUrl(endpointInfo.url),
+    endpointSource: endpointInfo.source,
+    requestFormat,
+    fields,
+    maskInvert: boolEnv("AI_MASK_INVERT", false),
+    apiKeyConfigured: Boolean(config.apiKey),
+    missing,
+    httpStatus: 0,
+    mainImageSent: false,
+    maskSent: false,
+    liveVerified: false,
+    billingRisk: false,
+    requiresLiveTest: true,
+    supportsImageEdit: null,
+    supportsMaskCompositing: null,
+    errorClassification: endpointError
+      ? String(endpointError.code || "image-edit-endpoint-invalid")
+      : "",
+    message: configured
+      ? "本次只核对配置，不调用生图、不扣费；不代表上游已经实测支持图片编辑和 mask 像素合成。"
+      : endpointError
+        ? sanitizeFailureMessage(endpointError.message)
+        : `缺少配置：${missing.join("、") || "未知"}。本次没有调用上游。`,
+    checkedAt: new Date().toISOString()
+  };
+}
+
+async function probeImageEditCapability(event, context) {
+  if (!isAdminContext(context)) return adminForbidden();
+  const configs = await resolveEffectiveConfigs();
+  const imageConfig = event && event.config
+    ? temporaryModelConfig(configs, "image", event.config)
+    : configs.image;
+  const probe = buildImageEditCapabilityProbe(imageConfig);
+  log(probe.configured ? "info" : "warn", "admin.image-edit-capability-probe", {
+    requestId: event && event.requestId,
+    status: probe.status,
+    provider: probe.provider,
+    model: probe.model,
+    editEndpoint: probe.editEndpoint,
+    endpointSource: probe.endpointSource,
+    requestFormat: probe.requestFormat,
+    apiKeyConfigured: probe.apiKeyConfigured,
+    liveVerified: false,
+    billingRisk: false,
+    missing: probe.missing
+  });
+  return jsonResponse(true, {
+    buildVersion: API_BUILD_VERSION,
+    buildMarker: API_BUILD_MARKER,
+    probe
+  });
+}
+
 function modelProbeStatusText(status) {
   return {
     ok: "正常",
@@ -8055,6 +8166,205 @@ function imageExtension(mime) {
   return "png";
 }
 
+function tencentPipelineMaskError(message, code = "TENCENT_PIPELINE_MASK_INVALID") {
+  const error = new Error(message);
+  error.code = code;
+  error.retryable = false;
+  error.pipelineStage = "preparing";
+  return error;
+}
+
+function readJpegDimensions(buffer) {
+  let offset = 2;
+  const sofMarkers = new Set([
+    0xc0, 0xc1, 0xc2, 0xc3,
+    0xc5, 0xc6, 0xc7,
+    0xc9, 0xca, 0xcb,
+    0xcd, 0xce, 0xcf
+  ]);
+  while (offset + 3 < buffer.length) {
+    if (buffer[offset] !== 0xff) {
+      offset += 1;
+      continue;
+    }
+    while (offset < buffer.length && buffer[offset] === 0xff) offset += 1;
+    if (offset >= buffer.length) break;
+    const marker = buffer[offset];
+    offset += 1;
+    if (marker === 0xd8 || marker === 0xd9 || marker === 0x01) continue;
+    if (marker >= 0xd0 && marker <= 0xd7) continue;
+    if (offset + 2 > buffer.length) break;
+    const segmentLength = buffer.readUInt16BE(offset);
+    if (segmentLength < 2 || offset + segmentLength > buffer.length) break;
+    if (sofMarkers.has(marker) && segmentLength >= 7) {
+      return {
+        width: buffer.readUInt16BE(offset + 5),
+        height: buffer.readUInt16BE(offset + 3),
+        format: "jpeg"
+      };
+    }
+    offset += segmentLength;
+  }
+  return null;
+}
+
+function readWebpDimensions(buffer) {
+  if (buffer.length < 30) return null;
+  const chunkType = buffer.subarray(12, 16).toString("ascii");
+  if (chunkType === "VP8X") {
+    return {
+      width: buffer.readUIntLE(24, 3) + 1,
+      height: buffer.readUIntLE(27, 3) + 1,
+      format: "webp"
+    };
+  }
+  if (chunkType === "VP8L" && buffer[20] === 0x2f) {
+    const b1 = buffer[21];
+    const b2 = buffer[22];
+    const b3 = buffer[23];
+    const b4 = buffer[24];
+    return {
+      width: 1 + b1 + ((b2 & 0x3f) << 8),
+      height: 1 + ((b2 & 0xc0) >> 6) + (b3 << 2) + ((b4 & 0x0f) << 10),
+      format: "webp"
+    };
+  }
+  if (
+    chunkType === "VP8 "
+    && buffer[23] === 0x9d
+    && buffer[24] === 0x01
+    && buffer[25] === 0x2a
+  ) {
+    return {
+      width: buffer.readUInt16LE(26) & 0x3fff,
+      height: buffer.readUInt16LE(28) & 0x3fff,
+      format: "webp"
+    };
+  }
+  return null;
+}
+
+function readImageDimensions(buffer) {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 12) {
+    throw tencentPipelineMaskError("主图内容为空，无法生成人脸保护 mask。");
+  }
+  let dimensions = null;
+  if (
+    buffer.length >= 24
+    && buffer[0] === 0x89
+    && buffer[1] === 0x50
+    && buffer[2] === 0x4e
+    && buffer[3] === 0x47
+  ) {
+    dimensions = {
+      width: buffer.readUInt32BE(16),
+      height: buffer.readUInt32BE(20),
+      format: "png"
+    };
+  } else if (buffer[0] === 0xff && buffer[1] === 0xd8) {
+    dimensions = readJpegDimensions(buffer);
+  } else if (
+    buffer.subarray(0, 4).toString("ascii") === "RIFF"
+    && buffer.subarray(8, 12).toString("ascii") === "WEBP"
+  ) {
+    dimensions = readWebpDimensions(buffer);
+  }
+  const width = Number(dimensions && dimensions.width);
+  const height = Number(dimensions && dimensions.height);
+  const pixels = width * height;
+  if (
+    !Number.isInteger(width)
+    || !Number.isInteger(height)
+    || width < 1
+    || height < 1
+    || !Number.isSafeInteger(pixels)
+    || pixels > TENCENT_FACE_PROTECTION_MAX_PIXELS
+  ) {
+    throw tencentPipelineMaskError(
+      pixels > TENCENT_FACE_PROTECTION_MAX_PIXELS
+        ? "主图像素过大，无法安全生成人脸保护 mask，请压缩后重试。"
+        : "无法读取主图尺寸，暂时不能生成人脸保护 mask。"
+    );
+  }
+  return {
+    width,
+    height,
+    pixels,
+    format: String(dimensions.format || "")
+  };
+}
+
+function faceProtectionRects(
+  faces,
+  imageWidth,
+  imageHeight,
+  marginRatio = TENCENT_FACE_PROTECTION_MARGIN_RATIO
+) {
+  const width = Math.max(1, Number(imageWidth) || 1);
+  const height = Math.max(1, Number(imageHeight) || 1);
+  const margin = Math.max(0, Math.min(1, Number(marginRatio) || 0));
+  return (Array.isArray(faces) ? faces : []).map((face) => {
+    const x = Number(face && face.x);
+    const y = Number(face && face.y);
+    const faceWidth = Number(face && face.width);
+    const faceHeight = Number(face && face.height);
+    if (![x, y, faceWidth, faceHeight].every(Number.isFinite)) return null;
+    if (faceWidth <= 1 || faceHeight <= 1) return null;
+    const leftNormalized = Math.max(0, x - faceWidth * margin);
+    const topNormalized = Math.max(0, y - faceHeight * margin);
+    const rightNormalized = Math.min(1000, x + faceWidth * (1 + margin));
+    const bottomNormalized = Math.min(1000, y + faceHeight * (1 + margin));
+    const left = Math.max(0, Math.min(width - 1, Math.floor(leftNormalized / 1000 * width)));
+    const top = Math.max(0, Math.min(height - 1, Math.floor(topNormalized / 1000 * height)));
+    const right = Math.max(left + 1, Math.min(width, Math.ceil(rightNormalized / 1000 * width)));
+    const bottom = Math.max(top + 1, Math.min(height, Math.ceil(bottomNormalized / 1000 * height)));
+    return {
+      x: left,
+      y: top,
+      width: right - left,
+      height: bottom - top
+    };
+  }).filter(Boolean);
+}
+
+function createFaceProtectionMask(mainBuffer, faces) {
+  const dimensions = readImageDimensions(mainBuffer);
+  const rects = faceProtectionRects(faces, dimensions.width, dimensions.height);
+  if (!rects.length) {
+    throw tencentPipelineMaskError(
+      "主图里没有检测到可保护的人脸，已停止图片编辑，避免把脸改掉。",
+      "TENCENT_PIPELINE_FACE_NOT_FOUND"
+    );
+  }
+  const png = new PNG({
+    width: dimensions.width,
+    height: dimensions.height,
+    colorType: 6,
+    inputColorType: 6,
+    inputHasAlpha: true
+  });
+  png.data.fill(0);
+  rects.forEach((rect) => {
+    const startX = Math.max(0, rect.x);
+    const endX = Math.min(dimensions.width, rect.x + rect.width);
+    const startY = Math.max(0, rect.y);
+    const endY = Math.min(dimensions.height, rect.y + rect.height);
+    for (let y = startY; y < endY; y += 1) {
+      const start = (y * dimensions.width + startX) * 4;
+      const end = (y * dimensions.width + endX) * 4;
+      png.data.fill(255, start, end);
+    }
+  });
+  return {
+    buffer: PNG.sync.write(png),
+    width: dimensions.width,
+    height: dimensions.height,
+    sourceFormat: dimensions.format,
+    faceCount: rects.length,
+    rects
+  };
+}
+
 function invertMask(buffer, requestId) {
   if (!boolEnv("AI_MASK_INVERT", false)) return buffer;
   try {
@@ -8450,44 +8760,109 @@ async function requestTencentFaceFusion(modelBuffer, faceBuffer, config, request
   return resultBuffer;
 }
 
-async function requestTencentPipelineImageEdit(mainBuffer, payload, imageConfig, costs, requestId, userHash) {
+async function requestTencentPipelineImageEdit(
+  mainBuffer,
+  payload,
+  imageConfig,
+  costs,
+  requestId,
+  userHash,
+  maskBuffer
+) {
+  if (!Buffer.isBuffer(maskBuffer) || !maskBuffer.length) {
+    throw tencentPipelineMaskError(
+      "腾讯版第一阶段缺少真实脸部保护 mask，已停止图片编辑。",
+      "TENCENT_PIPELINE_MASK_REQUIRED"
+    );
+  }
+  const preparedMaskBuffer = invertMask(maskBuffer, requestId);
+  const mainDimensions = readImageDimensions(mainBuffer);
+  let maskDimensions;
+  try {
+    maskDimensions = readImageDimensions(preparedMaskBuffer);
+  } catch (_) {
+    throw tencentPipelineMaskError("脸部保护 mask 不是有效图片，已停止图片编辑。");
+  }
+  if (
+    mainDimensions.width !== maskDimensions.width
+    || mainDimensions.height !== maskDimensions.height
+  ) {
+    throw tencentPipelineMaskError(
+      `脸部保护 mask 尺寸 ${maskDimensions.width}x${maskDimensions.height}`
+      + ` 与主图 ${mainDimensions.width}x${mainDimensions.height} 不一致。`
+    );
+  }
   const pipelinePayload = Object.assign({}, payload, {
     prompt: [
       String(payload.prompt || "").trim(),
       "第一阶段只修改衣服、背景和整体光影。",
-      "保留人物身份、五官、发型、姿态、构图和画面比例，先不要换脸，最后一步会由腾讯云完成换脸。"
+      "脸部区域已经由 mask 保护，严禁重绘脸部、五官、发型和肤色。",
+      "保留人物身份、姿态、构图和画面比例，先不要换脸，最后一步会由腾讯云完成换脸。"
     ].filter(Boolean).join("\n")
   });
   const fields = buildImageEditFields(pipelinePayload, imageConfig, []);
-  const mime = detectMime(mainBuffer);
+  const mainMime = detectMime(mainBuffer);
+  const maskMime = detectMime(preparedMaskBuffer);
+  const mainField = env("AI_IMAGE_MAIN_FIELD", "image");
+  const maskField = env("AI_IMAGE_MASK_FIELD", "mask");
   const endpointInfo = resolveImageEditEndpoint(imageConfig);
   const useLingyunJson = isLingyunImageProvider(imageConfig, endpointInfo.url);
   let requestBody;
   let requestHeaders;
+  let requestFormat;
+  let requestSummary;
   if (useLingyunJson) {
     const jsonPayload = buildLingyunImageEditPayload(
       pipelinePayload,
       imageConfig,
-      mainBuffer
+      mainBuffer,
+      preparedMaskBuffer
     );
     requestBody = Buffer.from(JSON.stringify(jsonPayload), "utf8");
     requestHeaders = {
       "Content-Type": "application/json",
       "Content-Length": requestBody.length
     };
+    requestFormat = "lingyun-json";
+    requestSummary = imageEditJsonSummary(jsonPayload);
   } else {
-    const multipart = createMultipart(fields, [{
-      name: env("AI_IMAGE_MAIN_FIELD", "image"),
-      filename: `main.${imageExtension(mime)}`,
-      mime,
+    const files = [{
+      name: mainField,
+      filename: `main.${imageExtension(mainMime)}`,
+      mime: mainMime,
       buffer: mainBuffer
-    }]);
+    }, {
+      name: maskField,
+      filename: "mask.png",
+      mime: maskMime,
+      buffer: preparedMaskBuffer
+    }];
+    const multipart = createMultipart(fields, files);
     requestBody = multipart.body;
     requestHeaders = {
       "Content-Type": multipart.contentType,
       "Content-Length": multipart.body.length
     };
+    requestFormat = "multipart";
+    requestSummary = imageEditMultipartSummary(fields, files, mainField, maskField);
   }
+  const requestLogFields = useLingyunJson
+    ? { json: requestSummary }
+    : { multipart: requestSummary };
+  log("info", "tencent.pipeline.image-edit.request", {
+    requestId,
+    provider: imageConfig.provider || "",
+    model: imageConfig.model || "",
+    endpoint: safeUrl(endpointInfo.url),
+    endpointSource: endpointInfo.source,
+    requestFormat,
+    ...requestLogFields,
+    mainImagePresent: true,
+    maskPresent: true,
+    mainSize: `${mainDimensions.width}x${mainDimensions.height}`,
+    maskSize: `${maskDimensions.width}x${maskDimensions.height}`,
+    maskSha256: crypto.createHash("sha256").update(preparedMaskBuffer).digest("hex").slice(0, 16)
+  });
   const response = await requestWithRetry(
     endpointInfo.url,
     {
@@ -8515,8 +8890,32 @@ async function requestTencentPipelineImageEdit(mainBuffer, payload, imageConfig,
     }
   );
   if (response.status < 200 || response.status >= 300) {
+    const classification = response.imageEditClassification
+      || classifyImageEditResponse(response);
+    log("error", "tencent.pipeline.image-edit.upstream-error", {
+      requestId,
+      provider: imageConfig.provider || "",
+      model: imageConfig.model || "",
+      endpoint: safeUrl(endpointInfo.url),
+      status: response.status,
+      classification: classification.code,
+      upstreamCode: classification.upstreamCode,
+      upstreamMessage: classification.upstreamMessage,
+      retryable: classification.retryable,
+      requestFormat,
+      ...requestLogFields
+    });
     throw imageUpstreamError(response, "GPT Image 2 图片修改失败", { imageEdit: true });
   }
+  log("info", "tencent.pipeline.image-edit.success", {
+    requestId,
+    provider: imageConfig.provider || "",
+    model: imageConfig.model || "",
+    endpoint: safeUrl(endpointInfo.url),
+    status: response.status,
+    requestFormat,
+    ...requestLogFields
+  });
   return response.json || {};
 }
 
@@ -10702,6 +11101,20 @@ async function getTencentFaceFusionPipelineStatus(event, context) {
     : operation.status === "refunded"
       ? "failed"
       : operation.pipelineStage || "preparing";
+  const progressByStage = {
+    preparing: 10,
+    "face-detection": 20,
+    "mask-ready": 35,
+    "image-edit": 55,
+    facefusion: 85
+  };
+  const stageTextByStage = {
+    preparing: "正在准备主图和参考脸",
+    "face-detection": "正在检测主图中的人脸",
+    "mask-ready": "正在生成脸部保护 mask",
+    "image-edit": "正在修改衣服、背景和光影",
+    facefusion: "正在融合参考人脸"
+  };
   return jsonResponse(true, Object.assign({
     requestId,
     stage,
@@ -10709,18 +11122,12 @@ async function getTencentFaceFusionPipelineStatus(event, context) {
       ? 100
       : operation.status === "refunded"
         ? 0
-        : operation.pipelineStage === "facefusion"
-          ? 85
-          : operation.pipelineStage === "preparing"
-            ? 35
-            : 10,
+        : progressByStage[operation.pipelineStage] || 10,
     stageText: operation.status === "succeeded"
       ? "制作完成，最终图片已保存"
       : operation.status === "refunded"
         ? "本次制作没有完成"
-        : operation.pipelineStage === "facefusion"
-          ? "正在融合参考人脸"
-          : "正在修改衣服、背景和光影",
+        : stageTextByStage[operation.pipelineStage] || "正在准备图片",
     status: operation.status || "",
     intermediateAvailable: Boolean(operation.intermediateFileID),
     canRetryTencent: operation.status === "refunded" && Boolean(operation.intermediateFileID)
@@ -10861,6 +11268,47 @@ async function testTencentFaceFusion(event, context) {
   }
 }
 
+async function detectTencentPipelineFaces(mainFileID, requestId, context) {
+  let result;
+  try {
+    result = await detectFaceCircle({
+      requestId,
+      payload: { mainFileID }
+    }, context);
+  } catch (error) {
+    const wrapped = new Error(
+      `腾讯版在修改衣服和背景前无法识别人脸：${
+        error && error.message ? error.message : "人脸检测服务异常"
+      }`
+    );
+    wrapped.code = "TENCENT_PIPELINE_FACE_DETECTION_FAILED";
+    wrapped.retryable = Boolean(error && error.retryable);
+    wrapped.pipelineStage = "preparing";
+    throw wrapped;
+  }
+  if (!result || result.ok === false) {
+    const error = new Error(
+      `腾讯版在修改衣服和背景前无法识别人脸：${
+        result && result.message ? result.message : "人脸检测没有返回结果"
+      }`
+    );
+    error.code = result && result.errorCode === "empty-face-detection"
+      ? "TENCENT_PIPELINE_FACE_NOT_FOUND"
+      : "TENCENT_PIPELINE_FACE_DETECTION_FAILED";
+    error.retryable = Boolean(result && result.retryable);
+    error.pipelineStage = "preparing";
+    throw error;
+  }
+  const faces = Array.isArray(result.faces) ? result.faces : [];
+  if (!faces.length) {
+    throw tencentPipelineMaskError(
+      "主图里没有检测到清晰人脸，已停止图片编辑，避免把脸改掉。",
+      "TENCENT_PIPELINE_FACE_NOT_FOUND"
+    );
+  }
+  return faces;
+}
+
 async function tencentFaceFusionPipeline(event, context) {
   const payload = event && event.payload && typeof event.payload === "object"
     ? event.payload
@@ -10973,24 +11421,46 @@ async function tencentFaceFusionPipeline(event, context) {
       if (!billing || !billing.untracked) {
         await updateGenerationOperation(openid, requestId, {
           pipelineVersion,
-          pipelineStage: "preparing",
+          pipelineStage: "face-detection",
           mainFileID,
           faceFileID,
           retryTencentOnly: false
         }, { allowedStatuses: ["processing"] });
       }
+      const detectedFaces = await detectTencentPipelineFaces(
+        mainFileID,
+        requestId,
+        context
+      );
       const mainBuffer = await downloadCloudFile(mainFileID, {
         requestId,
         action: "tencent.pipeline.image-edit",
         fileType: "main"
       });
+      const faceProtectionMask = createFaceProtectionMask(mainBuffer, detectedFaces);
+      log("info", "tencent.pipeline.face-protection-ready", {
+        requestId,
+        faceCount: faceProtectionMask.faceCount,
+        imageSize: `${faceProtectionMask.width}x${faceProtectionMask.height}`,
+        sourceFormat: faceProtectionMask.sourceFormat,
+        marginRatio: TENCENT_FACE_PROTECTION_MARGIN_RATIO,
+        maskBytes: faceProtectionMask.buffer.length
+      });
+      if (!billing || !billing.untracked) {
+        await updateGenerationOperation(openid, requestId, {
+          pipelineStage: "image-edit",
+          detectedFaceCount: faceProtectionMask.faceCount,
+          faceProtectionMaskReady: true
+        }, { allowedStatuses: ["processing"] });
+      }
       const gptResponse = await requestTencentPipelineImageEdit(
         mainBuffer,
         { prompt, negativePrompt, size: imageConfig.size },
         imageConfig,
         configs.costs,
         requestId,
-        usageUserHash(openid)
+        usageUserHash(openid),
+        faceProtectionMask.buffer
       );
       const gptImage = extractImageItem(gptResponse);
       if (!gptImage) {
@@ -12956,6 +13426,9 @@ exports.main = async (event = {}, context) => {
     else if (action === "initializeDatabase") result = await initializeDatabase(context);
     else if (action === "saveAdminConfig") result = await saveAdminConfig(requestEvent, context);
     else if (action === "checkDeployment") result = await checkDeployment(requestEvent, context);
+    else if (action === "probeImageEditCapability") {
+      result = await probeImageEditCapability(requestEvent, context);
+    }
     else if (action === "probeModels") result = await probeModels(requestEvent, context);
     else if (action === "listModels") result = await listModels(requestEvent, context);
     else if (action === "listDeploymentLogs") result = await listDeploymentLogs(context);
@@ -13054,6 +13527,10 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     buildTencentTc3Headers,
     requestTencentFaceFusion,
     requestTencentPipelineImageEdit,
+    readImageDimensions,
+    faceProtectionRects,
+    createFaceProtectionMask,
+    detectTencentPipelineFaces,
     tencentFaceFusionPipeline,
     testTencentFaceFusion,
     getTencentFaceFusionPipelineStatus,
@@ -13086,6 +13563,8 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     isLingyunImageProvider,
     buildLingyunImageEditPayload,
     imageEditJsonSummary,
+    buildImageEditCapabilityProbe,
+    probeImageEditCapability,
     hasImageEditAssets,
     resolveGenerationMode,
     defaultImageMode: DEFAULT_IMAGE_MODE,

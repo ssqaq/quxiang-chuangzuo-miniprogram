@@ -123,6 +123,30 @@ const cloudMock = {
       }))
     };
   },
+  probeImageEditCapability: async (modelConfig) => ({
+    ok: true,
+    probe: {
+      status: "config-ready",
+      statusText: "图片编辑配置完整",
+      configured: true,
+      provider: modelConfig && modelConfig.provider || "image-provider",
+      model: modelConfig && modelConfig.model || "image-model",
+      editEndpoint: "https://image.example/v1/images/edits",
+      endpointSource: "AI_IMAGE_EDIT_ENDPOINT",
+      requestFormat: "multipart",
+      fields: {
+        mainImage: "image",
+        mask: "mask",
+        references: "image[]"
+      },
+      maskInvert: false,
+      apiKeyConfigured: true,
+      liveVerified: false,
+      billingRisk: false,
+      message: "本次只核对配置，不调用生图、不扣费；不代表上游已经实测支持 mask。",
+      checkedAt: "2026-08-26T08:00:00.000Z"
+    }
+  }),
   listModels: async () => ({
     ok: true,
     status: "ok",
@@ -248,6 +272,14 @@ async function main() {
   assert.strictEqual(page.data.costTrend.days[6].costDisplay, "0.0007");
   assert.strictEqual(page.data.costTrend.totalCostDisplay, "0.0007");
   assert.strictEqual(page.data.form.face.apiKey, "face-key");
+
+  await page.runImageEditCapabilityProbe();
+  assert.strictEqual(page.data.imageEditCapabilityLoading, false);
+  assert.strictEqual(page.data.imageEditCapabilityProbe.ready, true);
+  assert.strictEqual(page.data.imageEditCapabilityProbe.liveVerified, false);
+  assert.strictEqual(page.data.imageEditCapabilityProbe.billingRiskText, "不扣费");
+  assert.strictEqual(page.data.imageEditCapabilityProbe.maskField, "mask");
+  assert.ok(page.data.imageEditCapabilityProbe.message.includes("不代表上游"));
 
   const probesBeforeSave = probeCallCount;
   await page.saveConfig();

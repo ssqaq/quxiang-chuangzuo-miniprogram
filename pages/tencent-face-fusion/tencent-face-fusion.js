@@ -6,6 +6,7 @@ const { prepareImageAsset } = require("../../utils/image");
 
 const PIPELINE_VERSION = "gpt-image-2-tencent-facefusion-v1";
 const STATUS_POLL_INTERVAL_MS = 2200;
+const PIPELINE_WAIT_TIMEOUT_MS = 150000;
 
 function chooseOneImage() {
   return new Promise((resolve, reject) => {
@@ -36,6 +37,48 @@ function errorPayload(error) {
 function errorMessage(error, fallback = "制作失败，请稍后重试") {
   const payload = errorPayload(error);
   return String(payload.message || error && error.message || fallback);
+}
+
+function pipelineWaitTimeoutError() {
+  const error = new Error("等待超过 150 秒，服务可能仍在处理，请继续查询结果，不要重复提交。");
+  error.code = "TENCENT_PIPELINE_CLIENT_TIMEOUT";
+  return error;
+}
+
+function isPipelineWaitTimeoutError(error) {
+  const payload = errorPayload(error);
+  const code = String(
+    error && error.code
+    || payload.errorCode
+    || payload.code
+    || ""
+  ).toLowerCase();
+  const message = String(errorMessage(error, "")).toLowerCase();
+  return code === "tencent_pipeline_client_timeout"
+    || code === "timeout"
+    || /timeout|timed out|deadline|超时/.test(`${code} ${message}`);
+}
+
+function withPipelineWaitTimeout(promise, timeoutMs = PIPELINE_WAIT_TIMEOUT_MS) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(pipelineWaitTimeoutError());
+    }, Math.max(1000, Number(timeoutMs) || PIPELINE_WAIT_TIMEOUT_MS));
+    Promise.resolve(promise).then((value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(value);
+    }, (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(error);
+    });
+  });
 }
 
 function decorateRecord(record, result = {}) {
@@ -69,12 +112,17 @@ Page({
     resultRecordId: "",
     retryTencentAvailable: false,
     retryHint: "",
+    timedOut: false,
+    statusQuerying: false,
+    timeoutHint: "",
     message: "",
     previewVisible: false,
     previewPath: ""
   },
 
   onLoad() {
+    this._statusOnlyMode = false;
+    this._completedRequestId = "";
     this.setData({
       cloudReady: cloud.isCloudReady()
     });
@@ -111,9 +159,14 @@ Page({
       };
       this.setData({
         [kind === "main" ? "mainImage" : "faceImage"]: image,
+        [kind === "main" ? "mainFileID" : "faceFileID"]: "",
+        requestId: "",
         message: "",
         retryTencentAvailable: false,
-        retryHint: ""
+        retryHint: "",
+        timedOut: false,
+        statusQuerying: false,
+        timeoutHint: ""
       });
     } catch (error) {
       diagnosticLog.error("generation", "tencent-image-choose-failed", "腾讯版图片选择失败", {
@@ -128,8 +181,26 @@ Page({
     const kind = event && event.currentTarget && event.currentTarget.dataset
       ? event.currentTarget.dataset.kind
       : "";
-    if (kind === "main") this.setData({ mainImage: null, mainFileID: "" });
-    if (kind === "face") this.setData({ faceImage: null, faceFileID: "" });
+    if (kind === "main") {
+      this.setData({
+        mainImage: null,
+        mainFileID: "",
+        requestId: "",
+        timedOut: false,
+        statusQuerying: false,
+        timeoutHint: ""
+      });
+    }
+    if (kind === "face") {
+      this.setData({
+        faceImage: null,
+        faceFileID: "",
+        requestId: "",
+        timedOut: false,
+        statusQuerying: false,
+        timeoutHint: ""
+      });
+    }
   },
 
   onPromptInput(event) {
@@ -174,17 +245,31 @@ Page({
       this._statusTimer = null;
     }
     this._polling = false;
+    this._pollDeadlineAt = 0;
   },
 
   scheduleStatusPolling(requestId) {
     this.stopStatusPolling();
     this._polling = true;
+    this._pollDeadlineAt = Date.now() + PIPELINE_WAIT_TIMEOUT_MS;
     const poll = async () => {
       if (!this._polling || !requestId || this.data.requestId !== requestId) return;
+      if (Date.now() >= this._pollDeadlineAt) {
+        this.handlePipelineWaitTimeout(requestId);
+        return;
+      }
       try {
         const status = await cloud.getTencentFaceFusionPipelineStatus(requestId);
         if (status && status.stage) {
           this.applyPipelineStatus(status);
+          if (this._statusOnlyMode && status.stage === "succeeded" && status.result) {
+            this.completePipelineResult(status.result);
+            return;
+          }
+          if (this._statusOnlyMode && status.stage === "failed") {
+            this.applyStatusOnlyFailure(status);
+            return;
+          }
         }
       } catch (error) {
         diagnosticLog.warn("generation", "tencent-status-poll-failed", "腾讯版状态读取失败", {
@@ -202,10 +287,34 @@ Page({
   applyPipelineStatus(status = {}) {
     const stage = String(status.stage || "").trim();
     const stageMap = {
+      pending: {
+        stage: "preparing",
+        stageText: status.stageText || "请求已提交，正在等待云端开始处理",
+        progress: Number(status.progress) || 10,
+        progressText: "等待云端处理"
+      },
       preparing: {
         stage: "preparing",
-        stageText: status.stageText || "正在修改衣服、背景和光影",
+        stageText: status.stageText || "正在准备图片",
+        progress: Number(status.progress) || 10,
+        progressText: "正在准备图片"
+      },
+      "face-detection": {
+        stage: "face-detection",
+        stageText: status.stageText || "正在检测主图中的人脸",
+        progress: Number(status.progress) || 20,
+        progressText: "正在检测人脸"
+      },
+      "mask-ready": {
+        stage: "mask-ready",
+        stageText: status.stageText || "正在生成脸部保护 mask",
         progress: Number(status.progress) || 35,
+        progressText: "正在保护脸部"
+      },
+      "image-edit": {
+        stage: "image-edit",
+        stageText: status.stageText || "正在修改衣服、背景和光影",
+        progress: Number(status.progress) || 55,
         progressText: "正在修改衣服、背景和光影"
       },
       facefusion: {
@@ -231,6 +340,127 @@ Page({
     if (mapped) this.setData(mapped);
   },
 
+  handlePipelineWaitTimeout(requestId) {
+    if (!requestId || this.data.requestId !== requestId) return;
+    this.stopStatusPolling();
+    this._statusOnlyMode = true;
+    this.setData({
+      loading: false,
+      statusQuerying: false,
+      timedOut: true,
+      stage: "timeout",
+      progress: Math.max(10, Number(this.data.progress) || 0),
+      progressText: "处理时间较长",
+      stageText: "服务可能仍在处理，请勿重复点击开始制作",
+      timeoutHint: `请求编号已保留：${requestId}`,
+      message: "页面已停止等待，但云端任务可能还在继续。请点击“继续查询结果”，不要重新提交，避免重复扣费。"
+    });
+    diagnosticLog.warn("generation", "tencent-pipeline-client-timeout", "腾讯版等待超时，保留请求编号", {
+      requestId,
+      progress: Number(this.data.progress) || 0
+    });
+  },
+
+  completePipelineResult(result = {}) {
+    const requestId = String(result.requestId || this.data.requestId || "");
+    if (requestId && this._completedRequestId === requestId && this.data.resultRecordId) return;
+    this.stopStatusPolling();
+    this._statusOnlyMode = false;
+    this._completedRequestId = requestId;
+    const record = decorateRecord(result && result.record, result || {});
+    const records = [record].concat(storage.loadRecords() || [])
+      .filter((item, index, list) => item && list.findIndex((candidate) => (
+        String(candidate.id) === String(item.id)
+      )) === index)
+      .slice(0, 50);
+    storage.saveRecords(records);
+    this.setData({
+      loading: false,
+      statusQuerying: false,
+      timedOut: false,
+      timeoutHint: "",
+      stage: "succeeded",
+      progress: 100,
+      progressText: "制作完成",
+      stageText: "制作完成，最终图片已保存到制作记录",
+      resultUrl: result.tempFileURL || record.imagePath || "",
+      resultFileID: result.fileID || record.fileID || "",
+      resultRecordId: result.recordId || record.id || "",
+      message: "当前使用链路：人脸检测 → 脸部保护 mask → GPT Image 2 → 腾讯人脸融合专业版",
+      retryTencentAvailable: false,
+      retryHint: ""
+    });
+    wx.showToast({ title: "制作完成", icon: "success" });
+  },
+
+  applyStatusOnlyFailure(status = {}) {
+    this.stopStatusPolling();
+    this._statusOnlyMode = false;
+    const canRetryTencent = Boolean(
+      status.canRetryTencent
+      && status.intermediateAvailable
+      && this.data.requestId
+    );
+    this.setData({
+      loading: false,
+      statusQuerying: false,
+      timedOut: false,
+      timeoutHint: "",
+      stage: "failed",
+      progress: Number(status.progress) || (canRetryTencent ? 85 : 0),
+      progressText: canRetryTencent ? "腾讯换脸失败，可重试" : "本次制作没有完成",
+      stageText: canRetryTencent ? "腾讯换脸失败，可只重试最后一步" : "本次制作没有完成",
+      message: String(status.message || status.errorMessage || "云端任务没有完成。"),
+      retryTencentAvailable: canRetryTencent,
+      retryHint: canRetryTencent
+        ? "中间图已经保留，再点一次只重试腾讯换脸，不会重新修改衣服和背景。"
+        : ""
+    });
+  },
+
+  async continueStatusQuery() {
+    const requestId = String(this.data.requestId || "");
+    if (!requestId || this.data.statusQuerying) return;
+    this._statusOnlyMode = true;
+    this.setData({
+      statusQuerying: true,
+      timedOut: true,
+      timeoutHint: `正在查询请求：${requestId}`,
+      message: "只查询现有任务状态，不会重新提交，也不会重复扣费。"
+    });
+    try {
+      const status = await cloud.getTencentFaceFusionPipelineStatus(requestId);
+      if (status && status.stage) this.applyPipelineStatus(status);
+      if (status && status.stage === "succeeded" && status.result) {
+        this.completePipelineResult(status.result);
+        return;
+      }
+      if (status && status.stage === "failed") {
+        this.applyStatusOnlyFailure(status);
+        return;
+      }
+      this.setData({
+        statusQuerying: false,
+        timedOut: true,
+        timeoutHint: `请求仍在处理：${requestId}`,
+        message: "云端任务还没结束，页面会继续查询；请勿重新点击开始制作。"
+      });
+      this.scheduleStatusPolling(requestId);
+    } catch (error) {
+      this.stopStatusPolling();
+      this.setData({
+        statusQuerying: false,
+        timedOut: true,
+        timeoutHint: `请求编号已保留：${requestId}`,
+        message: `状态查询失败：${errorMessage(error, "请稍后再查")}。不要重新提交制作。`
+      });
+      diagnosticLog.warn("generation", "tencent-status-manual-query-failed", "腾讯版手动查询失败", {
+        requestId,
+        error
+      });
+    }
+  },
+
   async uploadPipelineAsset(image, kind) {
     if (!image || !image.path) throw new Error(kind === "main" ? "请先上传原始主图" : "请先上传参考脸");
     if (image.fileID) return image.fileID;
@@ -252,6 +482,10 @@ Page({
 
   async startPipeline() {
     if (this.data.loading) return;
+    if (this.data.timedOut && this.data.requestId) {
+      wx.showToast({ title: "请先继续查询原请求", icon: "none" });
+      return;
+    }
     const validation = this.validateBeforeStart();
     if (validation) {
       wx.showToast({ title: validation, icon: "none" });
@@ -264,6 +498,8 @@ Page({
       && this.data.faceFileID
     );
     const requestId = isTencentRetry ? this.data.requestId : createRequestId();
+    this._statusOnlyMode = false;
+    this._completedRequestId = "";
     this.setData({
       loading: true,
       cloudReady: true,
@@ -274,7 +510,10 @@ Page({
       stageText: isTencentRetry ? "正在重新融合参考人脸" : "正在准备图片并修改衣服、背景和光影",
       message: "",
       retryTencentAvailable: false,
-      retryHint: ""
+      retryHint: "",
+      timedOut: false,
+      statusQuerying: false,
+      timeoutHint: ""
     });
     this.scheduleStatusPolling(requestId);
     try {
@@ -298,42 +537,28 @@ Page({
           progressText: "正在修改衣服、背景和光影"
         });
       }
-      const result = await cloud.tencentFaceFusionPipeline({
-        mainFileID,
-        faceFileID,
-        prompt: String(this.data.prompt || "").trim(),
-        negativePrompt: String(this.data.negativePrompt || "").trim(),
-        requestId,
-        pipelineVersion: PIPELINE_VERSION,
-        retryTencentOnly: isTencentRetry
-      }, {
-        requestId,
-        maxRetries: 0
-      });
-      this.stopStatusPolling();
-      const record = decorateRecord(result && result.record, result || {});
-      const records = [record].concat(storage.loadRecords() || [])
-        .filter((item, index, list) => item && list.findIndex((candidate) => (
-          String(candidate.id) === String(item.id)
-        )) === index)
-        .slice(0, 50);
-      storage.saveRecords(records);
-      this.setData({
-        loading: false,
-        stage: "succeeded",
-        progress: 100,
-        progressText: "制作完成",
-        stageText: "制作完成，最终图片已保存到制作记录",
-        resultUrl: result.tempFileURL || record.imagePath || "",
-        resultFileID: result.fileID || record.fileID || "",
-        resultRecordId: result.recordId || record.id || "",
-        message: "当前使用链路：GPT Image 2 → 腾讯人脸融合专业版",
-        retryTencentAvailable: false,
-        retryHint: ""
-      });
-      wx.showToast({ title: "制作完成", icon: "success" });
+      const result = await withPipelineWaitTimeout(
+        cloud.tencentFaceFusionPipeline({
+          mainFileID,
+          faceFileID,
+          prompt: String(this.data.prompt || "").trim(),
+          negativePrompt: String(this.data.negativePrompt || "").trim(),
+          requestId,
+          pipelineVersion: PIPELINE_VERSION,
+          retryTencentOnly: isTencentRetry
+        }, {
+          requestId,
+          maxRetries: 0
+        }),
+        PIPELINE_WAIT_TIMEOUT_MS
+      );
+      this.completePipelineResult(result);
     } catch (error) {
       this.stopStatusPolling();
+      if (isPipelineWaitTimeoutError(error)) {
+        this.handlePipelineWaitTimeout(requestId);
+        return;
+      }
       const payload = errorPayload(error);
       const canRetryTencent = Boolean(
         payload.canRetryTencent
@@ -348,6 +573,9 @@ Page({
         stageText: canRetryTencent ? "腾讯换脸失败，可只重试最后一步" : "本次制作没有完成",
         message: errorMessage(error),
         retryTencentAvailable: canRetryTencent,
+        timedOut: false,
+        statusQuerying: false,
+        timeoutHint: "",
         retryHint: canRetryTencent
           ? "中间图已经保留，再点一次只重试腾讯换脸，不会重新修改衣服和背景。"
           : ""
@@ -364,7 +592,7 @@ Page({
         showCancel: false
       });
     } finally {
-      this.setData({ loading: false });
+      if (!this.data.timedOut) this.setData({ loading: false });
     }
   },
 
@@ -388,7 +616,10 @@ Page({
       mainFileID: "",
       faceFileID: "",
       retryTencentAvailable: false,
-      retryHint: ""
+      retryHint: "",
+      timedOut: false,
+      statusQuerying: false,
+      timeoutHint: ""
     });
   },
 

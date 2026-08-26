@@ -764,6 +764,14 @@ module.exports = {
   checkDeployment() {
     return callApi({ action: "checkDeployment" });
   },
+  probeImageEditCapability(modelConfig = null) {
+    const data = {
+      action: "probeImageEditCapability",
+      retryLimit: 0
+    };
+    if (modelConfig && typeof modelConfig === "object") data.config = modelConfig;
+    return callApi(data);
+  },
   probeModels(modelType = "", modelConfig = null) {
     const data = {
       action: "probeModels",

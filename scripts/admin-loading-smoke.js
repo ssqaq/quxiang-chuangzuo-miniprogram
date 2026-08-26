@@ -37,7 +37,31 @@ const baseConfig = {
       resolution: "720p"
     },
     points: {},
-    costs: {}
+    costs: {
+      face: {
+        inputPerMillionTokens: 0.15,
+        outputPerMillionTokens: 1.5
+      },
+      analysis: {
+        inputPerMillionTokens: 0.15,
+        outputPerMillionTokens: 1.5
+      },
+      image: {
+        perImage: {
+          "1K": 0.06,
+          "2K": 0.1,
+          "4K": 0.15
+        }
+      },
+      video: {
+        perSecond: {
+          "480p": 0.2,
+          "720p": 0.3,
+          "1080p": 1.8
+        },
+        defaultDurationSeconds: 3
+      }
+    }
   },
   defaults: {},
   version: 1

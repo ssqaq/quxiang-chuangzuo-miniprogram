@@ -4083,6 +4083,19 @@ page {
   font-size: 23rpx;
 }
 
+.admin-field input.has-error {
+  border-color: #dc6767;
+  background: #fff8f8;
+}
+
+.admin-field-error {
+  min-height: 26rpx;
+  margin-top: 6rpx;
+  color: #c54343;
+  font-size: 18rpx;
+  line-height: 26rpx;
+}
+
 .admin-field picker {
   display: block;
   width: 100%;

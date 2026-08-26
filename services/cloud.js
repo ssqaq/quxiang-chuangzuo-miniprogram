@@ -570,6 +570,24 @@ function deleteFile(fileID) {
   });
 }
 
+function submitGeneration(payload, options = {}) {
+  return callApi({
+    action: "generate",
+    payload: payload && typeof payload === "object" ? payload : {},
+    requestId: options.requestId || (payload && payload.requestId) || "",
+    retryLimit: 0
+  });
+}
+
+function getGenerationStatus(requestId, options = {}) {
+  return callApi({
+    action: "getGenerationStatus",
+    requestId: String(requestId || ""),
+    retryLimit: 0,
+    silent: Boolean(options.silent)
+  });
+}
+
 module.exports = {
   isCloudReady,
   callApi,
@@ -588,6 +606,8 @@ module.exports = {
   getTempUrl,
   downloadFile,
   deleteFile,
+  submitGeneration,
+  getGenerationStatus,
   analyzeImage(payload) {
     return callApi({ action: "analyze", payload });
   },
@@ -610,13 +630,7 @@ module.exports = {
     });
   },
   generateImage(payload, options = {}) {
-    return callApi({
-      action: "generate",
-      payload,
-      requestId: options.requestId || "",
-      retryLimit: options.maxRetries,
-      onRetry: options.onRetry
-    });
+    return submitGeneration(payload, options);
   },
   tencentFaceFusionPipeline(payload, options = {}) {
     return callApi({

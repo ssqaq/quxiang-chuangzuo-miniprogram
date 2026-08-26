@@ -727,17 +727,61 @@
       <view wx:if="{{activeConfigSection === 'costs'}}" class="config-editor-body">
         <view class="config-helper">模型成本配置（人民币）用于计算预计花费；图片和视频价格都会显示在上面的清晰度选项里，修改后自动同步。</view>
         <view class="admin-grid">
-          <view class="admin-field"><text>人脸输入 / 百万Token</text><input type="digit" value="{{form.costs.faceInputPerMillionTokens}}" data-section="costs" data-key="faceInputPerMillionTokens" bindinput="onInput" /></view>
-          <view class="admin-field"><text>人脸输出 / 百万Token</text><input type="digit" value="{{form.costs.faceOutputPerMillionTokens}}" data-section="costs" data-key="faceOutputPerMillionTokens" bindinput="onInput" /></view>
-          <view class="admin-field"><text>图片分析输入 / 百万Token</text><input type="digit" value="{{form.costs.analysisInputPerMillionTokens}}" data-section="costs" data-key="analysisInputPerMillionTokens" bindinput="onInput" /></view>
-          <view class="admin-field"><text>图片分析输出 / 百万Token</text><input type="digit" value="{{form.costs.analysisOutputPerMillionTokens}}" data-section="costs" data-key="analysisOutputPerMillionTokens" bindinput="onInput" /></view>
-          <view class="admin-field"><text>生图 1K / 张</text><input type="digit" value="{{form.costs.image1K}}" data-section="costs" data-key="image1K" bindinput="onInput" /></view>
-          <view class="admin-field"><text>生图 2K / 张</text><input type="digit" value="{{form.costs.image2K}}" data-section="costs" data-key="image2K" bindinput="onInput" /></view>
-          <view class="admin-field"><text>生图 4K / 张</text><input type="digit" value="{{form.costs.image4K}}" data-section="costs" data-key="image4K" bindinput="onInput" /></view>
-          <view class="admin-field"><text>视频 480p / 秒</text><input type="digit" value="{{form.costs.video480p}}" data-section="costs" data-key="video480p" bindinput="onInput" /></view>
-          <view class="admin-field"><text>视频 720p / 秒</text><input type="digit" value="{{form.costs.video720p}}" data-section="costs" data-key="video720p" bindinput="onInput" /></view>
-          <view class="admin-field"><text>视频 1080p / 秒</text><input type="digit" value="{{form.costs.video1080p}}" data-section="costs" data-key="video1080p" bindinput="onInput" /></view>
-          <view class="admin-field"><text>视频默认秒数</text><input type="digit" value="{{form.costs.videoDefaultDuration}}" data-section="costs" data-key="videoDefaultDuration" bindinput="onInput" /></view>
+          <view class="admin-field">
+            <text>人脸输入 / 百万Token</text>
+            <input class="{{costFieldErrors.faceInputPerMillionTokens ? 'has-error' : ''}}" type="digit" value="{{form.costs.faceInputPerMillionTokens}}" data-section="costs" data-key="faceInputPerMillionTokens" bindinput="onInput" />
+            <view wx:if="{{costFieldErrors.faceInputPerMillionTokens}}" class="admin-field-error">{{costFieldErrors.faceInputPerMillionTokens}}</view>
+          </view>
+          <view class="admin-field">
+            <text>人脸输出 / 百万Token</text>
+            <input class="{{costFieldErrors.faceOutputPerMillionTokens ? 'has-error' : ''}}" type="digit" value="{{form.costs.faceOutputPerMillionTokens}}" data-section="costs" data-key="faceOutputPerMillionTokens" bindinput="onInput" />
+            <view wx:if="{{costFieldErrors.faceOutputPerMillionTokens}}" class="admin-field-error">{{costFieldErrors.faceOutputPerMillionTokens}}</view>
+          </view>
+          <view class="admin-field">
+            <text>图片分析输入 / 百万Token</text>
+            <input class="{{costFieldErrors.analysisInputPerMillionTokens ? 'has-error' : ''}}" type="digit" value="{{form.costs.analysisInputPerMillionTokens}}" data-section="costs" data-key="analysisInputPerMillionTokens" bindinput="onInput" />
+            <view wx:if="{{costFieldErrors.analysisInputPerMillionTokens}}" class="admin-field-error">{{costFieldErrors.analysisInputPerMillionTokens}}</view>
+          </view>
+          <view class="admin-field">
+            <text>图片分析输出 / 百万Token</text>
+            <input class="{{costFieldErrors.analysisOutputPerMillionTokens ? 'has-error' : ''}}" type="digit" value="{{form.costs.analysisOutputPerMillionTokens}}" data-section="costs" data-key="analysisOutputPerMillionTokens" bindinput="onInput" />
+            <view wx:if="{{costFieldErrors.analysisOutputPerMillionTokens}}" class="admin-field-error">{{costFieldErrors.analysisOutputPerMillionTokens}}</view>
+          </view>
+          <view class="admin-field">
+            <text>生图 1K / 张</text>
+            <input class="{{costFieldErrors.image1K ? 'has-error' : ''}}" type="digit" value="{{form.costs.image1K}}" data-section="costs" data-key="image1K" bindinput="onInput" />
+            <view wx:if="{{costFieldErrors.image1K}}" class="admin-field-error">{{costFieldErrors.image1K}}</view>
+          </view>
+          <view class="admin-field">
+            <text>生图 2K / 张</text>
+            <input class="{{costFieldErrors.image2K ? 'has-error' : ''}}" type="digit" value="{{form.costs.image2K}}" data-section="costs" data-key="image2K" bindinput="onInput" />
+            <view wx:if="{{costFieldErrors.image2K}}" class="admin-field-error">{{costFieldErrors.image2K}}</view>
+          </view>
+          <view class="admin-field">
+            <text>生图 4K / 张</text>
+            <input class="{{costFieldErrors.image4K ? 'has-error' : ''}}" type="digit" value="{{form.costs.image4K}}" data-section="costs" data-key="image4K" bindinput="onInput" />
+            <view wx:if="{{costFieldErrors.image4K}}" class="admin-field-error">{{costFieldErrors.image4K}}</view>
+          </view>
+          <view class="admin-field">
+            <text>视频 480p / 秒</text>
+            <input class="{{costFieldErrors.video480p ? 'has-error' : ''}}" type="digit" value="{{form.costs.video480p}}" data-section="costs" data-key="video480p" bindinput="onInput" />
+            <view wx:if="{{costFieldErrors.video480p}}" class="admin-field-error">{{costFieldErrors.video480p}}</view>
+          </view>
+          <view class="admin-field">
+            <text>视频 720p / 秒</text>
+            <input class="{{costFieldErrors.video720p ? 'has-error' : ''}}" type="digit" value="{{form.costs.video720p}}" data-section="costs" data-key="video720p" bindinput="onInput" />
+            <view wx:if="{{costFieldErrors.video720p}}" class="admin-field-error">{{costFieldErrors.video720p}}</view>
+          </view>
+          <view class="admin-field">
+            <text>视频 1080p / 秒</text>
+            <input class="{{costFieldErrors.video1080p ? 'has-error' : ''}}" type="digit" value="{{form.costs.video1080p}}" data-section="costs" data-key="video1080p" bindinput="onInput" />
+            <view wx:if="{{costFieldErrors.video1080p}}" class="admin-field-error">{{costFieldErrors.video1080p}}</view>
+          </view>
+          <view class="admin-field">
+            <text>视频默认秒数</text>
+            <input class="{{costFieldErrors.videoDefaultDuration ? 'has-error' : ''}}" type="digit" value="{{form.costs.videoDefaultDuration}}" data-section="costs" data-key="videoDefaultDuration" bindinput="onInput" />
+            <view wx:if="{{costFieldErrors.videoDefaultDuration}}" class="admin-field-error">{{costFieldErrors.videoDefaultDuration}}</view>
+          </view>
         </view>
         <view class="cost-trend-panel">
           <view class="cost-trend-heading">
@@ -1061,7 +1105,7 @@
               {{usageLoading ? '刷新中' : '刷新统计'}}
             </button>
             <button class="usage-export-button" bindtap="exportModelUsage" loading="{{usageExporting}}" disabled="{{usageExporting}}">
-              {{usageExporting ? '生成中' : '导出 Excel'}}
+              {{usageExporting ? '生成中' : '导出成本明细 Excel'}}
             </button>
             <view class="admin-action-slot">
               <view

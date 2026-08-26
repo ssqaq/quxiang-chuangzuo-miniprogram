@@ -62,6 +62,7 @@ const jsFiles = [
   "scripts/admin-usage-entry-smoke.js",
   "scripts/admin-responsive-smoke.js",
   "scripts/admin-config-layout-smoke.js",
+  "scripts/admin-cost-validation-smoke.js",
   "scripts/image-quality-smoke.js",
   "scripts/image-edit-routing-smoke.js",
   "scripts/tencent-face-fusion-page-smoke.js",
@@ -77,6 +78,11 @@ const jsFiles = [
   "cloudfunctions/api/lib/multipart.js",
   "cloudfunctions/api/lib/web-pose.js",
   "cloudfunctions/api/lib/publish-export-core.js",
+  "cloudfunctions/api/lib/image-pixel-codec.js",
+  "cloudfunctions/api/lib/image-composite.js",
+  "cloudfunctions/api/lib/pixel-acceptance.js",
+  "cloudfunctions/api/lib/pixel-protection-flow.js",
+  "cloudfunctions/api/tests/pixel-protection.test.js",
   "scripts/database-index-core.js",
   "scripts/database-index-smoke.js",
   "scripts/cloud-database-index-manager/index.js",
@@ -95,6 +101,8 @@ const jsFiles = [
   "scripts/diagnostic-log-smoke.js",
   "scripts/diagnostic-admin-logs-smoke.js",
   "scripts/generation-experience-smoke.js",
+  "scripts/generation-async-smoke.js",
+  "scripts/generation-orphan-cleanup-smoke.js",
   "scripts/photo-to-video-smoke.js",
   "scripts/video-provider-smoke.js",
   "scripts/admin-config-smoke.js",
@@ -111,6 +119,7 @@ const jsFiles = [
   "scripts/watermark-transfer-smoke.js",
   "scripts/model-usage-stats-smoke.js",
   "scripts/model-cost-stats-smoke.js",
+  "scripts/model-usage-export-detail-smoke.js",
   "scripts/model-failure-stats-smoke.js",
   "scripts/auto-face-failure-stats-smoke.js",
   "scripts/photo-to-video-cleanup-smoke.js",
@@ -244,6 +253,7 @@ const required = [
   "scripts/admin-usage-entry-smoke.js",
   "scripts/admin-responsive-smoke.js",
   "scripts/admin-config-layout-smoke.js",
+  "scripts/admin-cost-validation-smoke.js",
   "scripts/image-quality-smoke.js",
   "scripts/image-edit-routing-smoke.js",
   "scripts/tencent-face-fusion-page-smoke.js",
@@ -266,6 +276,11 @@ const required = [
   "utils/publish-export-core.js",
   "workers/publish-export-worker.js",
   "cloudfunctions/api/lib/publish-export-core.js",
+  "cloudfunctions/api/lib/image-pixel-codec.js",
+  "cloudfunctions/api/lib/image-composite.js",
+  "cloudfunctions/api/lib/pixel-acceptance.js",
+  "cloudfunctions/api/lib/pixel-protection-flow.js",
+  "cloudfunctions/api/tests/pixel-protection.test.js",
   "scripts/canvas-gesture-smoke.js",
   "scripts/circle-gesture-smoke.js",
   "scripts/auto-face-fallback-smoke.js",
@@ -273,6 +288,7 @@ const required = [
   "scripts/init-cloud-database.ps1",
   "scripts/points-checkin-smoke.js",
   "scripts/model-cost-stats-smoke.js",
+  "scripts/model-usage-export-detail-smoke.js",
   "scripts/analysis-cost-probe-smoke.js",
   "scripts/auto-face-failure-stats-smoke.js",
   "cloudfunctions/api/index.js",
@@ -284,6 +300,8 @@ const required = [
   "scripts/workbench-media-parser-layout-smoke.js",
   "scripts/photo-to-video-cleanup-smoke.js",
   "scripts/photo-to-video-session-smoke.js",
+  "scripts/generation-async-smoke.js",
+  "scripts/generation-orphan-cleanup-smoke.js",
   "scripts/watermark-transfer-smoke.js",
   "scripts/auto-face-probe-history-smoke.js",
   "scripts/publish-export-advanced-smoke.js",
@@ -741,7 +759,7 @@ if (
   || !adminWxml.includes("男性")
   || !adminWxml.includes("女性")
   || !adminWxml.includes("继续加载20条")
-  || !adminWxml.includes("导出 Excel")
+  || !adminWxml.includes("导出成本明细 Excel")
   || !adminWxml.includes("复制错误")
   || !adminWxss.includes(".cost-chart")
   || !adminWxss.includes(".admin-user-list")
@@ -832,12 +850,14 @@ if (
   || !adminWxml.includes("按模型名称分组")
   || !adminWxml.includes("按月份统计")
   || !adminWxml.includes("模型成本配置（人民币）")
-  || !adminWxml.includes("导出 Excel")
+  || !adminWxml.includes("导出成本明细 Excel")
   || !adminWxss.includes(".usage-cost-summary")
   || !adminWxss.includes(".usage-user-list")
   || !adminWxss.includes(".usage-monthly-list")
   || !cloudJs.includes("exportModelUsageStats")
   || !cloudJs.includes("buildModelUsageExportWorkbook")
+  || !cloudJs.includes("buildModelUsageDetailRows")
+  || !cloudJs.includes('"成本调用明细"')
   || !cloudJs.includes("resolveCostConfig")
   || !cloudJs.includes("userHash")
   || !cloudJs.includes("shiftMonthKey")
@@ -852,6 +872,11 @@ if (
   || !cloudJs.includes('action === "listModels"')
   || !clientCloudJs.includes('action: "probeModels"')
   || !fs.existsSync(path.join(root, "scripts/analysis-cost-probe-smoke.js"))
+  || !adminJs.includes("validateAdminCostInput")
+  || !adminJs.includes("costFieldErrors")
+  || !adminWxml.includes("admin-field-error")
+  || !fs.existsSync(path.join(root, "scripts/admin-cost-validation-smoke.js"))
+  || !fs.existsSync(path.join(root, "scripts/model-usage-export-detail-smoke.js"))
 ) {
   throw new Error("模型成本、按用户/模型、月度统计或 Excel 导出功能不完整。");
 }
@@ -1973,7 +1998,7 @@ if (
   || !indexWxml.includes("generation-waiting-footer")
   || !indexWxml.includes('id="generation-results"')
   || !indexWxml.includes("generationElapsedSeconds")
-  || !indexJs.includes("startGenerationTimer()")
+  || !/startGenerationTimer\s*\(/.test(indexJs)
   || !indexJs.includes("stopGenerationTimer()")
   || !indexJs.includes("generationWaitText")
   || indexJs.includes("scrollToGenerationResults()")

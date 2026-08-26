@@ -1078,6 +1078,30 @@
   border-top: 1rpx solid #e5ebf3;
 }
 
+.generation-task-meta {
+  margin-bottom: 12rpx;
+  padding: 12rpx;
+  border: 1rpx solid #d9e7f8;
+  border-radius: 12rpx;
+  background: #f4f8ff;
+}
+
+.generation-task-message {
+  color: #315d91;
+  font-size: 22rpx;
+  font-weight: 700;
+  line-height: 32rpx;
+}
+
+.generation-task-id,
+.generation-task-hint {
+  margin-top: 4rpx;
+  color: #718198;
+  font-size: 19rpx;
+  line-height: 28rpx;
+  word-break: break-all;
+}
+
 .generation-waiting-title {
   color: #26334a;
   font-size: 24rpx;

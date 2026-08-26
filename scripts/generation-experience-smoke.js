@@ -6,36 +6,43 @@ const root = path.join(__dirname, "..");
 const indexJs = fs.readFileSync(path.join(root, "pages/index/index.js"), "utf8");
 const indexWxml = fs.readFileSync(path.join(root, "pages/index/index.wxml"), "utf8");
 const indexWxss = fs.readFileSync(path.join(root, "pages/index/index.wxss"), "utf8");
+const clientCloudJs = fs.readFileSync(path.join(root, "services/cloud.js"), "utf8");
 const cloudFunction = fs.readFileSync(
   path.join(root, "cloudfunctions/api/index.js"),
   "utf8"
 );
 
 assert.ok(indexJs.includes("GENERATION_TIMEOUT_MS = 120000"));
-assert.ok(indexJs.includes("GENERATION_RETRY_LIMIT = 2"));
-assert.ok(indexJs.includes('"upload"'));
-assert.ok(indexJs.includes('"save"'));
-assert.ok(indexJs.includes("createClientRequestId"));
-assert.ok(indexJs.includes("generationTimedOut"));
-assert.ok(indexJs.includes("正在重试生成"));
+assert.ok(indexJs.includes("GENERATION_POLL_DELAYS_MS = [2000, 4000, 6000]"));
+assert.ok(indexJs.includes("GENERATION_POLL_TIMEOUT_MS = 15 * 60 * 1000"));
+assert.ok(indexJs.includes("GENERATION_PENDING_STORAGE_KEY"));
+assert.ok(indexJs.includes("startGenerationPolling"));
+assert.ok(indexJs.includes("pollGenerationStatus"));
+assert.ok(indexJs.includes("savePendingGenerationTask"));
+assert.ok(indexJs.includes("restorePendingGenerationTask"));
+assert.ok(indexJs.includes("applyGenerationResult"));
+assert.ok(indexJs.includes("任务已提交"));
+assert.ok(!indexJs.includes("GENERATION_RETRY_LIMIT = 2"));
+assert.ok(!indexJs.includes("正在重试生成"));
+assert.ok(clientCloudJs.includes("function submitGeneration"));
+assert.ok(clientCloudJs.includes("function getGenerationStatus"));
+assert.ok(clientCloudJs.includes('action: "getGenerationStatus"'));
 assert.ok(indexWxml.includes("generation-checklist"));
 assert.ok(indexWxml.includes("generation-check-row"));
 assert.ok(indexWxml.includes("等待上一项完成"));
 assert.ok(indexWxml.includes('id="generation-results"'));
-assert.ok(indexWxml.includes("generationRetryCount"));
+assert.ok(indexWxml.includes("generationTaskMessage"));
+assert.ok(indexWxml.includes("任务已提交，后台会自动生成"));
 assert.ok(indexWxss.includes(".generation-checklist"));
 assert.ok(indexWxss.includes(".generation-check-row.is-current"));
 assert.ok(indexWxss.includes("@keyframes generation-check-current-pulse"));
-assert.ok(indexWxss.includes(".generation-waiting-footer"));
+assert.ok(indexWxss.includes(".generation-task-meta"));
 assert.ok(indexWxss.includes(".generation-waiting-timeout"));
-assert.ok(indexWxss.includes("@media (min-width: 360px) and (max-width: 389px)"));
-assert.ok(indexWxss.includes("@media (min-width: 400px) and (max-width: 430px)"));
+assert.ok(cloudFunction.includes('action === "getGenerationStatus"'));
 assert.ok(cloudFunction.includes("findGenerationRecord"));
 assert.ok(cloudFunction.includes("generation.idempotent_hit"));
-assert.ok(cloudFunction.includes("event.requestId"));
 
-let attempts = 0;
-const retryEvents = [];
+const actionCounts = {};
 const requestIds = [];
 
 global.getApp = () => ({
@@ -46,17 +53,19 @@ global.getApp = () => ({
 global.wx = {
   cloud: {
     callFunction({ data, success }) {
-      attempts += 1;
+      actionCounts[data.action] = (actionCounts[data.action] || 0) + 1;
       requestIds.push(data.requestId);
       setTimeout(() => {
-        if (attempts < 3) {
+        if (data.action === "generate") {
           success({
             result: {
-              ok: false,
-              retryable: true,
-              errorCode: "timeout",
-              message: "模拟超时",
-              requestId: data.requestId
+              ok: true,
+              requestId: data.requestId,
+              taskId: data.requestId,
+              status: "queued",
+              stage: "queued",
+              progress: 0,
+              message: "生图任务已提交"
             }
           });
           return;
@@ -65,7 +74,15 @@ global.wx = {
           result: {
             ok: true,
             requestId: data.requestId,
-            recordId: "smoke-record"
+            taskId: data.requestId,
+            status: "succeeded",
+            stage: "succeeded",
+            progress: 100,
+            result: {
+              requestId: data.requestId,
+              recordId: "smoke-record",
+              fileID: "cloud://result/smoke.png"
+            }
           }
         });
       }, 0);
@@ -75,29 +92,43 @@ global.wx = {
 
 const cloud = require("../services/cloud");
 
-cloud.generateImage(
-  { prompt: "smoke" },
-  {
-    requestId: "smoke-client-request",
-    onRetry(event) {
-      retryEvents.push(event);
-    }
-  }
-).then((result) => {
-  assert.strictEqual(result.recordId, "smoke-record");
-  assert.strictEqual(attempts, 3);
-  assert.deepStrictEqual(requestIds, [
+async function main() {
+  const submitted = await cloud.submitGeneration(
+    { prompt: "smoke" },
+    { requestId: "smoke-client-request" }
+  );
+  assert.strictEqual(submitted.status, "queued");
+  assert.strictEqual(actionCounts.generate, 1);
+
+  const status = await cloud.getGenerationStatus(
     "smoke-client-request",
+    { silent: true }
+  );
+  assert.strictEqual(status.status, "succeeded");
+  assert.strictEqual(status.result.recordId, "smoke-record");
+  assert.strictEqual(actionCounts.getGenerationStatus, 1);
+  assert.deepStrictEqual(requestIds, [
     "smoke-client-request",
     "smoke-client-request"
   ]);
-  assert.strictEqual(retryEvents.length, 2);
-  assert.strictEqual(retryEvents[0].attempt, 1);
-  assert.strictEqual(retryEvents[1].attempt, 2);
-  assert.strictEqual(retryEvents[0].maxRetries, 2);
-  assert.strictEqual(retryEvents[0].delayMs, 2000);
-  console.log("generation experience smoke: OK");
-}).catch((error) => {
+
+  const aliasResult = await cloud.generateImage(
+    { prompt: "alias" },
+    {
+      requestId: "smoke-alias-request",
+      maxRetries: 9,
+      onRetry() {
+        throw new Error("异步提交不能触发生图重试");
+      }
+    }
+  );
+  assert.strictEqual(aliasResult.status, "queued");
+  assert.strictEqual(actionCounts.generate, 2);
+
+  console.log("generation experience smoke: OK (submit once + status polling)");
+}
+
+main().catch((error) => {
   console.error(error);
   process.exitCode = 1;
 });

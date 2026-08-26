@@ -9,6 +9,19 @@ const IMAGE_QUALITY_OPTIONS = Object.freeze([
 ]);
 const IMAGE_COST_KEYS = Object.freeze(["image1K", "image2K", "image4K"]);
 const VIDEO_COST_KEYS = Object.freeze(["video480p", "video720p", "video1080p"]);
+const ADMIN_COST_KEYS = Object.freeze([
+  "faceInputPerMillionTokens",
+  "faceOutputPerMillionTokens",
+  "analysisInputPerMillionTokens",
+  "analysisOutputPerMillionTokens",
+  "image1K",
+  "image2K",
+  "image4K",
+  "video480p",
+  "video720p",
+  "video1080p",
+  "videoDefaultDuration"
+]);
 const IMAGE_COST_FIELD_BY_RESOLUTION = Object.freeze({
   "1K": "image1K",
   "2K": "image2K",
@@ -54,6 +67,33 @@ function formatAdminPrice(value, fallback = "") {
     return "";
   }
   return number.toFixed(2).replace(/\.?0+$/, "");
+}
+
+function validateAdminCostInput(value) {
+  const text = String(value === undefined || value === null ? "" : value).trim();
+  if (!text) return "不能为空";
+  if (!/^(?:0|[1-9]\d*)(?:\.\d{1,4})?$/.test(text)) {
+    return "必须是非负数字，最多 4 位小数";
+  }
+  const number = Number(text);
+  if (!Number.isFinite(number) || number < 0 || number > 100000) {
+    return "请输入 0～100000";
+  }
+  return "";
+}
+
+function validateAdminCostFields(costs = {}) {
+  const source = costs && typeof costs === "object" ? costs : {};
+  const errors = {};
+  ADMIN_COST_KEYS.forEach((key) => {
+    const error = validateAdminCostInput(source[key]);
+    if (error) errors[key] = error;
+  });
+  return errors;
+}
+
+function adminCostText(value) {
+  return String(value === undefined || value === null ? "" : value).trim();
 }
 
 function configuredAdminPrice(costs, key, fieldMap) {
@@ -2483,29 +2523,29 @@ function formToConfig(form) {
     costs: {
       currency: "CNY",
       face: {
-        inputPerMillionTokens: Number(form.costs.faceInputPerMillionTokens || 0),
-        outputPerMillionTokens: Number(form.costs.faceOutputPerMillionTokens || 0)
+        inputPerMillionTokens: adminCostText(form.costs.faceInputPerMillionTokens),
+        outputPerMillionTokens: adminCostText(form.costs.faceOutputPerMillionTokens)
       },
       analysis: {
-        inputPerMillionTokens: Number(form.costs.analysisInputPerMillionTokens || 0),
-        outputPerMillionTokens: Number(form.costs.analysisOutputPerMillionTokens || 0)
+        inputPerMillionTokens: adminCostText(form.costs.analysisInputPerMillionTokens),
+        outputPerMillionTokens: adminCostText(form.costs.analysisOutputPerMillionTokens)
       },
       image: {
         defaultResolution: "1K",
         perImage: {
-          "1K": Number(form.costs.image1K || 0),
-          "2K": Number(form.costs.image2K || 0),
-          "4K": Number(form.costs.image4K || 0)
+          "1K": adminCostText(form.costs.image1K),
+          "2K": adminCostText(form.costs.image2K),
+          "4K": adminCostText(form.costs.image4K)
         }
       },
       video: {
         defaultResolution: "720p",
         perSecond: {
-          "480p": Number(form.costs.video480p || 0),
-          "720p": Number(form.costs.video720p || 0),
-          "1080p": Number(form.costs.video1080p || 0)
+          "480p": adminCostText(form.costs.video480p),
+          "720p": adminCostText(form.costs.video720p),
+          "1080p": adminCostText(form.costs.video1080p)
         },
-        defaultDurationSeconds: Number(form.costs.videoDefaultDuration || 0)
+        defaultDurationSeconds: adminCostText(form.costs.videoDefaultDuration)
       }
     }
   };
@@ -2683,6 +2723,7 @@ Page({
     refreshingAll: false,
     isAdmin: false,
     form: emptyForm(),
+    costFieldErrors: {},
     imageQualityOptions: buildAdminImageQualityOptions(emptyForm().costs),
     imageQualityIndex: 0,
     imageSizeOptions: IMAGE_SIZE_OPTIONS.slice(),
@@ -3141,6 +3182,7 @@ Page({
         isAdmin: true,
         canRetry: false,
         form,
+        costFieldErrors: {},
         defaults: result.defaults || null,
         effective,
         moduleStates,
@@ -3674,6 +3716,7 @@ Page({
         const form = formFromConfig(result);
         const patch = Object.assign({
           form,
+          costFieldErrors: {},
           defaults: result.defaults || null,
           effective: result.effective || null
         }, buildQualityPickerState(form));
@@ -3856,6 +3899,12 @@ Page({
       const capabilityPayload = {};
       capabilityPayload[section] = profile || {};
       Object.assign(patch, buildQualityPickerState(nextForm, capabilityPayload));
+    }
+    if (
+      section === "costs"
+      && ADMIN_COST_KEYS.includes(key)
+    ) {
+      patch[`costFieldErrors.${key}`] = validateAdminCostInput(event.detail.value);
     }
     if (
       section === "costs"
@@ -4421,6 +4470,23 @@ Page({
 
   async saveConfig() {
     if (this.data.saving) return;
+    const costFieldErrors = validateAdminCostFields(this.data.form.costs);
+    const invalidCostKeys = Object.keys(costFieldErrors);
+    if (invalidCostKeys.length) {
+      const firstKey = invalidCostKeys[0];
+      this.setData({
+        costFieldErrors,
+        activeConfigSection: "costs",
+        activeConfigTitle: CONFIG_SECTION_TITLES.costs,
+        message: `成本配置有 ${invalidCostKeys.length} 项需要修改。`
+      });
+      wx.showModal({
+        title: "成本价格填写有误",
+        content: costFieldErrors[firstKey],
+        showCancel: false
+      });
+      return;
+    }
     this.setData({ saving: true, message: "" });
     try {
       const result = await cloud.saveAdminConfig(formToConfig(this.data.form));
@@ -4428,6 +4494,7 @@ Page({
       const form = formFromConfig(result);
       const patch = Object.assign({
         form,
+        costFieldErrors: {},
         effective,
         saving: false,
         message: `配置已保存，第 ${result.version || 0} 版；正在自动测试四套模型和生图三档清晰度...`

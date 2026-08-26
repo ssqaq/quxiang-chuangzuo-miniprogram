@@ -1,0 +1,129 @@
+<view class="tencent-page">
+  <view class="tencent-header">
+    <view class="back-button" bindtap="backToWorkbench">‹</view>
+    <view>
+      <view class="page-kicker">GPT IMAGE 2 × TENCENT</view>
+      <view class="page-title">腾讯版自动换脸</view>
+      <view class="page-subtitle">先改整体，再最后换脸；一次点击自动完成。</view>
+    </view>
+  </view>
+
+  <view wx:if="{{!cloudReady}}" class="notice notice-warn">
+    <view class="notice-title">云端还没连接</view>
+    <view class="notice-text">连接 CloudBase 后，才能调用 GPT Image 2 和腾讯人脸融合。</view>
+  </view>
+
+  <view class="pipeline-card">
+    <view class="pipeline-line"></view>
+    <view class="pipeline-step {{stage === 'preparing' ? 'is-active' : ''}} {{stage === 'facefusion' || stage === 'succeeded' ? 'is-done' : ''}}">
+      <view class="pipeline-dot">1</view>
+      <view class="pipeline-copy">
+        <view class="pipeline-title">正在修改衣服、背景和光影</view>
+        <view class="pipeline-desc">使用当前普通生图配置，不会换掉普通创作设置。</view>
+      </view>
+    </view>
+    <view class="pipeline-step {{stage === 'facefusion' ? 'is-active' : ''}} {{stage === 'succeeded' ? 'is-done' : ''}}">
+      <view class="pipeline-dot">2</view>
+      <view class="pipeline-copy">
+        <view class="pipeline-title">正在融合参考人脸</view>
+        <view class="pipeline-desc">最后使用腾讯云图片人脸融合专业版。</view>
+      </view>
+    </view>
+  </view>
+
+  <view class="upload-grid">
+    <view class="upload-card" bindtap="chooseMainImage">
+      <view class="upload-label">原始主图</view>
+      <view wx:if="{{mainImage}}" class="selected-image-wrap">
+        <image class="selected-image" src="{{mainImage.path}}" mode="aspectFill"></image>
+        <view class="remove-image" catchtap="clearImage" data-kind="main">×</view>
+      </view>
+      <view wx:else class="upload-empty">
+        <view class="upload-plus">＋</view>
+        <view>上传主图</view>
+      </view>
+      <view class="upload-help">要改衣服、背景和光影的那张图</view>
+    </view>
+    <view class="upload-card upload-card-face" bindtap="chooseFaceImage">
+      <view class="upload-label">参考脸</view>
+      <view wx:if="{{faceImage}}" class="selected-image-wrap">
+        <image class="selected-image" src="{{faceImage.path}}" mode="aspectFill"></image>
+        <view class="remove-image" catchtap="clearImage" data-kind="face">×</view>
+      </view>
+      <view wx:else class="upload-empty">
+        <view class="upload-plus">＋</view>
+        <view>上传参考脸</view>
+      </view>
+      <view class="upload-help">只支持一张清晰正脸参考图</view>
+    </view>
+  </view>
+
+  <view class="form-card">
+    <view class="field-title">你想怎么改？</view>
+    <textarea
+      class="prompt-input"
+      value="{{prompt}}"
+      maxlength="1000"
+      auto-height
+      placeholder="例如：换成白色西装，背景改成海边，光影自然"
+      bindinput="onPromptInput"
+    ></textarea>
+    <view class="field-title negative-title">不想出现什么？（可不填）</view>
+    <textarea
+      class="prompt-input prompt-input-small"
+      value="{{negativePrompt}}"
+      maxlength="1000"
+      auto-height
+      placeholder="例如：不要文字、不要水印、不要新增人物"
+      bindinput="onNegativePromptInput"
+    ></textarea>
+  </view>
+
+  <view wx:if="{{message}}" class="notice {{stage === 'failed' ? 'notice-error' : 'notice-success'}}">
+    <view class="notice-title">{{stage === 'failed' ? '提示' : '制作链路'}}</view>
+    <view class="notice-text">{{message}}</view>
+    <view wx:if="{{retryHint}}" class="notice-retry">{{retryHint}}</view>
+  </view>
+
+  <view class="action-area">
+    <button
+      class="primary-button"
+      bindtap="startPipeline"
+      loading="{{loading}}"
+      disabled="{{loading}}"
+    >
+      {{loading ? stageText : (retryTencentAvailable ? '只重试腾讯换脸' : '开始制作')}}
+    </button>
+    <button
+      wx:if="{{retryTencentAvailable && !loading}}"
+      class="secondary-button"
+      bindtap="resetForNew"
+    >放弃重试，重新制作</button>
+  </view>
+
+  <view wx:if="{{stage === 'succeeded' && resultUrl}}" class="result-card">
+    <view class="result-head">
+      <view>
+        <view class="result-kicker">FINAL IMAGE</view>
+        <view class="result-title">最终图片</view>
+      </view>
+      <view class="result-tag">已保存</view>
+    </view>
+    <image class="result-image" src="{{resultUrl}}" mode="widthFix" bindtap="previewResult"></image>
+    <view class="result-actions">
+      <button class="secondary-button" bindtap="resetForNew">重新制作</button>
+      <button class="secondary-button" bindtap="openRecords">查看制作记录</button>
+    </view>
+  </view>
+
+  <view class="route-note">当前使用链路：GPT Image 2 → 腾讯人脸融合专业版</view>
+  <view class="bottom-safe"></view>
+
+  <image-preview
+    wx:if="{{previewVisible}}"
+    visible="{{previewVisible}}"
+    src="{{previewPath}}"
+    title="最终图片"
+    bindclose="closePreview"
+  ></image-preview>
+</view>

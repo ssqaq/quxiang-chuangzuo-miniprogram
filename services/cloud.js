@@ -618,6 +618,30 @@ module.exports = {
       onRetry: options.onRetry
     });
   },
+  tencentFaceFusionPipeline(payload, options = {}) {
+    return callApi({
+      action: "tencentFaceFusionPipeline",
+      payload: payload && typeof payload === "object" ? payload : {},
+      requestId: options.requestId || (payload && payload.requestId) || "",
+      retryLimit: options.maxRetries === undefined ? 0 : options.maxRetries,
+      onRetry: options.onRetry
+    });
+  },
+  getTencentFaceFusionPipelineStatus(requestId) {
+    return callApi({
+      action: "getTencentFaceFusionPipelineStatus",
+      requestId: String(requestId || ""),
+      retryLimit: 0,
+      silent: true
+    });
+  },
+  getTencentFaceFusionAdminStatus() {
+    return callApi({
+      action: "getTencentFaceFusionAdminStatus",
+      retryLimit: 0,
+      silent: true
+    });
+  },
   repairImage(payload, options = {}) {
     return callApi({
       action: "repairImage",

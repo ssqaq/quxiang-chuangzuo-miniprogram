@@ -1095,6 +1095,41 @@ function modelProbeRepairAdvice(status, httpStatus) {
   }
 }
 
+function emptyTencentFaceFusionStatus() {
+  return {
+    configured: false,
+    region: "未配置",
+    model: "FuseFaceUltra",
+    apiVersion: "2022-09-27",
+    swapModelType: 4,
+    lastCallStatus: "not-called",
+    lastCallStage: "",
+    lastErrorCode: "",
+    lastErrorMessage: "",
+    lastRequestId: "",
+    lastCalledAt: "",
+    checkedAt: ""
+  };
+}
+
+function formatTencentFaceFusionStatus(result) {
+  const source = result && typeof result === "object" ? result : {};
+  return Object.assign(emptyTencentFaceFusionStatus(), {
+    configured: Boolean(source.configured),
+    region: String(source.region || "未配置"),
+    model: String(source.model || "FuseFaceUltra"),
+    apiVersion: String(source.apiVersion || "2022-09-27"),
+    swapModelType: Number(source.swapModelType) || 4,
+    lastCallStatus: String(source.lastCallStatus || "not-called"),
+    lastCallStage: String(source.lastCallStage || ""),
+    lastErrorCode: String(source.lastErrorCode || ""),
+    lastErrorMessage: String(source.lastErrorMessage || ""),
+    lastRequestId: String(source.lastRequestId || ""),
+    lastCalledAt: source.lastCalledAt ? formatAdminDate(source.lastCalledAt) : "暂无调用",
+    checkedAt: source.checkedAt ? formatAdminDate(source.checkedAt) : ""
+  });
+}
+
 function emptyImageQualityProbe() {
   return {
     available: false,
@@ -2480,6 +2515,7 @@ Page({
     dashboardStatus: emptyDashboardStatus(),
     faceConfigSummary: emptyFaceConfigSummary(),
     analysisConfigSummary: emptyAnalysisConfigSummary(),
+    tencentFaceFusionStatus: emptyTencentFaceFusionStatus(),
     entryHealth: buildEntryHealth(),
     activeConfigSection: "",
     activeConfigTitle: "",
@@ -2837,6 +2873,7 @@ Page({
         runtimeConfigVersion: result.version || 0
       });
       this.loadAdminBackground(token);
+      this.loadTencentFaceFusionStatus(token);
     } catch (error) {
       if (!this.isCurrentAdminLoad(token)) return;
       const message = error && error.code === "ADMIN_LOAD_TIMEOUT"
@@ -3542,6 +3579,33 @@ Page({
       Object.assign(patch, buildQualityPickerState(nextForm, capabilityPayload));
     }
     this.setData(patch);
+  },
+
+  async loadTencentFaceFusionStatus(token = this._adminLoadToken || 0) {
+    if (!this.isCurrentAdminLoad(token) || !this.data.isAdmin) return;
+    try {
+      const result = await withTimeout(
+        cloud.getTencentFaceFusionAdminStatus(),
+        8000,
+        "腾讯人脸融合状态"
+      );
+      if (!this.isCurrentAdminLoad(token) || !this.data.isAdmin) return;
+      this.setData({
+        tencentFaceFusionStatus: formatTencentFaceFusionStatus(result)
+      });
+    } catch (error) {
+      diagnosticLog.warn("admin", "tencent-facefusion-status-failed", "腾讯人脸融合状态读取失败", {
+        error
+      });
+      if (this.isCurrentAdminLoad(token) && this.data.isAdmin) {
+        this.setData({
+          tencentFaceFusionStatus: Object.assign(
+            emptyTencentFaceFusionStatus(),
+            { lastCallStatus: "unavailable" }
+          )
+        });
+      }
+    }
   },
 
   onImageQualityChange(event) {

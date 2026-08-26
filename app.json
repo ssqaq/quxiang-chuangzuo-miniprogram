@@ -4,6 +4,7 @@
     "pages/profile/profile",
     "pages/workbench/workbench",
     "pages/index/index",
+    "pages/tencent-face-fusion/tencent-face-fusion",
     "pages/records/records",
     "pages/repair/repair",
     "pages/publish-export/publish-export",

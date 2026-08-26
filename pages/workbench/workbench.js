@@ -16,6 +16,8 @@ const ENTRY_MODES = [
   }
 ];
 
+const TENCENT_FACE_FUSION_ROUTE = "/pages/tencent-face-fusion/tencent-face-fusion";
+
 function hasDraft(project) {
   if (!project || typeof project !== "object") return false;
   return Boolean(
@@ -570,6 +572,14 @@ Page({
       "/pages/records/records",
       "制作记录打开失败",
       "已打开制作记录"
+    );
+  },
+
+  openTencentFaceFusion() {
+    this.openPage(
+      TENCENT_FACE_FUSION_ROUTE,
+      "腾讯版制作页打开失败",
+      "已打开腾讯版自动换脸"
     );
   },
 

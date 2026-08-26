@@ -3,6 +3,8 @@ param(
     [ValidateNotNullOrEmpty()]
     [string[]]$IncludePath,
 
+    [string]$TargetVersion = "",
+
     [ValidateRange(1, 5)]
     [int]$MaxAttempts = 3,
 
@@ -26,6 +28,46 @@ $releaseRecordScriptName = "scripts/write-release-record.ps1"
 $versionScriptName = "scripts/release-version.ps1"
 
 $versionScript = Join-Path $repoRoot $versionScriptName
+
+function Resolve-TargetVersion {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$BaseVersion
+    )
+
+    if ([string]::IsNullOrWhiteSpace($TargetVersion)) {
+        return Get-NextPatchVersion -BaseVersion $BaseVersion
+    }
+
+    $baseMatch = [regex]::Match($BaseVersion.Trim(), '^(\d+)\.(\d+)\.(\d+)$')
+    $targetMatch = [regex]::Match($TargetVersion.Trim(), '^(\d+)\.(\d+)\.(\d+)$')
+    if (-not $baseMatch.Success) {
+        throw "远端基线版本号不是三段式语义版本：$BaseVersion"
+    }
+    if (-not $targetMatch.Success) {
+        throw "指定发布版本号不是三段式语义版本：$TargetVersion"
+    }
+
+    $baseParts = @(
+        [int64]$baseMatch.Groups[1].Value,
+        [int64]$baseMatch.Groups[2].Value,
+        [int64]$baseMatch.Groups[3].Value
+    )
+    $targetParts = @(
+        [int64]$targetMatch.Groups[1].Value,
+        [int64]$targetMatch.Groups[2].Value,
+        [int64]$targetMatch.Groups[3].Value
+    )
+    for ($index = 0; $index -lt 3; $index += 1) {
+        if ($targetParts[$index] -gt $baseParts[$index]) {
+            return $TargetVersion.Trim()
+        }
+        if ($targetParts[$index] -lt $baseParts[$index]) {
+            throw "指定发布版本 $TargetVersion 不能低于远端基线 $BaseVersion。"
+        }
+    }
+    throw "指定发布版本 $TargetVersion 必须高于远端基线 $BaseVersion。"
+}
 
 function Invoke-Git {
     param(
@@ -422,7 +464,7 @@ try {
             if (-not $baseVersionMatch.Success) {
                 throw "远端基线 config.js 没有找到 appVersion。"
             }
-            $targetVersion = Get-NextPatchVersion -BaseVersion $baseVersionMatch.Groups[1].Value
+            $targetVersion = Resolve-TargetVersion -BaseVersion $baseVersionMatch.Groups[1].Value
             $versionPaths = Get-VersionGroupPaths -SourceRoot $releaseWorktree
             $initialVersionSnapshot = Get-FileSnapshot -Paths $versionPaths
             Copy-SnapshotToWorktree -TargetRoot $releaseWorktree -Snapshot $initialSnapshot

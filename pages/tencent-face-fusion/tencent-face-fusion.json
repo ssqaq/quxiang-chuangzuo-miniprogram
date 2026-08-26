@@ -1,0 +1,7 @@
+{
+  "navigationBarTitleText": "腾讯版自动换脸",
+  "enablePullDownRefresh": false,
+  "usingComponents": {
+    "image-preview": "/components/image-preview/image-preview"
+  }
+}

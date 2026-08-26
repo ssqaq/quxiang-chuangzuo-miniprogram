@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.40.38";
-const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V04038";
+const API_BUILD_VERSION = "0.41.0";
+const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0410";
 const DEFAULT_IMAGE_MODE = "edits";
 const IMAGE_EDIT_ERROR_CODES = Object.freeze([
   "image-edit-unsupported",
@@ -1225,6 +1225,8 @@ const POINTS_TIME_ZONE = "Asia/Shanghai";
 const GENERATION_OPERATION_STALE_MS = 10 * 60 * 1000;
 const ASSET_UPLOAD_TICKET_COLLECTION = "asset_upload_tickets";
 const USER_ASSET_COLLECTION = "user_assets";
+const TENCENT_FACEFUSION_STATUS_COLLECTION = "tencent_facefusion_status";
+const TENCENT_FACEFUSION_STATUS_ID = "latest";
 const REPAIR_CHAIN_COLLECTION = "repair_chains";
 const REPAIR_MAX_REVISIONS = 10;
 const ASSET_TICKET_TTL_MS = 10 * 60 * 1000;
@@ -1247,6 +1249,7 @@ const REQUIRED_DATABASE_COLLECTIONS = Object.freeze([
   USER_PROFILE_COLLECTION,
   USER_DIAGNOSTIC_LOG_COLLECTION,
   USER_ASSET_COLLECTION,
+  TENCENT_FACEFUSION_STATUS_COLLECTION,
   USER_QUOTA_COLLECTION
 ].sort());
 let adminRuntimeCache = {
@@ -1495,6 +1498,41 @@ function resolveImageConfig(overrides = {}) {
     ),
     retryEnabled: resolveImageRetryEnabled(image),
     retryPreferenceVersion: imageRetryPreferenceVersion(image)
+  };
+}
+
+function resolveTencentFaceFusionConfig() {
+  const swapModelType = Number(env("TENCENT_FACEFUSION_SWAP_MODEL_TYPE", "4"));
+  return {
+    secretId: firstEnv(["TENCENT_FACEFUSION_SECRET_ID"]),
+    secretKey: firstEnv(["TENCENT_FACEFUSION_SECRET_KEY"]),
+    region: env("TENCENT_FACEFUSION_REGION", "ap-guangzhou"),
+    swapModelType: Number.isFinite(swapModelType)
+      ? Math.max(1, Math.min(9, Math.round(swapModelType)))
+      : 4,
+    logoAdd: boolEnv("TENCENT_FACEFUSION_LOGO_ADD", false),
+    timeoutMs: clampNumber(
+      env("TENCENT_FACEFUSION_TIMEOUT_MS", "90000"),
+      90000,
+      5000,
+      120000
+    ),
+    maxImageBytes: Math.max(
+      256 * 1024,
+      Math.min(
+        8 * 1024 * 1024,
+        Number(env("TENCENT_FACEFUSION_MAX_IMAGE_BYTES", String(5 * 1024 * 1024)))
+          || 5 * 1024 * 1024
+      )
+    ),
+    endpoint: "https://facefusion.tencentcloudapi.com",
+    apiVersion: "2022-09-27",
+    action: "FuseFaceUltra",
+    model: "FuseFaceUltra",
+    configured: Boolean(
+      firstEnv(["TENCENT_FACEFUSION_SECRET_ID"])
+      && firstEnv(["TENCENT_FACEFUSION_SECRET_KEY"])
+    )
   };
 }
 
@@ -8007,6 +8045,211 @@ async function requestImageEdits(
   return response.json || {};
 }
 
+function tencentTc3Date(timestamp) {
+  return new Date(timestamp * 1000).toISOString().slice(0, 10);
+}
+
+function hmacHex(key, value) {
+  return crypto.createHmac("sha256", key).update(value).digest("hex");
+}
+
+function buildTencentTc3Headers(config, payload) {
+  const host = "facefusion.tencentcloudapi.com";
+  const timestamp = Math.floor(Date.now() / 1000);
+  const date = tencentTc3Date(timestamp);
+  const canonicalHeaders = [
+    "content-type:application/json; charset=utf-8",
+    `host:${host}`,
+    `x-tc-action:${config.action.toLowerCase()}`
+  ].join("\n") + "\n";
+  const signedHeaders = "content-type;host;x-tc-action";
+  const hashedPayload = crypto.createHash("sha256").update(payload).digest("hex");
+  const canonicalRequest = [
+    "POST",
+    "/",
+    "",
+    canonicalHeaders,
+    signedHeaders,
+    hashedPayload
+  ].join("\n");
+  const credentialScope = `${date}/${"facefusion"}/tc3_request`;
+  const stringToSign = [
+    "TC3-HMAC-SHA256",
+    String(timestamp),
+    credentialScope,
+    crypto.createHash("sha256").update(canonicalRequest).digest("hex")
+  ].join("\n");
+  const secretDate = crypto.createHmac("sha256", `TC3${config.secretKey}`)
+    .update(date)
+    .digest();
+  const secretService = crypto.createHmac("sha256", secretDate)
+    .update("facefusion")
+    .digest();
+  const secretSigning = crypto.createHmac("sha256", secretService)
+    .update("tc3_request")
+    .digest();
+  const signature = crypto.createHmac("sha256", secretSigning)
+    .update(stringToSign)
+    .digest("hex");
+  return {
+    "Content-Type": "application/json; charset=utf-8",
+    Host: host,
+    "X-TC-Action": config.action,
+    "X-TC-Version": config.apiVersion,
+    "X-TC-Timestamp": String(timestamp),
+    "X-TC-Region": config.region,
+    Authorization: [
+      "TC3-HMAC-SHA256",
+      `Credential=${config.secretId}/${credentialScope}`,
+      `SignedHeaders=${signedHeaders}`,
+      `Signature=${signature}`
+    ].join(" ")
+  };
+}
+
+function tencentFaceFusionError(response) {
+  const result = response && response.json && response.json.Response
+    ? response.json.Response
+    : response && response.json || {};
+  const detail = result.Error || result.error || {};
+  const message = detail.Message || detail.message || result.Message
+    || response && response.raw
+    || `腾讯人脸融合请求失败：HTTP ${response && response.status || 0}`;
+  const error = new Error(String(message));
+  error.code = detail.Code || detail.code || "TENCENT_FACEFUSION_FAILED";
+  error.status = Number(response && response.status) || 0;
+  error.retryable = shouldRetryStatus(error.status) || /timeout|限流|频繁|busy/i.test(error.message);
+  error.payload = response && response.json;
+  return error;
+}
+
+async function requestTencentFaceFusion(modelBuffer, faceBuffer, config, requestId) {
+  if (!Buffer.isBuffer(modelBuffer) || !modelBuffer.length) {
+    const error = new Error("腾讯换脸模板图为空。");
+    error.code = "TENCENT_TEMPLATE_IMAGE_EMPTY";
+    throw error;
+  }
+  if (!Buffer.isBuffer(faceBuffer) || !faceBuffer.length) {
+    const error = new Error("腾讯换脸参考脸为空。");
+    error.code = "TENCENT_FACE_IMAGE_EMPTY";
+    throw error;
+  }
+  if (modelBuffer.length > config.maxImageBytes || faceBuffer.length > config.maxImageBytes) {
+    const error = new Error(
+      `腾讯人脸融合要求图片较小，模板图和参考脸都不能超过 ${Math.round(config.maxImageBytes / 1024 / 1024)}MB。`
+    );
+    error.code = "TENCENT_FACEFUSION_IMAGE_TOO_LARGE";
+    throw error;
+  }
+  const body = JSON.stringify({
+    RspImgType: "base64",
+    ModelImage: modelBuffer.toString("base64"),
+    MergeInfos: [{
+      Image: faceBuffer.toString("base64")
+    }],
+    SwapModelType: config.swapModelType,
+    LogoAdd: config.logoAdd ? 1 : 0
+  });
+  const response = await requestWithRetry(
+    config.endpoint,
+    {
+      method: "POST",
+      headers: Object.assign(
+        { "Content-Length": Buffer.byteLength(body) },
+        buildTencentTc3Headers(config, body)
+      )
+    },
+    body,
+    {
+      requestId,
+      action: "tencent.facefusion",
+      provider: "tencent",
+      model: config.model,
+      timeoutMs: config.timeoutMs,
+      allowRetry: true,
+      maxAttempts: 2
+    }
+  );
+  const responseRoot = response && response.json && response.json.Response
+    ? response.json.Response
+    : response && response.json || {};
+  if (
+    response.status < 200
+    || response.status >= 300
+    || responseRoot.Error
+    || responseRoot.error
+  ) {
+    throw tencentFaceFusionError(response);
+  }
+  const resultImage = responseRoot.ResultImage
+    || responseRoot.Result
+    || responseRoot.resultImage
+    || responseRoot.ResultUrl
+    || responseRoot.ResultURL;
+  if (!resultImage) {
+    const error = new Error("腾讯人脸融合没有返回最终图片。");
+    error.code = "TENCENT_FACEFUSION_EMPTY_RESULT";
+    throw error;
+  }
+  if (/^https?:\/\//i.test(String(resultImage))) {
+    return downloadUrl(resultImage, {
+      requestId,
+      action: "tencent.facefusion-result"
+    });
+  }
+  return Buffer.from(String(resultImage), "base64");
+}
+
+async function requestTencentPipelineImageEdit(mainBuffer, payload, imageConfig, costs, requestId, userHash) {
+  const pipelinePayload = Object.assign({}, payload, {
+    prompt: [
+      String(payload.prompt || "").trim(),
+      "第一阶段只修改衣服、背景和整体光影。",
+      "保留人物身份、五官、发型、姿态、构图和画面比例，先不要换脸，最后一步会由腾讯云完成换脸。"
+    ].filter(Boolean).join("\n")
+  });
+  const fields = buildImageEditFields(pipelinePayload, imageConfig, []);
+  const mime = detectMime(mainBuffer);
+  const multipart = createMultipart(fields, [{
+    name: env("AI_IMAGE_MAIN_FIELD", "image"),
+    filename: `main.${imageExtension(mime)}`,
+    mime,
+    buffer: mainBuffer
+  }]);
+  const endpointInfo = resolveImageEditEndpoint(imageConfig);
+  const response = await requestWithRetry(
+    endpointInfo.url,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": multipart.contentType,
+        "Content-Length": multipart.body.length,
+        ...apiKeyHeaders(imageConfig.apiKey),
+        "Idempotency-Key": requestId
+      }
+    },
+    multipart.body,
+    {
+      requestId,
+      action: "tencent.pipeline.image-edit",
+      provider: imageConfig.provider || "",
+      model: imageConfig.model || "",
+      imageGeneration: true,
+      imageEdit: true,
+      allowRetry: imageConfig.retryEnabled,
+      maxAttempts: imageConfig.retryEnabled ? imageConfig.maxRetries + 1 : 1,
+      timeoutMs: imageConfig.timeoutMs,
+      costs,
+      userHash,
+      imageResolution: imageConfig.resolution || payload.size
+    }
+  );
+  if (response.status < 200 || response.status >= 300) {
+    throw imageUpstreamError(response, "GPT Image 2 图片修改失败", { imageEdit: true });
+  }
+  return response.json || {};
+}
+
 function dateKeyForTimeZone(date = new Date(), timeZone = POINTS_TIME_ZONE) {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone,
@@ -10109,6 +10352,456 @@ async function releaseRepairChain(slot) {
   }
 }
 
+async function writeTencentFaceFusionStatus(patch = {}) {
+  try {
+    const ref = db
+      .collection(TENCENT_FACEFUSION_STATUS_COLLECTION)
+      .doc(TENCENT_FACEFUSION_STATUS_ID);
+    const existing = await readDocument(ref);
+    await ref.set({
+      data: stripDocumentId(Object.assign({}, existing || {}, patch, {
+        _id: TENCENT_FACEFUSION_STATUS_ID,
+        updatedAt: new Date()
+      }))
+    });
+  } catch (error) {
+    log("warn", "tencent.facefusion.status-write-failed", {
+      error: error && error.message
+    });
+  }
+}
+
+async function claimTencentPipelineResume(openid, requestId) {
+  return db.runTransaction(async (transaction) => {
+    const operation = await findGenerationOperation(openid, requestId, transaction);
+    if (!operation) {
+      const error = new Error("没有找到可重试的腾讯换脸任务。");
+      error.code = "TENCENT_RETRY_OPERATION_MISSING";
+      throw error;
+    }
+    if (operation.status === "succeeded" && operation.result) {
+      return { claimed: false, completed: true, operation };
+    }
+    if (operation.status === "processing") {
+      return { claimed: false, completed: false, operation };
+    }
+    if (
+      operation.status !== "refunded"
+      || !String(operation.intermediateFileID || "").trim()
+    ) {
+      const error = new Error("这次任务没有可用的中间图，请重新开始制作。");
+      error.code = "TENCENT_RETRY_INTERMEDIATE_MISSING";
+      throw error;
+    }
+    const next = await saveGenerationOperation(openid, requestId, {
+      status: "processing",
+      pipelineStage: "facefusion",
+      retryTencentOnly: true,
+      processingAt: new Date(),
+      lastError: null
+    }, transaction);
+    return { claimed: true, completed: false, operation: next, resumed: true };
+  }, 5);
+}
+
+function tencentPipelineOperationResult(operation) {
+  const result = operation && operation.result && typeof operation.result === "object"
+    ? operation.result
+    : {};
+  return Object.assign({}, result, {
+    requestId: result.requestId || operation && operation.requestId || "",
+    pipelineStage: operation && operation.pipelineStage || result.pipelineStage || "",
+    intermediateAvailable: Boolean(operation && operation.intermediateFileID)
+  });
+}
+
+async function getTencentFaceFusionPipelineStatus(event, context) {
+  const openid = getOpenId(context);
+  if (openid === "anonymous") return jsonResponse(true, { stage: "pending" });
+  const requestId = String(event && event.requestId || "").trim();
+  if (!requestId) return jsonResponse(true, { stage: "pending" });
+  const operation = await findGenerationOperation(openid, requestId);
+  if (!operation) return jsonResponse(true, {
+    requestId,
+    stage: "pending",
+    intermediateAvailable: false,
+    canRetryTencent: false
+  });
+  const stage = operation.status === "succeeded"
+    ? "succeeded"
+    : operation.status === "refunded"
+      ? "failed"
+      : operation.pipelineStage || "preparing";
+  return jsonResponse(true, Object.assign({
+    requestId,
+    stage,
+    status: operation.status || "",
+    intermediateAvailable: Boolean(operation.intermediateFileID),
+    canRetryTencent: operation.status === "refunded" && Boolean(operation.intermediateFileID)
+  }, operation.status === "succeeded" ? {
+    result: operation.result || {}
+  } : {}));
+}
+
+async function getTencentFaceFusionAdminStatus(context) {
+  if (!isAdminContext(context)) return adminForbidden();
+  const config = resolveTencentFaceFusionConfig();
+  let latest = null;
+  try {
+    latest = await readDocument(
+      db.collection(TENCENT_FACEFUSION_STATUS_COLLECTION).doc(TENCENT_FACEFUSION_STATUS_ID)
+    );
+  } catch (error) {
+    log("warn", "tencent.facefusion.status-read-failed", {
+      error: error && error.message
+    });
+  }
+  return jsonResponse(true, {
+    configured: config.configured,
+    region: config.region,
+    model: config.model,
+    apiVersion: config.apiVersion,
+    swapModelType: config.swapModelType,
+    lastCallStatus: latest && latest.status || "not-called",
+    lastCallStage: latest && latest.stage || "",
+    lastErrorCode: latest && latest.errorCode || "",
+    lastErrorMessage: latest && latest.errorMessage || "",
+    lastRequestId: latest && latest.requestId || "",
+    lastCalledAt: latest && latest.calledAt
+      ? new Date(latest.calledAt).toISOString()
+      : "",
+    checkedAt: new Date().toISOString()
+  });
+}
+
+async function tencentFaceFusionPipeline(event, context) {
+  const payload = event && event.payload && typeof event.payload === "object"
+    ? event.payload
+    : {};
+  const openid = getOpenId(context);
+  if (openid === "anonymous") {
+    return fail("请先完成微信授权后再使用腾讯版制作。", "wechat-binding-required");
+  }
+  const requestId = String(event && event.requestId || payload.requestId || "").trim();
+  const mainFileID = String(payload.mainFileID || "").trim();
+  const faceFileID = String(payload.faceFileID || "").trim();
+  const prompt = String(payload.prompt || "").trim();
+  const negativePrompt = String(payload.negativePrompt || "").trim();
+  const pipelineVersion = String(
+    payload.pipelineVersion || "gpt-image-2-tencent-facefusion-v1"
+  ).trim();
+  const retryTencentOnly = Boolean(payload.retryTencentOnly);
+  if (!requestId) return fail("缺少腾讯版制作请求编号。", "TENCENT_REQUEST_ID_MISSING");
+  if (!mainFileID || !faceFileID) {
+    return fail("请先上传原始主图和参考脸。", "TENCENT_PIPELINE_ASSET_MISSING");
+  }
+  if (!retryTencentOnly && !prompt) {
+    return fail("修改说明不能为空。", "TENCENT_PIPELINE_PROMPT_EMPTY");
+  }
+  const configs = await resolveEffectiveConfigs();
+  const imageConfig = Object.assign({}, configs.image, {
+    mode: "edits"
+  });
+  const tencent = resolveTencentFaceFusionConfig();
+  if (!imageConfig.apiKey) {
+    return fail(
+      "普通生图配置还没有设置 AI_IMAGE_API_KEY，暂时不能执行第一阶段。",
+      "TENCENT_PIPELINE_IMAGE_PROVIDER_NOT_CONFIGURED"
+    );
+  }
+  if (!tencent.configured) {
+    return fail(
+      "腾讯人脸融合还没有配置，请让管理员填写云函数环境变量。",
+      "TENCENT_FACEFUSION_NOT_CONFIGURED",
+      { configHint: "TENCENT_FACEFUSION_SECRET_ID / TENCENT_FACEFUSION_SECRET_KEY" }
+    );
+  }
+  const existingRecord = await findGenerationRecord(openid, requestId);
+  if (existingRecord) {
+    return jsonResponse(true, {
+      requestId,
+      recordId: existingRecord._id || existingRecord.id,
+      fileID: existingRecord.fileID || "",
+      tempFileURL: existingRecord.tempFileURL || "",
+      createdAt: existingRecord.createdAt instanceof Date
+        ? existingRecord.createdAt.toISOString()
+        : String(existingRecord.createdAt || ""),
+      record: Object.assign({}, existingRecord, {
+        id: existingRecord._id || existingRecord.id
+      }),
+      deduplicated: true
+    });
+  }
+  await findUserAsset(openid, mainFileID, "main");
+  await findUserAsset(openid, faceFileID, "face");
+
+  let billing = null;
+  let claim = null;
+  let claimed = false;
+  let resultPersisted = false;
+  let operation = await findGenerationOperation(openid, requestId);
+  let intermediateFileID = String(operation && operation.intermediateFileID || "").trim();
+  try {
+    if (retryTencentOnly) {
+      claim = await claimTencentPipelineResume(openid, requestId);
+      operation = claim.operation || operation;
+      if (claim.completed && operation && operation.result) {
+        return jsonResponse(true, Object.assign({}, operation.result, {
+          requestId,
+          deduplicated: true
+        }));
+      }
+      if (!claim.claimed) throw operationStateError(operation);
+      claimed = true;
+      intermediateFileID = String(operation.intermediateFileID || "").trim();
+    } else {
+      billing = await reserveUsage(openid, requestId, "image");
+      claim = billing.untracked
+        ? { claimed: true, completed: false, operation: null }
+        : await claimGenerationOperation(openid, requestId, "image");
+      if (claim.completed && claim.operation && claim.operation.result) {
+        return jsonResponse(true, Object.assign({}, claim.operation.result, {
+          requestId,
+          deduplicated: true,
+          billing
+        }));
+      }
+      if (!claim.claimed) throw operationStateError(claim.operation);
+      claimed = true;
+      operation = claim.operation || operation;
+    }
+
+    if (!retryTencentOnly) {
+      await writeTencentFaceFusionStatus({
+        requestId,
+        status: "processing",
+        stage: "preparing",
+        errorCode: "",
+        errorMessage: "",
+        calledAt: new Date(),
+        region: tencent.region,
+        model: tencent.model
+      });
+      if (!billing || !billing.untracked) {
+        await updateGenerationOperation(openid, requestId, {
+          pipelineVersion,
+          pipelineStage: "preparing",
+          mainFileID,
+          faceFileID,
+          retryTencentOnly: false
+        }, { allowedStatuses: ["processing"] });
+      }
+      const mainBuffer = await downloadCloudFile(mainFileID, {
+        requestId,
+        action: "tencent.pipeline.image-edit",
+        fileType: "main"
+      });
+      const gptResponse = await requestTencentPipelineImageEdit(
+        mainBuffer,
+        { prompt, negativePrompt, size: imageConfig.size },
+        imageConfig,
+        configs.costs,
+        requestId,
+        usageUserHash(openid)
+      );
+      const gptImage = extractImageItem(gptResponse);
+      if (!gptImage) {
+        const error = new Error("GPT Image 2 没有返回中间图片。");
+        error.code = "TENCENT_PIPELINE_IMAGE_EMPTY";
+        throw error;
+      }
+      const gptBuffer = gptImage.buffer || await downloadUrl(gptImage.url, {
+        requestId,
+        action: "tencent.pipeline.image-result"
+      });
+      const intermediate = await cloud.uploadFile({
+        cloudPath: `tencent-facefusion/intermediate/${openid}/${Date.now()}-${crypto.randomBytes(4).toString("hex")}.${imageExtension(gptImage.mime)}`,
+        fileContent: gptBuffer
+      });
+      intermediateFileID = intermediate.fileID;
+      if (!billing || !billing.untracked) {
+        await updateGenerationOperation(openid, requestId, {
+          pipelineStage: "facefusion",
+          intermediateFileID,
+          intermediateExpiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000)
+        }, { allowedStatuses: ["processing"] });
+      }
+    } else {
+      await writeTencentFaceFusionStatus({
+        requestId,
+        status: "processing",
+        stage: "facefusion",
+        errorCode: "",
+        errorMessage: "",
+        calledAt: new Date(),
+        region: tencent.region,
+        model: tencent.model
+      });
+    }
+
+    if (!intermediateFileID) {
+      const error = new Error("没有找到 GPT Image 2 的中间图，无法进行腾讯换脸。");
+      error.code = "TENCENT_PIPELINE_INTERMEDIATE_MISSING";
+      throw error;
+    }
+    const faceBuffer = await downloadCloudFile(faceFileID, {
+      requestId,
+      action: "tencent.facefusion",
+      fileType: "face"
+    });
+    const intermediateBuffer = await downloadCloudFile(intermediateFileID, {
+      requestId,
+      action: "tencent.facefusion",
+      fileType: "intermediate"
+    });
+    if (!billing || !billing.untracked) {
+      await updateGenerationOperation(openid, requestId, {
+        pipelineStage: "facefusion"
+      }, { allowedStatuses: ["processing"] });
+    }
+    const finalBuffer = await requestTencentFaceFusion(
+      intermediateBuffer,
+      faceBuffer,
+      tencent,
+      requestId
+    );
+    const finalUploaded = await cloud.uploadFile({
+      cloudPath: `results/${openid}/${Date.now()}-${crypto.randomBytes(4).toString("hex")}.png`,
+      fileContent: finalBuffer
+    });
+    const tempResult = await cloud.getTempFileURL({
+      fileList: [finalUploaded.fileID]
+    });
+    const tempFileURL = tempResult.fileList
+      && tempResult.fileList[0]
+      && tempResult.fileList[0].tempFileURL
+      || "";
+    const createdAt = new Date();
+    const recordData = {
+      openid,
+      projectName: String(payload.projectName || "腾讯版自动换脸"),
+      prompt,
+      negativePrompt,
+      fileID: finalUploaded.fileID,
+      tempFileURL,
+      model: imageConfig.model,
+      tencentModel: tencent.model,
+      tencentRegion: tencent.region,
+      imageMode: "tencent-face-fusion",
+      generationType: "tencent-face-fusion",
+      pipelineVersion,
+      requestId,
+      createdAt,
+      quotaUsed: billing && billing.quota ? billing.quota.freeUsed : 0,
+      dailyLimit: billing && billing.quota ? billing.quota.freeLimit : 0,
+      billingSource: billing && billing.source || "retry-after-refund",
+      pointsCharged: billing && billing.pointsCharged || 0,
+      repairContext: {
+        sourceFileID: finalUploaded.fileID,
+        originalMainFileID: mainFileID,
+        mainInputFileID: mainFileID,
+        faceFileIDs: [faceFileID],
+        assetRegistrationVersion: 1
+      }
+    };
+    const saved = await db.collection("generation_records").add({ data: recordData });
+    resultPersisted = true;
+    const result = {
+      requestId,
+      recordId: saved._id,
+      fileID: finalUploaded.fileID,
+      tempFileURL,
+      createdAt: createdAt.toISOString(),
+      record: Object.assign({}, recordData, {
+        id: saved._id,
+        createdAt: createdAt.toISOString()
+      }),
+      pipelineStage: "succeeded",
+      quota: billing && billing.quota || null,
+      billing: billing || (operation && operation.billing) || null
+    };
+    if (!billing || !billing.untracked) {
+      await updateGenerationOperation(openid, requestId, {
+        intermediateFileID: ""
+      }, { allowedStatuses: ["processing"] });
+      await completeGenerationOperation(openid, requestId, result);
+    }
+    await writeTencentFaceFusionStatus({
+      requestId,
+      status: "succeeded",
+      stage: "succeeded",
+      errorCode: "",
+      errorMessage: "",
+      completedAt: new Date(),
+      region: tencent.region,
+      model: tencent.model
+    });
+    try {
+      await cloud.deleteFile({ fileList: [intermediateFileID] });
+    } catch (error) {
+      log("warn", "tencent.facefusion.intermediate-cleanup-failed", {
+        requestId,
+        error: error && error.message
+      });
+    }
+    return jsonResponse(true, result);
+  } catch (error) {
+    const pipelineStage = String(
+      error && error.pipelineStage
+      || operation && operation.pipelineStage
+      || (intermediateFileID ? "facefusion" : "preparing")
+    );
+    const canRetryTencent = Boolean(
+      intermediateFileID
+      && pipelineStage === "facefusion"
+      && !resultPersisted
+    );
+    if (claimed && !resultPersisted && (!billing || !billing.untracked)) {
+      try {
+        await failGenerationOperation(openid, requestId, error);
+        if (billing && !billing.untracked) {
+          await refundUsage(openid, requestId, "腾讯版制作失败，已退回本次使用额度");
+        } else if (retryTencentOnly) {
+          await updateGenerationOperation(openid, requestId, {
+            status: "refunded",
+            intermediateFileID,
+            pipelineStage: "facefusion",
+            refundReason: "腾讯换脸重试失败，保留中间图",
+            refundedAt: new Date()
+          }, { allowedStatuses: ["failed", "processing"] });
+        }
+      } catch (billingError) {
+        log("error", "tencent.facefusion.refund-failed", {
+          requestId,
+          error: billingError && billingError.message
+        });
+      }
+    }
+    await writeTencentFaceFusionStatus({
+      requestId,
+      status: "failed",
+      stage: pipelineStage,
+      errorCode: String(error && error.code || "TENCENT_PIPELINE_FAILED"),
+      errorMessage: sanitizeFailureMessage(error && error.message || "腾讯版制作失败"),
+      completedAt: new Date(),
+      region: tencent.region,
+      model: tencent.model
+    });
+    return fail(
+      error && error.message || "腾讯版制作失败，请稍后重试。",
+      String(error && error.code || "TENCENT_PIPELINE_FAILED"),
+      {
+        requestId,
+        pipelineStage,
+        canRetryTencent,
+        intermediateAvailable: canRetryTencent,
+        refunded: Boolean(billing && !billing.untracked),
+        retryable: Boolean(error && error.retryable)
+      }
+    );
+  }
+}
+
 async function generate(event, context) {
   const payload = event.payload || {};
   const openid = getOpenId(context);
@@ -11811,6 +12504,12 @@ exports.main = async (event = {}, context) => {
       result = await cleanupPublishExportResult(requestEvent, context);
     }
     else if (action === "generate") result = await generate(requestEvent, context);
+    else if (action === "tencentFaceFusionPipeline") {
+      result = await tencentFaceFusionPipeline(requestEvent, context);
+    }
+    else if (action === "getTencentFaceFusionPipelineStatus") {
+      result = await getTencentFaceFusionPipelineStatus(requestEvent, context);
+    }
     else if (action === "repairImage") result = await repairImage(requestEvent, context);
     else if (action === "getMyUserProfile") result = await getMyUserProfile(context);
     else if (action === "saveMyUserProfile") result = await saveMyUserProfile(requestEvent, context);
@@ -11835,6 +12534,9 @@ exports.main = async (event = {}, context) => {
       result = await releaseTransferMedia(requestEvent, context);
     }
     else if (action === "getAdminStatus") result = await getAdminStatus(context);
+    else if (action === "getTencentFaceFusionAdminStatus") {
+      result = await getTencentFaceFusionAdminStatus(context);
+    }
     else if (action === "reportDiagnosticLogs") result = await reportDiagnosticLogs(requestEvent, context);
     else if (action === "getAdminDiagnosticLogs") {
       result = await getAdminDiagnosticLogs(requestEvent, context);
@@ -11939,6 +12641,12 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     extractImageItem,
     detectMime,
     invertMask,
+    resolveTencentFaceFusionConfig,
+    buildTencentTc3Headers,
+    requestTencentFaceFusion,
+    requestTencentPipelineImageEdit,
+    tencentFaceFusionPipeline,
+    getTencentFaceFusionPipelineStatus,
     resolveVisionConfig,
     resolveFaceConfig,
     resolveAnalysisConfig,

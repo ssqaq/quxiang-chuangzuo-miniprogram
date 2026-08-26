@@ -192,6 +192,29 @@
 
     <view class="overview-section">
       <view class="overview-heading">当前配置</view>
+      <view class="tencent-status-card">
+        <view class="tencent-status-head">
+          <view>
+            <view class="tencent-status-title">腾讯人脸融合专业版</view>
+            <view class="tencent-status-subtitle">“开始新创作-腾讯版”独立使用，不影响普通生图</view>
+          </view>
+          <view class="config-state {{tencentFaceFusionStatus.configured ? 'is-ready' : 'is-off'}}">
+            {{tencentFaceFusionStatus.configured ? '已配置' : '未配置'}}
+          </view>
+        </view>
+        <view class="tencent-status-grid">
+          <view><text>区域</text><text>{{tencentFaceFusionStatus.region}}</text></view>
+          <view><text>接口</text><text>{{tencentFaceFusionStatus.model}}</text></view>
+          <view><text>模型</text><text>{{tencentFaceFusionStatus.swapModelType}}</text></view>
+          <view><text>最近调用</text><text>{{tencentFaceFusionStatus.lastCallStatus}}</text></view>
+        </view>
+        <view class="tencent-status-error" wx:if="{{tencentFaceFusionStatus.lastErrorMessage}}">
+          最近错误：{{tencentFaceFusionStatus.lastErrorMessage}}
+        </view>
+        <view class="tencent-status-help">
+          密钥只读取云函数环境变量，不在这里显示。未配置时请填写 TENCENT_FACEFUSION_SECRET_ID 和 TENCENT_FACEFUSION_SECRET_KEY。
+        </view>
+      </view>
       <view
         class="current-config-row {{entryHealth.face.abnormal ? 'is-abnormal' : ''}}"
         data-section="face"

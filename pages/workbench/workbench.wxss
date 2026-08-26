@@ -1357,6 +1357,60 @@ button.recent-more-c.small-btn {
   }
 }
 
+.tencent-face-entry {
+  border-color: #d7c7ff !important;
+  background: linear-gradient(135deg, #f6f0ff 0%, #ffffff 78%) !important;
+}
+
+.tencent-face-icon {
+  display: flex;
+  flex: none;
+  width: 64rpx;
+  height: 64rpx;
+  align-items: center;
+  justify-content: center;
+  border-radius: 20rpx;
+  color: #6d43c5;
+  background: #eadfff;
+  font-size: 24rpx;
+  font-weight: 800;
+}
+
+.tencent-face-copy {
+  min-width: 0;
+  flex: 1 1 0;
+  margin-left: 14rpx;
+}
+
+.tencent-face-title {
+  overflow: hidden;
+  color: #2d3b54;
+  font-size: 28rpx;
+  font-weight: 800;
+  line-height: 38rpx;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tencent-face-description {
+  margin-top: 4rpx;
+  overflow: hidden;
+  color: #8b99aa;
+  font-size: 21rpx;
+  line-height: 30rpx;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tencent-face-entry .common-feature-action {
+  color: #6d43c5 !important;
+  background: #eee6ff !important;
+}
+
+.tencent-face-arrow {
+  color: #a18cc9 !important;
+}
+
 @media (min-width: 400px) and (max-width: 430px) {
   .workbench-page {
     padding-right: 28rpx;

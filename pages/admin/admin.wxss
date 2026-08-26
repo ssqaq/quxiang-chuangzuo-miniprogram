@@ -9,6 +9,74 @@ page {
   color: #152033;
 }
 
+.tencent-status-card {
+  margin: 18rpx 0 20rpx;
+  padding: 20rpx;
+  border: 1rpx solid #d9caff;
+  border-radius: 22rpx;
+  background: linear-gradient(135deg, #faf7ff 0%, #ffffff 78%);
+}
+
+.tencent-status-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12rpx;
+}
+
+.tencent-status-title {
+  color: #4f3687;
+  font-size: 27rpx;
+  font-weight: 800;
+  line-height: 38rpx;
+}
+
+.tencent-status-subtitle,
+.tencent-status-help,
+.tencent-status-error {
+  margin-top: 5rpx;
+  color: #8995a8;
+  font-size: 19rpx;
+  line-height: 29rpx;
+}
+
+.tencent-status-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10rpx;
+  margin-top: 16rpx;
+}
+
+.tencent-status-grid view {
+  min-width: 0;
+  padding: 12rpx;
+  border-radius: 14rpx;
+  background: #f5f1ff;
+}
+
+.tencent-status-grid text {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tencent-status-grid text:first-child {
+  color: #9a8bb9;
+  font-size: 18rpx;
+}
+
+.tencent-status-grid text:last-child {
+  margin-top: 3rpx;
+  color: #57417e;
+  font-size: 21rpx;
+  font-weight: 700;
+}
+
+.tencent-status-error {
+  color: #b75560;
+}
+
 .card {
   border: 1rpx solid #dce4ef;
   border-radius: 26rpx;

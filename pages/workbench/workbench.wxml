@@ -93,6 +93,22 @@
       </view>
 
       <view
+        class="card tencent-face-entry common-feature-row home-feature-card workbench-link-card"
+        bindtap="openTencentFaceFusion"
+        hover-class="workbench-link-card-hover"
+        hover-start-time="0"
+        hover-stay-time="70"
+      >
+        <view class="tencent-face-icon">腾</view>
+        <view class="tencent-face-copy">
+          <view class="tencent-face-title">开始新创作-腾讯版</view>
+          <view class="tencent-face-description">先改衣服背景光影，再用腾讯专业换脸</view>
+        </view>
+        <view class="common-feature-action">开始</view>
+        <view class="home-feature-arrow tencent-face-arrow">›</view>
+      </view>
+
+      <view
         class="card recent-card common-feature-row home-feature-card workbench-link-card {{records.length ? 'recent-card-filled' : 'recent-card-empty'}}"
         catchtap="openRecords"
         hover-class="workbench-link-card-hover"

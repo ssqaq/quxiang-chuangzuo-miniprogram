@@ -11,6 +11,7 @@ const jsonFiles = [
   "pages/splash/splash.json",
   "pages/profile/profile.json",
   "pages/workbench/workbench.json",
+  "pages/tencent-face-fusion/tencent-face-fusion.json",
   "pages/publish-export/publish-export.json",
   "pages/photo-to-video/photo-to-video.json",
   "pages/watermark-remover/watermark-remover.json",
@@ -48,6 +49,7 @@ const jsFiles = [
   "pages/splash/splash.js",
   "pages/profile/profile.js",
   "pages/workbench/workbench.js",
+  "pages/tencent-face-fusion/tencent-face-fusion.js",
   "pages/publish-export/publish-export.js",
   "pages/photo-to-video/photo-to-video.js",
   "pages/watermark-remover/watermark-remover.js",
@@ -62,6 +64,7 @@ const jsFiles = [
   "scripts/admin-config-layout-smoke.js",
   "scripts/image-quality-smoke.js",
   "scripts/image-edit-routing-smoke.js",
+  "scripts/tencent-face-fusion-smoke.js",
   "scripts/release-safety-smoke.js",
   "pages/index/index.js",
   "pages/records/records.js",
@@ -199,6 +202,10 @@ const required = [
   "assets/contact/author-wechat-qr.jpg",
   "pages/workbench/workbench.wxml",
   "pages/workbench/workbench.wxss",
+  "pages/tencent-face-fusion/tencent-face-fusion.js",
+  "pages/tencent-face-fusion/tencent-face-fusion.json",
+  "pages/tencent-face-fusion/tencent-face-fusion.wxml",
+  "pages/tencent-face-fusion/tencent-face-fusion.wxss",
   "utils/interaction-log.js",
   "utils/diagnostic-log.js",
   "utils/points-ui.js",
@@ -238,6 +245,7 @@ const required = [
   "scripts/admin-config-layout-smoke.js",
   "scripts/image-quality-smoke.js",
   "scripts/image-edit-routing-smoke.js",
+  "scripts/tencent-face-fusion-smoke.js",
   "scripts/release-safety-smoke.js",
   "scripts/diagnostic-admin-logs-smoke.js",
   "pages/index/index.wxml",
@@ -1118,7 +1126,8 @@ const commonFeatureHeadingCount = (
 const commonFeatureSubtitleCount = (
   workbenchWxml.match(/class="feature-group-subtitle"/g) || []
 ).length;
-const workbenchEntryCardCount = workbenchWxml.includes('wx:if="{{adminVisible}}"') ? 7 : 6;
+// 统一统计工作台所有可点击入口：积分卡、常用功能、腾讯版、记录、其他服务和管理员入口。
+const workbenchEntryCardCount = workbenchWxml.includes('wx:if="{{adminVisible}}"') ? 8 : 7;
 const serviceFeatureHeadingStyle = workbenchWxss.match(
   /\.service-feature-heading\s*\{([^}]*)\}/
 );

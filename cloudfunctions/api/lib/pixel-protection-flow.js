@@ -18,27 +18,46 @@ function normalizedProvider(value) {
     .replace(/[\s_-]+/g, "");
 }
 
-function assertLingyunImageEditFlow(imageConfig, resolvedUrl) {
+function imageEditFlowDefinition(provider) {
+  if (provider === "xingju" || provider === "星炬") {
+    return {
+      provider: provider === "星炬" ? "星炬" : "xingju",
+      model: "jw-gpt-image-2"
+    };
+  }
+  if (provider === "lingyun" || provider === "凌云") {
+    return {
+      provider: provider === "凌云" ? "凌云" : "lingyun",
+      model: "gpt-image-2"
+    };
+  }
+  return null;
+}
+
+function assertSupportedImageEditFlow(imageConfig, resolvedUrl) {
   const provider = normalizedProvider(imageConfig && imageConfig.provider);
   const model = String(imageConfig && imageConfig.model || "").trim();
+  const definition = imageEditFlowDefinition(provider);
   let pathname = "";
   try {
     pathname = new URL(String(resolvedUrl || "")).pathname.replace(/\/+$/, "") || "/";
   } catch (_) {
     throw flowError(
-      "凌云图片编辑 endpoint 无效，已停止调用。",
+      "图片编辑 endpoint 无效，已停止调用。",
       "PIXEL_MODEL_FLOW_ENDPOINT_INVALID"
     );
   }
-  if (provider !== "lingyun" && provider !== "凌云") {
+  if (!definition) {
     throw flowError(
-      `普通版和腾讯第一阶段只允许凌云，当前 provider=${imageConfig && imageConfig.provider || "空"}。`,
+      `普通版和腾讯第一阶段只允许星炬或凌云，当前 provider=${
+        imageConfig && imageConfig.provider || "空"
+      }。`,
       "PIXEL_MODEL_FLOW_PROVIDER_MISMATCH"
     );
   }
-  if (model !== "gpt-image-2") {
+  if (model !== definition.model) {
     throw flowError(
-      `普通版和腾讯第一阶段模型必须是 gpt-image-2，当前 model=${model || "空"}。`,
+      `当前图片服务必须使用 ${definition.model}，实际 model=${model || "空"}。`,
       "PIXEL_MODEL_FLOW_MODEL_MISMATCH"
     );
   }
@@ -49,11 +68,13 @@ function assertLingyunImageEditFlow(imageConfig, resolvedUrl) {
     );
   }
   return {
-    provider: provider === "凌云" ? "凌云" : "lingyun",
+    provider: definition.provider,
     model,
     pathname
   };
 }
+
+const assertLingyunImageEditFlow = assertSupportedImageEditFlow;
 
 function assertTencentFaceFusionFlow(config) {
   const action = String(config && config.action || "").trim();
@@ -140,18 +161,59 @@ function preflightTencentAssets(mainBuffer, faceBuffer, options = {}) {
   };
 }
 
+function normalizeGeneratedDimensions(baselineImage, generatedImage, options = {}) {
+  if (!baselineImage || !generatedImage) {
+    throw flowError(
+      "图片尺寸对齐缺少基准图或模型结果图。",
+      "PIXEL_IMAGE_NORMALIZATION_INPUT_MISSING"
+    );
+  }
+  const sourceWidth = Number(generatedImage.width);
+  const sourceHeight = Number(generatedImage.height);
+  const targetWidth = Number(baselineImage.width);
+  const targetHeight = Number(baselineImage.height);
+  const resized = sourceWidth !== targetWidth || sourceHeight !== targetHeight;
+  const image = resized
+    ? codec.resizeDecodedImage(generatedImage, targetWidth, targetHeight, {
+        label: String(options.label || "图片模型结果"),
+        maxPixels: options.maxPixels
+      })
+    : generatedImage;
+  codec.assertSameDimensions(baselineImage, image, {
+    leftLabel: String(options.baselineLabel || "基准图"),
+    rightLabel: String(options.label || "图片模型结果")
+  });
+  return {
+    image,
+    metadata: {
+      resized,
+      strategy: resized ? "stretch-to-baseline" : "none",
+      sourceWidth,
+      sourceHeight,
+      targetWidth,
+      targetHeight
+    }
+  };
+}
+
 function protectNormalResult(preflight, generatedBuffer, options = {}) {
   if (!preflight || !preflight.mainImage || !preflight.geometry) {
     throw flowError("普通版像素保护预检结果缺失。", "PIXEL_NORMAL_PREFLIGHT_MISSING");
   }
   const generatedImage = codec.decodeImage(generatedBuffer, {
-    label: "普通版凌云结果",
+    label: "普通版图片模型结果",
     maxPixels: options.maxPixels
   });
-  codec.assertSameDimensions(preflight.mainImage, generatedImage, {
-    leftLabel: "普通版主图",
-    rightLabel: "普通版凌云结果"
-  });
+  const normalizedGenerated = normalizeGeneratedDimensions(
+    preflight.mainImage,
+    generatedImage,
+    {
+      baselineLabel: "普通版主图",
+      label: "普通版图片模型结果",
+      maxPixels: options.maxPixels
+    }
+  );
+  const alignedGeneratedImage = normalizedGenerated.image;
   const edit = composite.buildEllipseEditAlpha(
     preflight.mainImage.width,
     preflight.mainImage.height,
@@ -160,7 +222,7 @@ function protectNormalResult(preflight, generatedBuffer, options = {}) {
   );
   const composed = composite.composeRgba(
     preflight.mainImage,
-    generatedImage,
+    alignedGeneratedImage,
     edit.alpha
   );
   const encoded = codec.encodePngRoundTrip(composed, {
@@ -186,6 +248,7 @@ function protectNormalResult(preflight, generatedBuffer, options = {}) {
       mode: edit.mode,
       geometry: edit.geometry,
       featherPixels: edit.featherPixels,
+      dimensionNormalization: normalizedGenerated.metadata,
       outputBytes: encoded.bytes,
       compression: encoded.compression
     }
@@ -194,20 +257,29 @@ function protectNormalResult(preflight, generatedBuffer, options = {}) {
 
 function protectTencentIntermediate(mainImage, generatedBuffer, rects, options = {}) {
   const generatedImage = codec.decodeImage(generatedBuffer, {
-    label: "腾讯版凌云中间结果",
+    label: "腾讯版图片编辑中间结果",
     maxPixels: options.maxPixels
   });
-  codec.assertSameDimensions(mainImage, generatedImage, {
-    leftLabel: "腾讯版主图",
-    rightLabel: "腾讯版凌云中间结果"
-  });
+  const normalizedGenerated = normalizeGeneratedDimensions(
+    mainImage,
+    generatedImage,
+    {
+      baselineLabel: "腾讯版主图",
+      label: "腾讯版图片编辑中间结果",
+      maxPixels: options.maxPixels
+    }
+  );
   const edit = composite.buildRectProtectionEditAlpha(
     mainImage.width,
     mainImage.height,
     rects,
     { featherPixels: options.featherPixels }
   );
-  const composed = composite.composeRgba(mainImage, generatedImage, edit.alpha);
+  const composed = composite.composeRgba(
+    mainImage,
+    normalizedGenerated.image,
+    edit.alpha
+  );
   const encoded = codec.encodePngRoundTrip(composed, {
     label: "腾讯版已验收中间图",
     maxBytes: options.maxTencentBytes,
@@ -218,7 +290,7 @@ function protectTencentIntermediate(mainImage, generatedBuffer, rects, options =
     encoded.delivered,
     edit.alpha,
     {
-      label: "腾讯版凌云中间图",
+      label: "腾讯版图片编辑中间图",
       outsideErrorCode: "PIXEL_TENCENT_INTERMEDIATE_FACE_MISMATCH",
       coverageErrorCode: "PIXEL_TENCENT_INTERMEDIATE_COVERAGE_EXCEEDED"
     }
@@ -234,6 +306,7 @@ function protectTencentIntermediate(mainImage, generatedBuffer, rects, options =
       featherPixels: edit.featherPixels,
       width: mainImage.width,
       height: mainImage.height,
+      dimensionNormalization: normalizedGenerated.metadata,
       outputBytes: encoded.bytes,
       compression: encoded.compression
     }
@@ -246,7 +319,7 @@ function protectTencentFinal(intermediateImage, tencentBuffer, rects, options = 
     maxPixels: options.maxPixels
   });
   codec.assertSameDimensions(intermediateImage, tencentImage, {
-    leftLabel: "已验收凌云中间图",
+    leftLabel: "已验收图片编辑中间图",
     rightLabel: "腾讯 FuseFaceUltra 结果"
   });
   const edit = composite.buildRectEditAlpha(
@@ -294,13 +367,17 @@ function protectTencentFinal(intermediateImage, tencentBuffer, rects, options = 
 function restoreTencentProtectionState(operation, image) {
   const source = operation && operation.pixelProtection;
   const metrics = operation && operation.pixelProtectionMetrics;
+  const intermediateMetrics = metrics && (
+    metrics.imageEditIntermediate
+    || metrics.lingyunIntermediate
+  );
   if (
     !source
     || Number(source.version) !== PIXEL_PROTECTION_VERSION
     || !Array.isArray(source.faceProtectionRects)
     || !source.faceProtectionRects.length
     || !metrics
-    || !metrics.lingyunIntermediate
+    || !intermediateMetrics
   ) {
     throw flowError(
       "旧中间图缺少已验收的人脸保护数据，不能安全重试腾讯换脸。",
@@ -323,7 +400,9 @@ function restoreTencentProtectionState(operation, image) {
   ).map(({ x, y, width, height }) => ({ x, y, width, height }));
   return {
     rects,
-    metrics,
+    metrics: Object.assign({}, metrics, {
+      imageEditIntermediate: intermediateMetrics
+    }),
     width: image.width,
     height: image.height,
     version: PIXEL_PROTECTION_VERSION
@@ -333,10 +412,12 @@ function restoreTencentProtectionState(operation, image) {
 module.exports = {
   PIXEL_PROTECTION_VERSION,
   normalizedProvider,
+  assertSupportedImageEditFlow,
   assertLingyunImageEditFlow,
   assertTencentFaceFusionFlow,
   preflightNormalAssets,
   preflightTencentAssets,
+  normalizeGeneratedDimensions,
   protectNormalResult,
   protectTencentIntermediate,
   protectTencentFinal,

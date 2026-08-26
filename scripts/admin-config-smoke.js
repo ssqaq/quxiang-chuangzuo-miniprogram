@@ -153,6 +153,43 @@ assert.deepStrictEqual(patch.analysis, {
 });
 assert.deepStrictEqual(patch.face, { apiKey: "smoke-face-key" });
 assert.deepStrictEqual(test.validateRuntimePatch(patch), []);
+const blankKeyPatch = test.dropBlankRuntimeApiKeys(
+  test.normalizeRuntimePatch({
+    image: {
+      apiKey: "",
+      model: "new-image"
+    },
+    imageBackup: {
+      apiKey: "   ",
+      model: "new-backup-image"
+    }
+  })
+);
+const blankKeyMerged = test.mergeRuntimeConfig(
+  {
+    image: {
+      apiKey: "existing-primary-key",
+      model: "old-image"
+    },
+    imageBackup: {
+      apiKey: "existing-backup-key",
+      model: "old-backup-image"
+    }
+  },
+  blankKeyPatch
+);
+assert.strictEqual(
+  blankKeyMerged.image.apiKey,
+  "existing-primary-key",
+  "主模型 API Key 留空保存时必须继续使用原密钥"
+);
+assert.strictEqual(
+  blankKeyMerged.imageBackup.apiKey,
+  "existing-backup-key",
+  "备用模型 API Key 留空保存时必须继续使用原密钥"
+);
+assert.strictEqual(blankKeyMerged.image.model, "new-image");
+assert.strictEqual(blankKeyMerged.imageBackup.model, "new-backup-image");
 assert.ok(test.validateRuntimePatch({
   image: { mode: "not-supported" }
 }).length > 0);
@@ -203,7 +240,7 @@ api.main({
   assert.ok(result.effective.analysis.model);
   assert.ok(result.effective.image.model);
   assert.ok(result.effective.video.model);
-  ["face", "analysis", "image", "video"].forEach((type) => {
+  ["face", "analysis", "image", "imageBackup", "video"].forEach((type) => {
     assert.strictEqual(
       Object.prototype.hasOwnProperty.call(result.effective[type], "apiKey"),
       true

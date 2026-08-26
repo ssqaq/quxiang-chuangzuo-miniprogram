@@ -49,6 +49,7 @@ const generationStateMachine = require("./lib/generation-state-machine");
 const {
   createGenerationExecutionKernel
 } = require("./lib/generation-execution-kernel");
+const imageProviderFailover = require("./lib/image-provider-failover");
 const XLSX = require("xlsx");
 const publishExportCore = (() => {
   const module = { exports: {} };
@@ -1502,7 +1503,11 @@ function resolveImageRetryEnabled(image) {
 
 function resolveImageConfig(overrides = {}) {
   const image = overrides && overrides.image ? overrides.image : overrides;
-  const mode = overrideString(image, "mode", env("AI_IMAGE_MODE", DEFAULT_IMAGE_MODE)).toLowerCase();
+  const mode = overrideString(
+    image,
+    "mode",
+    firstEnv(["AI_IMAGE_PRIMARY_MODE", "AI_IMAGE_MODE"], DEFAULT_IMAGE_MODE)
+  ).toLowerCase();
   const size = overrideString(image, "size", env("AI_IMAGE_SIZE", "1024x1024"));
   const resolution = hasOwn(image, "resolution")
     ? normalizeImageResolution(image.resolution, normalizeImageResolution(size, "1K"))
@@ -1511,17 +1516,23 @@ function resolveImageConfig(overrides = {}) {
     provider: overrideString(
       image,
       "provider",
-      firstEnv(["AI_IMAGE_PROVIDER", "AI_PROVIDER"], "lingyun")
+      firstEnv(["AI_IMAGE_PRIMARY_PROVIDER"], "xingju")
     ),
     baseUrl: overrideString(image, "baseUrl", firstEnv(
-      ["AI_IMAGE_BASE_URL", "AI_BASE_URL"],
-      "https://api.lingyunapi.xyz/v1"
+      ["AI_IMAGE_PRIMARY_BASE_URL"],
+      "https://newapi.akiyo.fun/v1"
     )),
-    endpoint: overrideString(image, "endpoint", env("AI_IMAGE_ENDPOINT")),
+    endpoint: overrideString(image, "endpoint", firstEnv([
+      "AI_IMAGE_PRIMARY_ENDPOINT"
+    ])),
     apiKey: normalizeApiKey(
-      overrideString(image, "apiKey", firstEnv(["AI_IMAGE_API_KEY", "AI_API_KEY"]))
+      overrideString(image, "apiKey", firstEnv(["AI_IMAGE_PRIMARY_API_KEY"]))
     ),
-    model: overrideString(image, "model", env("AI_IMAGE_MODEL", "gpt-image-2")),
+    model: overrideString(
+      image,
+      "model",
+      firstEnv(["AI_IMAGE_PRIMARY_MODEL"], "jw-gpt-image-2")
+    ),
     size,
     resolution,
     legacySizeOnly: !hasOwn(image, "resolution"),
@@ -1530,21 +1541,81 @@ function resolveImageConfig(overrides = {}) {
     timeoutMs: clampNumber(
       image && Object.prototype.hasOwnProperty.call(image, "timeoutMs")
         ? image.timeoutMs
-        : firstEnv(["AI_IMAGE_TIMEOUT_MS", "AI_TIMEOUT_MS"], "90000"),
-      90000,
+        : firstEnv(["AI_IMAGE_PRIMARY_TIMEOUT_MS"], "150000"),
+      150000,
       5000,
-      120000
+      180000
     ),
     maxRetries: clampNumber(
       image && Object.prototype.hasOwnProperty.call(image, "maxRetries")
         ? image.maxRetries
-        : env("AI_MAX_RETRIES", "2"),
-      2,
+        : firstEnv(["AI_IMAGE_PRIMARY_MAX_RETRIES"], "1"),
+      1,
       0,
-      5
+      1
     ),
     retryEnabled: resolveImageRetryEnabled(image),
     retryPreferenceVersion: imageRetryPreferenceVersion(image)
+  };
+}
+
+function resolveImageBackupConfig(overrides = {}) {
+  const image = overrides && overrides.imageBackup
+    ? overrides.imageBackup
+    : overrides && overrides.image
+      ? overrides.image
+      : overrides;
+  const mode = overrideString(
+    image,
+    "mode",
+    firstEnv(["AI_IMAGE_BACKUP_MODE", "AI_IMAGE_MODE"], DEFAULT_IMAGE_MODE)
+  ).toLowerCase();
+  const size = overrideString(image, "size", env("AI_IMAGE_SIZE", "1024x1024"));
+  const resolution = hasOwn(image, "resolution")
+    ? normalizeImageResolution(image.resolution, normalizeImageResolution(size, "1K"))
+    : normalizeImageResolution(size, "1K");
+  return {
+    provider: overrideString(
+      image,
+      "provider",
+      firstEnv(
+        ["AI_IMAGE_BACKUP_PROVIDER", "AI_IMAGE_PROVIDER", "AI_PROVIDER"],
+        "lingyun"
+      )
+    ),
+    baseUrl: overrideString(image, "baseUrl", firstEnv(
+      ["AI_IMAGE_BACKUP_BASE_URL", "AI_IMAGE_BASE_URL", "AI_BASE_URL"],
+      "https://api.lingyunapi.xyz/v1"
+    )),
+    endpoint: overrideString(image, "endpoint", firstEnv([
+      "AI_IMAGE_BACKUP_ENDPOINT",
+      "AI_IMAGE_EDIT_ENDPOINT",
+      "AI_IMAGE_ENDPOINT"
+    ])),
+    apiKey: normalizeApiKey(
+      overrideString(image, "apiKey", firstEnv(["AI_IMAGE_BACKUP_API_KEY"]))
+    ),
+    model: overrideString(
+      image,
+      "model",
+      firstEnv(["AI_IMAGE_BACKUP_MODEL", "AI_IMAGE_MODEL"], "gpt-image-2")
+    ),
+    size,
+    resolution,
+    legacySizeOnly: !hasOwn(image, "resolution"),
+    compatibilityMode: overrideBoolean(image, "compatibilityMode", false),
+    mode,
+    timeoutMs: clampNumber(
+      image && Object.prototype.hasOwnProperty.call(image, "timeoutMs")
+        ? image.timeoutMs
+        : firstEnv(["AI_IMAGE_BACKUP_TIMEOUT_MS", "AI_IMAGE_TIMEOUT_MS"], "150000"),
+      150000,
+      5000,
+      180000
+    ),
+    maxRetries: 0,
+    retryEnabled: false,
+    retryPreferenceVersion: IMAGE_RETRY_PREFERENCE_VERSION
   };
 }
 
@@ -1559,8 +1630,8 @@ function resolveTencentFaceFusionConfig() {
       : 4,
     logoAdd: boolEnv("TENCENT_FACEFUSION_LOGO_ADD", false),
     timeoutMs: clampNumber(
-      env("TENCENT_FACEFUSION_TIMEOUT_MS", "90000"),
-      90000,
+      env("TENCENT_FACEFUSION_TIMEOUT_MS", "75000"),
+      75000,
       5000,
       120000
     ),
@@ -1936,6 +2007,26 @@ function isLingyunImageProvider(imageConfig = {}, requestUrl = "") {
   });
 }
 
+function isXingjuImageProvider(imageConfig = {}, requestUrl = "") {
+  const config = imageConfig && typeof imageConfig === "object" ? imageConfig : {};
+  const provider = pixelProtectionFlow.normalizedProvider(config.provider);
+  if (provider === "xingju" || provider === "星炬") return true;
+  return [requestUrl, config.baseUrl, config.endpoint].some((value) => {
+    try {
+      const hostname = new URL(String(value || "")).hostname.toLowerCase();
+      return hostname === "newapi.akiyo.fun" || hostname.endsWith(".akiyo.fun");
+    } catch (_) {
+      return false;
+    }
+  });
+}
+
+function imageEditJsonRequestFormat(imageConfig = {}, requestUrl = "") {
+  if (isXingjuImageProvider(imageConfig, requestUrl)) return "xingju-json";
+  if (isLingyunImageProvider(imageConfig, requestUrl)) return "lingyun-json";
+  return "";
+}
+
 function resolveLingyunImageResponseFormat() {
   const configured = env("AI_LINGYUN_RESPONSE_FORMAT", "b64_json")
     .trim()
@@ -1943,12 +2034,19 @@ function resolveLingyunImageResponseFormat() {
   return configured === "url" ? "url" : "b64_json";
 }
 
-function buildLingyunImageEditPayload(
+function resolveImageEditJsonResponseFormat(imageConfig = {}, requestUrl = "") {
+  return isXingjuImageProvider(imageConfig, requestUrl)
+    ? "b64_json"
+    : resolveLingyunImageResponseFormat();
+}
+
+function buildImageEditJsonPayload(
   payload = {},
   imageConfig = resolveImageConfig(),
   mainBuffer,
   maskBuffer = null,
-  referenceBuffers = []
+  referenceBuffers = [],
+  requestUrl = ""
 ) {
   const config = imageConfig && typeof imageConfig === "object" ? imageConfig : {};
   const prompt = `${String(payload.prompt || "").trim()}${
@@ -1969,7 +2067,7 @@ function buildLingyunImageEditPayload(
     quality: "auto",
     n: Math.max(1, Number(payload.n) || 1),
     background: "auto",
-    response_format: resolveLingyunImageResponseFormat(),
+    response_format: resolveImageEditJsonResponseFormat(config, requestUrl),
     output_format: "png",
     images
   };
@@ -1979,6 +2077,22 @@ function buildLingyunImageEditPayload(
     };
   }
   return result;
+}
+
+function buildLingyunImageEditPayload(
+  payload = {},
+  imageConfig = resolveImageConfig(),
+  mainBuffer,
+  maskBuffer = null,
+  referenceBuffers = []
+) {
+  return buildImageEditJsonPayload(
+    payload,
+    imageConfig,
+    mainBuffer,
+    maskBuffer,
+    referenceBuffers
+  );
 }
 
 function imageEditJsonSummary(payload = {}) {
@@ -2452,11 +2566,11 @@ function safeUrl(value) {
 }
 
 function resolveImageEditEndpoint(imageConfig = {}) {
-  const configured = env("AI_IMAGE_EDIT_ENDPOINT").trim();
+  const configured = String(imageConfig && imageConfig.endpoint || "").trim();
   if (configured) {
     return {
       url: configured,
-      source: "AI_IMAGE_EDIT_ENDPOINT",
+      source: "imageConfig.endpoint",
       configured: true
     };
   }
@@ -5886,6 +6000,9 @@ function normalizeRuntimePatch(input = {}) {
     ? source.analysis
     : {};
   const imageSource = source.image && typeof source.image === "object" ? source.image : {};
+  const imageBackupSource = source.imageBackup && typeof source.imageBackup === "object"
+    ? source.imageBackup
+    : {};
   const videoSource = source.video && typeof source.video === "object" ? source.video : {};
   const pointsSource = source.points && typeof source.points === "object" ? source.points : {};
   const costsSource = source.costs && typeof source.costs === "object" ? source.costs : {};
@@ -5965,6 +6082,7 @@ function normalizeRuntimePatch(input = {}) {
   const faceConfig = {};
   const analysis = {};
   const image = {};
+  const imageBackup = {};
   const video = {};
   const points = {};
   const costs = {};
@@ -5993,6 +6111,15 @@ function normalizeRuntimePatch(input = {}) {
         : key === "compatibilityMode"
           ? overrideBoolean(imageSource, key, false)
         : imageSource[key];
+    }
+  });
+  imageKeys.forEach((key) => {
+    if (hasOwn(imageBackupSource, key)) {
+      imageBackup[key] = key === "apiKey"
+        ? normalizeApiKey(imageBackupSource[key])
+        : key === "compatibilityMode"
+          ? overrideBoolean(imageBackupSource, key, false)
+          : imageBackupSource[key];
     }
   });
   videoKeys.forEach((key) => {
@@ -6038,7 +6165,15 @@ function normalizeRuntimePatch(input = {}) {
   if (Object.keys(analysisPricing).length) costs.analysis = analysisPricing;
   if (Object.keys(imagePricing).length) costs.image = imagePricing;
   if (Object.keys(videoPricing).length) costs.video = videoPricing;
-  return { face: faceConfig, analysis, image, video, points, costs };
+  return {
+    face: faceConfig,
+    analysis,
+    image,
+    imageBackup,
+    video,
+    points,
+    costs
+  };
 }
 
 function isValidHttpUrl(value) {
@@ -6078,6 +6213,7 @@ function validateRuntimePatch(patch) {
   const face = patch.face || {};
   const analysis = patch.analysis || {};
   const image = patch.image || {};
+  const imageBackup = patch.imageBackup || {};
   const video = patch.video || {};
   const points = patch.points || {};
   const costs = patch.costs || {};
@@ -6092,6 +6228,8 @@ function validateRuntimePatch(patch) {
     ["analysis.endpoint", analysis.endpoint],
     ["image.baseUrl", image.baseUrl],
     ["image.endpoint", image.endpoint],
+    ["imageBackup.baseUrl", imageBackup.baseUrl],
+    ["imageBackup.endpoint", imageBackup.endpoint],
     ["video.baseUrl", video.baseUrl],
     ["video.endpoint", video.endpoint],
     ["video.queryEndpoint", video.queryEndpoint]
@@ -6110,6 +6248,13 @@ function validateRuntimePatch(patch) {
     errors.push("image.mode 只能是 generations 或 edits");
   }
   if (
+    imageBackup.mode !== undefined
+    && imageBackup.mode !== ""
+    && !["generations", "edits"].includes(String(imageBackup.mode).toLowerCase())
+  ) {
+    errors.push("imageBackup.mode 只能是 generations 或 edits");
+  }
+  if (
     face.timeoutMs !== undefined
     && (!Number.isFinite(Number(face.timeoutMs))
       || Number(face.timeoutMs) < 5000
@@ -6125,11 +6270,31 @@ function validateRuntimePatch(patch) {
   ) {
     errors.push("analysis.timeoutMs 必须在 5000～60000 之间");
   }
-  if (image.timeoutMs !== undefined && (!Number.isFinite(Number(image.timeoutMs)) || Number(image.timeoutMs) < 5000 || Number(image.timeoutMs) > 120000)) {
-    errors.push("image.timeoutMs 必须在 5000～120000 之间");
+  if (image.timeoutMs !== undefined && (!Number.isFinite(Number(image.timeoutMs)) || Number(image.timeoutMs) < 5000 || Number(image.timeoutMs) > 180000)) {
+    errors.push("image.timeoutMs 必须在 5000～180000 之间");
   }
   if (image.maxRetries !== undefined && (!Number.isFinite(Number(image.maxRetries)) || Number(image.maxRetries) < 0 || Number(image.maxRetries) > 5)) {
     errors.push("image.maxRetries 必须在 0～5 之间");
+  }
+  if (
+    imageBackup.timeoutMs !== undefined
+    && (
+      !Number.isFinite(Number(imageBackup.timeoutMs))
+      || Number(imageBackup.timeoutMs) < 5000
+      || Number(imageBackup.timeoutMs) > 180000
+    )
+  ) {
+    errors.push("imageBackup.timeoutMs 必须在 5000～180000 之间");
+  }
+  if (
+    imageBackup.maxRetries !== undefined
+    && (
+      !Number.isFinite(Number(imageBackup.maxRetries))
+      || Number(imageBackup.maxRetries) < 0
+      || Number(imageBackup.maxRetries) > 5
+    )
+  ) {
+    errors.push("imageBackup.maxRetries 必须在 0～5 之间");
   }
   if (video.timeoutMs !== undefined && (!Number.isFinite(Number(video.timeoutMs)) || Number(video.timeoutMs) < 10000 || Number(video.timeoutMs) > 900000)) {
     errors.push("video.timeoutMs 必须在 10000～900000 之间");
@@ -6143,6 +6308,10 @@ function validateRuntimePatch(patch) {
     ["image.model", image.model],
     ["image.size", image.size],
     ["image.resolution", image.resolution],
+    ["imageBackup.provider", imageBackup.provider],
+    ["imageBackup.model", imageBackup.model],
+    ["imageBackup.size", imageBackup.size],
+    ["imageBackup.resolution", imageBackup.resolution],
     ["video.provider", video.provider],
     ["video.model", video.model],
     ["video.resolution", video.resolution],
@@ -6156,6 +6325,13 @@ function validateRuntimePatch(patch) {
     && !["1K", "2K", "4K"].includes(normalizeImageResolution(image.resolution, ""))
   ) {
     errors.push("image.resolution 只能是 1K、2K 或 4K");
+  }
+  if (
+    imageBackup.resolution !== undefined
+    && imageBackup.resolution !== ""
+    && !["1K", "2K", "4K"].includes(normalizeImageResolution(imageBackup.resolution, ""))
+  ) {
+    errors.push("imageBackup.resolution 只能是 1K、2K 或 4K");
   }
   [
     ["points.dailyFreeLimit", points.dailyFreeLimit, 0, 100],
@@ -6235,6 +6411,11 @@ function mergeRuntimeConfig(current, patch) {
     face: Object.assign({}, existing.face || {}, patch.face || {}),
     analysis: Object.assign({}, existing.analysis || {}, patch.analysis || {}),
     image: Object.assign({}, existing.image || {}, patch.image || {}),
+    imageBackup: Object.assign(
+      {},
+      existing.imageBackup || {},
+      patch.imageBackup || {}
+    ),
     video: Object.assign({}, existing.video || {}, patch.video || {}),
     points: Object.assign({}, existing.points || {}, patch.points || {}),
     costs: Object.assign({}, existingCosts, patchCosts, {
@@ -6282,10 +6463,83 @@ function migrateLegacyImageRetryConfig(runtime, rawConfig) {
   };
 }
 
+function isLegacyLingyunImageConfig(value) {
+  const image = value && typeof value === "object" ? value : {};
+  const provider = pixelProtectionFlow.normalizedProvider(image.provider);
+  const model = String(image.model || "").trim();
+  let lingyunHost = false;
+  try {
+    const host = new URL(String(image.baseUrl || image.endpoint || "")).hostname.toLowerCase();
+    lingyunHost = host === "lingyunapi.xyz" || host.endsWith(".lingyunapi.xyz");
+  } catch (_) {
+    lingyunHost = false;
+  }
+  return (
+    (provider === "lingyun" || provider === "凌云" || lingyunHost)
+    && (!model || model === "gpt-image-2")
+  );
+}
+
+function migrateLegacyImageProviderConfig(runtime, rawConfig) {
+  const normalized = runtime && typeof runtime === "object"
+    ? runtime
+    : normalizeRuntimePatch(rawConfig);
+  const rawImage = rawConfig && rawConfig.image && typeof rawConfig.image === "object"
+    ? rawConfig.image
+    : null;
+  const rawBackup = rawConfig
+    && rawConfig.imageBackup
+    && typeof rawConfig.imageBackup === "object"
+    ? rawConfig.imageBackup
+    : null;
+  if (
+    !rawImage
+    || rawBackup && Object.keys(rawBackup).length
+    || !isLegacyLingyunImageConfig(rawImage)
+  ) {
+    return {
+      value: normalized,
+      migrated: false
+    };
+  }
+
+  const legacyBackup = Object.assign({}, normalized.image || {}, {
+    provider: String(normalized.image && normalized.image.provider || "lingyun"),
+    model: String(normalized.image && normalized.image.model || "gpt-image-2"),
+    mode: "edits",
+    timeoutMs: 150000,
+    maxRetries: 0,
+    retryEnabled: false,
+    retryPreferenceVersion: IMAGE_RETRY_PREFERENCE_VERSION
+  });
+  const primaryDefaults = resolveImageConfig({
+    mode: "edits",
+    size: legacyBackup.size || env("AI_IMAGE_SIZE", "1024x1024"),
+    resolution: legacyBackup.resolution
+      || normalizeImageResolution(legacyBackup.size, "1K"),
+    compatibilityMode: Boolean(legacyBackup.compatibilityMode),
+    timeoutMs: 150000,
+    maxRetries: 1,
+    retryEnabled: true,
+    retryPreferenceVersion: IMAGE_RETRY_PREFERENCE_VERSION
+  });
+  const primary = Object.assign({}, primaryDefaults);
+  delete primary.apiKey;
+
+  return {
+    value: Object.assign({}, normalized, {
+      image: primary,
+      imageBackup: legacyBackup
+    }),
+    migrated: true
+  };
+}
+
 function redactConfig(config, defaults) {
   const face = config.face || {};
   const analysis = config.analysis || {};
   const image = config.image || {};
+  const imageBackup = config.imageBackup || {};
   const video = config.video || {};
   const points = config.points || {};
   const costs = resolveCostConfig(config.costs || {});
@@ -6294,7 +6548,7 @@ function redactConfig(config, defaults) {
       provider: face.provider || "",
       baseUrl: face.baseUrl || "",
       endpoint: face.endpoint || "",
-      apiKey: face.apiKey || "",
+      apiKey: "",
       model: face.faceModel || face.model || "",
       timeoutMs: Number(face.timeoutMs || 0),
       apiKeyConfigured: Boolean(defaults.face && defaults.face.apiKey)
@@ -6303,7 +6557,7 @@ function redactConfig(config, defaults) {
       provider: analysis.provider || "",
       baseUrl: analysis.baseUrl || "",
       endpoint: analysis.endpoint || "",
-      apiKey: analysis.apiKey || "",
+      apiKey: "",
       model: analysis.model || "",
       timeoutMs: Number(analysis.timeoutMs || 0),
       apiKeyConfigured: Boolean(defaults.analysis && defaults.analysis.apiKey)
@@ -6312,7 +6566,7 @@ function redactConfig(config, defaults) {
       provider: image.provider || "",
       baseUrl: image.baseUrl || "",
       endpoint: image.endpoint || "",
-      apiKey: image.apiKey || "",
+      apiKey: "",
       model: image.model || "",
       mode: image.mode || "",
       size: image.size || "",
@@ -6327,12 +6581,38 @@ function redactConfig(config, defaults) {
       retryPreferenceVersion: imageRetryPreferenceVersion(image),
       apiKeyConfigured: Boolean(defaults.image.apiKey)
     },
+    imageBackup: {
+      provider: imageBackup.provider || "",
+      baseUrl: imageBackup.baseUrl || "",
+      endpoint: imageBackup.endpoint || "",
+      apiKey: "",
+      model: imageBackup.model || "",
+      mode: imageBackup.mode || "",
+      size: imageBackup.size || "",
+      resolution: normalizeImageResolution(
+        imageBackup.resolution || imageBackup.size,
+        "1K"
+      ),
+      compatibilityMode: overrideBoolean(
+        imageBackup,
+        "compatibilityMode",
+        false
+      ),
+      timeoutMs: Number(imageBackup.timeoutMs || 0),
+      maxRetries: Number(imageBackup.maxRetries || 0),
+      retryEnabled: Boolean(imageBackup.retryEnabled),
+      retryPreferenceVersion: imageRetryPreferenceVersion(imageBackup),
+      apiKeyConfigured: Boolean(
+        defaults.imageBackup
+        && defaults.imageBackup.apiKey
+      )
+    },
     video: {
       provider: video.provider || "",
       baseUrl: video.baseUrl || "",
       endpoint: video.endpoint || "",
       queryEndpoint: video.queryEndpoint || "",
-      apiKey: video.apiKey || "",
+      apiKey: "",
       model: video.model || "",
       createPath: video.createPath || "",
       queryPath: video.queryPath || "",
@@ -6430,17 +6710,28 @@ async function loadAdminRuntimeConfig(force = false) {
     const rawConfig = result && result.data ? result.data : null;
     const normalized = rawConfig ? normalizeRuntimePatch(rawConfig) : null;
     const retryMigration = migrateLegacyImageRetryConfig(normalized, rawConfig);
-    const costMigration = migrateLegacyModelCostConfig(
+    const providerMigration = migrateLegacyImageProviderConfig(
       retryMigration.value,
       rawConfig
     );
+    const costMigration = migrateLegacyModelCostConfig(
+      providerMigration.value,
+      rawConfig
+    );
     if (
-      (retryMigration.migrated || costMigration.migrated)
+      (
+        retryMigration.migrated
+        || providerMigration.migrated
+        || costMigration.migrated
+      )
       && process.env.WECHAT_MINIAPP_TEST !== "1"
     ) {
       try {
         const migrationData = {};
-        if (retryMigration.migrated) {
+        if (providerMigration.migrated) {
+          migrationData.image = costMigration.value.image;
+          migrationData.imageBackup = costMigration.value.imageBackup;
+        } else if (retryMigration.migrated) {
           migrationData.image = costMigration.value.image;
         }
         if (costMigration.migrated) {
@@ -6455,6 +6746,7 @@ async function loadAdminRuntimeConfig(force = false) {
         log("info", "admin.runtime-config.defaults-migrated", {
           version: Number(rawConfig.version) || 0,
           retryMigrated: retryMigration.migrated,
+          imageProviderMigrated: providerMigration.migrated,
           modelCostsMigrated: costMigration.migrated,
           costConfigVersion: MODEL_COST_CONFIG_VERSION
         });
@@ -6496,6 +6788,7 @@ async function resolveEffectiveConfigs() {
       face: {},
       analysis: {},
       image: {},
+      imageBackup: {},
       video: {},
       points: {},
       costs: {}
@@ -6503,6 +6796,7 @@ async function resolveEffectiveConfigs() {
     face: resolveFaceConfig(runtime && runtime.face),
     analysis: resolveAnalysisConfig(runtime && runtime.analysis),
     image: resolveImageConfig(runtime && runtime.image),
+    imageBackup: resolveImageBackupConfig(runtime && runtime.imageBackup),
     video: resolveVideoConfig(runtime && runtime.video),
     points: resolvePointsConfig(runtime && runtime.points),
     costs: resolveCostConfig(runtime && runtime.costs)
@@ -6513,6 +6807,7 @@ function adminConfigView(configs, runtime, metadata = {}) {
   const faceDefaults = resolveFaceConfig();
   const analysisDefaults = resolveAnalysisConfig();
   const imageDefaults = resolveImageConfig();
+  const imageBackupDefaults = resolveImageBackupConfig();
   const videoDefaults = resolveVideoConfig();
   const pointDefaults = resolvePointsConfig();
   const costDefaults = resolveCostConfig();
@@ -6520,6 +6815,7 @@ function adminConfigView(configs, runtime, metadata = {}) {
     face: {},
     analysis: {},
     image: {},
+    imageBackup: {},
     video: {},
     points: {},
     costs: {}
@@ -6529,6 +6825,7 @@ function adminConfigView(configs, runtime, metadata = {}) {
       face: faceDefaults,
       analysis: analysisDefaults,
       image: imageDefaults,
+      imageBackup: imageBackupDefaults,
       video: videoDefaults,
       points: pointDefaults,
       costs: costDefaults
@@ -6536,6 +6833,7 @@ function adminConfigView(configs, runtime, metadata = {}) {
       face: faceDefaults,
       analysis: analysisDefaults,
       image: imageDefaults,
+      imageBackup: imageBackupDefaults,
       video: videoDefaults,
       points: pointDefaults,
       costs: costDefaults
@@ -6544,6 +6842,7 @@ function adminConfigView(configs, runtime, metadata = {}) {
       face: faceDefaults,
       analysis: analysisDefaults,
       image: imageDefaults,
+      imageBackup: imageBackupDefaults,
       video: videoDefaults,
       points: pointDefaults,
       costs: costDefaults
@@ -6552,6 +6851,7 @@ function adminConfigView(configs, runtime, metadata = {}) {
       face: configs.face,
       analysis: configs.analysis,
       image: configs.image,
+      imageBackup: configs.imageBackup,
       video: configs.video,
       points: configs.points,
       costs: configs.costs
@@ -6559,6 +6859,7 @@ function adminConfigView(configs, runtime, metadata = {}) {
       face: configs.face,
       analysis: configs.analysis,
       image: configs.image,
+      imageBackup: configs.imageBackup,
       video: configs.video,
       points: configs.points,
       costs: configs.costs
@@ -6713,11 +7014,29 @@ async function initializeDatabase(context) {
   return jsonResponse(true, payload);
 }
 
+function dropBlankRuntimeApiKeys(patch = {}) {
+  ["face", "analysis", "image", "imageBackup", "video"].forEach((section) => {
+    if (
+      patch[section]
+      && hasOwn(patch[section], "apiKey")
+      && !normalizeApiKey(patch[section].apiKey)
+    ) {
+      delete patch[section].apiKey;
+    }
+  });
+  return patch;
+}
+
 async function saveAdminConfig(event, context) {
   if (!isAdminContext(context)) return adminForbidden();
-  const patch = normalizeRuntimePatch(event && event.config);
+  const patch = dropBlankRuntimeApiKeys(
+    normalizeRuntimePatch(event && event.config)
+  );
   if (hasOwn(patch.image, "retryEnabled")) {
     patch.image.retryPreferenceVersion = IMAGE_RETRY_PREFERENCE_VERSION;
+  }
+  if (hasOwn(patch.imageBackup, "retryEnabled")) {
+    patch.imageBackup.retryPreferenceVersion = IMAGE_RETRY_PREFERENCE_VERSION;
   }
   const errors = validateRuntimePatch(patch);
   if (errors.length) return fail(errors.join("；"), "ADMIN_CONFIG_INVALID", { fields: errors });
@@ -6729,6 +7048,7 @@ async function saveAdminConfig(event, context) {
     face: next.face,
     analysis: next.analysis,
     image: next.image,
+    imageBackup: next.imageBackup,
     video: next.video,
     points: next.points,
     costs: next.costs,
@@ -6745,6 +7065,7 @@ async function saveAdminConfig(event, context) {
       face: next.face,
       analysis: next.analysis,
       image: next.image,
+      imageBackup: next.imageBackup,
       video: next.video,
       points: next.points,
       costs: next.costs
@@ -6757,6 +7078,7 @@ async function saveAdminConfig(event, context) {
     faceFields: Object.keys(patch.face),
     analysisFields: Object.keys(patch.analysis),
     imageFields: Object.keys(patch.image),
+    imageBackupFields: Object.keys(patch.imageBackup),
     videoFields: Object.keys(patch.video),
     pointsFields: Object.keys(patch.points),
     costFields: Object.keys(patch.costs)
@@ -6791,10 +7113,24 @@ async function checkDeployment(event, context) {
     source: "invalid",
     configured: false
   };
+  let imageBackupEditEndpoint = {
+    url: "",
+    source: "invalid",
+    configured: false
+  };
   try {
     imageEditEndpoint = resolveImageEditEndpoint(configs.image);
   } catch (error) {
     log("warn", "admin.deployment.image-edit-endpoint-invalid", {
+      requestId: event && event.requestId,
+      errorCode: error && error.code,
+      message: error && error.message
+    });
+  }
+  try {
+    imageBackupEditEndpoint = resolveImageEditEndpoint(configs.imageBackup);
+  } catch (error) {
+    log("warn", "admin.deployment.image-backup-edit-endpoint-invalid", {
       requestId: event && event.requestId,
       errorCode: error && error.code,
       message: error && error.message
@@ -6809,6 +7145,11 @@ async function checkDeployment(event, context) {
     configs.image.apiKey &&
     (configs.image.baseUrl || configs.image.endpoint) &&
     configs.image.model
+  );
+  const imageBackupReady = Boolean(
+    configs.imageBackup.apiKey
+    && (configs.imageBackup.baseUrl || configs.imageBackup.endpoint)
+    && configs.imageBackup.model
   );
   const analysisReady = Boolean(
     configs.analysis.apiKey
@@ -6846,6 +7187,15 @@ async function checkDeployment(event, context) {
       editEndpointSource: imageEditEndpoint.source,
       apiKeyConfigured: Boolean(configs.image.apiKey)
     },
+    imageBackup: {
+      ready: imageBackupReady,
+      provider: configs.imageBackup.provider || "",
+      model: configs.imageBackup.model || "",
+      mode: configs.imageBackup.mode || DEFAULT_IMAGE_MODE,
+      editEndpoint: safeUrl(imageBackupEditEndpoint.url),
+      editEndpointSource: imageBackupEditEndpoint.source,
+      apiKeyConfigured: Boolean(configs.imageBackup.apiKey)
+    },
     video: {
       ready: videoReady,
       provider: configs.video.provider || "",
@@ -6860,7 +7210,7 @@ async function checkDeployment(event, context) {
   };
   const logWritten = await writeDeploymentLog(Object.assign({}, result, {
     requestId: event.requestId,
-    ok: faceReady || analysisReady || imageReady || videoReady,
+    ok: faceReady || analysisReady || imageReady || imageBackupReady || videoReady,
     checkedBy: getOpenId(context)
   }));
   return jsonResponse(true, Object.assign(result, {
@@ -6882,10 +7232,9 @@ function buildImageEditCapabilityProbe(imageConfig = {}) {
   } catch (error) {
     endpointError = error;
   }
-  const requestFormat = isLingyunImageProvider(config, endpointInfo.url)
-    ? "lingyun-json"
-    : "multipart";
-  const fields = requestFormat === "lingyun-json"
+  const requestFormat = imageEditJsonRequestFormat(config, endpointInfo.url)
+    || "multipart";
+  const fields = requestFormat !== "multipart"
     ? {
         mainImage: "images[0].image_url",
         mask: "mask.image_url",
@@ -8685,7 +9034,8 @@ async function requestImageEdits(
   imageConfig = resolveImageConfig(),
   costs = resolveCostConfig(),
   userHash = "anonymous",
-  preparedAssets = null
+  preparedAssets = null,
+  requestOptions = {}
 ) {
   if (!payload.mainFileID || !payload.maskFileID) {
     const error = new Error("编辑模式需要主图和 mask 文件。");
@@ -8729,8 +9079,9 @@ async function requestImageEdits(
   const fields = buildImageEditFields(payload, imageConfig, references);
   const endpointInfo = resolveImageEditEndpoint(imageConfig);
   const url = endpointInfo.url;
-  pixelProtectionFlow.assertLingyunImageEditFlow(imageConfig, url);
-  const useLingyunJson = isLingyunImageProvider(imageConfig, url);
+  pixelProtectionFlow.assertSupportedImageEditFlow(imageConfig, url);
+  const jsonRequestFormat = imageEditJsonRequestFormat(imageConfig, url);
+  const useJsonImageEdit = Boolean(jsonRequestFormat);
 
   const files = [
     {
@@ -8760,20 +9111,21 @@ async function requestImageEdits(
   let requestHeaders;
   let requestFormat;
   let requestSummary;
-  if (useLingyunJson) {
-    const jsonPayload = buildLingyunImageEditPayload(
+  if (useJsonImageEdit) {
+    const jsonPayload = buildImageEditJsonPayload(
       payload,
       imageConfig,
       mainBuffer,
       maskBuffer,
-      referenceBuffers
+      referenceBuffers,
+      url
     );
     requestBody = Buffer.from(JSON.stringify(jsonPayload), "utf8");
     requestHeaders = {
       "Content-Type": "application/json",
       "Content-Length": requestBody.length
     };
-    requestFormat = "lingyun-json";
+    requestFormat = jsonRequestFormat;
     requestSummary = imageEditJsonSummary(jsonPayload);
   } else {
     const multipart = createMultipart(fields, files);
@@ -8790,7 +9142,7 @@ async function requestImageEdits(
       maskField
     );
   }
-  const requestLogFields = useLingyunJson
+  const requestLogFields = useJsonImageEdit
     ? { json: requestSummary }
     : { multipart: requestSummary };
   log("info", "image-edit.request", {
@@ -8815,17 +9167,23 @@ async function requestImageEdits(
     headers: {
       ...requestHeaders,
       ...apiKeyHeaders(apiKey),
-      "Idempotency-Key": requestId
+      "Idempotency-Key": requestOptions.idempotencyKey || requestId
     }
   }, requestBody, {
-    requestId,
+    requestId: requestOptions.usageRequestId || requestId,
     action: payload.__action || "repairImage",
     provider: imageConfig.provider || "",
     model: imageConfig.model || "",
     imageGeneration: true,
     imageEdit: true,
-    allowRetry: imageConfig.retryEnabled,
-    maxAttempts: imageConfig.retryEnabled ? imageConfig.maxRetries + 1 : 1,
+    allowRetry: hasOwn(requestOptions, "allowRetry")
+      ? Boolean(requestOptions.allowRetry)
+      : imageConfig.retryEnabled,
+    maxAttempts: hasOwn(requestOptions, "maxAttempts")
+      ? Math.max(1, Number(requestOptions.maxAttempts) || 1)
+      : imageConfig.retryEnabled
+        ? imageConfig.maxRetries + 1
+        : 1,
     timeoutMs: imageConfig.timeoutMs,
     costs,
     userHash,
@@ -9051,7 +9409,8 @@ async function requestTencentPipelineImageEdit(
   costs,
   requestId,
   userHash,
-  maskBuffer
+  maskBuffer,
+  requestOptions = {}
 ) {
   if (!Buffer.isBuffer(maskBuffer) || !maskBuffer.length) {
     throw tencentPipelineMaskError(
@@ -9090,7 +9449,7 @@ async function requestTencentPipelineImageEdit(
   const mainField = env("AI_IMAGE_MAIN_FIELD", "image");
   const maskField = env("AI_IMAGE_MASK_FIELD", "mask");
   const endpointInfo = resolveImageEditEndpoint(imageConfig);
-  pixelProtectionFlow.assertLingyunImageEditFlow(imageConfig, endpointInfo.url);
+  pixelProtectionFlow.assertSupportedImageEditFlow(imageConfig, endpointInfo.url);
   const useLingyunJson = isLingyunImageProvider(imageConfig, endpointInfo.url);
   let requestBody;
   let requestHeaders;
@@ -9155,19 +9514,25 @@ async function requestTencentPipelineImageEdit(
       headers: {
         ...requestHeaders,
         ...apiKeyHeaders(imageConfig.apiKey),
-        "Idempotency-Key": requestId
+        "Idempotency-Key": requestOptions.idempotencyKey || requestId
       }
     },
     requestBody,
     {
-      requestId,
+      requestId: requestOptions.usageRequestId || requestId,
       action: "tencent.pipeline.image-edit",
       provider: imageConfig.provider || "",
       model: imageConfig.model || "",
       imageGeneration: true,
       imageEdit: true,
-      allowRetry: imageConfig.retryEnabled,
-      maxAttempts: imageConfig.retryEnabled ? imageConfig.maxRetries + 1 : 1,
+      allowRetry: hasOwn(requestOptions, "allowRetry")
+        ? Boolean(requestOptions.allowRetry)
+        : imageConfig.retryEnabled,
+      maxAttempts: hasOwn(requestOptions, "maxAttempts")
+        ? Math.max(1, Number(requestOptions.maxAttempts) || 1)
+        : imageConfig.retryEnabled
+          ? imageConfig.maxRetries + 1
+          : 1,
       timeoutMs: imageConfig.timeoutMs,
       costs,
       userHash,
@@ -9202,6 +9567,110 @@ async function requestTencentPipelineImageEdit(
     ...requestLogFields
   });
   return response.json || {};
+}
+
+function imageProviderAttemptStage(attempt = {}) {
+  if (attempt.role === "backup") return "image-edit-backup";
+  return Number(attempt.attempt) > 1
+    ? "image-edit-primary-retry"
+    : "image-edit-primary";
+}
+
+function imageProviderAttemptProgress(attempt = {}) {
+  if (attempt.role === "backup") return 52;
+  return Number(attempt.attempt) > 1 ? 44 : 35;
+}
+
+async function updateImageProviderAttemptOperation(
+  openid,
+  requestId,
+  patch,
+  eventName
+) {
+  if (!openid || !requestId) return null;
+  try {
+    return await updateGenerationOperation(openid, requestId, patch, {
+      allowedStatuses: ["processing"]
+    });
+  } catch (error) {
+    log("warn", eventName || "image-provider.operation-update-failed", {
+      requestId,
+      error: sanitizeFailureMessage(error && error.message)
+    });
+    return null;
+  }
+}
+
+async function runImageEditProviderFailover(options = {}) {
+  const requestId = String(options.requestId || "").trim();
+  const openid = String(options.openid || "").trim();
+  const attemptSummaries = [];
+  return imageProviderFailover.runImageProviderFailover({
+    requestId,
+    primaryConfig: options.primaryConfig,
+    backupConfig: options.backupConfig,
+    onAttemptStart: async (attempt) => {
+      const stage = imageProviderAttemptStage(attempt);
+      await updateImageProviderAttemptOperation(openid, requestId, {
+        pipelineStage: stage,
+        progress: imageProviderAttemptProgress(attempt),
+        activeImageProvider: attempt.config.provider || "",
+        activeImageModel: attempt.config.model || "",
+        imageProviderRole: attempt.role,
+        imageProviderAttempt: attempt.attempt,
+        imageProviderAttempts: attemptSummaries.slice(),
+        lastHeartbeatAt: new Date()
+      }, "image-provider.attempt-start-update-failed");
+      log("info", "image-provider.attempt-start", {
+        requestId,
+        role: attempt.role,
+        attempt: attempt.attempt,
+        provider: attempt.config.provider || "",
+        model: attempt.config.model || "",
+        timeoutMs: Number(attempt.config.timeoutMs) || 0
+      });
+      if (typeof options.onAttemptStart === "function") {
+        await options.onAttemptStart(attempt);
+      }
+    },
+    onAttemptFinish: async (summary, attempt) => {
+      attemptSummaries.push(summary);
+      await updateImageProviderAttemptOperation(openid, requestId, {
+        pipelineStage: imageProviderAttemptStage(attempt),
+        progress: imageProviderAttemptProgress(attempt),
+        activeImageProvider: attempt.config.provider || "",
+        activeImageModel: attempt.config.model || "",
+        imageProviderRole: attempt.role,
+        imageProviderAttempt: attempt.attempt,
+        imageProviderAttempts: attemptSummaries.slice(),
+        lastProviderError: summary.success
+          ? null
+          : {
+              code: summary.code,
+              message: summary.message,
+              status: summary.status,
+              retryable: summary.retryable
+            },
+        lastHeartbeatAt: new Date()
+      }, "image-provider.attempt-finish-update-failed");
+      log(summary.success ? "info" : "warn", "image-provider.attempt-finish", {
+        requestId,
+        role: summary.role,
+        attempt: summary.attempt,
+        provider: summary.provider,
+        model: summary.model,
+        success: summary.success,
+        status: summary.status,
+        code: summary.code,
+        retryable: summary.retryable,
+        durationMs: summary.durationMs
+      });
+      if (typeof options.onAttemptFinish === "function") {
+        await options.onAttemptFinish(summary, attempt);
+      }
+    },
+    executeAttempt: options.executeAttempt
+  });
 }
 
 function dateKeyForTimeZone(date = new Date(), timeZone = POINTS_TIME_ZONE) {
@@ -10705,6 +11174,13 @@ function statusMessageForGenerationOperation(status, stage) {
   if (status === "queued") return "生图任务已提交，正在排队。";
   if (status === "processing") {
     if (stage === "validate") return "正在检查生图素材。";
+    if (stage === "image-edit-primary") return "正在使用主模型生成图片。";
+    if (stage === "image-edit-primary-retry") {
+      return "主模型暂时失败，正在重试。";
+    }
+    if (stage === "image-edit-backup") {
+      return "主模型不可用，正在切换备用模型。";
+    }
     if (stage === "download") return "正在接收生成结果。";
     if (stage === "upload") return "正在保存生成图片。";
     if (stage === "record") return "正在保存制作记录。";
@@ -10732,6 +11208,23 @@ function serializeGenerationDate(value) {
   }
 }
 
+function sanitizeImageProviderAttempts(value) {
+  return (Array.isArray(value) ? value : []).slice(0, 3).map((item) => ({
+    role: item && item.role === "backup" ? "backup" : "primary",
+    attempt: Math.max(1, Number(item && item.attempt) || 1),
+    provider: String(item && item.provider || "").slice(0, 80),
+    model: String(item && item.model || "").slice(0, 120),
+    timeoutMs: Math.max(0, Number(item && item.timeoutMs) || 0),
+    success: Boolean(item && item.success),
+    status: Math.max(0, Number(item && item.status) || 0),
+    code: String(item && item.code || "").slice(0, 80),
+    category: String(item && item.category || "").slice(0, 40),
+    retryable: Boolean(item && item.retryable),
+    durationMs: Math.max(0, Number(item && item.durationMs) || 0),
+    message: sanitizeFailureMessage(item && item.message || "", 240)
+  }));
+}
+
 function sanitizeGenerationResult(result = {}) {
   const source = result && typeof result === "object" ? result : {};
   const safe = {};
@@ -10741,7 +11234,9 @@ function sanitizeGenerationResult(result = {}) {
     "fileID",
     "tempFileURL",
     "createdAt",
+    "provider",
     "model",
+    "providerRole",
     "size",
     "resolution",
     "pipelineStage"
@@ -10751,6 +11246,12 @@ function sanitizeGenerationResult(result = {}) {
       ? serializeGenerationDate(source[key])
       : String(source[key]).slice(0, key === "tempFileURL" ? 4096 : 512);
   });
+  if (source.providerAttempt !== undefined) {
+    safe.providerAttempt = Math.max(1, Number(source.providerAttempt) || 1);
+  }
+  if (Array.isArray(source.providerAttempts)) {
+    safe.providerAttempts = sanitizeImageProviderAttempts(source.providerAttempts);
+  }
   if (source.quota && typeof source.quota === "object") {
     safe.quota = {
       freeUsed: Math.max(0, Number(source.quota.freeUsed) || 0),
@@ -11698,7 +12199,10 @@ async function claimTencentPipelineResume(openid, requestId) {
       || !Array.isArray(operation.pixelProtection.faceProtectionRects)
       || !operation.pixelProtection.faceProtectionRects.length
       || !operation.pixelProtectionMetrics
-      || !operation.pixelProtectionMetrics.lingyunIntermediate
+      || !(
+        operation.pixelProtectionMetrics.imageEditIntermediate
+        || operation.pixelProtectionMetrics.lingyunIntermediate
+      )
     ) {
       const error = new Error("这次任务缺少已验收的人脸保护数据，不能安全重试腾讯换脸。");
       error.code = "TENCENT_RETRY_PIXEL_PROTECTION_MISSING";
@@ -11749,6 +12253,9 @@ async function getTencentFaceFusionPipelineStatus(event, context) {
     "face-detection": 20,
     "mask-ready": 35,
     "image-edit": 55,
+    "image-edit-primary": 35,
+    "image-edit-primary-retry": 44,
+    "image-edit-backup": 52,
     facefusion: 85
   };
   const stageTextByStage = {
@@ -11756,6 +12263,9 @@ async function getTencentFaceFusionPipelineStatus(event, context) {
     "face-detection": "正在检测主图中的人脸",
     "mask-ready": "正在生成脸部保护 mask",
     "image-edit": "正在修改衣服、背景和光影",
+    "image-edit-primary": "正在使用主模型修改衣服、背景和光影",
+    "image-edit-primary-retry": "主模型暂时失败，正在重试图片编辑",
+    "image-edit-backup": "主模型不可用，正在切换备用模型修改图片",
     facefusion: "正在融合参考人脸"
   };
   const canRetryTencent = operation.status === "refunded"
@@ -11766,7 +12276,10 @@ async function getTencentFaceFusionPipelineStatus(event, context) {
     && Array.isArray(operation.pixelProtection.faceProtectionRects)
     && operation.pixelProtection.faceProtectionRects.length > 0
     && operation.pixelProtectionMetrics
-    && operation.pixelProtectionMetrics.lingyunIntermediate;
+    && (
+      operation.pixelProtectionMetrics.imageEditIntermediate
+      || operation.pixelProtectionMetrics.lingyunIntermediate
+    );
   return jsonResponse(true, Object.assign({
     requestId,
     stage,
@@ -11989,13 +12502,14 @@ async function tencentFaceFusionPipeline(event, context) {
   const imageConfig = Object.assign({}, configs.image, {
     mode: "edits"
   });
+  const imageBackupConfig = Object.assign({}, configs.imageBackup, {
+    mode: "edits"
+  });
   const tencent = resolveTencentFaceFusionConfig();
-  const imageEditEndpoint = resolveImageEditEndpoint(imageConfig);
-  pixelProtectionFlow.assertLingyunImageEditFlow(imageConfig, imageEditEndpoint.url);
   pixelProtectionFlow.assertTencentFaceFusionFlow(tencent);
-  if (!imageConfig.apiKey) {
+  if (!retryTencentOnly && !imageConfig.apiKey && !imageBackupConfig.apiKey) {
     return fail(
-      "普通生图配置还没有设置 AI_IMAGE_API_KEY，暂时不能执行第一阶段。",
+      "图片主模型和备用模型都还没有配置密钥，暂时不能执行第一阶段。",
       "TENCENT_PIPELINE_IMAGE_PROVIDER_NOT_CONFIGURED"
     );
   }
@@ -12062,6 +12576,31 @@ async function tencentFaceFusionPipeline(event, context) {
   let resultPersisted = false;
   let operation = await findGenerationOperation(openid, requestId);
   let intermediateFileID = String(operation && operation.intermediateFileID || "").trim();
+  let successfulImageProvider = String(
+    operation && (operation.activeImageProvider || operation.provider)
+    || imageConfig.provider
+    || ""
+  );
+  let successfulImageModel = String(
+    operation && (operation.activeImageModel || operation.model)
+    || imageConfig.model
+    || ""
+  );
+  let successfulProviderRole = String(
+    operation && (operation.imageProviderRole || operation.providerRole)
+    || "primary"
+  );
+  let successfulProviderAttempt = Math.max(
+    1,
+    Number(
+      operation && (operation.imageProviderAttempt || operation.providerAttempt)
+    ) || 1
+  );
+  let successfulProviderAttempts = Array.isArray(
+    operation && (operation.imageProviderAttempts || operation.providerAttempts)
+  )
+    ? (operation.imageProviderAttempts || operation.providerAttempts)
+    : [];
   try {
     if (retryTencentOnly) {
       claim = await claimTencentPipelineResume(openid, requestId);
@@ -12075,6 +12614,34 @@ async function tencentFaceFusionPipeline(event, context) {
       if (!claim.claimed) throw operationStateError(operation);
       claimed = true;
       intermediateFileID = String(operation.intermediateFileID || "").trim();
+      successfulImageProvider = String(
+        operation.activeImageProvider
+        || operation.provider
+        || successfulImageProvider
+      );
+      successfulImageModel = String(
+        operation.activeImageModel
+        || operation.model
+        || successfulImageModel
+      );
+      successfulProviderRole = String(
+        operation.imageProviderRole
+        || operation.providerRole
+        || successfulProviderRole
+      );
+      successfulProviderAttempt = Math.max(
+        1,
+        Number(
+          operation.imageProviderAttempt
+          || operation.providerAttempt
+          || successfulProviderAttempt
+        ) || 1
+      );
+      successfulProviderAttempts = Array.isArray(
+        operation.imageProviderAttempts || operation.providerAttempts
+      )
+        ? (operation.imageProviderAttempts || operation.providerAttempts)
+        : successfulProviderAttempts;
     } else {
       billing = await reserveUsage(openid, requestId, "image");
       claim = billing.untracked
@@ -12146,34 +12713,75 @@ async function tencentFaceFusionPipeline(event, context) {
           faceProtectionMaskReady: true
         }, { allowedStatuses: ["processing"] });
       }
-      const gptResponse = await requestTencentPipelineImageEdit(
-        mainBuffer,
-        { prompt, negativePrompt, size: imageConfig.size },
-        imageConfig,
-        configs.costs,
+      const imageProviderResult = await runImageEditProviderFailover({
         requestId,
-        usageUserHash(openid),
-        faceProtectionMask.buffer
-      );
-      const gptImage = extractImageItem(gptResponse);
-      if (!gptImage) {
-        const error = new Error("GPT Image 2 没有返回中间图片。");
-        error.code = "TENCENT_PIPELINE_IMAGE_EMPTY";
-        throw error;
-      }
-      const gptBuffer = gptImage.buffer || await downloadUrl(gptImage.url, {
-        requestId,
-        action: "tencent.pipeline.image-result"
-      });
-      const protectedIntermediate = pixelProtectionFlow.protectTencentIntermediate(
-        mainPixelImage,
-        gptBuffer,
-        faceProtectionMask.rects,
-        {
-          maxPixels: pixelCodec.DEFAULT_MAX_PIXELS,
-          maxTencentBytes: tencent.maxImageBytes
+        openid,
+        primaryConfig: imageConfig,
+        backupConfig: imageBackupConfig,
+        executeAttempt: async (attempt) => {
+          const config = attempt.config || {};
+          if (!config.apiKey) {
+            const error = new Error(
+              `${attempt.role === "backup" ? "备用" : "主"}图片模型还没有配置密钥。`
+            );
+            error.code = "missing-api-key";
+            error.retryable = false;
+            throw error;
+          }
+          const response = await requestTencentPipelineImageEdit(
+            mainBuffer,
+            { prompt, negativePrompt, size: config.size },
+            config,
+            configs.costs,
+            requestId,
+            usageUserHash(openid),
+            faceProtectionMask.buffer,
+            {
+              allowRetry: false,
+              maxAttempts: 1,
+              idempotencyKey: attempt.idempotencyKey,
+              usageRequestId: attempt.idempotencyKey
+            }
+          );
+          const attemptedImage = extractImageItem(response);
+          if (!attemptedImage) {
+            const error = new Error("图片模型没有返回中间图片。");
+            error.code = "TENCENT_PIPELINE_IMAGE_EMPTY";
+            error.retryable = true;
+            throw error;
+          }
+          const attemptedBuffer = attemptedImage.buffer || await downloadUrl(
+            attemptedImage.url,
+            {
+              requestId: attempt.idempotencyKey,
+              action: "tencent.pipeline.image-result"
+            }
+          );
+          const protectedIntermediate = pixelProtectionFlow.protectTencentIntermediate(
+            mainPixelImage,
+            attemptedBuffer,
+            faceProtectionMask.rects,
+            {
+              maxPixels: pixelCodec.DEFAULT_MAX_PIXELS,
+              maxTencentBytes: tencent.maxImageBytes
+            }
+          );
+          return {
+            response,
+            image: attemptedImage,
+            protectedIntermediate
+          };
         }
-      );
+      });
+      const successfulImageConfig = imageProviderResult.providerRole === "backup"
+        ? imageBackupConfig
+        : imageConfig;
+      successfulImageProvider = String(successfulImageConfig.provider || "");
+      successfulImageModel = String(successfulImageConfig.model || "");
+      successfulProviderRole = imageProviderResult.providerRole;
+      successfulProviderAttempt = imageProviderResult.providerAttempt;
+      successfulProviderAttempts = imageProviderResult.attempts;
+      const protectedIntermediate = imageProviderResult.value.protectedIntermediate;
       tencentPixelProtection = protectedIntermediate;
       const intermediate = await cloud.uploadFile({
         cloudPath: `tencent-facefusion/intermediate/${openid}/${Date.now()}-${crypto.randomBytes(4).toString("hex")}.png`,
@@ -12190,6 +12798,16 @@ async function tencentFaceFusionPipeline(event, context) {
           pipelineStage: "facefusion",
           intermediateFileID,
           intermediateExpiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000),
+          provider: successfulImageConfig.provider || "",
+          model: successfulImageConfig.model || "",
+          providerRole: imageProviderResult.providerRole,
+          providerAttempt: imageProviderResult.providerAttempt,
+          providerAttempts: imageProviderResult.attempts,
+          activeImageProvider: successfulImageConfig.provider || "",
+          activeImageModel: successfulImageConfig.model || "",
+          imageProviderRole: imageProviderResult.providerRole,
+          imageProviderAttempt: imageProviderResult.providerAttempt,
+          imageProviderAttempts: imageProviderResult.attempts,
           pixelProtection: {
             version: protectedIntermediate.protection.version,
             width: protectedIntermediate.protection.width,
@@ -12198,7 +12816,7 @@ async function tencentFaceFusionPipeline(event, context) {
             featherPixels: protectedIntermediate.protection.featherPixels
           },
           pixelProtectionMetrics: {
-            lingyunIntermediate: protectedIntermediate.metrics
+            imageEditIntermediate: protectedIntermediate.metrics
           }
         }, { allowedStatuses: ["processing"] });
       }
@@ -12242,7 +12860,7 @@ async function tencentFaceFusionPipeline(event, context) {
       );
       faceProtectionRects = restored.rects;
       tencentPixelProtection = {
-        metrics: restored.metrics.lingyunIntermediate,
+        metrics: restored.metrics.imageEditIntermediate,
         protection: {
           version: restored.version,
           rects: restored.rects,
@@ -12315,7 +12933,11 @@ async function tencentFaceFusionPipeline(event, context) {
       negativePrompt,
       fileID: finalUploaded.fileID,
       tempFileURL,
-      model: imageConfig.model,
+      provider: successfulImageProvider,
+      model: successfulImageModel,
+      providerRole: successfulProviderRole,
+      providerAttempt: successfulProviderAttempt,
+      providerAttempts: successfulProviderAttempts,
       tencentModel: tencent.model,
       tencentRegion: tencent.region,
       pixelProtection: {
@@ -12323,7 +12945,7 @@ async function tencentFaceFusionPipeline(event, context) {
         mode: "tencent-rect-before-and-after",
         rects: faceProtectionRects,
         metrics: {
-          lingyunIntermediate: tencentPixelProtection
+          imageEditIntermediate: tencentPixelProtection
             ? tencentPixelProtection.metrics
             : null,
           tencentFinalRelativeIntermediate: protectedFinal.addedMetrics,
@@ -12355,6 +12977,11 @@ async function tencentFaceFusionPipeline(event, context) {
       fileID: finalUploaded.fileID,
       tempFileURL,
       createdAt: createdAt.toISOString(),
+      provider: successfulImageProvider,
+      model: successfulImageModel,
+      providerRole: successfulProviderRole,
+      providerAttempt: successfulProviderAttempt,
+      providerAttempts: successfulProviderAttempts,
       record: Object.assign({}, recordData, {
         id: saved._id,
         createdAt: createdAt.toISOString()
@@ -12471,7 +13098,8 @@ function buildImageRequestFromOperation(operation, imageConfig = resolveImageCon
 function buildImageRequestMeta(
   operation,
   imageConfig = resolveImageConfig(),
-  costs = resolveCostConfig()
+  costs = resolveCostConfig(),
+  requestOptions = {}
 ) {
   const request = buildImageRequestFromOperation(operation, imageConfig);
   return {
@@ -12480,8 +13108,14 @@ function buildImageRequestMeta(
     provider: imageConfig.provider || "",
     model: imageConfig.model || "",
     imageGeneration: true,
-    allowRetry: imageConfig.retryEnabled,
-    maxAttempts: imageConfig.retryEnabled ? imageConfig.maxRetries + 1 : 1,
+    allowRetry: hasOwn(requestOptions, "allowRetry")
+      ? Boolean(requestOptions.allowRetry)
+      : imageConfig.retryEnabled,
+    maxAttempts: hasOwn(requestOptions, "maxAttempts")
+      ? Math.max(1, Number(requestOptions.maxAttempts) || 1)
+      : imageConfig.retryEnabled
+        ? imageConfig.maxRetries + 1
+        : 1,
     timeoutMs: imageConfig.timeoutMs,
     costs,
     userHash: usageUserHash(operation && operation.openid || "anonymous"),
@@ -12513,7 +13147,24 @@ function buildGenerationRecordData(openid, operation, result, billing = {}) {
     negativePrompt: String(payload.negativePrompt || ""),
     fileID,
     tempFileURL: String(result && result.tempFileURL || operation && operation.tempFileURL || ""),
+    provider: String(result && result.provider || operation && operation.provider || ""),
     model: String(result && result.model || operation && operation.model || ""),
+    providerRole: String(
+      result && result.providerRole
+      || operation && operation.providerRole
+      || ""
+    ),
+    providerAttempt: Math.max(
+      1,
+      Number(
+        result && result.providerAttempt
+        || operation && operation.providerAttempt
+      ) || 1
+    ),
+    providerAttempts: sanitizeImageProviderAttempts(
+      result && result.providerAttempts
+      || operation && operation.providerAttempts
+    ),
     createdAt,
     size: String(result && result.size || operation && operation.size || ""),
     resolution: String(result && result.resolution || operation && operation.resolution || ""),
@@ -12642,6 +13293,7 @@ async function executeImageGeneration(operation, context = {}) {
   const requestId = String(operation && operation.requestId || "");
   const openid = String(operation && operation.openid || "");
   const imageConfig = context.imageConfig || resolveImageConfig();
+  const imageBackupConfig = context.imageBackupConfig || resolveImageBackupConfig();
   const costs = context.costs || resolveCostConfig();
   const touchOperation = context.touchOperation || touchGenerationOperation;
   const validateAssets = context.validateAssets || validateGenerationAssets;
@@ -12666,7 +13318,12 @@ async function executeImageGeneration(operation, context = {}) {
   const randomSuffix = context.randomSuffix || (
     () => crypto.randomBytes(4).toString("hex")
   );
-  if (!imageConfig.apiKey) {
+  const mode = resolveGenerationMode(payload, imageConfig);
+  if (
+    mode === "edits"
+      ? !imageConfig.apiKey && !imageBackupConfig.apiKey
+      : !imageConfig.apiKey
+  ) {
     const error = new Error("云函数还没有配置图片服务密钥。");
     error.code = "missing-api-key";
     error.retryable = false;
@@ -12674,13 +13331,10 @@ async function executeImageGeneration(operation, context = {}) {
   }
   await touchOperation(openid, requestId, "validate", 5);
   await validateAssets(openid, payload);
-  const imageRequest = buildImageRequestFromOperation(operation, imageConfig);
-  const mode = resolveGenerationMode(payload, imageConfig);
+  let imageRequest = buildImageRequestFromOperation(operation, imageConfig);
   let normalPixelPreflight = null;
   let preparedAssets = null;
   if (mode === "edits") {
-    const editEndpoint = resolveImageEditEndpoint(imageConfig);
-    pixelProtectionFlow.assertLingyunImageEditFlow(imageConfig, editEndpoint.url);
     const references = imageEditReferences(payload);
     const [mainBuffer, maskBuffer, referenceBuffers] = await Promise.all([
       downloadInputFile(payload.mainFileID, {
@@ -12715,42 +13369,111 @@ async function executeImageGeneration(operation, context = {}) {
     };
   }
   await touchOperation(openid, requestId, "upstream", 35);
-  const upstream = mode === "edits"
-    ? await requestEdits(
-        Object.assign({}, payload, { __action: "generate" }),
-        imageConfig.apiKey,
-        requestId,
-        imageConfig,
-        costs,
-        usageUserHash(openid),
-        preparedAssets
-      )
-    : await requestGeneration(
-        imageConfig.endpoint || endpoint(imageConfig.baseUrl, "images/generations"),
-        imageRequest,
-        imageConfig.apiKey,
-        { "Idempotency-Key": requestId },
-        buildImageRequestMeta(operation, imageConfig, costs)
-      );
+  let effectiveImageConfig = imageConfig;
+  let providerRole = "primary";
+  let providerAttempt = 1;
+  let providerAttempts = [];
+  let upstream;
+  let image;
+  let rawBuffer;
+  let protectedNormal = null;
+  if (mode === "edits") {
+    const providerResult = await runImageEditProviderFailover({
+      requestId,
+      openid,
+      primaryConfig: imageConfig,
+      backupConfig: imageBackupConfig,
+      executeAttempt: async (attempt) => {
+        const config = attempt.config || {};
+        if (!config.apiKey) {
+          const error = new Error(
+            `${attempt.role === "backup" ? "备用" : "主"}图片模型还没有配置密钥。`
+          );
+          error.code = "missing-api-key";
+          error.retryable = false;
+          throw error;
+        }
+        const response = await requestEdits(
+          Object.assign({}, payload, { __action: "generate" }),
+          config.apiKey,
+          requestId,
+          config,
+          costs,
+          usageUserHash(openid),
+          preparedAssets,
+          {
+            allowRetry: false,
+            maxAttempts: 1,
+            idempotencyKey: attempt.idempotencyKey,
+            usageRequestId: attempt.idempotencyKey
+          }
+        );
+        const attemptedImage = extractImageItem(response);
+        if (!attemptedImage) {
+          const error = new Error("图片接口没有返回图片。");
+          error.code = "empty-image-result";
+          error.retryable = false;
+          throw error;
+        }
+        const attemptedRawBuffer = attemptedImage.buffer || await downloadResult(
+          attemptedImage.url,
+          {
+            requestId: attempt.idempotencyKey,
+            action: "generate-result"
+          }
+        );
+        const attemptedProtected = pixelProtectionFlow.protectNormalResult(
+          normalPixelPreflight,
+          attemptedRawBuffer,
+          { maxPixels: pixelCodec.DEFAULT_MAX_PIXELS }
+        );
+        return {
+          upstream: response,
+          image: attemptedImage,
+          rawBuffer: attemptedRawBuffer,
+          protectedNormal: attemptedProtected
+        };
+      }
+    });
+    effectiveImageConfig = providerResult.providerRole === "backup"
+      ? imageBackupConfig
+      : imageConfig;
+    providerRole = providerResult.providerRole;
+    providerAttempt = providerResult.providerAttempt;
+    providerAttempts = providerResult.attempts;
+    upstream = providerResult.value.upstream;
+    image = providerResult.value.image;
+    rawBuffer = providerResult.value.rawBuffer;
+    protectedNormal = providerResult.value.protectedNormal;
+    imageRequest = buildImageRequestFromOperation(operation, effectiveImageConfig);
+  } else {
+    upstream = await requestGeneration(
+      imageConfig.endpoint || endpoint(imageConfig.baseUrl, "images/generations"),
+      imageRequest,
+      imageConfig.apiKey,
+      { "Idempotency-Key": requestId },
+      buildImageRequestMeta(operation, imageConfig, costs)
+    );
+  }
   await touchOperation(openid, requestId, "download", 70);
-  const image = extractImageItem(upstream);
+  image = image || extractImageItem(upstream);
   if (!image) {
     const error = new Error("图片接口没有返回图片。");
     error.code = "empty-image-result";
     error.retryable = false;
     throw error;
   }
-  const rawBuffer = image.buffer || await downloadResult(image.url, {
+  rawBuffer = rawBuffer || image.buffer || await downloadResult(image.url, {
     requestId,
     action: "generate-result"
   });
-  const protectedNormal = normalPixelPreflight
+  protectedNormal = protectedNormal || (normalPixelPreflight
     ? pixelProtectionFlow.protectNormalResult(
         normalPixelPreflight,
         rawBuffer,
         { maxPixels: pixelCodec.DEFAULT_MAX_PIXELS }
       )
-    : null;
+    : null);
   const buffer = protectedNormal ? protectedNormal.buffer : rawBuffer;
   const mime = protectedNormal ? "image/png" : image.mime || detectMime(buffer);
   const pixelProtection = protectedNormal
@@ -12776,18 +13499,27 @@ async function executeImageGeneration(operation, context = {}) {
     error.retryable = true;
     throw error;
   }
-  const resolution = imageConfig.resolution
+  const resolution = effectiveImageConfig.resolution
     || normalizeImageResolution(imageRequest.size, "1K");
   await updateOperation(openid, requestId, {
     pipelineStage: "upload",
     progress: 90,
     resultFileID: fileID,
     resultCreatedAt: createdAt,
-    model: imageConfig.model || "",
+    provider: effectiveImageConfig.provider || "",
+    model: effectiveImageConfig.model || "",
+    providerRole,
+    providerAttempt,
+    providerAttempts,
+    activeImageProvider: effectiveImageConfig.provider || "",
+    activeImageModel: effectiveImageConfig.model || "",
+    imageProviderRole: providerRole,
+    imageProviderAttempt: providerAttempt,
+    imageProviderAttempts: providerAttempts,
     size: imageRequest.size || "",
     resolution,
     quality: imageRequest.quality || "",
-    compatibilityMode: Boolean(imageConfig.compatibilityMode),
+    compatibilityMode: Boolean(effectiveImageConfig.compatibilityMode),
     imageMode: mode,
     pixelProtection,
     lastHeartbeatAt: currentTime()
@@ -12800,11 +13532,15 @@ async function executeImageGeneration(operation, context = {}) {
     fileID,
     tempFileURL,
     createdAt: createdAt.toISOString(),
-    model: imageConfig.model || "",
+    provider: effectiveImageConfig.provider || "",
+    model: effectiveImageConfig.model || "",
+    providerRole,
+    providerAttempt,
+    providerAttempts,
     size: imageRequest.size || "",
     resolution,
     quality: imageRequest.quality || "",
-    compatibilityMode: Boolean(imageConfig.compatibilityMode),
+    compatibilityMode: Boolean(effectiveImageConfig.compatibilityMode),
     imageMode: mode,
     pixelProtection
   };
@@ -12888,6 +13624,7 @@ async function processQueuedGenerationOperation(operation, dependencies = {}) {
     const configs = await resolveConfigs();
     const result = await execute(current, {
       imageConfig: configs.image,
+      imageBackupConfig: configs.imageBackup,
       costs: configs.costs
     });
     await touchOperation(openid, requestId, "record", 95);
@@ -15339,7 +16076,14 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     imageUpstreamError,
     visionConfigForAction,
     resolveImageConfig,
+    resolveImageBackupConfig,
     resolveEffectiveConfigs,
+    runImageEditProviderFailover,
+    imageProviderFailover,
+    imageProviderAttemptStage,
+    imageProviderAttemptProgress,
+    migrateLegacyImageProviderConfig,
+    isLegacyLingyunImageConfig,
     assertVisionImageSize,
     normalizeFaceDetections,
     normalizeWebPoseSuggestions,
@@ -15350,8 +16094,13 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     buildImageOutputSize,
     resolveImageOutputSize,
     buildImageGenerationPayload,
+    buildImageRequestMeta,
+    executeImageGeneration,
     buildImageEditFields,
+    isXingjuImageProvider,
     isLingyunImageProvider,
+    imageEditJsonRequestFormat,
+    buildImageEditJsonPayload,
     buildLingyunImageEditPayload,
     imageEditJsonSummary,
     buildImageEditCapabilityProbe,
@@ -15363,6 +16112,7 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     modelCapabilities,
     buildImageQualityProbe,
     normalizeRuntimePatch,
+    dropBlankRuntimeApiKeys,
     extractModelUsage,
     extractVideoDuration,
     buildUsageBilling,

@@ -4,7 +4,8 @@
   "private": true,
   "main": "index.js",
   "scripts": {
-    "test:pixel-protection": "node tests/pixel-protection.test.js"
+    "test:pixel-protection": "node tests/pixel-protection.test.js",
+    "test:image-provider-failover": "node tests/image-provider-failover.test.js"
   },
   "dependencies": {
     "jpeg-js": "^0.4.4",

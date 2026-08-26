@@ -317,6 +317,24 @@ Page({
         progress: Number(status.progress) || 55,
         progressText: "正在修改衣服、背景和光影"
       },
+      "image-edit-primary": {
+        stage: "image-edit",
+        stageText: status.stageText || "正在使用主模型修改衣服、背景和光影",
+        progress: Number(status.progress) || 35,
+        progressText: "主模型正在修改图片"
+      },
+      "image-edit-primary-retry": {
+        stage: "image-edit",
+        stageText: status.stageText || "主模型暂时失败，正在重试图片编辑",
+        progress: Number(status.progress) || 44,
+        progressText: "主模型正在重试"
+      },
+      "image-edit-backup": {
+        stage: "image-edit",
+        stageText: status.stageText || "主模型不可用，正在切换备用模型",
+        progress: Number(status.progress) || 52,
+        progressText: "备用模型正在修改图片"
+      },
       facefusion: {
         stage: "facefusion",
         stageText: status.stageText || "正在融合参考人脸",

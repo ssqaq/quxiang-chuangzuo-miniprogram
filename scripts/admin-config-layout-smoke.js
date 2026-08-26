@@ -100,6 +100,23 @@ assert.ok(
     && wxss.includes(".model-probe-refresh-button {"),
   "模型探测刷新按钮样式缺失"
 );
+const apiKeyInputs = wxml.match(/<input[^>]*data-key="apiKey"[^>]*>/g) || [];
+assert.strictEqual(apiKeyInputs.length, 5, "五个主备模型 API Key 输入框必须完整");
+assert.ok(
+  apiKeyInputs.every((input) => /\bpassword\b/.test(input)),
+  "所有 API Key 输入框都必须使用密码输入"
+);
+assert.ok(
+  wxml.includes("effective.image.apiKeyConfigured")
+    && wxml.includes("effective.imageBackup.apiKeyConfigured")
+    && (wxml.match(/已配置（不显示内容）/g) || []).length >= 2,
+  "图片主备模型没有显示脱敏密钥配置状态"
+);
+assert.ok(
+  wxss.includes(".api-key-config-state {")
+    && wxss.includes(".api-key-field-tip {"),
+  "图片主备模型密钥状态样式缺失"
+);
 
 const toggleStart = js.indexOf("toggleConfigSection(event)");
 const toggleEnd = js.indexOf("closeConfigSection()", toggleStart);

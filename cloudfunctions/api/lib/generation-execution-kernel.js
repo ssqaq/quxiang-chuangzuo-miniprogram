@@ -107,6 +107,7 @@ function createGenerationExecutionKernel(services = {}) {
 
     const configs = await resolveConfig();
     const imageConfig = configs.image;
+    const imageBackupConfig = configs.imageBackup || {};
     const costs = configs.costs;
     const editAssetsDetected = hasEditAssets(payload);
     const mode = resolveMode(payload, imageConfig);
@@ -119,9 +120,13 @@ function createGenerationExecutionKernel(services = {}) {
         "missing-edit-asset"
       );
     }
-    if (!imageConfig.apiKey) {
+    if (
+      mode === "edits"
+        ? !imageConfig.apiKey && !imageBackupConfig.apiKey
+        : !imageConfig.apiKey
+    ) {
       return failResponse(
-        "云函数还没有配置 AI_IMAGE_API_KEY（兼容旧配置 AI_API_KEY）。",
+        "云函数还没有配置可用的图片服务密钥。",
         "missing-api-key"
       );
     }
@@ -187,8 +192,11 @@ function createGenerationExecutionKernel(services = {}) {
 
     await validateAssets(openid, payload);
     if (mode === "edits") {
-      const editEndpoint = resolveEditEndpoint(imageConfig);
-      assertEditFlow(imageConfig, editEndpoint.url);
+      const initialEditConfig = imageConfig.apiKey
+        ? imageConfig
+        : imageBackupConfig;
+      const editEndpoint = resolveEditEndpoint(initialEditConfig);
+      assertEditFlow(initialEditConfig, editEndpoint.url);
     }
     log("info", "generation.start", {
       requestId,
@@ -196,6 +204,13 @@ function createGenerationExecutionKernel(services = {}) {
       mode,
       editAssetsDetected,
       model,
+      primaryProvider: imageConfig.provider || "",
+      backupProvider: mode === "edits"
+        ? imageBackupConfig.provider || ""
+        : "",
+      backupModel: mode === "edits"
+        ? imageBackupConfig.model || ""
+        : "",
       size,
       faceRefs: Array.isArray(payload.faceFileIDs) ? payload.faceFileIDs.length : 0,
       wardrobeRefs: Array.isArray(payload.wardrobeFileIDs)

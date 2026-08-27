@@ -142,9 +142,8 @@ const alreadyConfigured = test.migrateLegacyImageRetryConfig(
 assert.strictEqual(alreadyConfigured.migrated, false);
 assert.strictEqual(alreadyConfigured.value.image.retryEnabled, false);
 assert.deepStrictEqual(patch.video, {
-  model: "smoke-video-model",
-  apiKey: "smoke-video-key"
-});
+  model: "smoke-video-model"
+}, "视频 Key 不能进入动态配置");
 assert.deepStrictEqual(patch.analysis, {
   provider: "smoke-analysis-provider",
   model: "smoke-analysis-model",

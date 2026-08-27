@@ -382,10 +382,13 @@ function verifyMarkupAndStaticBoundaries() {
     assert.ok(inputs[section]);
     assert.strictEqual(/\bpassword\b/.test(inputs[section]), false);
   });
-  ["face", "analysis", "video"].forEach((section) => {
+  ["face", "analysis"].forEach((section) => {
     assert.ok(inputs[section]);
     assert.strictEqual(/\bpassword\b/.test(inputs[section]), true);
   });
+  assert.ok(inputs.video);
+  assert.strictEqual(/\bdisabled\b/.test(inputs.video), true);
+  assert.strictEqual(/\bpassword\b/.test(inputs.video), false);
   assert.ok(wxml.includes("已显示完整 Key"));
   assert.ok(serviceJs.includes('action: "getAdminImageApiKeys"'));
   assert.ok(pageJs.includes("_imageApiKeyBaseline"));

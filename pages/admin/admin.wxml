@@ -839,8 +839,7 @@
           <view class="config-editor-focus-help">下面的修改只作用于这一项</view>
         </view>
         <view class="config-editor-body">
-          <view class="config-helper">创建任务只发一次，查询任务按配置轮询；API Key 只在服务端保存，页面不会回显真实内容。</view>
-          <view class="config-helper">切换服务商只修改当前页面草稿，点击“保存全部配置”后才写入云端。</view>
+          <view class="config-helper">选择“星炬”后，模型、创建路径、查询路径、清晰度和超时会自动补齐空白项；接口地址只显示云端已配置的地址，没有就提示你填写，不乱猜地址。</view>
           <view class="config-model-actions">
             <view
               class="config-model-button config-model-test"
@@ -875,7 +874,14 @@
             </view>
             <view class="admin-field"><text>使用的模型</text><input value="{{form.video.model}}" data-section="video" data-key="model" bindinput="onInput" /></view>
             <view class="admin-field admin-field-wide"><text>接口地址</text><input value="{{form.video.baseUrl}}" data-section="video" data-key="baseUrl" bindinput="onInput" /></view>
-            <view class="admin-field admin-field-wide"><text>API Key</text><input password value="{{form.video.apiKey}}" data-section="video" data-key="apiKey" placeholder="{{form.video.apiKeyConfigured ? '已配置，留空继续使用' : '填写后可测试并保存'}}" bindinput="onInput" /></view>
+            <view class="admin-field admin-field-wide admin-api-key-field">
+              <view class="admin-field-label-row">
+                <text>API Key</text>
+                <text class="api-key-config-state {{form.video.apiKey ? 'is-ready' : 'is-off'}}">{{form.video.apiKey ? '已显示完整 Key' : (form.video.apiKeyConfigured ? '完整 Key 读取失败' : '未配置')}}</text>
+              </view>
+              <input disabled value="{{form.video.apiKey}}" data-section="video" data-key="apiKey" placeholder="{{form.video.apiKeyConfigured ? '云函数环境变量已配置' : '请在云函数环境变量配置'}}" />
+              <view class="api-key-field-tip">当前显示云函数实际生效的完整视频 Key；视频 Key 不写入动态配置，修改环境变量后重新部署云函数。</view>
+            </view>
             <view class="admin-field admin-field-wide"><text>创建路径</text><input value="{{form.video.createPath}}" data-section="video" data-key="createPath" bindinput="onInput" /></view>
             <view class="admin-field admin-field-wide"><text>查询路径</text><input value="{{form.video.queryPath}}" data-section="video" data-key="queryPath" bindinput="onInput" /></view>
           <view class="admin-field">

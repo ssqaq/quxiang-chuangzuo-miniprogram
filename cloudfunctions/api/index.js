@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.52.0";
-const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0520";
+const API_BUILD_VERSION = "0.52.1";
+const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0521";
 const DEFAULT_IMAGE_MODE = "edits";
 // 图片和视频默认成本只在云函数入口维护；管理员页读取云端有效配置，
 // 避免前后端各写一份价格。入口保持单文件可启动，兼容 CloudBase 部署。
@@ -6407,7 +6407,6 @@ const ADMIN_PROVIDER_PROFILE_KEYS = Object.freeze({
     "baseUrl",
     "endpoint",
     "queryEndpoint",
-    "apiKey",
     "model",
     "createPath",
     "queryPath",
@@ -6731,7 +6730,6 @@ function normalizeRuntimePatch(input = {}) {
     "baseUrl",
     "endpoint",
     "queryEndpoint",
-    "apiKey",
     "model",
     "createPath",
     "queryPath",
@@ -9187,12 +9185,19 @@ function dropBlankRuntimeApiKeys(patch = {}) {
         if (
           isAdminProviderObject(profile)
           && hasOwn(profile, "apiKey")
-          && !normalizeApiKey(profile.apiKey)
         ) {
-          delete profile.apiKey;
+          if (
+            section === "video"
+            || !normalizeApiKey(profile.apiKey)
+          ) {
+            delete profile.apiKey;
+          }
         }
       });
     });
+  }
+  if (patch.video && hasOwn(patch.video, "apiKey")) {
+    delete patch.video.apiKey;
   }
   return patch;
 }
@@ -18959,6 +18964,7 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     resolveAnalysisConfig,
     normalizeApiKey,
     apiKeyHeaders,
+    mapActionErrorResult,
     isGeminiCompatibleVision,
     sanitizeVisionRequestPayload,
     resolveImageEditEndpoint,
@@ -19146,6 +19152,7 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     buildAndroidMotionPhotoBuffer,
     buildAutoFaceProbe
     ,
+    processQueuedGenerationOperation,
     adminOpenIds,
     isAdminContext,
     usageUserHash,

@@ -15,6 +15,7 @@ const SECTIONS = ["face", "analysis", "image", "imageBackup", "video"];
 const PROVIDER_A = "provider-a";
 const PROVIDER_B = "provider-b";
 const PROVIDER_C = "provider-c";
+const VIDEO_ENV_KEY = "video-env-key";
 const PROVIDER_LABELS = {
   [PROVIDER_A]: "服务商甲",
   [PROVIDER_B]: "服务商乙",
@@ -153,7 +154,7 @@ function initialRuntime() {
     version: 1
   };
   SECTIONS.forEach((section) => {
-    const apiKey = `${section}-a-key`;
+    const apiKey = section === "video" ? "" : `${section}-a-key`;
     runtime[section] = sectionProfile(section, PROVIDER_A, "a", apiKey);
     runtime.providerProfiles[section] = {
       [PROVIDER_A]: clone(runtime[section])
@@ -208,7 +209,9 @@ function fullApiKeys(runtime) {
   };
   SECTIONS.forEach((section) => {
     result[section] = {
-      apiKey: String(runtime[section] && runtime[section].apiKey || "")
+      apiKey: section === "video"
+        ? VIDEO_ENV_KEY
+        : String(runtime[section] && runtime[section].apiKey || "")
     };
   });
   return result;
@@ -319,6 +322,17 @@ function verifyBackendProfiles() {
   );
   assert.strictEqual(migrated.migrated, true, "老配置必须生成服务商档案");
   SECTIONS.forEach((section) => {
+    if (section === "video") {
+      assert.strictEqual(
+        Object.prototype.hasOwnProperty.call(
+          migrated.value.providerProfiles[section][PROVIDER_A],
+          "apiKey"
+        ),
+        false,
+        "视频老配置的 Key 不能迁移到服务商档案"
+      );
+      return;
+    }
     assert.strictEqual(
       migrated.value.providerProfiles[section][PROVIDER_A].apiKey,
       `${section}-legacy-a-key`,
@@ -367,6 +381,22 @@ function verifyBackendProfiles() {
   );
   const switched = test.mergeRuntimeConfig(existing, blankSwitchPatch);
   SECTIONS.forEach((section) => {
+    if (section === "video") {
+      assert.strictEqual(
+        Object.prototype.hasOwnProperty.call(switched.video, "apiKey"),
+        false,
+        "视频空 Key 切换后不能从动态配置继承旧 Key"
+      );
+      assert.strictEqual(
+        Object.prototype.hasOwnProperty.call(
+          switched.providerProfiles[section][PROVIDER_B],
+          "apiKey"
+        ),
+        false,
+        "视频服务商档案不能保留旧 Key"
+      );
+      return;
+    }
     assert.strictEqual(
       switched[section].apiKey,
       `${section}-stored-b-key`,
@@ -418,8 +448,10 @@ function verifyBackendProfiles() {
       );
       assert.strictEqual(
         redacted[section][providerId].apiKeyConfigured,
-        true,
-        `普通接口必须保留 ${section}/${providerId} 的已配置状态`
+        section === "video" ? false : true,
+        section === "video"
+          ? `视频 ${section}/${providerId} 不应有动态 Key 配置状态`
+          : `普通接口必须保留 ${section}/${providerId} 的已配置状态`
       );
     });
   });
@@ -464,7 +496,7 @@ async function verifyPageSwitchAndReload() {
   SECTIONS.forEach((section) => {
     assert.strictEqual(
       page.data.form[section].apiKey,
-      `${section}-a-key`,
+      section === "video" ? VIDEO_ENV_KEY : `${section}-a-key`,
       `${section} 没有读到服务商甲的完整 Key`
     );
   });
@@ -483,7 +515,7 @@ async function verifyPageSwitchAndReload() {
     switchProvider(page, section, PROVIDER_B);
     assert.strictEqual(
       page.data.form[section].apiKey,
-      "",
+      section === "video" ? VIDEO_ENV_KEY : "",
       `${section} 新服务商错误复制了当前 Key`
     );
     assert.strictEqual(
@@ -504,12 +536,20 @@ async function verifyPageSwitchAndReload() {
       `https://draft-b.${section.toLowerCase()}.example/v1`
     );
     input(page, section, "model", `draft-b-${section.toLowerCase()}-model`);
-    input(page, section, "apiKey", bKeys[section]);
+    if (section !== "video") {
+      input(page, section, "apiKey", bKeys[section]);
+    } else {
+      bKeys[section] = VIDEO_ENV_KEY;
+    }
 
     switchProvider(page, section, PROVIDER_A);
     assert.strictEqual(
       page.data.form[section].apiKey,
-      section === "face" ? "face-a-draft-key" : `${section}-a-key`,
+      section === "video"
+        ? VIDEO_ENV_KEY
+        : section === "face"
+          ? "face-a-draft-key"
+          : `${section}-a-key`,
       `${section} 从乙切回甲后没有恢复甲的 Key`
     );
     assert.strictEqual(
@@ -523,7 +563,7 @@ async function verifyPageSwitchAndReload() {
     switchProvider(page, section, PROVIDER_B);
     assert.strictEqual(
       page.data.form[section].apiKey,
-      bKeys[section],
+      section === "video" ? VIDEO_ENV_KEY : bKeys[section],
       `${section} 再次选择乙后没有恢复乙的 Key`
     );
     assert.strictEqual(
@@ -536,7 +576,7 @@ async function verifyPageSwitchAndReload() {
   SECTIONS.forEach((section) => {
     assert.strictEqual(
       page.data.form.providerProfiles[section][PROVIDER_B].apiKey,
-      bKeys[section],
+      section === "video" ? VIDEO_ENV_KEY : bKeys[section],
       `${section} 的乙服务商草稿没有写入独立档案`
     );
   });
@@ -554,6 +594,14 @@ async function verifyPageSwitchAndReload() {
       PROVIDER_B,
       `${section} 保存时没有使用当前选中的乙服务商`
     );
+    if (section === "video") {
+      assert.strictEqual(
+        Object.prototype.hasOwnProperty.call(savePayloads[0][section], "apiKey"),
+        false,
+        "视频 Key 只能来自云函数环境变量，不能提交到动态配置"
+      );
+      return;
+    }
     assert.strictEqual(
       savePayloads[0][section].apiKey,
       bKeys[section],
@@ -571,7 +619,7 @@ async function verifyPageSwitchAndReload() {
   SECTIONS.forEach((section) => {
     assert.strictEqual(
       reloaded.data.form[section].apiKey,
-      bKeys[section],
+      section === "video" ? VIDEO_ENV_KEY : bKeys[section],
       `${section} 保存后重新打开没有恢复乙服务商 Key`
     );
     assert.strictEqual(
@@ -582,7 +630,11 @@ async function verifyPageSwitchAndReload() {
     switchProvider(reloaded, section, PROVIDER_A);
     assert.strictEqual(
       reloaded.data.form[section].apiKey,
-      section === "face" ? "face-a-draft-key" : `${section}-a-key`,
+      section === "video"
+        ? VIDEO_ENV_KEY
+        : section === "face"
+          ? "face-a-draft-key"
+          : `${section}-a-key`,
       `${section} 保存重载后切回甲没有恢复原参数`
     );
   });

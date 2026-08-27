@@ -213,11 +213,17 @@ assert.strictEqual(
   "普通配置加图片主备配置共五个 API Key 输入框必须完整"
 );
 assert.ok(
-  ["face", "analysis", "video"].every((section) => (
+  ["face", "analysis"].every((section) => (
     apiKeyInputBySection[section]
     && /\bpassword\b/.test(apiKeyInputBySection[section])
   )),
-  "人脸、图片分析和视频 API Key 必须继续使用密码输入"
+  "人脸和图片分析 API Key 必须继续使用密码输入"
+);
+assert.ok(
+  apiKeyInputBySection.video
+    && /\bdisabled\b/.test(apiKeyInputBySection.video)
+    && !/\bpassword\b/.test(apiKeyInputBySection.video),
+  "视频 API Key 必须只读显示，不能再用密码输入"
 );
 assert.ok(
   ["image", "imageBackup"].every((section) => (
@@ -232,10 +238,11 @@ assert.ok(
   "图片主备 API Key 输入框缺失"
 );
 assert.ok(
-  wxml.includes("effective.image.apiKeyConfigured")
-    && wxml.includes("effective.imageBackup.apiKeyConfigured")
+  wxml.includes("form.image.apiKeyConfigured")
+    && wxml.includes("form.imageBackup.apiKeyConfigured")
+    && wxml.includes("form.video.apiKeyConfigured")
     && (wxml.match(/已显示完整 Key/g) || []).length >= 2,
-  "图片主备模型没有显示完整密钥状态"
+  "图片主备和视频模型没有显示完整密钥状态"
 );
 assert.ok(
   wxss.includes(".api-key-config-state {")
@@ -282,11 +289,12 @@ assert.ok(
   "管理员模型服务商中文显示或英文传参映射缺失"
 );
 assert.ok(
-  wxml.includes('value="{{form.face.provider}}"')
-    && wxml.includes('value="{{form.analysis.provider}}"')
-    && wxml.includes('value="{{form.image.provider}}"')
-    && wxml.includes('value="{{form.imageBackup.provider}}"')
-    && wxml.includes('value="{{form.video.provider}}"')
+  wxml.includes('range="{{faceProviderProfileOptions}}"')
+    && wxml.includes('range="{{analysisProviderProfileOptions}}"')
+    && wxml.includes('range="{{imageProviderProfileOptions}}"')
+    && wxml.includes('range="{{imageBackupProviderProfileOptions}}"')
+    && wxml.includes('range="{{videoProviderProfileOptions}}"')
+    && wxml.includes('bindchange="onProviderProfileChange"')
     && wxml.includes("主模型：{{form.image.provider")
     && wxml.includes("备用模型：{{form.imageBackup.provider")
     && !wxml.includes("imageProviderDisplayName")
@@ -322,10 +330,12 @@ assert.ok(
 assert.ok(
   js.includes('modelActionTarget: ""')
     && js.includes('modelPickerTarget: ""')
-    && js.includes("modelConfigKeyForAction")
-    && js.includes("runImageBackupEditCapabilityProbe()")
-    && js.includes('"imageBackupEditCapabilityProbe"')
-    && js.includes('[`form.${configKey}.model`]: value'),
+     && js.includes("modelConfigKeyForAction")
+     && js.includes("runImageBackupEditCapabilityProbe()")
+     && js.includes("imageBackupEditCapabilityProbe")
+     && js.includes("const configKey = modelConfigKeyForAction(")
+     && js.includes("updateAdminProviderProfileForm")
+     && js.includes("model: value"),
   "备用模型三个按钮没有接入独立目标、结果或模型选择逻辑"
 );
 

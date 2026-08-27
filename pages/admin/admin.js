@@ -1,6 +1,9 @@
 const config = require("../../config");
 const cloud = require("../../services/cloud");
 const diagnosticLog = require("../../utils/diagnostic-log");
+const {
+  applyAdminVideoProviderDefaults
+} = require("../../services/admin-video-config");
 
 const IMAGE_QUALITY_OPTIONS = Object.freeze([
   { value: "1K", label: "1K" },
@@ -3719,7 +3722,7 @@ function formFromConfig(result) {
     || {};
   const videoCosts = costs.video || {};
   const generationQueue = source.generationQueue || {};
-  return {
+  const form = {
     providerLabels,
     providerProfiles,
     face: {
@@ -3893,6 +3896,7 @@ function formFromConfig(result) {
       alertCooldownMinutes: String(generationQueue.alertCooldownMinutes || 10)
     }
   };
+  return applyAdminVideoProviderDefaults(form);
 }
 
 function providerProfilesToConfig(form) {
@@ -4256,6 +4260,21 @@ function adminConfigSavePayload(form, baseline) {
       }
     });
   });
+  if (configPayload.video) {
+    delete configPayload.video.apiKey;
+  }
+  if (
+    configPayload.providerProfiles
+    && configPayload.providerProfiles.video
+    && typeof configPayload.providerProfiles.video === "object"
+  ) {
+    Object.keys(configPayload.providerProfiles.video).forEach((providerId) => {
+      const profile = configPayload.providerProfiles.video[providerId];
+      if (profile && typeof profile === "object") {
+        delete profile.apiKey;
+      }
+    });
+  }
   return configPayload;
 }
 
@@ -6186,11 +6205,28 @@ Page({
     );
     const option = options[index];
     if (!option || !option.value) return;
-    const nextForm = switchAdminProviderProfile(
+    let nextForm = switchAdminProviderProfile(
       this.data.form,
       section,
       option.value
     );
+    if (section === "video") {
+      const currentVideoApiKey = String(
+        this.data.form
+        && this.data.form.video
+        && this.data.form.video.apiKey
+        || ""
+      ).trim();
+      nextForm = applyAdminVideoProviderDefaults(nextForm);
+      if (currentVideoApiKey) {
+        nextForm = Object.assign({}, nextForm, {
+          video: Object.assign({}, nextForm.video, {
+            apiKey: currentVideoApiKey,
+            apiKeyConfigured: true
+          })
+        });
+      }
+    }
     const imageModel = String(
       nextForm.image
       && nextForm.image.model
@@ -6352,6 +6388,9 @@ Page({
           [key]: value
         })
       });
+    }
+    if (section === "video") {
+      nextForm = applyAdminVideoProviderDefaults(nextForm);
     }
     const patch = { form: nextForm };
     if (section === "tencentFaceFusion") {

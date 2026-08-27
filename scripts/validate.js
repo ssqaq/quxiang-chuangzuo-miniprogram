@@ -63,6 +63,7 @@ const jsFiles = [
   "scripts/admin-usage-entry-smoke.js",
   "scripts/admin-responsive-smoke.js",
   "scripts/admin-config-layout-smoke.js",
+  "scripts/admin-video-xingju-defaults-smoke.js",
   "scripts/admin-provider-management-smoke.js",
   "scripts/admin-config-audit-smoke.js",
   "scripts/image-quality-smoke.js",
@@ -282,6 +283,7 @@ const required = [
   "scripts/admin-usage-entry-smoke.js",
   "scripts/admin-responsive-smoke.js",
   "scripts/admin-config-layout-smoke.js",
+  "scripts/admin-video-xingju-defaults-smoke.js",
   "scripts/admin-provider-management-smoke.js",
   "scripts/admin-config-audit-smoke.js",
   "scripts/image-quality-smoke.js",
@@ -1035,10 +1037,15 @@ const adminApiKeyInputBySection = adminApiKeyInputs.reduce((result, input) => {
 }, {});
 if (
   adminApiKeyInputs.length !== 5
-  || !["face", "analysis", "video"].every((section) => (
+  || !["face", "analysis"].every((section) => (
     adminApiKeyInputBySection[section]
     && /\bpassword\b/.test(adminApiKeyInputBySection[section])
   ))
+  || !(
+    adminApiKeyInputBySection.video
+    && /\bdisabled\b/.test(adminApiKeyInputBySection.video)
+    && !/\bpassword\b/.test(adminApiKeyInputBySection.video)
+  )
   || !["image", "imageBackup"].every((section) => (
     adminApiKeyInputBySection[section]
     && !/\bpassword\b/.test(adminApiKeyInputBySection[section])

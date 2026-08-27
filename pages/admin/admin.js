@@ -52,6 +52,25 @@ const VIDEO_QUALITY_OPTIONS = Object.freeze([
   { value: "720p", label: "720p" },
   { value: "1080p", label: "1080p" }
 ]);
+const ADMIN_IMAGE_PROVIDER_LABELS = Object.freeze({
+  xingju: "星炬",
+  lingyun: "凌云"
+});
+
+function normalizeAdminImageProviderInput(value) {
+  const raw = String(value === undefined || value === null ? "" : value).trim();
+  const text = raw.toLowerCase();
+  if (raw === "星炬" || text === "xingju") return "xingju";
+  if (raw === "凌云" || text === "lingyun") return "lingyun";
+  return raw;
+}
+
+function displayAdminImageProvider(value, fallback = "") {
+  const raw = String(value === undefined || value === null ? "" : value).trim();
+  if (!raw) return fallback;
+  const normalized = normalizeAdminImageProviderInput(raw);
+  return ADMIN_IMAGE_PROVIDER_LABELS[normalized] || raw;
+}
 
 function normalizeAdminImageResolution(value, fallback = "1K") {
   const text = String(value || "").trim().toUpperCase();
@@ -363,36 +382,42 @@ function buildQualityPickerState(form, capabilityPayload = {}) {
   const imageSizeValue = String(image.size || "").trim().toLowerCase().replace("×", "x")
     || "1080x1440";
   const imageCosts = form && form.costs ? form.costs : {};
-  return {
-    imageQualityOptions: imageQuality.options,
-    imageQualityIndex: pickerIndex(
-      imageQuality.options,
-      imageQualityValue,
-      0
-    ),
-    imageSizeOptions,
-    imageSizeIndex: pickerIndex(imageSizeOptions, imageSizeValue, 0),
-    imagePricingNotice: buildAdminImagePricingNotice(imageCosts, image.provider),
-    imageBackupPricingNotice: buildAdminImagePricingNotice(
-      imageCosts,
-      imageBackup.provider
-    ),
-    videoQualityOptions: videoQuality.options,
-    videoQualityIndex: pickerIndex(videoQuality.options, videoQualityValue, 1),
-    videoPricingNotice: buildAdminVideoPricingNotice(imageCosts),
-    imageCapabilitySource: imageQuality.source,
-    videoCapabilitySource: videoQuality.source,
-    imageCapabilityNotice: imageQuality.source === "upstream"
-      ? "已按上游返回的生图能力显示选项。"
-      : imageQuality.source === "known-model-rule"
-        ? "已识别当前生图模型，支持 1K、2K、4K。"
-        : "暂未识别上游能力，保留三档选项；未知模型请以实际上游支持为准。",
-    videoCapabilityNotice: videoQuality.source === "upstream"
-      ? "已按上游返回的视频能力显示选项。"
-      : videoQuality.source === "known-model-rule"
-        ? "已识别 Grok 视频模型，支持 480p、720p、1080p。"
-        : "暂未识别上游能力，保留三档选项；未知模型请以实际上游支持为准。"
-  };
+  return Object.assign(
+    {
+      imageQualityOptions: imageQuality.options,
+      imageQualityIndex: pickerIndex(
+        imageQuality.options,
+        imageQualityValue,
+        0
+      ),
+      imageSizeOptions,
+      imageSizeIndex: pickerIndex(imageSizeOptions, imageSizeValue, 0),
+      imagePricingNotice: buildAdminImagePricingNotice(imageCosts, image.provider),
+      imageBackupPricingNotice: buildAdminImagePricingNotice(
+        imageCosts,
+        imageBackup.provider
+      ),
+      videoQualityOptions: videoQuality.options,
+      videoQualityIndex: pickerIndex(videoQuality.options, videoQualityValue, 1),
+      videoPricingNotice: buildAdminVideoPricingNotice(imageCosts),
+      imageCapabilitySource: imageQuality.source,
+      videoCapabilitySource: videoQuality.source,
+      imageCapabilityNotice: imageQuality.source === "upstream"
+        ? "已按上游返回的生图能力显示选项。"
+        : imageQuality.source === "known-model-rule"
+          ? "已识别当前生图模型，支持 1K、2K、4K。"
+          : "暂未识别上游能力，保留三档选项；未知模型请以实际上游支持为准。",
+      videoCapabilityNotice: videoQuality.source === "upstream"
+        ? "已按上游返回的视频能力显示选项。"
+        : videoQuality.source === "known-model-rule"
+          ? "已识别 Grok 视频模型，支持 480p、720p、1080p。"
+          : "暂未识别上游能力，保留三档选项；未知模型请以实际上游支持为准。"
+    },
+    {
+      imageProviderDisplayName: displayAdminImageProvider(image.provider),
+      imageBackupProviderDisplayName: displayAdminImageProvider(imageBackup.provider)
+    }
+  );
 }
 
 function emptyForm() {
@@ -1812,7 +1837,7 @@ function formatImageEditCapabilityProbe(result) {
     tone: ready ? "ready" : "error",
     status,
     statusText: String(source.statusText || (ready ? "图片编辑配置完整" : "图片编辑配置不完整")),
-    provider: String(source.provider || "未配置"),
+    provider: displayAdminImageProvider(source.provider, "未配置"),
     model: String(source.model || "未配置"),
     editEndpoint: String(source.editEndpoint || "未配置"),
     endpointSource: String(source.endpointSource || ""),
@@ -3414,6 +3439,10 @@ Page({
     videoCapabilitySource: "known-model-rule",
     imageCapabilityNotice: "生图清晰度由 1K、2K、4K 控制，尺寸只控制画面比例。",
     videoCapabilityNotice: "视频清晰度由上游模型能力决定。",
+    imageProviderDisplayName: displayAdminImageProvider(emptyForm().image.provider),
+    imageBackupProviderDisplayName: displayAdminImageProvider(
+      emptyForm().imageBackup.provider
+    ),
     imageQualityProbe: emptyImageQualityProbe(),
     modelCapabilityProfiles: {
       image: {},
@@ -3602,38 +3631,48 @@ Page({
       ? overrides.modelFailureSelectedMonth
       : this.data.modelFailureSelectedMonth;
     const userStats = hasOwnValue("userStats") ? overrides.userStats : this.data.userStats;
-    return {
-      currentConfigModels: buildCurrentConfigModels(form),
-      dashboardStatus: buildDashboardStatus(
-        effective,
-        autoFaceProbe,
-        autoFaceProbeHistory
-      ),
-      faceConfigSummary: buildFaceConfigSummary(
-        effective,
-        autoFaceProbe,
-        autoFaceProbeHistory
-      ),
-      analysisConfigSummary: buildAnalysisConfigSummary(effective),
-      entryHealth: buildEntryHealth(
-        effective,
-        usageStats,
-        autoFaceProbe,
-        autoFaceProbeHistory,
-        autoFaceFailureStats,
-        userStats,
-        moduleStates
-      ),
-      todayFailureText: buildTodayFailureText(usageStats, moduleStates),
-      modelFailureView: buildModelFailureView(
-        usageStats && usageStats.failureStats,
-        modelFailureSelectedMonth
-      ),
-      autoFaceFailureView: buildAutoFaceFailureView(
-        autoFaceFailureStats,
-        autoFaceFailureSelectedMonth
-      )
-    };
+    return Object.assign(
+      {
+        currentConfigModels: buildCurrentConfigModels(form),
+        imageProviderDisplayName: displayAdminImageProvider(
+          form && form.image && form.image.provider
+        ),
+        imageBackupProviderDisplayName: displayAdminImageProvider(
+          form && form.imageBackup && form.imageBackup.provider
+        )
+      },
+      {
+        dashboardStatus: buildDashboardStatus(
+          effective,
+          autoFaceProbe,
+          autoFaceProbeHistory
+        ),
+        faceConfigSummary: buildFaceConfigSummary(
+          effective,
+          autoFaceProbe,
+          autoFaceProbeHistory
+        ),
+        analysisConfigSummary: buildAnalysisConfigSummary(effective),
+        entryHealth: buildEntryHealth(
+          effective,
+          usageStats,
+          autoFaceProbe,
+          autoFaceProbeHistory,
+          autoFaceFailureStats,
+          userStats,
+          moduleStates
+        ),
+        todayFailureText: buildTodayFailureText(usageStats, moduleStates),
+        modelFailureView: buildModelFailureView(
+          usageStats && usageStats.failureStats,
+          modelFailureSelectedMonth
+        ),
+        autoFaceFailureView: buildAutoFaceFailureView(
+          autoFaceFailureStats,
+          autoFaceFailureSelectedMonth
+        )
+      }
+    );
   },
 
   async loadAdminModule(
@@ -4866,11 +4905,18 @@ Page({
     const section = event.currentTarget.dataset.section;
     const key = event.currentTarget.dataset.key;
     if (!section || !key) return;
+    const inputValue = event.detail.value;
+    const value = (
+      (section === "image" || section === "imageBackup")
+      && key === "provider"
+    )
+      ? normalizeAdminImageProviderInput(inputValue)
+      : inputValue;
     const patch = {
-      [`form.${section}.${key}`]: event.detail.value
+      [`form.${section}.${key}`]: value
     };
     if (section === "costs" && ADMIN_COST_KEYS.includes(key)) {
-      patch[`costFieldErrors.${key}`] = validateAdminCostInput(event.detail.value);
+      patch[`costFieldErrors.${key}`] = validateAdminCostInput(value);
     }
     if (key === "model") {
       patch[`currentConfigModels.${section}`] = displayModelName(event.detail.value);
@@ -4881,7 +4927,7 @@ Page({
     ) {
       const nextForm = Object.assign({}, this.data.form, {
         [section]: Object.assign({}, this.data.form[section], {
-          [key]: event.detail.value
+          [key]: value
         })
       });
       const profiles = this.data.modelCapabilityProfiles

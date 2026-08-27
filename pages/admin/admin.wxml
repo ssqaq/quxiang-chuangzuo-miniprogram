@@ -516,13 +516,13 @@
           </view>
           <view class="image-provider-section-head">
             <view>
-              <view class="image-provider-section-title">主模型：{{form.image.provider || '未配置'}} {{form.image.model || '未配置'}}</view>
+              <view class="image-provider-section-title">主模型：{{imageProviderDisplayName || '未配置'}} {{form.image.model || '未配置'}}</view>
               <view class="image-provider-section-desc">{{imagePricingNotice}} 单次最多等 150 秒；临时失败后自动再试 1 次。</view>
             </view>
             <view class="image-provider-role-badge is-primary">主用</view>
           </view>
           <view class="admin-grid">
-            <view class="admin-field"><text>服务商</text><input value="{{form.image.provider}}" data-section="image" data-key="provider" bindinput="onInput" /></view>
+            <view class="admin-field"><text>服务商</text><input value="{{imageProviderDisplayName}}" data-section="image" data-key="provider" bindinput="onInput" /></view>
             <view class="admin-field"><text>使用的模型</text><input value="{{form.image.model}}" data-section="image" data-key="model" bindinput="onInput" /></view>
             <view class="admin-field admin-field-wide"><text>接口地址</text><input value="{{form.image.baseUrl}}" data-section="image" data-key="baseUrl" bindinput="onInput" /></view>
             <view class="admin-field admin-field-wide"><text>编辑接口（可留空）</text><input value="{{form.image.endpoint}}" data-section="image" data-key="endpoint" placeholder="留空自动使用 /v1/images/edits" bindinput="onInput" /></view>
@@ -575,13 +575,13 @@
           <view class="image-provider-divider"></view>
           <view class="image-provider-section-head">
             <view>
-              <view class="image-provider-section-title">备用模型：{{form.imageBackup.provider || '未配置'}} {{form.imageBackup.model || '未配置'}}</view>
+              <view class="image-provider-section-title">备用模型：{{imageBackupProviderDisplayName || '未配置'}} {{form.imageBackup.model || '未配置'}}</view>
               <view class="image-provider-section-desc">{{imageBackupPricingNotice}} 主模型两次都没成功后才调用 1 次，不在底层重复重试。</view>
             </view>
             <view class="image-provider-role-badge is-backup">备用</view>
           </view>
           <view class="admin-grid">
-            <view class="admin-field"><text>服务商</text><input value="{{form.imageBackup.provider}}" data-section="imageBackup" data-key="provider" bindinput="onInput" /></view>
+            <view class="admin-field"><text>服务商</text><input value="{{imageBackupProviderDisplayName}}" data-section="imageBackup" data-key="provider" bindinput="onInput" /></view>
             <view class="admin-field"><text>使用的模型</text><input value="{{form.imageBackup.model}}" data-section="imageBackup" data-key="model" bindinput="onInput" /></view>
             <view class="admin-field admin-field-wide"><text>接口地址</text><input value="{{form.imageBackup.baseUrl}}" data-section="imageBackup" data-key="baseUrl" bindinput="onInput" /></view>
             <view class="admin-field admin-field-wide"><text>编辑接口（可留空）</text><input value="{{form.imageBackup.endpoint}}" data-section="imageBackup" data-key="endpoint" placeholder="留空自动使用 /v1/images/edits" bindinput="onInput" /></view>
@@ -596,7 +596,7 @@
             <view class="admin-field"><text>单次超时毫秒</text><input type="number" value="{{form.imageBackup.timeoutMs}}" data-section="imageBackup" data-key="timeoutMs" bindinput="onInput" /></view>
             <view class="admin-field"><text>备用调用次数</text><input disabled type="number" value="1" /></view>
           </view>
-          <view class="config-helper">固定顺序：{{form.image.provider || '主模型'}}第 1 次 → {{form.image.provider || '主模型'}}第 2 次 → {{form.imageBackup.provider || '备用模型'}}第 1 次。普通版仍是一次请求同时改脸、衣服、背景和光影；腾讯版第一步一次改衣服、背景和光影，第二步腾讯换脸。</view>
+          <view class="config-helper">固定顺序：{{imageProviderDisplayName || '主模型'}}第 1 次 → {{imageProviderDisplayName || '主模型'}}第 2 次 → {{imageBackupProviderDisplayName || '备用模型'}}第 1 次。普通版仍是一次请求同时改脸、衣服、背景和光影；腾讯版第一步一次改衣服、背景和光影，第二步腾讯换脸。</view>
         </view>
         <view wx:if="{{activeConfigSection !== 'users'}}" class="admin-actions">
           <view

@@ -151,6 +151,20 @@ assert.ok(
     && js.includes("cloud.getAdminConfigAuditLogs"),
   "管理页没有接入主备统计和配置审计刷新"
 );
+assert.ok(
+  js.includes("function normalizeAdminImageProviderInput")
+    && js.includes("function displayAdminImageProvider")
+    && js.includes('xingju: "星炬"')
+    && js.includes('lingyun: "凌云"'),
+  "图片主备服务商中文显示映射缺失"
+);
+assert.ok(
+  wxml.includes('value="{{imageProviderDisplayName}}"')
+    && wxml.includes('value="{{imageBackupProviderDisplayName}}"')
+    && wxml.includes("主模型：{{imageProviderDisplayName")
+    && wxml.includes("备用模型：{{imageBackupProviderDisplayName"),
+  "图片主备服务商没有使用中文显示字段"
+);
 
 const toggleStart = js.indexOf("toggleConfigSection(event)");
 const toggleEnd = js.indexOf("closeConfigSection()", toggleStart);

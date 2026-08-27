@@ -52,24 +52,46 @@ const VIDEO_QUALITY_OPTIONS = Object.freeze([
   { value: "720p", label: "720p" },
   { value: "1080p", label: "1080p" }
 ]);
-const ADMIN_IMAGE_PROVIDER_LABELS = Object.freeze({
+const ADMIN_PROVIDER_LABELS = Object.freeze({
   xingju: "星炬",
-  lingyun: "凌云"
+  lingyun: "凌云",
+  dashscope: "阿里云百炼"
 });
+const ADMIN_PROVIDER_VALUES = Object.freeze({
+  星炬: "xingju",
+  凌云: "lingyun",
+  阿里云百炼: "dashscope",
+  阿里百炼: "dashscope"
+});
+const ADMIN_PROVIDER_FORM_SECTIONS = Object.freeze([
+  "face",
+  "analysis",
+  "image",
+  "imageBackup",
+  "video"
+]);
 
-function normalizeAdminImageProviderInput(value) {
+function normalizeAdminProviderInput(value) {
   const raw = String(value === undefined || value === null ? "" : value).trim();
   const text = raw.toLowerCase();
-  if (raw === "星炬" || text === "xingju") return "xingju";
-  if (raw === "凌云" || text === "lingyun") return "lingyun";
+  if (ADMIN_PROVIDER_VALUES[raw]) return ADMIN_PROVIDER_VALUES[raw];
+  if (ADMIN_PROVIDER_LABELS[text]) return text;
   return raw;
 }
 
-function displayAdminImageProvider(value, fallback = "") {
+function displayAdminProvider(value, fallback = "") {
   const raw = String(value === undefined || value === null ? "" : value).trim();
   if (!raw) return fallback;
-  const normalized = normalizeAdminImageProviderInput(raw);
-  return ADMIN_IMAGE_PROVIDER_LABELS[normalized] || raw;
+  const normalized = normalizeAdminProviderInput(raw);
+  return ADMIN_PROVIDER_LABELS[normalized] || raw;
+}
+
+function normalizeAdminImageProviderInput(value) {
+  return normalizeAdminProviderInput(value);
+}
+
+function displayAdminImageProvider(value, fallback = "") {
+  return displayAdminProvider(value, fallback);
 }
 
 function normalizeAdminImageResolution(value, fallback = "1K") {
@@ -916,7 +938,7 @@ function formatImageProviderAttemptCounter(value, fallbackProvider, fallbackMode
       totalDurationMs,
       averageDurationMs,
       averageDurationText: `${(averageDurationMs / 1000).toFixed(1)} 秒`,
-      provider: source.provider || fallbackProvider,
+      provider: displayAdminProvider(source.provider, displayAdminProvider(fallbackProvider)),
       model: source.model || fallbackModel
     }
   );
@@ -931,6 +953,7 @@ function formatImageProviderStats(result) {
     const durationMs = Math.max(0, Number(item.durationMs) || 0);
     return Object.assign({}, item, {
       roleText: item.role === "backup" ? "备用模型" : "主模型",
+      provider: displayAdminProvider(item.provider),
       createdAtText: formatAdminDate(item.createdAt || item.dateKey),
       durationText: `${(durationMs / 1000).toFixed(1)} 秒`,
       statusText: Number(item.status) ? `HTTP ${Number(item.status)}` : "无状态码",
@@ -1680,7 +1703,7 @@ function formatAutoFaceProbe(result, error = null) {
     nodeVersion: runtime.nodeVersion || "",
     cloudEnvConfigured: Boolean(runtime.cloudEnvConfigured),
     visionConfigured: Boolean(vision.configured),
-    provider: vision.provider || "",
+    provider: displayAdminProvider(vision.provider),
     model: displayModelName(vision.model),
     durationMs: clientDurationMs,
     durationText: failed && !hasClientDuration && !hasServerDuration
@@ -1964,7 +1987,7 @@ function formatImageEditCapabilityProbe(result) {
     tone: ready ? "ready" : "error",
     status,
     statusText: String(source.statusText || (ready ? "图片编辑配置完整" : "图片编辑配置不完整")),
-    provider: displayAdminImageProvider(source.provider, "未配置"),
+    provider: displayAdminProvider(source.provider, "未配置"),
     model: String(source.model || "未配置"),
     editEndpoint: String(source.editEndpoint || "未配置"),
     endpointSource: String(source.endpointSource || ""),
@@ -2075,7 +2098,7 @@ function formatModelProbes(result, error = null) {
   const results = (Array.isArray(source.results) ? source.results : []).map((item) => ({
     type: item.type || "",
     typeLabel: item.typeLabel || usageTypeLabel(item.type),
-    provider: item.provider || "未填写",
+    provider: displayAdminProvider(item.provider, "未填写"),
     modelId: String(item.model || ""),
     model: displayModelName(item.model),
     configured: Boolean(item.configured),
@@ -2162,7 +2185,7 @@ function formatAutoFaceProbeHistory(result) {
       buildMarker: item.buildMarker || "",
       nodeVersion: item.nodeVersion || "",
       visionConfigured: Boolean(item.visionConfigured),
-      provider: item.provider || "未知",
+      provider: displayAdminProvider(item.provider, "未知"),
       model: displayModelName(item.model),
       durationMs: Number(item.durationMs) || 0,
       durationText: `云函数 ${Number(item.durationMs) || 0} 毫秒`,
@@ -2252,10 +2275,10 @@ function buildFaceConfigSummary(
     ? autoFaceProbeHistory.history
     : [];
   const latestHistory = history[0] || {};
-  const provider = face.provider
+  const provider = displayAdminProvider(face.provider
     || currentProbe.provider
     || latestHistory.provider
-    || "未读取";
+    || "未读取");
   const model = pickModelName(face.model, currentProbe.model, latestHistory.model);
   const ready = Boolean(
     face.apiKeyConfigured
@@ -2280,7 +2303,7 @@ function emptyAnalysisConfigSummary() {
 function buildAnalysisConfigSummary(effective) {
   const analysis = effective && effective.analysis || {};
   return {
-    provider: analysis.provider || "未读取",
+    provider: displayAdminProvider(analysis.provider, "未读取"),
     model: displayModelName(analysis.model),
     ready: Boolean(
       analysis.apiKeyConfigured
@@ -2360,6 +2383,7 @@ function formatUsageStats(result) {
     byType: item.byType || {}
   }));
   const formattedModels = models.map((item) => Object.assign({}, item, {
+    provider: displayAdminProvider(item.provider),
     modelDisplay: displayModelName(item.model),
     estimatedCostDisplay: formatCostDisplay(item.estimatedCost),
     pricedCostDisplay: formatCostDisplay(item.pricedCost)
@@ -2395,7 +2419,7 @@ function formatUsageStats(result) {
       lastSeen: item.lastSeen || "",
       usageType: item.usageType || "",
       usageTypeLabel: item.usageTypeLabel || usageTypeLabel(item.usageType),
-      provider: item.provider || "",
+      provider: displayAdminProvider(item.provider),
       model: item.model || "",
       modelDisplay: displayModelName(item.model),
       status: Number(item.status) || 0,
@@ -2407,7 +2431,7 @@ function formatUsageStats(result) {
     ).map((item) => ({
       usageType: item.usageType || "",
       usageTypeLabel: item.usageTypeLabel || usageTypeLabel(item.usageType),
-      provider: item.provider || "未知 Provider",
+      provider: displayAdminProvider(item.provider, "未知服务商"),
       model: item.model || "未知模型",
       modelDisplay: displayModelName(item.model),
       modelDisplayZh: displayModelNameZh(item.model, item.usageType),
@@ -2426,7 +2450,7 @@ function formatUsageStats(result) {
       userHash: item.userHash || "anonymous",
       usageType: item.usageType || "unknown",
       usageTypeLabel: item.usageTypeLabel || usageTypeLabel(item.usageType),
-      provider: item.provider || "未知 Provider",
+      provider: displayAdminProvider(item.provider, "未知服务商"),
       model: item.model || "未知模型",
       modelDisplay: displayModelName(item.model),
       modelDisplayZh: displayModelNameZh(item.model, item.usageType),
@@ -2546,7 +2570,7 @@ function buildModelFailureView(stats, requestedMonth = "") {
         lastSeen: item.createdAt || "",
         usageType: item.usageType || "",
         usageTypeLabel: item.usageTypeLabel || usageTypeLabel(item.usageType),
-         provider: item.provider || "",
+         provider: displayAdminProvider(item.provider),
          model: item.model || "",
          modelDisplay: pickModelName(item.model, item.modelDisplay),
          modelDisplayZh: displayModelNameZh(item.model, item.usageType),
@@ -2584,7 +2608,7 @@ function buildModelFailureView(stats, requestedMonth = "") {
       modelMap[modelKey] = {
         usageType: item.usageType || "unknown",
         usageTypeLabel: item.usageTypeLabel || usageTypeLabel(item.usageType),
-         provider: item.provider || "未知 Provider",
+         provider: displayAdminProvider(item.provider, "未知服务商"),
          model: item.model || "未知模型",
          modelDisplay: displayModelName(item.model),
          modelDisplayZh: displayModelNameZh(item.model, item.usageType),
@@ -2952,7 +2976,7 @@ function formFromConfig(result) {
   const generationQueue = source.generationQueue || {};
   return {
     face: {
-      provider: face.provider || "",
+      provider: displayAdminProvider(face.provider),
       baseUrl: face.baseUrl || "",
       endpoint: face.endpoint || "",
       apiKey: face.apiKey || "",
@@ -2960,7 +2984,7 @@ function formFromConfig(result) {
       timeoutMs: String(face.timeoutMs || 30000)
     },
     analysis: {
-      provider: analysis.provider || "",
+      provider: displayAdminProvider(analysis.provider),
       baseUrl: analysis.baseUrl || "",
       endpoint: analysis.endpoint || "",
       apiKey: analysis.apiKey || "",
@@ -3009,7 +3033,7 @@ function formFromConfig(result) {
       retryPreferenceVersion: 1
     },
     video: {
-      provider: video.provider || "",
+      provider: displayAdminProvider(video.provider),
       baseUrl: video.baseUrl || "",
       endpoint: video.endpoint || "",
       queryEndpoint: video.queryEndpoint || "",
@@ -3116,7 +3140,7 @@ function formToConfig(form) {
     : xingjuImagePrices;
   return {
     face: {
-      provider: String(form.face.provider || "").trim(),
+      provider: normalizeAdminProviderInput(form.face.provider),
       baseUrl: String(form.face.baseUrl || "").trim(),
       endpoint: String(form.face.endpoint || "").trim(),
       apiKey: String(form.face.apiKey || "").trim(),
@@ -3124,7 +3148,7 @@ function formToConfig(form) {
       timeoutMs: Number(form.face.timeoutMs || 0)
     },
     analysis: {
-      provider: String(form.analysis.provider || "").trim(),
+      provider: normalizeAdminProviderInput(form.analysis.provider),
       baseUrl: String(form.analysis.baseUrl || "").trim(),
       endpoint: String(form.analysis.endpoint || "").trim(),
       apiKey: String(form.analysis.apiKey || "").trim(),
@@ -3175,7 +3199,7 @@ function formToConfig(form) {
       retryPreferenceVersion: 1
     },
     video: {
-      provider: String(form.video.provider || "").trim(),
+      provider: normalizeAdminProviderInput(form.video.provider),
       baseUrl: String(form.video.baseUrl || "").trim(),
       endpoint: String(form.video.endpoint || "").trim(),
       queryEndpoint: String(form.video.queryEndpoint || "").trim(),
@@ -3379,9 +3403,7 @@ function modelConfigKeyForAction(form, modelType, requestedKey = "") {
 function modelConfigForAction(form, modelType, configKey = modelType) {
   const key = modelConfigKeyForAction(form, modelType, configKey);
   const source = form && form[key] ? form[key] : {};
-  const provider = key === "image" || key === "imageBackup"
-    ? normalizeAdminImageProviderInput(source.provider)
-    : String(source.provider || "").trim();
+  const provider = normalizeAdminProviderInput(source.provider);
   return {
     configTarget: key,
     provider,
@@ -5055,10 +5077,10 @@ Page({
     if (!section || !key) return;
     const inputValue = event.detail.value;
     const value = (
-      (section === "image" || section === "imageBackup")
+      ADMIN_PROVIDER_FORM_SECTIONS.includes(section)
       && key === "provider"
     )
-      ? displayAdminImageProvider(inputValue)
+      ? displayAdminProvider(inputValue)
       : inputValue;
     const patch = {
       [`form.${section}.${key}`]: value

@@ -17,13 +17,13 @@ const imageEditProbeCalls = [];
 const baseConfig = {
   effective: {
     face: {
-      provider: "face-provider",
+      provider: "dashscope",
       model: "face-model",
       apiKey: "face-key",
       apiKeyConfigured: true
     },
     analysis: {
-      provider: "analysis-provider",
+      provider: "dashscope",
       model: "analysis-model",
       apiKey: "analysis-key",
       apiKeyConfigured: true
@@ -48,7 +48,7 @@ const baseConfig = {
       timeoutMs: 65000
     },
     video: {
-      provider: "video-provider",
+      provider: "lingyun",
       model: "video-model",
       apiKey: "video-key",
       apiKeyConfigured: true,
@@ -331,15 +331,35 @@ async function main() {
   assert.strictEqual(page.data.costTrend.days[6].costDisplay, "0.0007");
   assert.strictEqual(page.data.costTrend.totalCostDisplay, "0.0007");
   assert.strictEqual(page.data.form.face.apiKey, "face-key");
+  assert.strictEqual(page.data.form.face.provider, "阿里云百炼");
+  assert.strictEqual(page.data.form.analysis.provider, "阿里云百炼");
   assert.strictEqual(page.data.form.image.provider, "星炬");
   assert.strictEqual(page.data.form.imageBackup.provider, "凌云");
   assert.strictEqual(page.data.form.imageBackup.model, "gpt-image-2");
+  assert.strictEqual(page.data.form.video.provider, "凌云");
 
   page.onInput({
     currentTarget: { dataset: { section: "image", key: "provider" } },
     detail: { value: "xingju" }
   });
   assert.strictEqual(page.data.form.image.provider, "星炬");
+
+  page.onInput({
+    currentTarget: { dataset: { section: "video", key: "provider" } },
+    detail: { value: "lingyun" }
+  });
+  assert.strictEqual(page.data.form.video.provider, "凌云");
+
+  page.onInput({
+    currentTarget: { dataset: { section: "face", key: "provider" } },
+    detail: { value: "custom-face-provider" }
+  });
+  assert.strictEqual(page.data.form.face.provider, "custom-face-provider");
+  page.onInput({
+    currentTarget: { dataset: { section: "face", key: "provider" } },
+    detail: { value: "dashscope" }
+  });
+  assert.strictEqual(page.data.form.face.provider, "阿里云百炼");
 
   await page.runImageEditCapabilityProbe();
   assert.strictEqual(page.data.imageEditCapabilityLoading, false);
@@ -380,6 +400,9 @@ async function main() {
   assert.strictEqual(page.data.saving, false);
   assert.strictEqual(savedConfigPayload.image.provider, "xingju");
   assert.strictEqual(savedConfigPayload.imageBackup.provider, "lingyun");
+  assert.strictEqual(savedConfigPayload.face.provider, "dashscope");
+  assert.strictEqual(savedConfigPayload.analysis.provider, "dashscope");
+  assert.strictEqual(savedConfigPayload.video.provider, "lingyun");
   assert.ok(probeCallCount > probesBeforeSave);
   assert.strictEqual(page.data.modelProbes.readyCount, 4);
   assert.strictEqual(page.data.modelProbes.total, 4);
@@ -450,6 +473,23 @@ async function main() {
     "选择备用模型不能覆盖主模型"
   );
   assert.strictEqual(page.data.modelPickerTarget, "");
+
+  await page.testModelConnection({
+    currentTarget: { dataset: { modelType: "video" } }
+  });
+  assert.strictEqual(lastProbeModelConfig.provider, "lingyun");
+
+  await page.getModelOptions({
+    currentTarget: { dataset: { modelType: "video" } }
+  });
+  assert.strictEqual(
+    listModelCalls[listModelCalls.length - 1].modelConfig.provider,
+    "lingyun"
+  );
+  assert.strictEqual(
+    listModelCalls[listModelCalls.length - 1].modelConfig.configTarget,
+    "video"
+  );
 
   await page.getModelOptions({
     currentTarget: { dataset: { modelType: "face" } }

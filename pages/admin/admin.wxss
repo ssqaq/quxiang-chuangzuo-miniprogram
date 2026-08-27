@@ -740,6 +740,11 @@ page {
   margin-top: 14rpx;
 }
 
+.image-backup-model-actions {
+  margin-top: 0;
+  margin-bottom: 14rpx;
+}
+
 .config-model-actions .config-tool-button,
 .config-model-button {
   min-width: 148rpx;

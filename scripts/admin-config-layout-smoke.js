@@ -188,6 +188,24 @@ assert.ok(
     && js.includes('mode: String(form.imageBackup.mode || "edits")'),
   "备用模型四项配置没有接入独立状态或保存逻辑"
 );
+assert.ok(
+  (wxml.match(/data-model-config="imageBackup"/g) || []).length === 2
+    && wxml.includes('bindtap="runImageBackupEditCapabilityProbe"')
+    && wxml.includes("imageBackupEditCapabilityProbe.checked")
+    && wxml.includes("imageBackupEditCapabilityLoading")
+    && wxml.includes("测试备用生图模型连接")
+    && wxml.includes("获取备用生图模型列表"),
+  "备用模型缺少测试连接、获取模型或检查图片编辑配置按钮"
+);
+assert.ok(
+  js.includes('modelActionTarget: ""')
+    && js.includes('modelPickerTarget: ""')
+    && js.includes("modelConfigKeyForAction")
+    && js.includes("runImageBackupEditCapabilityProbe()")
+    && js.includes('"imageBackupEditCapabilityProbe"')
+    && js.includes('[`form.${configKey}.model`]: value'),
+  "备用模型三个按钮没有接入独立目标、结果或模型选择逻辑"
+);
 
 const toggleStart = js.indexOf("toggleConfigSection(event)");
 const toggleEnd = js.indexOf("closeConfigSection()", toggleStart);

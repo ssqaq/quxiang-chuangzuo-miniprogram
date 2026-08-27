@@ -2,6 +2,7 @@ const config = require("../../config");
 const cloud = require("../../services/cloud");
 const diagnosticLog = require("../../utils/diagnostic-log");
 const {
+  XINGJU_VIDEO_DEFAULTS,
   applyAdminVideoProviderDefaults
 } = require("../../services/admin-video-config");
 
@@ -56,9 +57,11 @@ const VIDEO_QUALITY_OPTIONS = Object.freeze([
   { value: "1080p", label: "1080p" }
 ]);
 const ADMIN_PROVIDER_LABELS = Object.freeze({
+  dashscope: "阿里云百炼",
   xingju: "星炬",
   lingyun: "凌云",
-  dashscope: "阿里云百炼"
+  laoli: "老李",
+  panda: "熊猫"
 });
 const ADMIN_PROVIDER_LABEL_MAX_LENGTH = 20;
 const ADMIN_PROVIDER_LABEL_REQUIRED = "ADMIN_PROVIDER_LABEL_REQUIRED";
@@ -68,10 +71,12 @@ const ADMIN_PROVIDER_DANGEROUS_KEYS = Object.freeze([
   "constructor"
 ]);
 const ADMIN_PROVIDER_VALUES = Object.freeze({
+  阿里云百炼: "dashscope",
+  阿里百炼: "dashscope",
   星炬: "xingju",
   凌云: "lingyun",
-  阿里云百炼: "dashscope",
-  阿里百炼: "dashscope"
+  老李: "laoli",
+  熊猫: "panda"
 });
 const ADMIN_PROVIDER_FORM_SECTIONS = Object.freeze([
   "face",
@@ -104,11 +109,63 @@ const ADMIN_PROVIDER_PROFILE_STATE = Object.freeze({
   })
 });
 const ADMIN_PROVIDER_DISPLAY_ORDER = Object.freeze([
+  "dashscope",
   "xingju",
   "lingyun",
-  "dashscope"
+  "laoli",
+  "panda"
 ]);
 const ADMIN_BUILT_IN_PROVIDER_ORDER = ADMIN_PROVIDER_DISPLAY_ORDER;
+const ADMIN_VISUAL_PROVIDER_DEFAULTS = Object.freeze({
+  dashscope: Object.freeze({
+    baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    endpoint: "",
+    model: "qwen3-vl-flash",
+    timeoutMs: "30000"
+  })
+});
+const ADMIN_IMAGE_PROVIDER_DEFAULTS = Object.freeze({
+  xingju: Object.freeze({
+    baseUrl: "https://newapi.akiyo.fun/v1",
+    endpoint: "",
+    model: "jw-gpt-image-2",
+    mode: "edits",
+    size: "1080x1440",
+    resolution: "1K",
+    compatibilityMode: false,
+    timeoutMs: "150000"
+  }),
+  lingyun: Object.freeze({
+    baseUrl: "https://api.lingyunapi.xyz/v1",
+    endpoint: "",
+    model: "gpt-image-2",
+    mode: "edits",
+    size: "1080x1440",
+    resolution: "1K",
+    compatibilityMode: false,
+    timeoutMs: "150000"
+  }),
+  laoli: Object.freeze({
+    baseUrl: "https://api.laoliimage2.win/v1",
+    endpoint: "https://api.laoliimage2.win/v1/images/edits",
+    model: "gpt-image-2",
+    mode: "edits",
+    size: "1080x1440",
+    resolution: "1K",
+    compatibilityMode: false,
+    timeoutMs: "150000"
+  }),
+  panda: Object.freeze({
+    baseUrl: "https://api.pandatk.com",
+    endpoint: "",
+    model: "gpt-image-2",
+    mode: "edits",
+    size: "1080x1440",
+    resolution: "1K",
+    compatibilityMode: false,
+    timeoutMs: "150000"
+  })
+});
 let activeAdminProviderLabels = Object.assign({}, ADMIN_PROVIDER_LABELS);
 
 function mergeAdminProviderLabels(value) {
@@ -1054,29 +1111,35 @@ function providerProfileDefaultForm(section, providerId) {
   const source = defaults[section] && typeof defaults[section] === "object"
     ? defaults[section]
     : {};
-  const useBuiltInDefaults = (
-    section === "image"
-    && normalizedProviderId === "xingju"
-  ) || (
-    section === "imageBackup"
-    && normalizedProviderId === "lingyun"
-  ) || (
-    section === "video"
-    && normalizedProviderId === "xingju"
-  );
   const result = Object.assign({}, source, {
     provider: displayAdminProvider(normalizedProviderId, normalizedProviderId),
+    baseUrl: "",
+    endpoint: "",
     apiKey: "",
-    apiKeyConfigured: false
+    apiKeyConfigured: false,
+    model: ""
   });
-  if (!useBuiltInDefaults) {
-    result.baseUrl = "";
-    result.endpoint = "";
-    result.apiKey = "";
-    result.model = "";
+  if (section === "face" || section === "analysis") {
+    Object.assign(
+      result,
+      ADMIN_VISUAL_PROVIDER_DEFAULTS[normalizedProviderId] || {}
+    );
   }
-  if (section === "video") {
+  if (section === "image" || section === "imageBackup") {
+    Object.assign(
+      result,
+      ADMIN_IMAGE_PROVIDER_DEFAULTS[normalizedProviderId] || {}
+    );
+  }
+  if (section === "video" && normalizedProviderId === "xingju") {
+    Object.assign(result, XINGJU_VIDEO_DEFAULTS);
+  } else if (section === "video") {
     result.queryEndpoint = "";
+    result.createPath = "";
+    result.queryPath = "";
+    result.resolution = "";
+    result.aspectRatio = "";
+    result.timeoutMs = String(source.timeoutMs || "90000");
   }
   return result;
 }
@@ -3796,8 +3859,8 @@ function formFromConfig(result) {
       retryPreferenceVersion: 1
     },
     tencentFaceFusion: {
-      secretId: "",
-      secretKey: "",
+      secretId: String(tencentFaceFusion.secretId || "").trim(),
+      secretKey: String(tencentFaceFusion.secretKey || "").trim(),
       region: tencentFaceFusion.region || "ap-guangzhou",
       endpoint: tencentFaceFusion.endpoint || "https://facefusion.tencentcloudapi.com",
       apiVersion: tencentFaceFusion.apiVersion || "2022-09-27",
@@ -4201,8 +4264,8 @@ function formWithAdminImageApiKeys(form, apiKeys) {
         || ""
       ).trim()
       : "";
-    const apiKey = keys[section]
-      || profileKey
+    const apiKey = profileKey
+      || keys[section]
       || String(
         source[section]
         && source[section].apiKey
@@ -4291,8 +4354,18 @@ function formWithTencentFaceFusionSecrets(form, current) {
       {},
       source.tencentFaceFusion || emptyTencentFaceFusionForm(),
       {
-        secretId: String(currentConfig.secretId || "").trim(),
-        secretKey: String(currentConfig.secretKey || "").trim()
+        secretId: String(
+          currentConfig.secretId
+          || source.tencentFaceFusion
+          && source.tencentFaceFusion.secretId
+          || ""
+        ).trim(),
+        secretKey: String(
+          currentConfig.secretKey
+          || source.tencentFaceFusion
+          && source.tencentFaceFusion.secretKey
+          || ""
+        ).trim()
       }
     )
   });

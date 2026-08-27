@@ -378,18 +378,18 @@ function verifyMarkupAndStaticBoundaries() {
   );
   const inputs = inputBySection(wxml);
   assert.strictEqual(Object.keys(inputs).length, 5);
-  ["image", "imageBackup"].forEach((section) => {
+  ["face", "analysis", "image", "imageBackup"].forEach((section) => {
     assert.ok(inputs[section]);
     assert.strictEqual(/\bpassword\b/.test(inputs[section]), false);
-  });
-  ["face", "analysis"].forEach((section) => {
-    assert.ok(inputs[section]);
-    assert.strictEqual(/\bpassword\b/.test(inputs[section]), true);
   });
   assert.ok(inputs.video);
   assert.strictEqual(/\bdisabled\b/.test(inputs.video), true);
   assert.strictEqual(/\bpassword\b/.test(inputs.video), false);
-  assert.ok(wxml.includes("已显示完整 Key"));
+  assert.ok((wxml.match(/已显示完整 Key/g) || []).length >= 5);
+  assert.ok(wxml.includes("已显示完整内容"));
+  assert.ok(
+    /<input[^>]*value="\{\{form\.imageBackup\.mode\}\}"[^>]*bindinput="onInput"[^>]*>/.test(wxml)
+  );
   assert.ok(serviceJs.includes('action: "getAdminImageApiKeys"'));
   assert.ok(pageJs.includes("_imageApiKeyBaseline"));
   assert.strictEqual(

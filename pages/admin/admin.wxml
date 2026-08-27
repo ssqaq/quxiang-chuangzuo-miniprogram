@@ -309,7 +309,14 @@
             </view>
             <view class="admin-field"><text>使用的模型</text><input value="{{form.face.model}}" data-section="face" data-key="model" bindinput="onInput" /></view>
             <view class="admin-field admin-field-wide"><text>接口地址</text><input value="{{form.face.baseUrl}}" data-section="face" data-key="baseUrl" bindinput="onInput" /></view>
-            <view class="admin-field admin-field-wide"><text>API Key</text><input password value="{{form.face.apiKey}}" data-section="face" data-key="apiKey" placeholder="{{form.face.apiKeyConfigured ? '已配置，留空继续使用' : '填写后可测试并保存'}}" bindinput="onInput" /></view>
+            <view class="admin-field admin-field-wide admin-api-key-field">
+              <view class="admin-field-label-row">
+                <text>API Key</text>
+                <text class="api-key-config-state {{form.face.apiKey ? 'is-ready' : 'is-off'}}">{{form.face.apiKey ? '已显示完整 Key' : (form.face.apiKeyConfigured ? '完整 Key 读取失败' : '未配置')}}</text>
+              </view>
+              <input value="{{form.face.apiKey}}" data-section="face" data-key="apiKey" placeholder="填写后可测试并保存" bindinput="onInput" />
+              <view class="api-key-field-tip">当前显示所选服务商实际保存的完整 Key；修改后点击“保存全部配置”才会生效。</view>
+            </view>
             <view class="admin-field"><text>超时毫秒</text><input type="number" value="{{form.face.timeoutMs}}" data-section="face" data-key="timeoutMs" bindinput="onInput" /></view>
           </view>
         </view>
@@ -415,7 +422,14 @@
             </view>
             <view class="admin-field"><text>使用的模型</text><input value="{{form.analysis.model}}" data-section="analysis" data-key="model" bindinput="onInput" /></view>
             <view class="admin-field admin-field-wide"><text>接口地址</text><input value="{{form.analysis.baseUrl}}" data-section="analysis" data-key="baseUrl" bindinput="onInput" /></view>
-            <view class="admin-field admin-field-wide"><text>API Key</text><input password value="{{form.analysis.apiKey}}" data-section="analysis" data-key="apiKey" placeholder="{{form.analysis.apiKeyConfigured ? '已配置，留空继续使用' : '填写后可测试并保存'}}" bindinput="onInput" /></view>
+            <view class="admin-field admin-field-wide admin-api-key-field">
+              <view class="admin-field-label-row">
+                <text>API Key</text>
+                <text class="api-key-config-state {{form.analysis.apiKey ? 'is-ready' : 'is-off'}}">{{form.analysis.apiKey ? '已显示完整 Key' : (form.analysis.apiKeyConfigured ? '完整 Key 读取失败' : '未配置')}}</text>
+              </view>
+              <input value="{{form.analysis.apiKey}}" data-section="analysis" data-key="apiKey" placeholder="填写后可测试并保存" bindinput="onInput" />
+              <view class="api-key-field-tip">当前显示所选服务商实际保存的完整 Key；修改后点击“保存全部配置”才会生效。</view>
+            </view>
             <view class="admin-field"><text>超时毫秒</text><input type="number" value="{{form.analysis.timeoutMs}}" data-section="analysis" data-key="timeoutMs" bindinput="onInput" /></view>
           </view>
         </view>
@@ -495,7 +509,7 @@
             >腾讯融合</view>
           </view>
           <view wx:if="{{tencentImageTab === 'image'}}" class="tencent-image-tab-panel">
-          <view class="config-helper">API Key 只在服务端保存，页面不会回显真实内容；输入框留空并保存，会继续使用原来的密钥。</view>
+          <view class="config-helper">管理员页面会显示所选服务商的完整 API Key；修改后点击“保存全部配置”才会生效。</view>
           <view class="config-helper">切换服务商只修改当前页面草稿，点击“保存全部配置”后才写入云端。</view>
           <view class="config-model-actions">
             <view
@@ -716,7 +730,7 @@
               <input value="{{form.imageBackup.apiKey}}" data-section="imageBackup" data-key="apiKey" placeholder="请填写凌云 API Key" bindinput="onInput" />
               <view class="api-key-field-tip">当前显示云端实际生效的完整 Key；备用模型仍只在服务端使用。</view>
             </view>
-            <view class="admin-field"><text>模式</text><input disabled value="{{form.imageBackup.mode}}" data-section="imageBackup" data-key="mode" /></view>
+            <view class="admin-field"><text>模式</text><input value="{{form.imageBackup.mode}}" data-section="imageBackup" data-key="mode" bindinput="onInput" /></view>
             <view class="admin-field">
               <text>清晰度（价格/张）</text>
               <picker
@@ -757,8 +771,20 @@
                 <view class="config-state {{tencentFaceFusionStatus.configured && !tencentFaceFusionStatus.readFailed ? 'is-ready' : 'is-off'}}">{{tencentFaceFusionStatus.statusText}}</view>
               </view>
               <view class="admin-grid tencent-fusion-fields">
-                <view class="admin-field"><text>SecretId</text><input value="{{form.tencentFaceFusion.secretId}}" data-section="tencentFaceFusion" data-key="secretId" bindinput="onInput" /></view>
-                <view class="admin-field"><text>SecretKey</text><input value="{{form.tencentFaceFusion.secretKey}}" data-section="tencentFaceFusion" data-key="secretKey" bindinput="onInput" /></view>
+                <view class="admin-field admin-api-key-field">
+                  <view class="admin-field-label-row">
+                    <text>SecretId</text>
+                    <text class="api-key-config-state {{form.tencentFaceFusion.secretId ? 'is-ready' : 'is-off'}}">{{form.tencentFaceFusion.secretId ? '已显示完整内容' : (tencentFaceFusionStatus.configured ? '完整内容读取失败' : '未配置')}}</text>
+                  </view>
+                  <input value="{{form.tencentFaceFusion.secretId}}" data-section="tencentFaceFusion" data-key="secretId" bindinput="onInput" />
+                </view>
+                <view class="admin-field admin-api-key-field">
+                  <view class="admin-field-label-row">
+                    <text>SecretKey</text>
+                    <text class="api-key-config-state {{form.tencentFaceFusion.secretKey ? 'is-ready' : 'is-off'}}">{{form.tencentFaceFusion.secretKey ? '已显示完整内容' : (tencentFaceFusionStatus.configured ? '完整内容读取失败' : '未配置')}}</text>
+                  </view>
+                  <input value="{{form.tencentFaceFusion.secretKey}}" data-section="tencentFaceFusion" data-key="secretKey" bindinput="onInput" />
+                </view>
                 <view class="admin-field"><text>Region</text><input class="{{tencentFaceFusionFieldErrors.region ? 'has-error' : ''}}" value="{{form.tencentFaceFusion.region}}" data-section="tencentFaceFusion" data-key="region" bindinput="onInput" /><view wx:if="{{tencentFaceFusionFieldErrors.region}}" class="admin-field-error">{{tencentFaceFusionFieldErrors.region}}</view></view>
                 <view class="admin-field admin-field-wide"><text>Endpoint（必须 HTTPS）</text><input class="{{tencentFaceFusionFieldErrors.endpoint ? 'has-error' : ''}}" value="{{form.tencentFaceFusion.endpoint}}" data-section="tencentFaceFusion" data-key="endpoint" bindinput="onInput" /><view wx:if="{{tencentFaceFusionFieldErrors.endpoint}}" class="admin-field-error">{{tencentFaceFusionFieldErrors.endpoint}}</view></view>
                 <view class="admin-field"><text>API Version</text><input class="{{tencentFaceFusionFieldErrors.apiVersion ? 'has-error' : ''}}" value="{{form.tencentFaceFusion.apiVersion}}" data-section="tencentFaceFusion" data-key="apiVersion" bindinput="onInput" /><view wx:if="{{tencentFaceFusionFieldErrors.apiVersion}}" class="admin-field-error">{{tencentFaceFusionFieldErrors.apiVersion}}</view></view>
@@ -769,7 +795,7 @@
                 <view class="admin-field"><text>最大图片字节数</text><input type="number" class="{{tencentFaceFusionFieldErrors.maxImageBytes ? 'has-error' : ''}}" value="{{form.tencentFaceFusion.maxImageBytes}}" data-section="tencentFaceFusion" data-key="maxImageBytes" bindinput="onInput" /><view wx:if="{{tencentFaceFusionFieldErrors.maxImageBytes}}" class="admin-field-error">{{tencentFaceFusionFieldErrors.maxImageBytes}}</view></view>
               </view>
               <label class="admin-checkbox-row tencent-logo-checkbox"><checkbox value="enabled" checked="{{form.tencentFaceFusion.logoAdd}}" bindchange="onTencentLogoAddChange" color="#6848bb"></checkbox><text>LogoAdd：{{form.tencentFaceFusion.logoAdd ? '开启' : '关闭'}}</text></label>
-              <view class="config-helper">当前配置状态：{{tencentFaceFusionStatus.configured ? '已配置' : '未配置'}}。密钥只在管理员页面内存中显示，不写入普通日志、本地缓存或审计明文。</view>
+              <view class="config-helper">当前配置状态：{{tencentFaceFusionStatus.configured ? '已配置' : '未配置'}}。SecretId 和 SecretKey 在这里完整显示，修改后保存生效。</view>
               <view class="tencent-test-title">真实测试腾讯接口</view>
               <view class="tencent-test-help">测试会使用当前页面填写的 SecretId、SecretKey 和其他参数，不扣小程序额度，也不会保存制作记录。</view>
               <view class="tencent-test-result {{tencentFaceFusionStatus.lastCallStatus === 'failed' ? 'is-failed' : ''}}"><view class="tencent-test-result-row"><text>最近测试</text><text>{{tencentFaceFusionStatus.lastCallStatusText}}</text></view><view wx:if="{{tencentFaceFusionStatus.lastCallStatus === 'failed' && tencentFaceFusionStatus.lastErrorMessage}}" class="tencent-test-error">错误原因：{{tencentFaceFusionStatus.lastErrorMessage}}</view></view>
@@ -839,7 +865,7 @@
           <view class="config-editor-focus-help">下面的修改只作用于这一项</view>
         </view>
         <view class="config-editor-body">
-          <view class="config-helper">选择“星炬”后，会自动填入星炬接口地址、模型、创建路径、查询路径、清晰度和超时；API Key 只从云函数读取，不写进小程序代码。</view>
+          <view class="config-helper">选择“星炬”后，会自动填入星炬接口地址、模型、创建路径、查询路径、清晰度和超时，并显示云函数当前使用的完整 API Key。</view>
           <view class="config-model-actions">
             <view
               class="config-model-button config-model-test"

@@ -210,7 +210,7 @@ function testDimensionGate() {
 function testDimensionNormalization() {
   const main = rgbaImage(896, 1195, [15, 25, 35, 255]);
   const mask = rgbaImage(896, 1195, [255, 255, 255, 255]);
-  const generated = rgbaImage(1024, 1536, [215, 205, 195, 255]);
+  const generated = rgbaImage(1085, 1450, [215, 205, 195, 255]);
   const mainPng = codec.encodePngRoundTrip(main, {
     label: "尺寸归一化主图"
   }).buffer;
@@ -238,11 +238,19 @@ function testDimensionNormalization() {
     protectedNormal.protection.dimensionNormalization,
     {
       resized: true,
-      strategy: "stretch-to-baseline",
-      sourceWidth: 1024,
-      sourceHeight: 1536,
+      strategy: "isotropic-bilinear-to-baseline",
+      sourceWidth: 1085,
+      sourceHeight: 1450,
       targetWidth: 896,
-      targetHeight: 1195
+      targetHeight: 1195,
+      scaleW: 1085 / 896,
+      scaleH: 1450 / 1195,
+      anisotropy: Math.abs((1085 / 896) - (1450 / 1195))
+        / Math.max(1085 / 896, 1450 / 1195),
+      anisotropyThreshold: flow.MAX_GENERATED_ANISOTROPY,
+      minScale: flow.MIN_GENERATED_SCALE,
+      maxScale: flow.MAX_GENERATED_SCALE,
+      maxEdge: flow.MAX_GENERATED_EDGE
     }
   );
 
@@ -267,11 +275,73 @@ function testDimensionNormalization() {
   );
   assert.strictEqual(
     protectedTencent.protection.dimensionNormalization.sourceWidth,
-    1024
+    1085
   );
   assert.strictEqual(
     protectedTencent.protection.dimensionNormalization.sourceHeight,
-    1536
+    1450
+  );
+}
+
+function testDimensionNormalizationSafetyGates() {
+  const baseline = rgbaImage(100, 100, [10, 20, 30, 255]);
+  const withinLow = flow.normalizeGeneratedDimensions(
+    baseline,
+    rgbaImage(75, 75, [40, 50, 60, 255])
+  );
+  assert.strictEqual(withinLow.metadata.scaleW, 0.75);
+  assert.strictEqual(withinLow.metadata.scaleH, 0.75);
+  const withinHigh = flow.normalizeGeneratedDimensions(
+    baseline,
+    rgbaImage(150, 150, [40, 50, 60, 255])
+  );
+  assert.strictEqual(withinHigh.metadata.scaleW, 1.5);
+  assert.strictEqual(withinHigh.metadata.scaleH, 1.5);
+
+  assert.throws(
+    () => flow.normalizeGeneratedDimensions(
+      rgbaImage(896, 1195, [10, 20, 30, 255]),
+      rgbaImage(1024, 1536, [40, 50, 60, 255])
+    ),
+    (error) => error && error.code === "PIXEL_IMAGE_ASPECT_MISMATCH"
+  );
+  assert.throws(
+    () => flow.normalizeGeneratedDimensions(
+      baseline,
+      rgbaImage(74, 74, [40, 50, 60, 255])
+    ),
+    (error) => error && error.code === "PIXEL_IMAGE_SCALE_OUT_OF_RANGE"
+  );
+  assert.throws(
+    () => flow.normalizeGeneratedDimensions(
+      baseline,
+      rgbaImage(151, 151, [40, 50, 60, 255])
+    ),
+    (error) => error && error.code === "PIXEL_IMAGE_SCALE_OUT_OF_RANGE"
+  );
+  assert.throws(
+    () => codec.assertDecodedImage({
+      width: 8193,
+      height: 1,
+      data: Buffer.alloc(8193 * 4)
+    }),
+    (error) => error && error.code === "PIXEL_IMAGE_EDGE_TOO_LARGE"
+  );
+  assert.throws(
+    () => codec.resizeDecodedImage(
+      rgbaImage(2, 2, [40, 50, 60, 255]),
+      8193,
+      1
+    ),
+    (error) => error && error.code === "PIXEL_IMAGE_EDGE_TOO_LARGE"
+  );
+  assert.throws(
+    () => codec.assertDecodedImage({
+      width: 2049,
+      height: 2049,
+      data: Buffer.alloc(0)
+    }),
+    (error) => error && error.code === "PIXEL_IMAGE_TOO_LARGE"
   );
 }
 
@@ -442,6 +512,7 @@ testTencentRectProtection();
 testPngRoundTripAndSizeGate();
 testDimensionGate();
 testDimensionNormalization();
+testDimensionNormalizationSafetyGates();
 testModelFlowGuards();
 testProtectionFlow();
 

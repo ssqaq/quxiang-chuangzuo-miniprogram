@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.46.4";
-const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0464";
+const API_BUILD_VERSION = "0.46.5";
+const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0465";
 const DEFAULT_IMAGE_MODE = "edits";
 // 图片和视频默认成本只在云函数入口维护；管理员页读取云端有效配置，
 // 避免前后端各写一份价格。入口保持单文件可启动，兼容 CloudBase 部署。
@@ -29,7 +29,18 @@ const IMAGE_EDIT_ERROR_CODES = Object.freeze([
   "image-edit-unsupported",
   "image-edit-endpoint-invalid",
   "image-edit-model-unsupported",
-  "image-edit-upstream-error"
+  "image-edit-upstream-error",
+  "PIXEL_IMAGE_ASPECT_MISMATCH",
+  "PIXEL_IMAGE_SCALE_OUT_OF_RANGE",
+  "PIXEL_IMAGE_RESIZE_FAILED",
+  "PIXEL_IMAGE_SIZE_MISMATCH",
+  "PIXEL_IMAGE_EDGE_TOO_LARGE",
+  "PIXEL_IMAGE_TOO_LARGE",
+  "PIXEL_IMAGE_RESIZE_TARGET_INVALID",
+  "PIXEL_IMAGE_RGBA_INVALID",
+  "PIXEL_IMAGE_DECODE_FAILED",
+  "PIXEL_PNG_TOO_LARGE",
+  "PIXEL_PNG_ROUNDTRIP_MISMATCH"
 ]);
 const IMAGE_EDIT_DEFAULT_MAX_ASSET_BYTES = 5 * 1024 * 1024;
 const IMAGE_EDIT_DEFAULT_MAX_TOTAL_ASSET_BYTES = 20 * 1024 * 1024;

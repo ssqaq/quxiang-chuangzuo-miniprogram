@@ -1,7 +1,8 @@
 param(
   [string]$ProjectPath = (Split-Path -Parent $PSScriptRoot),
   [ValidateRange(1, 300)]
-  [int]$LockWaitSeconds = 60
+  [int]$LockWaitSeconds = 60,
+  [string]$LockPath = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -27,8 +28,9 @@ try {
     -ProjectPath $project `
     -TargetVersion $version `
     -FunctionName "api" `
-    -WaitSeconds $LockWaitSeconds
-  $snapshot = Get-CloudDeploySourceSnapshot `
+    -WaitSeconds $LockWaitSeconds `
+    -LockPath $LockPath
+  $sourceSnapshot = Get-CloudDeploySourceSnapshot `
     -ProjectPath $project `
     -ApiPath $apiPath
 
@@ -51,11 +53,55 @@ try {
     -ApiPath $apiPath `
     -TimeoutSeconds 900 | Out-Null
   Assert-CloudDeploySourceSnapshotStable `
-    -Snapshot $snapshot `
+    -Snapshot $sourceSnapshot `
     -ProjectPath $project `
     -ApiPath $apiPath `
     -Stage "cloudbase cli upload"
-  Write-Host "CloudBase CLI deployment completed for api version $version." `
+  Wait-CloudBaseFunctionReady `
+    -EnvironmentId $environmentId `
+    -FunctionName "api"
+  $runtimeSnapshot = Get-CloudBaseFunctionSnapshot `
+    -EnvironmentId $environmentId `
+    -FunctionName "api"
+  if ($runtimeSnapshot.Timeout -lt 900) {
+    Repair-CloudBaseFunctionTimeout `
+      -EnvironmentId $environmentId `
+      -FunctionName "api" `
+      -TimeoutSeconds 900
+    Wait-CloudBaseFunctionReady `
+      -EnvironmentId $environmentId `
+      -FunctionName "api"
+    $runtimeSnapshot = Get-CloudBaseFunctionSnapshot `
+      -EnvironmentId $environmentId `
+      -FunctionName "api"
+    if ($runtimeSnapshot.Timeout -lt 900) {
+      throw "CloudBase 线上超时未达到 900 秒。[CLOUDBASE_TIMEOUT_MISMATCH]"
+    }
+  }
+  $markerMatch = [regex]::Match(
+    (Get-Content -LiteralPath (Join-Path $apiPath "index.js") -Raw -Encoding UTF8),
+    'const API_BUILD_MARKER = "([^"]+)"'
+  )
+  $expectedMarker = if ($markerMatch.Success) { $markerMatch.Groups[1].Value } else { "" }
+  if ([string]$runtimeSnapshot.BuildVersion -ne $version) {
+    throw "CloudBase 线上版本不一致。[CLOUDBASE_VERSION_MISMATCH]"
+  }
+  if ($expectedMarker -and [string]$runtimeSnapshot.BuildMarker -ne $expectedMarker) {
+    throw "CloudBase 线上构建标记不一致。[CLOUDBASE_MARKER_MISMATCH]"
+  }
+  $runtimeHealth = Get-CloudBaseRuntimeHealth `
+    -EnvironmentId $environmentId `
+    -FunctionName "api"
+  Assert-CloudBaseRuntimeHealth `
+    -Health $runtimeHealth `
+    -ExpectedVersion $version `
+    -ExpectedMarker $expectedMarker
+  Assert-CloudDeploySourceSnapshotStable `
+    -Snapshot $sourceSnapshot `
+    -ProjectPath $project `
+    -ApiPath $apiPath `
+    -Stage "cloudbase runtime verification"
+  Write-Host "CloudBase CLI deployment and runtime verification completed for api version $version." `
     -ForegroundColor Green
 }
 finally {

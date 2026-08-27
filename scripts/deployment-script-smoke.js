@@ -18,6 +18,10 @@ const source = fs.readFileSync(scriptPath, "utf8");
 const cloudbaseDeploySource = fs.readFileSync(cloudbaseDeployPath, "utf8");
 const verifySource = fs.readFileSync(verifyScriptPath, "utf8");
 const safetySource = fs.readFileSync(safetyScriptPath, "utf8");
+const releaseLockSource = fs.readFileSync(
+  path.join(root, "scripts", "release-lock.ps1"),
+  "utf8"
+);
 const apiSource = fs.readFileSync(
   path.join(root, "cloudfunctions", "api", "index.js"),
   "utf8"
@@ -203,7 +207,16 @@ assert.ok(
   !cloudbaseBranch.includes('"cloud_fn_deploy"'),
   "CloudBase 直部署分支不能再调用微信确认弹窗部署"
 );
-const wechatBranch = source.slice(cloudbaseBranchEnd);
+const postDirectVerificationStart = source.indexOf(
+  'if ($resolvedDeployTransport -eq "cloudbase")',
+  cloudbaseBranchEnd + 1
+);
+const wechatBranch = source.slice(
+  cloudbaseBranchEnd,
+  postDirectVerificationStart >= 0
+    ? postDirectVerificationStart
+    : source.length
+);
 assert.ok(
   !wechatBranch.includes("Invoke-CloudBaseFunctionDeploy"),
   "微信部署分支不能在失败后偷偷切回 CloudBase 重复上传"
@@ -214,7 +227,7 @@ assert.ok(
   "独立 CloudBase 部署入口必须复用公共直部署和线上版本保护"
 );
 assert.ok(
-  safetySource.includes("[IO.FileShare]::None")
+  releaseLockSource.includes("[IO.FileShare]::None")
     && safetySource.includes("Get-CloudDeploySourceSnapshot")
     && safetySource.includes("ApiFingerprint"),
   "部署保护脚本必须使用独占文件锁和 API 源码指纹"

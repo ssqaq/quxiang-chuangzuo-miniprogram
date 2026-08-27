@@ -5,6 +5,7 @@ param(
   [switch]$SkipRemoteNpmInstall,
   [switch]$DryRun,
   [switch]$VerifyOnly,
+  [switch]$AllowOpenProjectWindow,
   [switch]$ResumePendingDeploy,
   [ValidateSet("auto", "wechat", "cloudbase")]
   [string]$DeployTransport = "auto",
@@ -95,6 +96,10 @@ function Invoke-WechatIde {
     [string]$CliPath,
     [string[]]$Arguments
   )
+
+  if (-not $AllowOpenProjectWindow) {
+    throw "为防止微信开发者工具自动弹出，默认禁止调用 WechatIDE。若需手动执行，请显式加 -AllowOpenProjectWindow。"
+  }
 
   $previousErrorActionPreference = $ErrorActionPreference
   $ErrorActionPreference = "Continue"
@@ -762,6 +767,20 @@ try {
       -ExpectedTimeout $expectedFunctionTimeout
     Write-Host "CloudBase code snapshot: version=$($cloudBaseSnapshot.BuildVersion), timeout=$($cloudBaseSnapshot.Timeout), status=$($cloudBaseSnapshot.Status)"
 
+    if ($resolvedDeployTransport -eq "cloudbase") {
+      Write-Host "Read-only verification: invoke CloudBase runtime health"
+      $runtimeHealth = Get-CloudBaseRuntimeHealth `
+        -EnvironmentId $cloudEnvId `
+        -FunctionName $functionName `
+        -NpxPath $cloudBaseCli
+      Assert-CloudBaseRuntimeHealth `
+        -Health $runtimeHealth `
+        -ExpectedVersion $appVersion `
+        -ExpectedMarker $expectedMarker
+      Write-Host "CloudBase runtime health passed. No source upload or remote write was sent." -ForegroundColor Green
+      return
+    }
+
     Write-Host "Read-only verification: check WechatIDE login"
     $ideStatus = Invoke-WechatIdeTool -CliPath $cli -Arguments @(
       "-c", $ClientName,
@@ -771,14 +790,18 @@ try {
       throw "WechatIDE login has expired. Log in again before verifying."
     }
 
-    Write-Host "Read-only verification: open project runtime context"
-    Invoke-WechatIdeTool -CliPath $cli -Arguments @(
-      "-c", $ClientName,
-      "open_project_window",
-      "--project", $project,
-      "--window-mode", "liteMode"
-    ) | Out-Null
-    Start-Sleep -Seconds 2
+    if ($AllowOpenProjectWindow) {
+      Write-Host "Read-only verification: open project runtime context"
+      Invoke-WechatIdeTool -CliPath $cli -Arguments @(
+        "-c", $ClientName,
+        "open_project_window",
+        "--project", $project,
+        "--window-mode", "liteMode"
+      ) | Out-Null
+      Start-Sleep -Seconds 2
+    } else {
+      Write-Host "Read-only verification: skip opening project runtime context (default; use -AllowOpenProjectWindow to enable)"
+    }
 
     Write-Host "Read-only verification: wait for Active and inspect timeout"
     Wait-CloudFunctionReady `
@@ -867,30 +890,42 @@ try {
     -ApiPath $apiPath `
     -Stage "local checks"
 
-  Write-Host "4/7 Open project runtime"
-  Invoke-WechatIdeTool -CliPath $cli -Arguments @(
-    "-c", $ClientName,
-    "open_project_window",
-    "--project", $project,
-    "--window-mode", "liteMode"
-  ) | Out-Null
-  Start-Sleep -Seconds 2
+  if ($AllowOpenProjectWindow) {
+    Write-Host "4/7 Open project runtime"
+    Invoke-WechatIdeTool -CliPath $cli -Arguments @(
+      "-c", $ClientName,
+      "open_project_window",
+      "--project", $project,
+      "--window-mode", "liteMode"
+    ) | Out-Null
+    Start-Sleep -Seconds 2
+  } else {
+    Write-Host "4/7 Skip opening project runtime (default; use -AllowOpenProjectWindow to enable)"
+  }
 
   Write-Host "5/7 Deploy cloud function via $resolvedDeployTransport"
-  Wait-CloudFunctionReady `
-    -CliPath $cli `
-    -AppId $appId `
-    -EnvironmentId $cloudEnvId `
-    -FunctionName $functionName
   Write-Host "Check online version before upload"
-  $preDeployment = Get-DeploymentResult `
-    -CliPath $cli `
-    -Project $project `
-    -FunctionName $functionName `
-    -ReadOnly
-  $onlineVersionBeforeUpload = [string](
-    Get-ObjectPropertyValue -Value $preDeployment -Name "buildVersion"
-  )
+  $onlineVersionBeforeUpload = ""
+  if ($resolvedDeployTransport -eq "cloudbase") {
+    $onlineVersionBeforeUpload = Get-CloudBaseFunctionVersion `
+      -EnvironmentId $cloudEnvId `
+      -FunctionName $functionName
+  }
+  else {
+    Wait-CloudFunctionReady `
+      -CliPath $cli `
+      -AppId $appId `
+      -EnvironmentId $cloudEnvId `
+      -FunctionName $functionName
+    $preDeployment = Get-DeploymentResult `
+      -CliPath $cli `
+      -Project $project `
+      -FunctionName $functionName `
+      -ReadOnly
+    $onlineVersionBeforeUpload = [string](
+      Get-ObjectPropertyValue -Value $preDeployment -Name "buildVersion"
+    )
+  }
   $versionDecision = Assert-CloudDeployVersionNotDowngrade `
     -LocalVersion $appVersion `
     -OnlineVersion $onlineVersionBeforeUpload
@@ -966,6 +1001,52 @@ try {
     if ($ResumePendingDeploy) {
       Remove-CloudDeployPending -PendingPath $deployLock.PendingPath
     }
+  }
+  if ($resolvedDeployTransport -eq "cloudbase") {
+    Write-Host "CloudBase 直部署：等待云函数恢复 Active"
+    Wait-CloudBaseFunctionReady `
+      -EnvironmentId $cloudEnvId `
+      -FunctionName $functionName `
+      -NpxPath $cloudBaseCli
+    $directSnapshot = Get-CloudBaseFunctionSnapshot `
+      -EnvironmentId $cloudEnvId `
+      -FunctionName $functionName
+    if ($directSnapshot.Timeout -lt $expectedFunctionTimeout) {
+      Write-Host "CloudBase 线上超时不足，开始自动修正"
+      Repair-CloudFunctionTimeout `
+        -EnvironmentId $cloudEnvId `
+        -FunctionName $functionName `
+        -TimeoutSeconds $expectedFunctionTimeout
+      Wait-CloudBaseFunctionReady `
+        -EnvironmentId $cloudEnvId `
+        -FunctionName $functionName `
+        -NpxPath $cloudBaseCli
+      $directSnapshot = Get-CloudBaseFunctionSnapshot `
+        -EnvironmentId $cloudEnvId `
+        -FunctionName $functionName
+    }
+    Assert-CloudBaseFunctionSnapshot `
+      -Snapshot $directSnapshot `
+      -ExpectedVersion $appVersion `
+      -ExpectedMarker $expectedMarker `
+      -ExpectedImageMode $imageMode `
+      -ExpectedTimeout $expectedFunctionTimeout
+    Assert-CloudDeploySourceSnapshotStable `
+      -Snapshot $sourceSnapshot `
+      -ProjectPath $project `
+      -ApiPath $apiPath `
+      -Stage "online verification"
+    Write-Host "CloudBase 直部署：执行只读运行健康核验"
+    $runtimeHealth = Get-CloudBaseRuntimeHealth `
+      -EnvironmentId $cloudEnvId `
+      -FunctionName $functionName `
+      -NpxPath $cloudBaseCli
+    Assert-CloudBaseRuntimeHealth `
+      -Health $runtimeHealth `
+      -ExpectedVersion $appVersion `
+      -ExpectedMarker $expectedMarker
+    Write-Host "CloudBase function deployment verified successfully." -ForegroundColor Green
+    return
   }
   Wait-CloudFunctionReady `
     -CliPath $cli `

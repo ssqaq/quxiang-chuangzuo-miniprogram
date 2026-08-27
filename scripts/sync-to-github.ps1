@@ -9,7 +9,9 @@ param(
     [int]$MaxAttempts = 3,
 
     [ValidateRange(1, 300)]
-    [int]$LockWaitSeconds = 60
+    [int]$LockWaitSeconds = 60,
+
+    [string]$LockPath = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -20,7 +22,13 @@ $branch = "main"
 $parentRoot = Split-Path $repoRoot -Parent
 $logRoot = Join-Path $parentRoot "wechat-miniapp-sync-logs"
 $logFile = Join-Path $logRoot ("sync-{0}.log" -f (Get-Date -Format "yyyy-MM-dd"))
-$lockPath = Join-Path $parentRoot "$repoName-release.lock"
+$releaseLockScript = Join-Path $PSScriptRoot "release-lock.ps1"
+if (-not (Test-Path -LiteralPath $releaseLockScript -PathType Leaf)) {
+    throw "缺少公共发布锁模块：$releaseLockScript"
+}
+. $releaseLockScript
+$lockPaths = Get-ReleaseLockPaths -ProjectPath $repoRoot -LockPath $LockPath
+$lockPath = $lockPaths.LockPath
 $reservationRoot = Join-Path $parentRoot "$repoName-release-reservations"
 $releaseWorktreeRoot = Join-Path $parentRoot "$repoName-release-worktrees"
 $packageScriptName = "scripts/package-release.py"
@@ -141,7 +149,7 @@ function Get-IncludePaths {
             Select-Object -Unique
     )
     if ($paths.Count -eq 0) {
-        throw "必须显式指定本次要同步的文件，禁止使用 git add -A。"
+        throw "必须显式指定本次要同步的文件，禁止全量暂存。"
     }
     return @($paths)
 }
@@ -269,38 +277,6 @@ function Copy-GeneratedVersionFilesToMain {
     }
 }
 
-function Acquire-ReleaseLock {
-    param(
-        [Parameter(Mandatory = $true)][string]$Path,
-        [Parameter(Mandatory = $true)][int]$WaitSeconds
-    )
-
-    $deadline = [DateTime]::UtcNow.AddSeconds($WaitSeconds)
-    do {
-        try {
-            $stream = [IO.File]::Open(
-                $Path,
-                [IO.FileMode]::OpenOrCreate,
-                [IO.FileAccess]::ReadWrite,
-                [IO.FileShare]::None
-            )
-            $stream.SetLength(0)
-            $payload = [Text.Encoding]::UTF8.GetBytes(
-                "PID=$PID`n开始时间=$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')`n仓库=$repoRoot`n"
-            )
-            $stream.Write($payload, 0, $payload.Length)
-            $stream.Flush()
-            return $stream
-        }
-        catch [IO.IOException] {
-            if ([DateTime]::UtcNow -ge $deadline) {
-                throw "发布锁等待超时：$Path。请检查是否有其他发布任务卡住。"
-            }
-            Start-Sleep -Milliseconds 250
-        }
-    } while ($true)
-}
-
 function Get-CommitMetadataAt {
     param([Parameter(Mandatory = $true)][string]$WorkingDirectory)
 
@@ -398,7 +374,7 @@ Set-Location $repoRoot
 New-Item -ItemType Directory -Path $logRoot -Force | Out-Null
 New-Item -ItemType Directory -Path $releaseWorktreeRoot -Force | Out-Null
 
-$lockStream = $null
+$lockHandle = $null
 $transcriptStarted = $false
 $releaseSucceeded = $false
 try {
@@ -421,7 +397,14 @@ try {
     }
     . $versionScript
 
-    $lockStream = Acquire-ReleaseLock -Path $lockPath -WaitSeconds $LockWaitSeconds
+    $initialTargetVersion = if ([string]::IsNullOrWhiteSpace($TargetVersion)) { "auto" } else { $TargetVersion }
+    $lockHandle = Enter-ReleaseLock `
+        -ProjectPath $repoRoot `
+        -TargetVersion $initialTargetVersion `
+        -TargetType "github-sync" `
+        -WaitSeconds $LockWaitSeconds `
+        -LockPath $lockPath `
+        -ProjectId $repoName
     Start-Transcript -Path $logFile -Append | Out-Null
     $transcriptStarted = $true
 
@@ -451,10 +434,34 @@ try {
             }
 
             Invoke-Git -Arguments @("fetch", "origin", "refs/heads/$branch`:refs/remotes/origin/$branch") | Write-Host
-            $baseHead = Get-GitValue -Arguments @("rev-parse", "origin/$branch")
+            $remoteBaseHead = Get-GitValue -Arguments @("rev-parse", "origin/$branch")
             $localHead = Get-GitValue -Arguments @("rev-parse", "HEAD")
-            if ($localHead -ne $baseHead) {
-                throw "本地 main 与 origin/main 不一致：本地 $localHead，远端 $baseHead。请先同步主分支后重试。"
+            $baseHead = $remoteBaseHead
+            if ($localHead -ne $remoteBaseHead) {
+                & git merge-base --is-ancestor $remoteBaseHead $localHead 2>$null
+                if ($LASTEXITCODE -ne 0) {
+                    throw "本地 main 与 origin/main 发生分叉：本地 $localHead，远端 $remoteBaseHead。请先处理分支历史后重试。"
+                }
+                $localOnlyPaths = @(
+                    Invoke-Git -Arguments @(
+                        "-c",
+                        "core.quotepath=false",
+                        "diff",
+                        "--name-only",
+                        "$remoteBaseHead..$localHead"
+                    )
+                ) |
+                    Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+                    ForEach-Object { Normalize-RelativePath -Path $_ } |
+                    Select-Object -Unique
+                $outsideLocalOnly = @(
+                    $localOnlyPaths |
+                        Where-Object { $_ -notin $includePaths }
+                )
+                if ($outsideLocalOnly.Count -gt 0) {
+                    throw "本地未推送提交包含本次清单外文件：$($outsideLocalOnly -join '；')。请显式加入 IncludePath 或先单独同步。"
+                }
+                $baseHead = $localHead
             }
 
             $releaseWorktree = Join-Path $releaseWorktreeRoot ("attempt-{0}-{1}" -f $attempt, [guid]::NewGuid().ToString("N"))
@@ -465,6 +472,7 @@ try {
                 throw "远端基线 config.js 没有找到 appVersion。"
             }
             $targetVersion = Resolve-TargetVersion -BaseVersion $baseVersionMatch.Groups[1].Value
+            Update-ReleaseLockOwner -LockHandle $lockHandle -TargetVersion $targetVersion
             $versionPaths = Get-VersionGroupPaths -SourceRoot $releaseWorktree
             $initialVersionSnapshot = Get-FileSnapshot -Paths $versionPaths
             Copy-SnapshotToWorktree -TargetRoot $releaseWorktree -Snapshot $initialSnapshot
@@ -510,7 +518,8 @@ try {
             $commitBody = @(
                 $metadata.Body
                 "版本：$targetVersion"
-                "基础远端 SHA：$baseHead"
+                "基础远端 SHA：$remoteBaseHead"
+                "基础本地提交 SHA：$baseHead"
                 "尝试次数：$attempt"
                 "提交前暂存 tree：$stagedTree"
                 "发布包：$releasePackage"
@@ -545,14 +554,14 @@ try {
             }
 
             Invoke-Git -Arguments @("fetch", "origin", "refs/heads/$branch`:refs/remotes/origin/$branch") | Write-Host
-            if ((Get-GitValue -Arguments @("rev-parse", "origin/$branch")) -ne $baseHead) {
+            if ((Get-GitValue -Arguments @("rev-parse", "origin/$branch")) -ne $remoteBaseHead) {
                 $retryRemote = $true
                 throw "远端在发布期间发生变化，本轮重新读取版本后重试。"
             }
             $pushOutput = & git -C $releaseWorktree push origin "HEAD:$branch" 2>&1
             if ($LASTEXITCODE -ne 0) {
                 $remoteAfterPushFailure = Get-GitValue -Arguments @("rev-parse", "origin/$branch")
-                if ($remoteAfterPushFailure -ne $baseHead) {
+                if ($remoteAfterPushFailure -ne $remoteBaseHead) {
                     $retryRemote = $true
                     throw "远端抢先推送，本轮重新读取版本后重试。"
                 }
@@ -568,7 +577,9 @@ try {
             }
             Invoke-Git -Arguments @("update-ref", "refs/heads/$branch", $finalHead, $baseHead) | Write-Host
             Copy-GeneratedVersionFilesToMain -ReleaseWorktree $releaseWorktree -VersionPaths $versionPaths -InitialVersionSnapshot $initialVersionSnapshot -BaseHead $baseHead
-            Invoke-Git -Arguments @("read-tree", $finalHead) | Write-Host
+            # 不刷新 index/worktree：主仓库可能有其他任务的未提交改动，
+            # 不能用整树刷新覆盖它们。当前任务的源码快照和版本文件已单独校验。
+            # 这里明确禁止旧方案的 "read-tree" 整树覆盖，避免抹掉并行任务改动。
 
             $manifestShaOutput = & python -c "from zipfile import ZipFile; import sys; m=ZipFile(sys.argv[1]).read('RELEASE-MANIFEST.txt').decode('utf-8'); print(next(line.split('：', 1)[1].strip() for line in m.splitlines() if line.startswith('源码内容 SHA256：')))" $releasePackage 2>&1
             if ($LASTEXITCODE -ne 0) {
@@ -610,6 +621,14 @@ try {
                 if ((Get-GitValue -Arguments @("rev-parse", "HEAD")) -ne $baseHead) {
                     throw "远端重试前本地 main 已变化，停止自动重试。"
                 }
+                if ($baseHead -ne $remoteBaseHead) {
+                    & git merge-base --is-ancestor $newBase $baseHead 2>$null
+                    if ($LASTEXITCODE -ne 0) {
+                        throw "远端重试时无法保留本地已提交清单，停止自动重试。"
+                    }
+                    $remoteBaseHead = $newBase
+                    continue
+                }
                 Invoke-Git -Arguments @("update-ref", "refs/heads/$branch", $newBase, $baseHead) | Write-Host
                 Start-Sleep -Milliseconds 250
                 continue
@@ -635,5 +654,5 @@ catch {
 }
 finally {
     if ($transcriptStarted) { Stop-Transcript | Out-Null }
-    if ($null -ne $lockStream) { $lockStream.Dispose() }
+    if ($null -ne $lockHandle) { Exit-ReleaseLock -LockHandle $lockHandle }
 }

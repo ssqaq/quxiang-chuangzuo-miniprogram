@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.50.0";
-const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0500";
+const API_BUILD_VERSION = "0.50.1";
+const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0501";
 const DEFAULT_IMAGE_MODE = "edits";
 // 图片和视频默认成本只在云函数入口维护；管理员页读取云端有效配置，
 // 避免前后端各写一份价格。入口保持单文件可启动，兼容 CloudBase 部署。
@@ -129,6 +129,26 @@ function checkRuntimeDependencies() {
     verified,
     failed
   };
+}
+
+function checkRuntimeHealth(_event, _context) {
+  const dependencies = checkRuntimeDependencies();
+  const payload = {
+    buildVersion: API_BUILD_VERSION,
+    buildMarker: API_BUILD_MARKER,
+    active: true,
+    readOnly: true,
+    dependencies,
+    checkedAt: new Date().toISOString()
+  };
+  if (!dependencies.healthy) {
+    return fail(
+      "云函数运行依赖异常。",
+      "RUNTIME_DEPENDENCY_UNHEALTHY",
+      payload
+    );
+  }
+  return jsonResponse(true, payload);
 }
 
 const publishExportCore = (() => {
@@ -1212,23 +1232,6 @@ const DEFAULT_RETRY_STATUSES = new Set([408, 409, 425, 429, 500, 502, 503, 504])
 const ADMIN_RUNTIME_CONFIG_COLLECTION = "admin_runtime_config";
 const ADMIN_RUNTIME_CONFIG_ID = "global";
 const IMAGE_RETRY_PREFERENCE_VERSION = 1;
-const DEFAULT_ADMIN_PROVIDER_LABELS = Object.freeze({
-  dashscope: "阿里云百炼",
-  lingyun: "凌云",
-  xingju: "星炬"
-});
-const FORBIDDEN_ADMIN_PROVIDER_LABEL_KEYS = new Set([
-  "__proto__",
-  "prototype",
-  "constructor"
-]);
-const ADMIN_PROVIDER_CONFIG_SECTIONS = Object.freeze([
-  "face",
-  "analysis",
-  "image",
-  "imageBackup",
-  "video"
-]);
 const ADMIN_CONFIG_AUDIT_LOG_COLLECTION = "admin_config_audit_logs";
 const ADMIN_CONFIG_AUDIT_MAX_READ = 200;
 const IMAGE_QUALITY_LONG_EDGES = Object.freeze({
@@ -1573,6 +1576,40 @@ function apiKeyHeaders(apiKey) {
     Authorization: `Bearer ${normalized}`,
     "x-api-key": normalized
   };
+}
+
+function isGeminiCompatibleVision(meta = {}) {
+  const provider = String(meta.provider || "").trim().toLowerCase();
+  if (
+    provider === "gemini"
+    || provider === "google"
+    || provider === "google-gemini"
+    || provider === "google-ai"
+    || provider === "google ai"
+  ) {
+    return true;
+  }
+  return [
+    meta.baseUrl,
+    meta.endpoint,
+    meta.url
+  ].some((value) => /generativelanguage\.googleapis\.com/i.test(String(value || "")));
+}
+
+function sanitizeVisionRequestPayload(payload, meta = {}) {
+  if (
+    !payload
+    || typeof payload !== "object"
+    || Array.isArray(payload)
+    || !isGeminiCompatibleVision(meta)
+  ) {
+    return payload;
+  }
+  const sanitized = Object.assign({}, payload);
+  // Gemini 的 OpenAI-compatible 接口不接受 DashScope 专用字段。
+  delete sanitized.seed;
+  delete sanitized.enable_thinking;
+  return sanitized;
 }
 
 function overrideBoolean(overrides, key, fallback) {
@@ -2655,6 +2692,8 @@ function visionRequestMeta(requestId, action, vision, costs) {
     requestId,
     action,
     provider: vision.provider || "",
+    baseUrl: vision.baseUrl || "",
+    endpoint: vision.endpoint || "",
     model: action === "detectFaceCircle"
       ? vision.faceModel || vision.model || ""
       : vision.model || "",
@@ -5357,7 +5396,7 @@ function imageUpstreamError(response, fallback = "生图接口请求失败", opt
 }
 
 async function requestJson(url, payload, apiKey, extraHeaders = {}, meta = {}) {
-  const body = JSON.stringify(payload);
+  const body = JSON.stringify(sanitizeVisionRequestPayload(payload, Object.assign({}, meta, { url })));
   const response = await requestWithRetry(url, {
     method: "POST",
     headers: Object.assign(
@@ -6186,138 +6225,8 @@ function hasOwn(object, key) {
   return Boolean(object && Object.prototype.hasOwnProperty.call(object, key));
 }
 
-function canonicalAdminProviderId(value) {
-  const raw = String(value === undefined || value === null ? "" : value).trim();
-  if (!raw) return "";
-  const lower = raw.toLowerCase();
-  return hasOwn(DEFAULT_ADMIN_PROVIDER_LABELS, lower) ? lower : raw;
-}
-
-function sortAdminProviderLabels(value) {
-  const source = value && typeof value === "object" ? value : {};
-  return Object.keys(source)
-    .sort((left, right) => left.localeCompare(right, undefined, {
-      sensitivity: "base"
-    }))
-    .reduce((output, key) => Object.assign(output, {
-      [key]: source[key]
-    }), {});
-}
-
-function normalizeAdminProviderLabels(input, options = {}) {
-  const output = Object.create(null);
-  if (options.includeDefaults) {
-    Object.keys(DEFAULT_ADMIN_PROVIDER_LABELS).forEach((key) => {
-      output[key] = DEFAULT_ADMIN_PROVIDER_LABELS[key];
-    });
-  }
-  if (!input || typeof input !== "object" || Array.isArray(input)) {
-    return sortAdminProviderLabels(output);
-  }
-  Object.getOwnPropertyNames(input).forEach((rawKey) => {
-    const key = canonicalAdminProviderId(rawKey);
-    const forbiddenKey = String(key || "").toLowerCase();
-    const label = String(input[rawKey] === undefined || input[rawKey] === null
-      ? ""
-      : input[rawKey]).trim();
-    if (
-      !key
-      || key.length > 120
-      || FORBIDDEN_ADMIN_PROVIDER_LABEL_KEYS.has(forbiddenKey)
-      || !label
-      || label.length > 20
-    ) {
-      return;
-    }
-    output[key] = label;
-  });
-  return sortAdminProviderLabels(output);
-}
-
-function mergeAdminProviderLabels(current, patch) {
-  return sortAdminProviderLabels(Object.assign(
-    {},
-    normalizeAdminProviderLabels(current),
-    normalizeAdminProviderLabels(patch)
-  ));
-}
-
-function configuredAdminProviderIds(config) {
-  const source = config && typeof config === "object" ? config : {};
-  const seen = new Set();
-  const values = [];
-  ADMIN_PROVIDER_CONFIG_SECTIONS.forEach((section) => {
-    const providerId = canonicalAdminProviderId(
-      source[section] && source[section].provider
-    );
-    if (!providerId) return;
-    const lookupKey = providerId.toLowerCase();
-    if (seen.has(lookupKey)) return;
-    seen.add(lookupKey);
-    values.push(providerId);
-  });
-  return values.sort((left, right) => left.localeCompare(right, undefined, {
-    sensitivity: "base"
-  }));
-}
-
-function adminProviderLabelFor(labels, providerId) {
-  const source = labels && typeof labels === "object" ? labels : {};
-  const id = canonicalAdminProviderId(providerId);
-  if (!id) return "";
-  if (hasOwn(source, id)) return String(source[id] || "").trim();
-  const matchedKey = Object.keys(source).find((key) => (
-    String(key).toLowerCase() === id.toLowerCase()
-  ));
-  return matchedKey ? String(source[matchedKey] || "").trim() : "";
-}
-
-function validateAdminProviderLabels(labels, config) {
-  const errors = [];
-  if (
-    labels !== undefined
-    && (
-      !labels
-      || typeof labels !== "object"
-      || Array.isArray(labels)
-    )
-  ) {
-    return ["providerLabels 必须是对象"];
-  }
-  const raw = labels && typeof labels === "object" ? labels : {};
-  Object.getOwnPropertyNames(raw).forEach((rawKey) => {
-    const key = canonicalAdminProviderId(rawKey);
-    const forbiddenKey = String(key || "").toLowerCase();
-    const label = String(raw[rawKey] === undefined || raw[rawKey] === null
-      ? ""
-      : raw[rawKey]).trim();
-    if (
-      !key
-      || key.length > 120
-      || FORBIDDEN_ADMIN_PROVIDER_LABEL_KEYS.has(forbiddenKey)
-    ) {
-      errors.push(`服务商标识 ${String(rawKey || "未填写").slice(0, 120)} 不合法`);
-      return;
-    }
-    if (!label || label.length > 20 || !/[\u3400-\u9fff]/.test(label)) {
-      errors.push(`服务商 ${key} 还没有合格的中文名称`);
-    }
-  });
-  const normalized = normalizeAdminProviderLabels(raw, { includeDefaults: true });
-  configuredAdminProviderIds(config).forEach((providerId) => {
-    const label = adminProviderLabelFor(normalized, providerId);
-    if (!label || !/[\u3400-\u9fff]/.test(label)) {
-      errors.push(`服务商 ${providerId} 还没有中文名称，请先填写`);
-    }
-  });
-  return Array.from(new Set(errors));
-}
-
 function normalizeRuntimePatch(input = {}) {
   const source = input && typeof input === "object" ? input : {};
-  const providerLabels = hasOwn(source, "providerLabels")
-    ? normalizeAdminProviderLabels(source.providerLabels)
-    : {};
   const faceSource = source.face && typeof source.face === "object" ? source.face : {};
   const analysisSource = source.analysis && typeof source.analysis === "object"
     ? source.analysis
@@ -6532,7 +6441,6 @@ function normalizeRuntimePatch(input = {}) {
   if (Object.keys(imagePricing).length) costs.image = imagePricing;
   if (Object.keys(videoPricing).length) costs.video = videoPricing;
   return {
-    providerLabels,
     face: faceConfig,
     analysis,
     image,
@@ -6578,7 +6486,6 @@ function validateCostNumber(value, field) {
 
 function validateRuntimePatch(patch) {
   const errors = [];
-  errors.push(...validateAdminProviderLabels(patch.providerLabels, {}));
   const face = patch.face || {};
   const analysis = patch.analysis || {};
   const image = patch.image || {};
@@ -6854,10 +6761,6 @@ function mergeRuntimeConfig(current, patch) {
     );
   });
   return {
-    providerLabels: mergeAdminProviderLabels(
-      existing.providerLabels,
-      patch.providerLabels
-    ),
     face: Object.assign({}, existing.face || {}, patch.face || {}),
     analysis: Object.assign({}, existing.analysis || {}, patch.analysis || {}),
     image: Object.assign({}, existing.image || {}, patch.image || {}),
@@ -6939,7 +6842,6 @@ function isLegacyLingyunImageConfig(value) {
 }
 
 const ADMIN_CONFIG_AUDIT_SECTIONS = Object.freeze([
-  "providerLabels",
   "face",
   "analysis",
   "image",
@@ -7354,10 +7256,6 @@ function redactConfig(config, defaults) {
     config.generationQueue
   );
   return {
-    providerLabels: normalizeAdminProviderLabels(
-      config.providerLabels,
-      { includeDefaults: true }
-    ),
     face: {
       provider: face.provider || "",
       baseUrl: face.baseUrl || "",
@@ -7713,7 +7611,6 @@ async function resolveEffectiveConfigs(options = {}) {
   const image = resolveImageConfig(runtime && runtime.image);
   return {
     runtime: runtime || {
-      providerLabels: {},
       face: {},
       analysis: {},
       image: {},
@@ -7723,10 +7620,6 @@ async function resolveEffectiveConfigs(options = {}) {
       costs: {},
       generationQueue: generationQueueMonitor.normalizeQueueSettings()
     },
-    providerLabels: normalizeAdminProviderLabels(
-      runtime && runtime.providerLabels,
-      { includeDefaults: true }
-    ),
     face: resolveFaceConfig(runtime && runtime.face),
     analysis: resolveAnalysisConfig(runtime && runtime.analysis),
     image,
@@ -7754,7 +7647,6 @@ function adminConfigView(configs, runtime, metadata = {}) {
   });
   const generationQueueDefaults = generationQueueMonitor.normalizeQueueSettings();
   const overrides = runtime || {
-    providerLabels: {},
     face: {},
     analysis: {},
     image: {},
@@ -7766,7 +7658,6 @@ function adminConfigView(configs, runtime, metadata = {}) {
   };
   return {
     defaults: redactConfig({
-      providerLabels: DEFAULT_ADMIN_PROVIDER_LABELS,
       face: faceDefaults,
       analysis: analysisDefaults,
       image: imageDefaults,
@@ -7776,7 +7667,6 @@ function adminConfigView(configs, runtime, metadata = {}) {
       costs: costDefaults,
       generationQueue: generationQueueDefaults
     }, {
-      providerLabels: DEFAULT_ADMIN_PROVIDER_LABELS,
       face: faceDefaults,
       analysis: analysisDefaults,
       image: imageDefaults,
@@ -7787,7 +7677,6 @@ function adminConfigView(configs, runtime, metadata = {}) {
       generationQueue: generationQueueDefaults
     }),
     overrides: redactConfig(overrides, {
-      providerLabels: DEFAULT_ADMIN_PROVIDER_LABELS,
       face: faceDefaults,
       analysis: analysisDefaults,
       image: imageDefaults,
@@ -7797,7 +7686,6 @@ function adminConfigView(configs, runtime, metadata = {}) {
       costs: costDefaults
     }),
     effective: redactConfig({
-      providerLabels: configs.providerLabels,
       face: configs.face,
       analysis: configs.analysis,
       image: configs.image,
@@ -7807,7 +7695,6 @@ function adminConfigView(configs, runtime, metadata = {}) {
       costs: configs.costs,
       generationQueue: configs.generationQueue
     }, {
-      providerLabels: configs.providerLabels,
       face: configs.face,
       analysis: configs.analysis,
       image: configs.image,
@@ -8490,21 +8377,8 @@ function dropBlankRuntimeApiKeys(patch = {}) {
 
 async function saveAdminConfig(event, context) {
   if (!isAdminContext(context)) return adminForbidden();
-  const rawConfig = event && event.config && typeof event.config === "object"
-    ? event.config
-    : {};
-  const rawProviderLabelErrors = hasOwn(rawConfig, "providerLabels")
-    ? validateAdminProviderLabels(rawConfig.providerLabels, {})
-    : [];
-  if (rawProviderLabelErrors.length) {
-    return fail(
-      rawProviderLabelErrors.join("；"),
-      "ADMIN_PROVIDER_LABEL_REQUIRED",
-      { fields: rawProviderLabelErrors }
-    );
-  }
   const patch = dropBlankRuntimeApiKeys(
-    normalizeRuntimePatch(rawConfig)
+    normalizeRuntimePatch(event && event.config)
   );
   if (hasOwn(patch.image, "retryEnabled")) {
     patch.image.retryPreferenceVersion = IMAGE_RETRY_PREFERENCE_VERSION;
@@ -8518,25 +8392,9 @@ async function saveAdminConfig(event, context) {
   let next = mergeRuntimeConfig(current, patch);
   const providerGuard = guardAdminImageProviderConfig(current, next, patch);
   next = providerGuard.value;
-  const providerLabelErrors = validateAdminProviderLabels(
-    next.providerLabels,
-    next
-  );
-  if (providerLabelErrors.length) {
-    return fail(
-      providerLabelErrors.join("；"),
-      "ADMIN_PROVIDER_LABEL_REQUIRED",
-      { fields: providerLabelErrors }
-    );
-  }
-  next.providerLabels = normalizeAdminProviderLabels(
-    next.providerLabels,
-    { includeDefaults: true }
-  );
   const previousVersion = Number(current && current.version) || 0;
   const data = {
     _id: ADMIN_RUNTIME_CONFIG_ID,
-    providerLabels: next.providerLabels,
     face: next.face,
     analysis: next.analysis,
     image: next.image,
@@ -8568,7 +8426,6 @@ async function saveAdminConfig(event, context) {
   });
   adminRuntimeCache = {
     value: {
-      providerLabels: next.providerLabels,
       face: next.face,
       analysis: next.analysis,
       image: next.image,
@@ -8588,7 +8445,6 @@ async function saveAdminConfig(event, context) {
     updatedBy: getOpenId(context),
     version: data.version,
     imageProviderAutoCorrected: providerGuard.corrected,
-    providerLabelFields: Object.keys(patch.providerLabels || {}),
     faceFields: Object.keys(patch.face),
     analysisFields: Object.keys(patch.analysis),
     imageFields: Object.keys(patch.image),
@@ -9982,17 +9838,18 @@ async function detectFaceCircle(event, context) {
   const instruction = [
     "你是人脸位置检测器，只分析这张原图中清晰可见的人脸。",
     "请找出所有可识别的人脸，忽略海报、头像小图、屏幕反光和动物脸。",
-    "每张脸返回一个外接矩形，使用 bbox_2d 数组表示 [左,上,右,下]，四个数都必须是 0 到 1000 的归一化坐标。",
-    "bbox_2d 必须紧贴脸部外接框，不要返回整个人、衣服或背景。",
+    "每张脸返回一个外接矩形，必须使用 x_min、y_min、x_max、y_max 四个命名字段，四个值都必须是 0 到 1000 的归一化坐标。",
+    "x_min 是左边界，y_min 是上边界，x_max 是右边界，y_max 是下边界；不要使用 bbox_2d 数组。",
+    "人脸框必须紧贴脸部外接框，不要返回整个人、衣服或背景。",
     "必须返回图片里的全部人脸，不能只返回最明显的一张。",
     "只返回 JSON，不要 Markdown、解释、示例数字或其他文字。",
-    'JSON 结构固定为 {"faces":[{"bbox_2d":[左,上,右,下],"confidence":置信度}]}。',
+    'JSON 结构固定为 {"faces":[{"x_min":左,"y_min":上,"x_max":右,"y_max":下,"confidence":置信度}]}。',
     "如果没有清晰人脸，返回 {\"faces\":[]}。"
   ].join("\n");
   const imageEncodingStartedAt = Date.now();
   const imageDataUrl = toDataUrl(image, detectMime(image));
   const imageEncodingMs = Date.now() - imageEncodingStartedAt;
-  const requestPayload = {
+  const requestPayload = sanitizeVisionRequestPayload({
     model,
     temperature: 0,
     top_p: 0.01,
@@ -10006,7 +9863,7 @@ async function detectFaceCircle(event, context) {
         { type: "image_url", image_url: { url: imageDataUrl } }
       ]
     }]
-  };
+  }, vision);
   let response;
   const visionRequestStartedAt = Date.now();
   try {
@@ -10021,7 +9878,7 @@ async function detectFaceCircle(event, context) {
       if (error.status !== 400) throw error;
       response = await requestJson(
         url,
-        requestPayload,
+        sanitizeVisionRequestPayload(requestPayload, vision),
         vision.apiKey,
         {},
         Object.assign(
@@ -10247,7 +10104,7 @@ async function analyzeWebPoses(event, context) {
   ].join("\n");
   const imageDataUrl = toDataUrl(image, detectMime(image));
   const requestWebPose = async (prompt, temperature) => {
-    const requestPayload = {
+    const requestPayload = sanitizeVisionRequestPayload({
       model,
       temperature,
       top_p: 0.2,
@@ -10260,7 +10117,7 @@ async function analyzeWebPoses(event, context) {
           { type: "image_url", image_url: { url: imageDataUrl } }
         ]
       }]
-    };
+    }, vision);
     const requestMeta = Object.assign(
       visionRequestMeta(event.requestId, "analyzeWebPoses", vision, costs),
       { userHash: usageUserHash(getOpenId(context)) }
@@ -10278,8 +10135,9 @@ async function analyzeWebPoses(event, context) {
     } catch (error) {
       if (error.status !== 400) throw error;
       // 部分 OpenAI-compatible 中转不接受 response_format 或 enable_thinking，降级后再发一次。
-      const fallbackPayload = Object.assign({}, requestPayload);
+      const fallbackPayload = sanitizeVisionRequestPayload(requestPayload, requestMeta);
       delete fallbackPayload.enable_thinking;
+      delete fallbackPayload.seed;
       return requestJson(url, fallbackPayload, vision.apiKey, {}, requestMeta);
     }
   };
@@ -18103,6 +17961,9 @@ exports.main = async (event = {}, context) => {
     else if (action === "getAdminConfigAuditLogs") {
       result = await getAdminConfigAuditLogs(requestEvent, context);
     }
+    else if (action === "checkRuntimeHealth") {
+      result = checkRuntimeHealth(requestEvent, context);
+    }
     else if (action === "checkDeployment") result = await checkDeployment(requestEvent, context);
     else if (action === "probeImageEditCapability") {
       result = await probeImageEditCapability(requestEvent, context);
@@ -18211,6 +18072,8 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     resolveAnalysisConfig,
     normalizeApiKey,
     apiKeyHeaders,
+    isGeminiCompatibleVision,
+    sanitizeVisionRequestPayload,
     resolveImageEditEndpoint,
     resolveImageEditSizeLimits,
     imageEditAssetEntries,
@@ -18260,10 +18123,6 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     normalizeVideoResolution,
     modelCapabilities,
     buildImageQualityProbe,
-    normalizeAdminProviderLabels,
-    mergeAdminProviderLabels,
-    validateAdminProviderLabels,
-    configuredAdminProviderIds,
     normalizeRuntimePatch,
     dropBlankRuntimeApiKeys,
     extractModelUsage,
@@ -18441,6 +18300,7 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     saveAdminConfig,
     getAdminConfigAuditLogs,
     checkRuntimeDependencies,
+    checkRuntimeHealth,
     checkDeployment,
     modelProbeUrl,
     listedModelIds,
@@ -18481,8 +18341,6 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     generationExecutionKernel,
     videoExecutionKernel,
     generationStateMachine,
-    mapActionErrorResult,
-    processQueuedGenerationOperation,
     sanitizeVideoOperationResult,
     completeVideoGenerationOperation,
     failVideoGenerationOperation,

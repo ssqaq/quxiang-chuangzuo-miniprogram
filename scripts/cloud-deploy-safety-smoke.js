@@ -133,7 +133,7 @@ try {
     `$resume = Resolve-CloudDeployTransport -RequestedTransport auto -CloudBaseCliPath 'npx.cmd' -WechatIdePath 'wechatide.cmd' -ResumePendingDeploy`,
     `if ($resume -ne 'wechat') { throw "pending task must resume through wechat, got: $resume" }`,
     `$verify = Resolve-CloudDeployTransport -RequestedTransport auto -CloudBaseCliPath 'npx.cmd' -WechatIdePath 'wechatide.cmd' -VerifyOnly`,
-    `if ($verify -ne 'wechat') { throw "verify-only must use wechat, got: $verify" }`,
+    `if ($verify -ne 'cloudbase') { throw "verify-only should prefer cloudbase, got: $verify" }`,
     `$caught = $false`,
     `try { Resolve-CloudDeployTransport -RequestedTransport cloudbase -CloudBaseCliPath '' -WechatIdePath 'wechatide.cmd' } catch { if ($_.Exception.Message -like '*CloudBase CLI*') { $caught = $true } else { throw } }`,
     `if (-not $caught) { throw 'forced cloudbase without CLI was not rejected' }`,

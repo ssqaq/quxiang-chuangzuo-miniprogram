@@ -57,6 +57,11 @@ const ADMIN_PROVIDER_LABELS = Object.freeze({
   lingyun: "凌云",
   dashscope: "阿里云百炼"
 });
+const ADMIN_BUILT_IN_PROVIDER_ORDER = Object.freeze([
+  "xingju",
+  "lingyun",
+  "dashscope"
+]);
 const ADMIN_PROVIDER_LABEL_MAX_LENGTH = 20;
 const ADMIN_PROVIDER_LABEL_REQUIRED = "ADMIN_PROVIDER_LABEL_REQUIRED";
 const ADMIN_PROVIDER_DANGEROUS_KEYS = Object.freeze([
@@ -134,6 +139,50 @@ function adminProviderIdsFromForm(form) {
   return providerIds;
 }
 
+function adminProviderSortLabel(providerId, rawLabels = {}) {
+  const labels = rawLabels && typeof rawLabels === "object" && !Array.isArray(rawLabels)
+    ? rawLabels
+    : {};
+  const hasRawLabel = Object.prototype.hasOwnProperty.call(labels, providerId);
+  const label = hasRawLabel
+    ? labels[providerId]
+    : activeAdminProviderLabels[providerId] || ADMIN_PROVIDER_LABELS[providerId] || "";
+  return String(label == null ? "" : label).trim() || providerId;
+}
+
+function sortAdminProviderIds(providerIds, rawLabels = {}) {
+  const normalizedIds = Array.from(new Set(
+    (Array.isArray(providerIds) ? providerIds : [])
+      .map((providerId) => String(providerId || "").trim())
+      .filter((providerId) => (
+        providerId
+        && !ADMIN_PROVIDER_DANGEROUS_KEYS.includes(providerId)
+      ))
+  ));
+  return normalizedIds.sort((left, right) => {
+    const leftBuiltInIndex = ADMIN_BUILT_IN_PROVIDER_ORDER.indexOf(left);
+    const rightBuiltInIndex = ADMIN_BUILT_IN_PROVIDER_ORDER.indexOf(right);
+    const leftIsBuiltIn = leftBuiltInIndex >= 0;
+    const rightIsBuiltIn = rightBuiltInIndex >= 0;
+    if (leftIsBuiltIn !== rightIsBuiltIn) return leftIsBuiltIn ? -1 : 1;
+    if (leftIsBuiltIn && leftBuiltInIndex !== rightBuiltInIndex) {
+      return leftBuiltInIndex - rightBuiltInIndex;
+    }
+    const labelOrder = adminProviderSortLabel(left, rawLabels).localeCompare(
+      adminProviderSortLabel(right, rawLabels),
+      "zh-CN",
+      {
+        numeric: true,
+        sensitivity: "base"
+      }
+    );
+    return labelOrder || left.localeCompare(right, "zh-CN", {
+      numeric: true,
+      sensitivity: "base"
+    });
+  });
+}
+
 function providerLabelsFromForm(form) {
   const source = form && typeof form === "object" ? form : {};
   return mergeAdminProviderLabels(source.providerLabels);
@@ -155,11 +204,7 @@ function buildAdminProviderLabelRows(form, errors = {}) {
       providerId
       && !ADMIN_PROVIDER_DANGEROUS_KEYS.includes(providerId)
     ));
-  return Array.from(new Set(providerIds))
-    .sort((left, right) => left.localeCompare(right, "zh-CN", {
-      numeric: true,
-      sensitivity: "base"
-    }))
+  return sortAdminProviderIds(providerIds, rawLabels)
     .map((providerId) => {
       const hasRawLabel = Object.prototype.hasOwnProperty.call(rawLabels, providerId);
       const label = String(
@@ -198,7 +243,10 @@ function validateAdminProviderLabelRows(rows) {
 }
 
 function buildAdminProviderFilterState(form, selectedValue = "all") {
-  const providerIds = adminProviderIdsFromForm(form);
+  const providerIds = sortAdminProviderIds(
+    adminProviderIdsFromForm(form),
+    form && form.providerLabels
+  );
   const options = [{ value: "all", label: "全部服务商" }].concat(
     providerIds.map((providerId) => ({
       value: providerId,
@@ -5879,6 +5927,9 @@ Page({
       && CONFIG_SECTION_TITLES[stored.activeConfigSection]
       ? stored.activeConfigSection
       : "";
+    const storedProviderFilterValue = typeof stored.providerFilterValue === "string"
+      ? stored.providerFilterValue.trim()
+      : "";
     const usageExpanded = typeof stored.usageExpanded === "boolean"
       ? stored.usageExpanded
       : typeof storedMonitorSections.usage === "boolean"
@@ -5920,7 +5971,8 @@ Page({
       activeConfigSection: storedActiveConfigSection,
       activeConfigTitle: storedActiveConfigSection
         ? CONFIG_SECTION_TITLES[storedActiveConfigSection]
-        : ""
+        : "",
+      providerFilterValue: storedProviderFilterValue || this.data.providerFilterValue
     });
   },
 
@@ -5960,7 +6012,7 @@ Page({
   persistMonitorLayout() {
     try {
       wx.setStorageSync(MONITOR_LAYOUT_STORAGE_KEY, {
-        version: 6,
+        version: 7,
         monitorExpanded: Boolean(this.data.monitorExpanded),
         usageExpanded: Boolean(this.data.usageExpanded),
         monitorSections: Object.assign({}, this.data.monitorSections),
@@ -5969,7 +6021,8 @@ Page({
         deploymentSections: Object.assign({}, this.data.deploymentSections),
         activeConfigSection: CONFIG_SECTION_TITLES[this.data.activeConfigSection]
           ? this.data.activeConfigSection
-          : ""
+          : "",
+        providerFilterValue: String(this.data.providerFilterValue || "all").trim() || "all"
       });
     } catch (error) {
       // 本地缓存不可用时不影响管理页继续使用。

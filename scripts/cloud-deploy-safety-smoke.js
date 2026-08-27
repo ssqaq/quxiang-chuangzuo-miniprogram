@@ -10,6 +10,12 @@ const root = path.resolve(__dirname, "..");
 const helperPath = path.join(root, "scripts", "cloud-deploy-safety.ps1");
 const deployPath = path.join(root, "scripts", "deploy-and-verify-api.ps1");
 const deploySource = fs.readFileSync(deployPath, "utf8");
+const cloudbaseDeployPath = path.join(
+  root,
+  "scripts",
+  "deploy-api-cloudbase-cli.ps1"
+);
+const cloudbaseDeploySource = fs.readFileSync(cloudbaseDeployPath, "utf8");
 
 function psQuote(value) {
   return `'${String(value).replace(/'/g, "''")}'`;
@@ -27,6 +33,22 @@ assert.ok(
   deploySource.includes("Enter-CloudDeployLock")
     && deploySource.includes("Exit-CloudDeployLock"),
   "真实部署必须在 finally 中取得并释放独占锁"
+);
+assert.ok(
+  deploySource.includes("Assert-CloudDeployVersionNotDowngrade")
+    && deploySource.indexOf("Assert-CloudDeployVersionNotDowngrade")
+      < deploySource.indexOf('"cloud_fn_deploy"'),
+  "真实部署必须在 cloud_fn_deploy 前检查线上版本，禁止降级"
+);
+assert.ok(
+  deploySource.includes("Get-DeploymentResult")
+    && deploySource.includes("-ReadOnly"),
+  "真实部署必须用只读 checkDeployment 读取线上版本"
+);
+assert.ok(
+  cloudbaseDeploySource.includes("Get-CloudBaseFunctionVersion")
+    && cloudbaseDeploySource.includes("Assert-CloudDeployVersionNotDowngrade"),
+  "CloudBase 直部署入口也必须检查线上版本，禁止降级"
 );
 assert.ok(
   deploySource.includes("Assert-CloudDeploySourceSnapshotStable"),
@@ -69,6 +91,127 @@ try {
     `待确认任务记录测试失败\n${pendingResult.stdout}\n${pendingResult.stderr}`
   );
   assert.ok(pendingResult.stdout.includes("PENDING_OK"));
+
+  const versionGuardCommand = [
+    `. ${psQuote(helperPath)}`,
+    "if ((Compare-CloudDeployVersions -LeftVersion '0.46.3' -RightVersion '0.46.2') -ne 1) { throw 'Newer local version was not recognized.' }",
+    "if ((Compare-CloudDeployVersions -LeftVersion '0.46.2' -RightVersion '0.46.3') -ne -1) { throw 'Older local version was not recognized.' }",
+    "if ((Compare-CloudDeployVersions -LeftVersion '0.46.3' -RightVersion '0.46.3') -ne 0) { throw 'Equal versions were not recognized.' }",
+    "$same = Assert-CloudDeployVersionNotDowngrade -LocalVersion '0.46.3' -OnlineVersion '0.46.3'",
+    "if ($same.Relation -ne 'same') { throw 'Equal version relation mismatch.' }",
+    "$newer = Assert-CloudDeployVersionNotDowngrade -LocalVersion '0.46.3' -OnlineVersion '0.46.2'",
+    "if ($newer.Relation -ne 'local-newer') { throw 'Newer local version relation mismatch.' }",
+    "$downgradeCaught = $false",
+    "try { Assert-CloudDeployVersionNotDowngrade -LocalVersion '0.46.2' -OnlineVersion '0.46.3' } catch { if ($_.Exception.Message -like '*禁止版本降级*') { $downgradeCaught = $true } else { throw } }",
+    "if (-not $downgradeCaught) { throw 'Version downgrade was not blocked.' }",
+    "$invalidCaught = $false",
+    "try { Assert-CloudDeployVersionNotDowngrade -LocalVersion '0.46.x' -OnlineVersion '0.46.3' } catch { if ($_.Exception.Message -like '*三段式*') { $invalidCaught = $true } else { throw } }",
+    "if (-not $invalidCaught) { throw 'Invalid version was not blocked.' }",
+    "$missingCaught = $false",
+    "try { Assert-CloudDeployVersionNotDowngrade -LocalVersion '0.46.3' -OnlineVersion '' } catch { if ($_.Exception.Message -like '*读取不到线上版本*') { $missingCaught = $true } else { throw } }",
+    "if (-not $missingCaught) { throw 'Missing online version was not blocked.' }",
+    "Write-Output 'VERSION_GUARD_OK'",
+  ].join("; ");
+  const versionGuardResult = runPowerShell(versionGuardCommand);
+  assert.strictEqual(
+    versionGuardResult.status,
+    0,
+    `版本防降级测试失败\n${versionGuardResult.stdout}\n${versionGuardResult.stderr}`
+  );
+  assert.ok(versionGuardResult.stdout.includes("VERSION_GUARD_OK"));
+
+  const transportCommand = [
+    `. ${psQuote(helperPath)}`,
+    `$autoCloudBase = Resolve-CloudDeployTransport -RequestedTransport auto -CloudBaseCliPath 'npx.cmd' -WechatIdePath 'wechatide.cmd'`,
+    `if ($autoCloudBase -ne 'cloudbase') { throw "auto should prefer cloudbase, got: $autoCloudBase" }`,
+    `$autoWechat = Resolve-CloudDeployTransport -RequestedTransport auto -CloudBaseCliPath '' -WechatIdePath 'wechatide.cmd'`,
+    `if ($autoWechat -ne 'wechat') { throw "auto should fall back to wechat, got: $autoWechat" }`,
+    `$explicitCloudBase = Resolve-CloudDeployTransport -RequestedTransport cloudbase -CloudBaseCliPath 'npx.cmd' -WechatIdePath ''`,
+    `if ($explicitCloudBase -ne 'cloudbase') { throw "explicit cloudbase selection failed" }`,
+    `$explicitWechat = Resolve-CloudDeployTransport -RequestedTransport wechat -CloudBaseCliPath '' -WechatIdePath 'wechatide.cmd'`,
+    `if ($explicitWechat -ne 'wechat') { throw "explicit wechat selection failed" }`,
+    `$resume = Resolve-CloudDeployTransport -RequestedTransport auto -CloudBaseCliPath 'npx.cmd' -WechatIdePath 'wechatide.cmd' -ResumePendingDeploy`,
+    `if ($resume -ne 'wechat') { throw "pending task must resume through wechat, got: $resume" }`,
+    `$verify = Resolve-CloudDeployTransport -RequestedTransport auto -CloudBaseCliPath 'npx.cmd' -WechatIdePath 'wechatide.cmd' -VerifyOnly`,
+    `if ($verify -ne 'wechat') { throw "verify-only must use wechat, got: $verify" }`,
+    `$caught = $false`,
+    `try { Resolve-CloudDeployTransport -RequestedTransport cloudbase -CloudBaseCliPath '' -WechatIdePath 'wechatide.cmd' } catch { if ($_.Exception.Message -like '*CloudBase CLI*') { $caught = $true } else { throw } }`,
+    `if (-not $caught) { throw 'forced cloudbase without CLI was not rejected' }`,
+    `$caught = $false`,
+    `try { Resolve-CloudDeployTransport -RequestedTransport cloudbase -CloudBaseCliPath 'npx.cmd' -WechatIdePath 'wechatide.cmd' -ResumePendingDeploy } catch { if ($_.Exception.Message -like '*只能恢复微信*') { $caught = $true } else { throw } }`,
+    `if (-not $caught) { throw 'pending task was allowed to use cloudbase' }`,
+    "Write-Output 'TRANSPORT_OK'",
+  ].join("; ");
+  const transportResult = runPowerShell(transportCommand);
+  assert.strictEqual(
+    transportResult.status,
+    0,
+    `部署方式选择测试失败\n${transportResult.stdout}\n${transportResult.stderr}`
+  );
+  assert.ok(transportResult.stdout.includes("TRANSPORT_OK"));
+
+  const apiRoot = path.join(tempRoot, "api");
+  fs.mkdirSync(apiRoot, { recursive: true });
+  fs.writeFileSync(path.join(apiRoot, "index.js"), "module.exports = 1;\n");
+
+  const successLog = path.join(tempRoot, "cloudbase-success.log");
+  const successNpx = path.join(tempRoot, "fake-npx-success.cmd");
+  fs.writeFileSync(
+    successNpx,
+    [
+      "@echo off",
+      `> "%CLOUDBASE_SMOKE_LOG%" echo %CD%`,
+      "exit /b 0",
+      "",
+    ].join("\r\n")
+  );
+  const successCommand = [
+    `$env:CLOUDBASE_SMOKE_LOG = ${psQuote(successLog)}`,
+    `. ${psQuote(helperPath)}`,
+    `$result = Invoke-CloudBaseFunctionDeploy -EnvironmentId 'env-smoke' -FunctionName 'api' -ApiPath ${psQuote(apiRoot)} -TimeoutSeconds 900 -NpxPath ${psQuote(successNpx)}`,
+    `if ($result.Transport -ne 'cloudbase' -or $result.FunctionName -ne 'api') { throw 'successful CloudBase deploy result mismatch' }`,
+    `if (-not (Test-Path -LiteralPath ${psQuote(successLog)})) { throw 'fake CloudBase CLI was not called' }`,
+    `$workDir = (Get-Content -LiteralPath ${psQuote(successLog)} -Raw).Trim()`,
+    `if (Test-Path -LiteralPath (Join-Path $workDir 'cloudbaserc.json')) { throw 'temporary CloudBase config was not cleaned' }`,
+    "Write-Output 'DIRECT_SUCCESS_OK'",
+  ].join("; ");
+  const successResult = runPowerShell(successCommand);
+  assert.strictEqual(
+    successResult.status,
+    0,
+    `CloudBase 直部署成功路径测试失败\n${successResult.stdout}\n${successResult.stderr}`
+  );
+  assert.ok(successResult.stdout.includes("DIRECT_SUCCESS_OK"));
+
+  const failureLog = path.join(tempRoot, "cloudbase-failure.log");
+  const failureNpx = path.join(tempRoot, "fake-npx-failure.cmd");
+  fs.writeFileSync(
+    failureNpx,
+    [
+      "@echo off",
+      `>> "%CLOUDBASE_SMOKE_LOG%" echo CALL`,
+      "echo simulated failure 1>&2",
+      "exit /b 17",
+      "",
+    ].join("\r\n")
+  );
+  const failureCommand = [
+    `$env:CLOUDBASE_SMOKE_LOG = ${psQuote(failureLog)}`,
+    `. ${psQuote(helperPath)}`,
+    `$caught = $false`,
+    `try { Invoke-CloudBaseFunctionDeploy -EnvironmentId 'env-smoke' -FunctionName 'api' -ApiPath ${psQuote(apiRoot)} -TimeoutSeconds 900 -NpxPath ${psQuote(failureNpx)} | Out-Null } catch { if ($_.Exception.Message -like '*未自动切换*') { $caught = $true } else { throw } }`,
+    `if (-not $caught) { throw 'CloudBase failure was not surfaced as a no-fallback error' }`,
+    `$calls = @(Get-Content -LiteralPath ${psQuote(failureLog)})`,
+    `if ($calls.Count -ne 1) { throw "CloudBase failure invoked CLI $($calls.Count) times" }`,
+    "Write-Output 'DIRECT_FAILURE_NO_FALLBACK_OK'",
+  ].join("; ");
+  const failureResult = runPowerShell(failureCommand);
+  assert.strictEqual(
+    failureResult.status,
+    0,
+    `CloudBase 直部署失败不重传测试失败\n${failureResult.stdout}\n${failureResult.stderr}`
+  );
+  assert.ok(failureResult.stdout.includes("DIRECT_FAILURE_NO_FALLBACK_OK"));
 
   const fakeWechatIde = path.join(tempRoot, "wechatide.cmd");
   const dryRunLock = path.join(tempRoot, "dry-run.lock");

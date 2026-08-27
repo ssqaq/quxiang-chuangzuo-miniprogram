@@ -6,6 +6,8 @@ param(
   [switch]$DryRun,
   [switch]$VerifyOnly,
   [switch]$ResumePendingDeploy,
+  [ValidateSet("auto", "wechat", "cloudbase")]
+  [string]$DeployTransport = "auto",
   [ValidateRange(1, 300)]
   [int]$LockWaitSeconds = 60,
   [string]$DeployLockPath = ""
@@ -19,6 +21,9 @@ if ($SkipRemoteNpmInstall) {
 }
 if ($ResumePendingDeploy -and ($VerifyOnly -or $DryRun)) {
   throw "-ResumePendingDeploy cannot be combined with -VerifyOnly or -DryRun."
+}
+if ($ResumePendingDeploy -and $DeployTransport -eq "cloudbase") {
+  throw "-ResumePendingDeploy cannot be combined with -DeployTransport cloudbase."
 }
 
 $deploySafetyScript = Join-Path $PSScriptRoot "cloud-deploy-safety.ps1"
@@ -671,9 +676,13 @@ if ($expectedFunctionTimeout -ne 900) {
   throw "cloudfunctions/api/config.json timeout must be exactly 900 seconds."
 }
 $cli = Find-WechatIde -Preferred $WechatIde
-if (-not $cli) {
-  throw "wechatide.cmd was not found. Set WECHATIDE_CLI or pass -WechatIde."
-}
+$cloudBaseCli = Get-CloudBaseCliCommand
+$resolvedDeployTransport = Resolve-CloudDeployTransport `
+  -RequestedTransport $DeployTransport `
+  -CloudBaseCliPath $cloudBaseCli `
+  -WechatIdePath $cli `
+  -VerifyOnly:$VerifyOnly `
+  -ResumePendingDeploy:$ResumePendingDeploy
 
 Write-Host "Project: $project"
 Write-Host "AppID: $appId"
@@ -687,11 +696,14 @@ if ($VerifyOnly) {
 } elseif ($ResumePendingDeploy) {
   Write-Host "Mode: resume existing confirmed cloud deployment task"
 }
+Write-Host "Requested deployment transport: $DeployTransport"
+Write-Host "Selected deployment transport: $resolvedDeployTransport"
 Write-Host "Remote npm install: required"
 if ($expectedMarker) {
   Write-Host "Expected marker: $expectedMarker"
 }
-Write-Host "WechatIDE: $cli"
+Write-Host "CloudBase CLI: $(if ($cloudBaseCli) { 'available' } else { 'unavailable' })"
+Write-Host "WechatIDE CLI: $(if ($cli) { 'available' } else { 'unavailable' })"
 
 if ($DryRun) {
   Write-Host "Dry run passed. No deployment or cloud request was sent." -ForegroundColor Green
@@ -864,72 +876,96 @@ try {
   ) | Out-Null
   Start-Sleep -Seconds 2
 
-  Write-Host "5/7 Deploy cloud function"
+  Write-Host "5/7 Deploy cloud function via $resolvedDeployTransport"
   Wait-CloudFunctionReady `
     -CliPath $cli `
     -AppId $appId `
     -EnvironmentId $cloudEnvId `
     -FunctionName $functionName
-  if ($ResumePendingDeploy) {
-    $taskId = [string]$pendingDeployment.taskId
-    if ([string]::IsNullOrWhiteSpace($taskId)) {
-      throw "Pending cloud deployment record is missing taskId."
-    }
-    Write-Host "Resume pending cloud deployment task: $taskId"
-    $pollResponse = Invoke-WechatIde -CliPath $cli -Arguments @(
-      "-c", $ClientName,
-      "polling_task_result",
-      "--task-id", $taskId
-    )
-    $deployPayload = Get-ToolPayload $pollResponse
-    $pendingStatus = [string](
-      Get-ObjectPropertyValue -Value $deployPayload -Name "status"
-    )
-    if ($pendingStatus -eq "pending") {
-      throw "DEPLOY_CONFIRMATION_REQUIRED: Open WeChat Developer Tools and confirm the existing cloud deployment task, then run with -ResumePendingDeploy again."
-    }
-    if ($pendingStatus -in @("failed", "cancelled", "expired")) {
-      Remove-CloudDeployPending -PendingPath $deployLock.PendingPath
-      throw "Pending cloud deployment ended with status: $pendingStatus"
-    }
+  Write-Host "Check online version before upload"
+  $preDeployment = Get-DeploymentResult `
+    -CliPath $cli `
+    -Project $project `
+    -FunctionName $functionName `
+    -ReadOnly
+  $onlineVersionBeforeUpload = [string](
+    Get-ObjectPropertyValue -Value $preDeployment -Name "buildVersion"
+  )
+  $versionDecision = Assert-CloudDeployVersionNotDowngrade `
+    -LocalVersion $appVersion `
+    -OnlineVersion $onlineVersionBeforeUpload
+  Write-Host "Version guard passed: local=$($versionDecision.LocalVersion), online=$($versionDecision.OnlineVersion), relation=$($versionDecision.Relation)"
+  if ($resolvedDeployTransport -eq "cloudbase") {
+    Write-Host "CloudBase 直部署：不等待微信确认弹窗"
+    Invoke-CloudBaseFunctionDeploy `
+      -EnvironmentId $cloudEnvId `
+      -FunctionName $functionName `
+      -ApiPath $apiPath `
+      -TimeoutSeconds $expectedFunctionTimeout `
+      -NpxPath $cloudBaseCli | Out-Null
   }
   else {
-    $deployArguments = @(
-      "-c", $ClientName,
-      "cloud_fn_deploy",
-      "--appid", $appId,
-      "--env", $cloudEnvId,
-      "--path", $apiPath,
-      "--remote-npm-install"
-    )
-    $deployPayload = Invoke-WechatIdeTool `
-      -CliPath $cli `
-      -Arguments $deployArguments `
-      -ReturnPendingImmediately
-    $taskId = [string](
-      Get-ObjectPropertyValue -Value $deployPayload -Name "taskId"
-    )
-    if (-not [string]::IsNullOrWhiteSpace($taskId)) {
-      Write-CloudDeployPending `
-        -PendingPath $deployLock.PendingPath `
-        -Record ([ordered]@{
-          taskId = $taskId
-          toolName = "cloud_fn_deploy"
-          targetVersion = $appVersion
-          buildMarker = $expectedMarker
-          functionName = $functionName
-          environmentId = $cloudEnvId
-          apiFingerprint = $sourceSnapshot.ApiFingerprint
-          createdAt = [DateTime]::UtcNow.ToString("o")
-        })
-      throw "DEPLOY_CONFIRMATION_REQUIRED: Open WeChat Developer Tools and confirm cloud function deployment. The pending task was saved and duplicate uploads are blocked."
+    if ($ResumePendingDeploy) {
+      $taskId = [string]$pendingDeployment.taskId
+      if ([string]::IsNullOrWhiteSpace($taskId)) {
+        throw "Pending cloud deployment record is missing taskId."
+      }
+      Write-Host "Resume pending cloud deployment task: $taskId"
+      $pollResponse = Invoke-WechatIde -CliPath $cli -Arguments @(
+        "-c", $ClientName,
+        "polling_task_result",
+        "--task-id", $taskId
+      )
+      $deployPayload = Get-ToolPayload $pollResponse
+      $pendingStatus = [string](
+        Get-ObjectPropertyValue -Value $deployPayload -Name "status"
+      )
+      if ($pendingStatus -eq "pending") {
+        throw "DEPLOY_CONFIRMATION_REQUIRED: Open WeChat Developer Tools and confirm the existing cloud deployment task, then run with -ResumePendingDeploy again."
+      }
+      if ($pendingStatus -in @("failed", "cancelled", "expired")) {
+        Remove-CloudDeployPending -PendingPath $deployLock.PendingPath
+        throw "Pending cloud deployment ended with status: $pendingStatus"
+      }
     }
-  }
-  Assert-CloudFunctionDeploymentResult `
-    -Payload $deployPayload `
-    -FunctionName $functionName
-  if ($ResumePendingDeploy) {
-    Remove-CloudDeployPending -PendingPath $deployLock.PendingPath
+    else {
+      $deployArguments = @(
+        "-c", $ClientName,
+        "cloud_fn_deploy",
+        "--appid", $appId,
+        "--env", $cloudEnvId,
+        "--path", $apiPath,
+        "--remote-npm-install"
+      )
+      $deployPayload = Invoke-WechatIdeTool `
+        -CliPath $cli `
+        -Arguments $deployArguments `
+        -ReturnPendingImmediately
+      $taskId = [string](
+        Get-ObjectPropertyValue -Value $deployPayload -Name "taskId"
+      )
+      if (-not [string]::IsNullOrWhiteSpace($taskId)) {
+        Write-CloudDeployPending `
+          -PendingPath $deployLock.PendingPath `
+          -Record ([ordered]@{
+            taskId = $taskId
+            toolName = "cloud_fn_deploy"
+            targetVersion = $appVersion
+            buildMarker = $expectedMarker
+            functionName = $functionName
+            environmentId = $cloudEnvId
+            apiFingerprint = $sourceSnapshot.ApiFingerprint
+            createdAt = [DateTime]::UtcNow.ToString("o")
+          })
+        throw "DEPLOY_CONFIRMATION_REQUIRED: Open WeChat Developer Tools and confirm cloud function deployment. The pending task was saved and duplicate uploads are blocked."
+      }
+    }
+    Assert-CloudFunctionDeploymentResult `
+      -Payload $deployPayload `
+      -FunctionName $functionName
+    if ($ResumePendingDeploy) {
+      Remove-CloudDeployPending -PendingPath $deployLock.PendingPath
+    }
   }
   Wait-CloudFunctionReady `
     -CliPath $cli `

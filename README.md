@@ -301,9 +301,33 @@ node .\scripts\check-deployment.js --strict
 PowerShell -NoProfile -ExecutionPolicy Bypass -File .\scripts\deploy-and-verify-api.ps1
 ```
 
-它会自动完成“部署云函数 → 调用线上云函数 → 对比本地版本和线上版本/构建标记”。
+脚本默认使用 `auto` 部署方式：
+
+1. 本机能找到 `npx` 时，优先走 CloudBase CLI 直部署，不等待微信开发者工具确认弹窗；
+2. 本机没有可用的 CloudBase CLI 时，才退回微信开发者工具部署；
+3. CloudBase 已经开始上传但结果不明确时，脚本会直接停止，不会再自动换另一种方式重复上传。
+
+它随后会自动完成“部署云函数 → 调用线上云函数 → 对比本地版本和线上版本/构建标记”。
 只有线上返回完全一致才会显示通过；如果线上还是旧版本，脚本会报错并停止。
 运行前要在微信开发者工具里登录管理员微信，并打开服务端口。
+
+如果要强制指定部署方式，可以使用：
+
+```powershell
+# 强制使用 CloudBase CLI；本机没有 npx 时立即报错，不会改走微信弹窗
+PowerShell -NoProfile -ExecutionPolicy Bypass -File .\scripts\deploy-and-verify-api.ps1 -DeployTransport cloudbase
+
+# 强制使用微信开发者工具
+PowerShell -NoProfile -ExecutionPolicy Bypass -File .\scripts\deploy-and-verify-api.ps1 -DeployTransport wechat
+```
+
+微信开发者工具产生的“等待确认”任务只能用下面的参数继续原任务：
+
+```powershell
+PowerShell -NoProfile -ExecutionPolicy Bypass -File .\scripts\deploy-and-verify-api.ps1 -ResumePendingDeploy
+```
+
+`-ResumePendingDeploy` 不会重新上传，也不能和 `-DeployTransport cloudbase` 一起使用。
 
 微信开发者工具本机检查：
 

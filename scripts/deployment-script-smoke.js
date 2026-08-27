@@ -7,9 +7,15 @@ const cp = require("child_process");
 
 const root = path.resolve(__dirname, "..");
 const scriptPath = path.join(root, "scripts", "deploy-and-verify-api.ps1");
+const cloudbaseDeployPath = path.join(
+  root,
+  "scripts",
+  "deploy-api-cloudbase-cli.ps1"
+);
 const verifyScriptPath = path.join(root, "scripts", "verify-online-api.ps1");
 const safetyScriptPath = path.join(root, "scripts", "cloud-deploy-safety.ps1");
 const source = fs.readFileSync(scriptPath, "utf8");
+const cloudbaseDeploySource = fs.readFileSync(cloudbaseDeployPath, "utf8");
 const verifySource = fs.readFileSync(verifyScriptPath, "utf8");
 const safetySource = fs.readFileSync(safetyScriptPath, "utf8");
 const apiSource = fs.readFileSync(
@@ -149,12 +155,63 @@ assert.ok(
   "真实部署必须使用独占锁并检查源码快照"
 );
 assert.ok(
+  source.includes("Get-DeploymentResult")
+    && source.includes("-ReadOnly")
+    && source.includes("Assert-CloudDeployVersionNotDowngrade")
+    && source.indexOf("Assert-CloudDeployVersionNotDowngrade")
+      < source.indexOf('"cloud_fn_deploy"'),
+  "真实部署必须在上传前读取线上版本并禁止降级"
+);
+assert.ok(
+  safetySource.includes("Compare-CloudDeployVersions")
+    && safetySource.includes("Assert-CloudDeployVersionNotDowngrade")
+    && safetySource.includes("Get-CloudBaseFunctionVersion"),
+  "部署保护脚本必须包含版本比较、降级拦截和 CloudBase 版本读取"
+);
+assert.ok(
   source.includes("[switch]$ResumePendingDeploy")
     && source.includes("Write-CloudDeployPending")
     && source.includes("Read-CloudDeployPending")
     && source.includes("DEPLOY_CONFIRMATION_REQUIRED")
     && source.includes("duplicate uploads are blocked"),
   "部署确认任务必须落盘并支持只恢复旧任务，禁止重复上传"
+);
+assert.ok(
+  source.includes('[ValidateSet("auto", "wechat", "cloudbase")]')
+    && source.includes('[string]$DeployTransport = "auto"')
+    && source.includes("Resolve-CloudDeployTransport"),
+  "部署入口必须支持 auto/wechat/cloudbase，默认使用自动选择"
+);
+assert.ok(
+  source.includes("Invoke-CloudBaseFunctionDeploy")
+    && source.includes('if ($resolvedDeployTransport -eq "cloudbase")'),
+  "自动选择到 CloudBase 时必须调用公共直部署函数"
+);
+const cloudbaseBranchStart = source.indexOf(
+  'if ($resolvedDeployTransport -eq "cloudbase")'
+);
+const cloudbaseBranchEnd = source.indexOf(
+  "else {",
+  cloudbaseBranchStart
+);
+assert.ok(
+  cloudbaseBranchStart >= 0 && cloudbaseBranchEnd > cloudbaseBranchStart,
+  "部署方式分支缺失"
+);
+const cloudbaseBranch = source.slice(cloudbaseBranchStart, cloudbaseBranchEnd);
+assert.ok(
+  !cloudbaseBranch.includes('"cloud_fn_deploy"'),
+  "CloudBase 直部署分支不能再调用微信确认弹窗部署"
+);
+const wechatBranch = source.slice(cloudbaseBranchEnd);
+assert.ok(
+  !wechatBranch.includes("Invoke-CloudBaseFunctionDeploy"),
+  "微信部署分支不能在失败后偷偷切回 CloudBase 重复上传"
+);
+assert.ok(
+  cloudbaseDeploySource.includes("Invoke-CloudBaseFunctionDeploy")
+    && cloudbaseDeploySource.includes("Get-CloudBaseFunctionVersion"),
+  "独立 CloudBase 部署入口必须复用公共直部署和线上版本保护"
 );
 assert.ok(
   safetySource.includes("[IO.FileShare]::None")

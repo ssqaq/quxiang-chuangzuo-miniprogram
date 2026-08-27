@@ -22,26 +22,7 @@ $safetyScript = Join-Path $PSScriptRoot "cloud-deploy-safety.ps1"
 . $safetyScript
 
 $lock = $null
-$tempRoot = Join-Path ([IO.Path]::GetTempPath()) (
-  "wechat-miniapp-cloudbase-cli-" + [guid]::NewGuid().ToString("N")
-)
 try {
-  New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
-  $cloudbaseConfig = [ordered]@{
-    envId = $environmentId
-    functions = @(
-      [ordered]@{
-        name = "api"
-        timeout = 900
-      }
-    )
-  } | ConvertTo-Json -Depth 5
-  [IO.File]::WriteAllText(
-    (Join-Path $tempRoot "cloudbaserc.json"),
-    $cloudbaseConfig,
-    [Text.UTF8Encoding]::new($false)
-  )
-
   $lock = Enter-CloudDeployLock `
     -ProjectPath $project `
     -TargetVersion $version `
@@ -51,26 +32,24 @@ try {
     -ProjectPath $project `
     -ApiPath $apiPath
 
+  $onlineVersion = Get-CloudBaseFunctionVersion `
+    -EnvironmentId $environmentId `
+    -FunctionName "api"
+  $versionDecision = Assert-CloudDeployVersionNotDowngrade `
+    -LocalVersion $version `
+    -OnlineVersion $onlineVersion
+  Write-Host "Version guard passed: local=$($versionDecision.LocalVersion), online=$($versionDecision.OnlineVersion), relation=$($versionDecision.Relation)"
+
   & node (Join-Path $project "scripts\check-cloudfunction-dependencies.js")
   if ($LASTEXITCODE -ne 0) {
     throw "Cloud function dependency check failed."
   }
 
-  Push-Location $tempRoot
-  try {
-    $output = & npx -y -p @cloudbase/cli tcb fn deploy api `
-      --dir $apiPath `
-      --force `
-      --install-dependency true `
-      --json 2>&1
-    $exitCode = $LASTEXITCODE
-  }
-  finally {
-    Pop-Location
-  }
-  if ($exitCode -ne 0) {
-    throw "CloudBase CLI deployment failed. Exit code: $exitCode"
-  }
+  Invoke-CloudBaseFunctionDeploy `
+    -EnvironmentId $environmentId `
+    -FunctionName "api" `
+    -ApiPath $apiPath `
+    -TimeoutSeconds 900 | Out-Null
   Assert-CloudDeploySourceSnapshotStable `
     -Snapshot $snapshot `
     -ProjectPath $project `
@@ -83,5 +62,4 @@ finally {
   if ($null -ne $lock) {
     Exit-CloudDeployLock -LockHandle $lock
   }
-  Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
 }

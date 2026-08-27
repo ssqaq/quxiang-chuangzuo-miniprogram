@@ -191,6 +191,80 @@ function Get-CloudDeployVersion {
     return $match.Groups[1].Value
 }
 
+function ConvertTo-CloudDeployVersionParts {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Version,
+        [string]$SourceName = "version"
+    )
+
+    $trimmed = $Version.Trim()
+    $match = [regex]::Match($trimmed, '^(\d+)\.(\d+)\.(\d+)$')
+    if (-not $match.Success) {
+        throw "$SourceName 不是三段式语义版本：$Version"
+    }
+    return [pscustomobject]@{
+        Text = "$([int64]$match.Groups[1].Value).$([int64]$match.Groups[2].Value).$([int64]$match.Groups[3].Value)"
+        Major = [int64]$match.Groups[1].Value
+        Minor = [int64]$match.Groups[2].Value
+        Patch = [int64]$match.Groups[3].Value
+    }
+}
+
+function Compare-CloudDeployVersions {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$LeftVersion,
+        [Parameter(Mandatory = $true)]
+        [string]$RightVersion
+    )
+
+    $left = ConvertTo-CloudDeployVersionParts `
+        -Version $LeftVersion `
+        -SourceName "左侧版本"
+    $right = ConvertTo-CloudDeployVersionParts `
+        -Version $RightVersion `
+        -SourceName "右侧版本"
+    foreach ($part in @("Major", "Minor", "Patch")) {
+        if ($left.$part -gt $right.$part) {
+            return 1
+        }
+        if ($left.$part -lt $right.$part) {
+            return -1
+        }
+    }
+    return 0
+}
+
+function Assert-CloudDeployVersionNotDowngrade {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$LocalVersion,
+        [string]$OnlineVersion
+    )
+
+    if ([string]::IsNullOrWhiteSpace($OnlineVersion)) {
+        throw "禁止部署：读取不到线上版本，无法确认这次部署不会降级。"
+    }
+    $local = ConvertTo-CloudDeployVersionParts `
+        -Version $LocalVersion `
+        -SourceName "本地版本"
+    $online = ConvertTo-CloudDeployVersionParts `
+        -Version $OnlineVersion `
+        -SourceName "线上版本"
+    $comparison = Compare-CloudDeployVersions `
+        -LeftVersion $local.Text `
+        -RightVersion $online.Text
+    if ($comparison -lt 0) {
+        throw "禁止版本降级：线上版本 $($online.Text) 高于本地版本 $($local.Text)，本次上传已拦截。"
+    }
+    return [pscustomobject]@{
+        LocalVersion = $local.Text
+        OnlineVersion = $online.Text
+        Relation = if ($comparison -eq 0) { "same" } else { "local-newer" }
+    }
+}
+
 function Get-CloudDeploySourceSnapshot {
     param(
         [Parameter(Mandatory = $true)]
@@ -290,4 +364,231 @@ function Assert-CloudDeploySourceSnapshotStable {
         "unknown API source change"
     }
     throw "Cloud deployment source changed during $Stage`: $summary"
+}
+
+function Get-CloudBaseCliCommand {
+    $command = Get-Command "npx.cmd" -ErrorAction SilentlyContinue
+    if ($null -eq $command) {
+        $command = Get-Command "npx" -ErrorAction SilentlyContinue
+    }
+    if ($null -eq $command) {
+        return ""
+    }
+    return [string]$command.Source
+}
+
+function Resolve-CloudDeployTransport {
+    param(
+        [ValidateSet("auto", "wechat", "cloudbase")]
+        [string]$RequestedTransport = "auto",
+        [string]$CloudBaseCliPath = "",
+        [string]$WechatIdePath = "",
+        [switch]$VerifyOnly,
+        [switch]$ResumePendingDeploy
+    )
+
+    $requested = $RequestedTransport.ToLowerInvariant()
+    if ($ResumePendingDeploy) {
+        if ($requested -eq "cloudbase") {
+            throw "-ResumePendingDeploy 只能恢复微信开发者工具的待确认任务，不能与 cloudbase 方式一起使用。"
+        }
+        if ([string]::IsNullOrWhiteSpace($WechatIdePath)) {
+            throw "恢复微信待确认任务需要微信开发者工具 CLI。"
+        }
+        return "wechat"
+    }
+    if ($VerifyOnly) {
+        if ([string]::IsNullOrWhiteSpace($WechatIdePath)) {
+            throw "线上核验需要微信开发者工具 CLI。"
+        }
+        return "wechat"
+    }
+
+    if ($requested -eq "cloudbase") {
+        if ([string]::IsNullOrWhiteSpace($CloudBaseCliPath)) {
+            throw "已强制使用 CloudBase 直部署，但本机没有可用的 npx/CloudBase CLI。"
+        }
+        return "cloudbase"
+    }
+    if ($requested -eq "wechat") {
+        if ([string]::IsNullOrWhiteSpace($WechatIdePath)) {
+            throw "已强制使用微信开发者工具部署，但本机没有找到 wechatide CLI。"
+        }
+        return "wechat"
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($CloudBaseCliPath)) {
+        return "cloudbase"
+    }
+    if (-not [string]::IsNullOrWhiteSpace($WechatIdePath)) {
+        return "wechat"
+    }
+    throw "自动部署没有可用的 CloudBase CLI 或微信开发者工具 CLI。"
+}
+
+function Invoke-CloudBaseFunctionDeploy {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$EnvironmentId,
+        [Parameter(Mandatory = $true)]
+        [string]$FunctionName,
+        [Parameter(Mandatory = $true)]
+        [string]$ApiPath,
+        [ValidateRange(1, 900)]
+        [int]$TimeoutSeconds = 900,
+        [string]$NpxPath = ""
+    )
+
+    $api = [IO.Path]::GetFullPath($ApiPath)
+    if (-not (Test-Path -LiteralPath $api -PathType Container)) {
+        throw "CloudBase 直部署目录不存在。"
+    }
+    $npx = if ([string]::IsNullOrWhiteSpace($NpxPath)) {
+        Get-CloudBaseCliCommand
+    }
+    else {
+        [IO.Path]::GetFullPath($NpxPath)
+    }
+    if ([string]::IsNullOrWhiteSpace($npx) -or -not (Test-Path -LiteralPath $npx -PathType Leaf)) {
+        throw "CloudBase CLI 不可用，直部署尚未开始。"
+    }
+
+    $tempParent = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd("\", "/")
+    $tempName = "wechat-miniapp-cloudbase-cli-" + [guid]::NewGuid().ToString("N")
+    $tempRoot = Join-Path $tempParent $tempName
+    if (
+        [IO.Path]::GetDirectoryName($tempRoot).TrimEnd("\", "/") -ne $tempParent -or
+        [IO.Path]::GetFileName($tempRoot) -notlike "wechat-miniapp-cloudbase-cli-*"
+    ) {
+        throw "CloudBase 直部署临时目录校验失败。"
+    }
+
+    try {
+        New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
+        $cloudbaseConfig = [ordered]@{
+            envId = $EnvironmentId
+            functions = @(
+                [ordered]@{
+                    name = $FunctionName
+                    timeout = $TimeoutSeconds
+                }
+            )
+        } | ConvertTo-Json -Depth 5
+        [IO.File]::WriteAllText(
+            (Join-Path $tempRoot "cloudbaserc.json"),
+            $cloudbaseConfig,
+            [Text.UTF8Encoding]::new($false)
+        )
+
+        Push-Location $tempRoot
+        try {
+            $output = & $npx `
+                -y `
+                -p "@cloudbase/cli" `
+                tcb `
+                fn `
+                deploy `
+                $FunctionName `
+                --dir $api `
+                --force `
+                --install-dependency true `
+                --json 2>&1
+            $exitCode = $LASTEXITCODE
+        }
+        finally {
+            Pop-Location
+        }
+        if ($exitCode -ne 0) {
+            # CLI 原始输出可能带环境变量或其他敏感信息，绝不回显。
+            throw "CloudBase 直部署失败，退出码：$exitCode。未自动切换到另一种部署方式。"
+        }
+        return [pscustomobject]@{
+            Transport = "cloudbase"
+            FunctionName = $FunctionName
+            TimeoutSeconds = $TimeoutSeconds
+        }
+    }
+    finally {
+        if (
+            (Test-Path -LiteralPath $tempRoot) -and
+            [IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($tempRoot)).TrimEnd("\", "/") -eq $tempParent -and
+            [IO.Path]::GetFileName($tempRoot) -like "wechat-miniapp-cloudbase-cli-*"
+        ) {
+            Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+function Get-CloudBaseFunctionVersion {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$EnvironmentId,
+        [Parameter(Mandatory = $true)]
+        [string]$FunctionName,
+        [string]$NpxPath = ""
+    )
+
+    $npx = if ([string]::IsNullOrWhiteSpace($NpxPath)) {
+        Get-CloudBaseCliCommand
+    }
+    else {
+        [IO.Path]::GetFullPath($NpxPath)
+    }
+    if ([string]::IsNullOrWhiteSpace($npx) -or -not (Test-Path -LiteralPath $npx -PathType Leaf)) {
+        throw "CloudBase CLI 不可用，无法读取线上版本。"
+    }
+
+    $previousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $output = & $npx `
+            -y `
+            -p "@cloudbase/cli" `
+            tcb `
+            fn `
+            detail `
+            $FunctionName `
+            -e $EnvironmentId `
+            --json 2>&1
+        $exitCode = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+    if ($exitCode -ne 0) {
+        throw "读取线上云函数版本失败，已阻止部署。"
+    }
+    $text = ($output | Out-String).Trim()
+    $jsonStart = $text.IndexOf("{")
+    if ($jsonStart -lt 0) {
+        throw "线上云函数没有返回可解析的版本信息，已阻止部署。"
+    }
+    try {
+        $response = $text.Substring($jsonStart) | ConvertFrom-Json
+    }
+    catch {
+        throw "线上云函数版本信息无法解析，已阻止部署。"
+    }
+    $dataProperty = $response.PSObject.Properties["data"]
+    $data = if ($null -ne $dataProperty -and $null -ne $dataProperty.Value) {
+        $dataProperty.Value
+    }
+    else {
+        $response
+    }
+    $codeInfoProperty = $data.PSObject.Properties["CodeInfo"]
+    $codeInfo = if ($null -ne $codeInfoProperty) {
+        [string]$codeInfoProperty.Value
+    }
+    else {
+        ""
+    }
+    $versionMatch = [regex]::Match(
+        $codeInfo,
+        'const API_BUILD_VERSION = "([^"]+)"'
+    )
+    if (-not $versionMatch.Success) {
+        throw "线上云函数源码没有返回合法版本号，已阻止部署。"
+    }
+    return $versionMatch.Groups[1].Value
 }

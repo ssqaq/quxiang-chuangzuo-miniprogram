@@ -7,6 +7,9 @@ let pageDefinition = null;
 let usageResolve = null;
 let probeFailure = false;
 let probeCallCount = 0;
+let lastProbeModelConfig = null;
+let lastImageEditProbeConfig = null;
+let savedConfigPayload = null;
 
 const baseConfig = {
   effective: {
@@ -23,9 +26,16 @@ const baseConfig = {
       apiKeyConfigured: true
     },
     image: {
-      provider: "image-provider",
-      model: "image-model",
+      provider: "xingju",
+      model: "jw-gpt-image-2",
       apiKey: "image-key",
+      apiKeyConfigured: true,
+      size: "1024x1024"
+    },
+    imageBackup: {
+      provider: "lingyun",
+      model: "gpt-image-2",
+      apiKey: "image-backup-key",
       apiKeyConfigured: true,
       size: "1024x1024"
     },
@@ -74,11 +84,14 @@ const cloudMock = {
     image: { apiKey: "image-key" },
     imageBackup: { apiKey: "image-backup-key" }
   }),
-  saveAdminConfig: async () => ({
-    ok: true,
-    effective: baseConfig.effective,
-    version: 2
-  }),
+  saveAdminConfig: async (payload) => {
+    savedConfigPayload = payload;
+    return {
+      ok: true,
+      effective: baseConfig.effective,
+      version: 2
+    };
+  },
   getModelUsageStats: () => delayedUsage,
   getAdminUserStats: async () => ({
     total: 1,
@@ -117,6 +130,7 @@ const cloudMock = {
   listDeploymentLogs: async () => ({ logs: [] }),
   probeModels: async (modelType, modelConfig) => {
     probeCallCount += 1;
+    if (modelConfig) lastProbeModelConfig = modelConfig;
     const types = modelType
       ? [modelType]
       : ["face", "analysis", "image", "video"];
@@ -146,9 +160,11 @@ const cloudMock = {
       }))
     };
   },
-  probeImageEditCapability: async (modelConfig) => ({
-    ok: true,
-    probe: {
+  probeImageEditCapability: async (modelConfig) => {
+    lastImageEditProbeConfig = modelConfig;
+    return {
+      ok: true,
+      probe: {
       status: "config-ready",
       statusText: "图片编辑配置完整",
       configured: true,
@@ -168,8 +184,9 @@ const cloudMock = {
       billingRisk: false,
       message: "本次只核对配置，不调用生图、不扣费；不代表上游已经实测支持 mask。",
       checkedAt: "2026-08-26T08:00:00.000Z"
-    }
-  }),
+      }
+    };
+  },
   listModels: async () => ({
     ok: true,
     status: "ok",
@@ -295,6 +312,14 @@ async function main() {
   assert.strictEqual(page.data.costTrend.days[6].costDisplay, "0.0007");
   assert.strictEqual(page.data.costTrend.totalCostDisplay, "0.0007");
   assert.strictEqual(page.data.form.face.apiKey, "face-key");
+  assert.strictEqual(page.data.form.image.provider, "星炬");
+  assert.strictEqual(page.data.form.imageBackup.provider, "凌云");
+
+  page.onInput({
+    currentTarget: { dataset: { section: "image", key: "provider" } },
+    detail: { value: "xingju" }
+  });
+  assert.strictEqual(page.data.form.image.provider, "星炬");
 
   await page.runImageEditCapabilityProbe();
   assert.strictEqual(page.data.imageEditCapabilityLoading, false);
@@ -303,20 +328,24 @@ async function main() {
   assert.strictEqual(page.data.imageEditCapabilityProbe.billingRiskText, "不扣费");
   assert.strictEqual(page.data.imageEditCapabilityProbe.maskField, "mask");
   assert.ok(page.data.imageEditCapabilityProbe.message.includes("不代表上游"));
+  assert.strictEqual(lastImageEditProbeConfig.provider, "xingju");
 
   const probesBeforeSave = probeCallCount;
   await page.saveConfig();
   assert.strictEqual(page.data.saving, false);
+  assert.strictEqual(savedConfigPayload.image.provider, "xingju");
+  assert.strictEqual(savedConfigPayload.imageBackup.provider, "lingyun");
   assert.ok(probeCallCount > probesBeforeSave);
   assert.strictEqual(page.data.modelProbes.readyCount, 4);
   assert.strictEqual(page.data.modelProbes.total, 4);
   assert.ok(page.data.message.includes("4/4"));
 
   await page.testModelConnection({
-    currentTarget: { dataset: { modelType: "face" } }
+    currentTarget: { dataset: { modelType: "image" } }
   });
   assert.strictEqual(page.data.modelActionType, "");
   assert.ok(page.data.message.includes("测试完成"));
+  assert.strictEqual(lastProbeModelConfig.provider, "xingju");
 
   await page.getModelOptions({
     currentTarget: { dataset: { modelType: "face" } }

@@ -439,7 +439,7 @@ function emptyForm() {
       timeoutMs: "30000"
     },
     image: {
-      provider: "xingju",
+      provider: "星炬",
       baseUrl: "https://newapi.akiyo.fun/v1",
       endpoint: "",
       apiKey: "",
@@ -454,7 +454,7 @@ function emptyForm() {
       retryPreferenceVersion: 1
     },
     imageBackup: {
-      provider: "lingyun",
+      provider: "凌云",
       baseUrl: "https://api.lingyunapi.xyz/v1",
       endpoint: "",
       apiKey: "",
@@ -2841,7 +2841,7 @@ function formFromConfig(result) {
       timeoutMs: String(analysis.timeoutMs || 30000)
     },
     image: {
-      provider: image.provider || "",
+      provider: displayAdminImageProvider(image.provider),
       baseUrl: image.baseUrl || "",
       endpoint: image.endpoint || "",
       apiKey: image.apiKey || "",
@@ -2861,7 +2861,7 @@ function formFromConfig(result) {
       retryPreferenceVersion: 1
     },
     imageBackup: {
-      provider: imageBackup.provider || "lingyun",
+      provider: displayAdminImageProvider(imageBackup.provider, "凌云"),
       baseUrl: imageBackup.baseUrl || "https://api.lingyunapi.xyz/v1",
       endpoint: imageBackup.endpoint || "",
       apiKey: imageBackup.apiKey || "",
@@ -3005,7 +3005,7 @@ function formToConfig(form) {
       timeoutMs: Number(form.analysis.timeoutMs || 0)
     },
     image: {
-      provider: String(form.image.provider || "").trim(),
+      provider: normalizeAdminImageProviderInput(form.image.provider),
       baseUrl: String(form.image.baseUrl || "").trim(),
       endpoint: String(form.image.endpoint || "").trim(),
       apiKey: String(form.image.apiKey || "").trim(),
@@ -3023,7 +3023,7 @@ function formToConfig(form) {
       retryPreferenceVersion: 1
     },
     imageBackup: {
-      provider: String(form.imageBackup.provider || "").trim(),
+      provider: normalizeAdminImageProviderInput(form.imageBackup.provider),
       baseUrl: String(form.imageBackup.baseUrl || "").trim(),
       endpoint: String(form.imageBackup.endpoint || "").trim(),
       apiKey: String(form.imageBackup.apiKey || "").trim(),
@@ -3246,8 +3246,11 @@ function adminImageApiKeyFailureLog(error) {
 
 function modelConfigForAction(form, modelType) {
   const source = form && form[modelType] ? form[modelType] : {};
+  const provider = modelType === "image" || modelType === "imageBackup"
+    ? normalizeAdminImageProviderInput(source.provider)
+    : String(source.provider || "").trim();
   return {
-    provider: String(source.provider || "").trim(),
+    provider,
     baseUrl: String(source.baseUrl || "").trim(),
     endpoint: String(source.endpoint || "").trim(),
     queryEndpoint: String(source.queryEndpoint || "").trim(),
@@ -4910,7 +4913,7 @@ Page({
       (section === "image" || section === "imageBackup")
       && key === "provider"
     )
-      ? normalizeAdminImageProviderInput(inputValue)
+      ? displayAdminImageProvider(inputValue)
       : inputValue;
     const patch = {
       [`form.${section}.${key}`]: value
@@ -5095,7 +5098,7 @@ Page({
     });
     try {
       const result = await cloud.probeImageEditCapability(
-        this.data.form && this.data.form.image ? this.data.form.image : null
+        modelConfigForAction(this.data.form, "image")
       );
       const probe = formatImageEditCapabilityProbe(result);
       this.setData({

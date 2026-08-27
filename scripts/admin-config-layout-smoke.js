@@ -155,15 +155,21 @@ assert.ok(
   js.includes("function normalizeAdminImageProviderInput")
     && js.includes("function displayAdminImageProvider")
     && js.includes('xingju: "星炬"')
-    && js.includes('lingyun: "凌云"'),
+    && js.includes('lingyun: "凌云"')
+    && js.includes('provider: displayAdminImageProvider(image.provider)')
+    && js.includes('provider: displayAdminImageProvider(imageBackup.provider, "凌云")')
+    && js.includes("provider: normalizeAdminImageProviderInput(form.image.provider)")
+    && js.includes("provider: normalizeAdminImageProviderInput(form.imageBackup.provider)"),
   "图片主备服务商中文显示映射缺失"
 );
 assert.ok(
-  wxml.includes('value="{{imageProviderDisplayName}}"')
-    && wxml.includes('value="{{imageBackupProviderDisplayName}}"')
-    && wxml.includes("主模型：{{imageProviderDisplayName")
-    && wxml.includes("备用模型：{{imageBackupProviderDisplayName"),
-  "图片主备服务商没有使用中文显示字段"
+  wxml.includes('value="{{form.image.provider}}"')
+    && wxml.includes('value="{{form.imageBackup.provider}}"')
+    && wxml.includes("主模型：{{form.image.provider")
+    && wxml.includes("备用模型：{{form.imageBackup.provider")
+    && !wxml.includes("imageProviderDisplayName")
+    && !wxml.includes("imageBackupProviderDisplayName"),
+  "图片主备服务商没有直接使用已中文化的表单值"
 );
 
 const toggleStart = js.indexOf("toggleConfigSection(event)");

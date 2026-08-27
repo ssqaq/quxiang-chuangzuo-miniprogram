@@ -7,8 +7,10 @@ const Module = require("module");
 
 process.env.WECHAT_MINIAPP_TEST = "1";
 process.env.ADMIN_OPENIDS = "admin-image-key-smoke";
+process.env.AI_VISION_API_KEY = "smoke-vision-value";
 process.env.AI_IMAGE_PRIMARY_API_KEY = "smoke-primary-value";
 process.env.AI_IMAGE_BACKUP_API_KEY = "smoke-backup-value";
+process.env.AI_VIDEO_API_KEY = "smoke-video-value";
 
 const root = path.resolve(__dirname, "..");
 const dependencyRoots = [
@@ -149,14 +151,28 @@ async function verifyCloudAction() {
   }, { OPENID: "admin-image-key-smoke" });
   assert.strictEqual(allowed.ok, true);
   assert.deepStrictEqual(Object.keys(allowed).sort(), [
+    "analysis",
+    "face",
     "image",
     "imageBackup",
     "ok",
-    "requestId"
+    "providerProfiles",
+    "requestId",
+    "video"
   ]);
+  assert.strictEqual(allowed.face.apiKey, "smoke-vision-value");
+  assert.strictEqual(allowed.analysis.apiKey, "smoke-vision-value");
   assert.strictEqual(allowed.image.apiKey, "smoke-primary-value");
   assert.strictEqual(allowed.imageBackup.apiKey, "smoke-backup-value");
-  ["face", "analysis", "video", "tencent", "secretId", "secretKey"].forEach((key) => {
+  assert.strictEqual(allowed.video.apiKey, "smoke-video-value");
+  ["face", "analysis", "image", "imageBackup", "video"].forEach((section) => {
+    assert.ok(
+      allowed.providerProfiles[section]
+      && typeof allowed.providerProfiles[section] === "object",
+      `专用接口必须返回 ${section} 的服务商 Key 档案`
+    );
+  });
+  ["tencent", "secretId", "secretKey"].forEach((key) => {
     assert.strictEqual(
       Object.prototype.hasOwnProperty.call(allowed, key),
       false,
@@ -183,8 +199,11 @@ async function verifyAdminPage() {
   let keyReadFailure = false;
   const savePayloads = [];
   const liveKeys = {
+    face: "page-face-value",
+    analysis: "page-analysis-value",
     image: "page-primary-value",
-    imageBackup: "page-backup-value"
+    imageBackup: "page-backup-value",
+    video: "page-video-value"
   };
   const cloudMock = {
     isCloudReady: () => true,
@@ -193,8 +212,18 @@ async function verifyAdminPage() {
     getAdminImageApiKeys: async () => {
       if (keyReadFailure) throw new Error("专用接口暂时不可用");
       return {
+        face: { apiKey: liveKeys.face },
+        analysis: { apiKey: liveKeys.analysis },
         image: { apiKey: liveKeys.image },
-        imageBackup: { apiKey: liveKeys.imageBackup }
+        imageBackup: { apiKey: liveKeys.imageBackup },
+        video: { apiKey: liveKeys.video },
+        providerProfiles: {
+          face: {},
+          analysis: {},
+          image: {},
+          imageBackup: {},
+          video: {}
+        }
       };
     },
     saveAdminConfig: async (config) => {
@@ -261,20 +290,20 @@ async function verifyAdminPage() {
   page.runModelProbe = async () => {};
 
   await page.loadAdminPage();
+  assert.strictEqual(page.data.form.face.apiKey, liveKeys.face);
+  assert.strictEqual(page.data.form.analysis.apiKey, liveKeys.analysis);
   assert.strictEqual(page.data.form.image.apiKey, liveKeys.image);
   assert.strictEqual(page.data.form.imageBackup.apiKey, liveKeys.imageBackup);
+  assert.strictEqual(page.data.form.video.apiKey, liveKeys.video);
 
   await page.saveConfig();
-  assert.strictEqual(
-    Object.prototype.hasOwnProperty.call(savePayloads[0].image, "apiKey"),
-    false,
-    "主用 Key 未修改时不应提交"
-  );
-  assert.strictEqual(
-    Object.prototype.hasOwnProperty.call(savePayloads[0].imageBackup, "apiKey"),
-    false,
-    "备用 Key 未修改时不应提交"
-  );
+  ["face", "analysis", "image", "imageBackup", "video"].forEach((section) => {
+    assert.strictEqual(
+      Object.prototype.hasOwnProperty.call(savePayloads[0][section], "apiKey"),
+      false,
+      `${section} Key 未修改时不应提交`
+    );
+  });
   assert.strictEqual(page.data.form.image.apiKey, liveKeys.image);
   assert.strictEqual(page.data.form.imageBackup.apiKey, liveKeys.imageBackup);
 
@@ -312,8 +341,9 @@ async function verifyAdminPage() {
 
   keyReadFailure = true;
   await page.loadAdminPage();
-  assert.strictEqual(page.data.form.image.apiKey, "");
-  assert.strictEqual(page.data.form.imageBackup.apiKey, "");
+  ["face", "analysis", "image", "imageBackup", "video"].forEach((section) => {
+    assert.strictEqual(page.data.form[section].apiKey, "");
+  });
   assert.ok(page.data.message.includes("完整 Key 读取失败"));
 
   keyReadFailure = false;

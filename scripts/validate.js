@@ -1043,8 +1043,9 @@ if (
     adminApiKeyInputBySection[section]
     && !/\bpassword\b/.test(adminApiKeyInputBySection[section])
   ))
-  || !adminWxml.includes("effective.image.apiKeyConfigured")
-  || !adminWxml.includes("effective.imageBackup.apiKeyConfigured")
+  || !["face", "analysis", "image", "imageBackup", "video"].every(
+    (section) => adminWxml.includes(`form.${section}.apiKeyConfigured`)
+  )
   || (adminWxml.match(/已显示完整 Key/g) || []).length < 2
   || !clientCloudJs.includes('action: "getAdminImageApiKeys"')
   || !cloudJs.includes("async function getAdminImageApiKeys")

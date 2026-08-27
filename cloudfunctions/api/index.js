@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.51.3";
-const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0513";
+const API_BUILD_VERSION = "0.52.0";
+const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0520";
 const DEFAULT_IMAGE_MODE = "edits";
 // 图片和视频默认成本只在云函数入口维护；管理员页读取云端有效配置，
 // 避免前后端各写一份价格。入口保持单文件可启动，兼容 CloudBase 部署。
@@ -6354,21 +6354,216 @@ function mergeAdminProviderLabels(current, patch) {
   ));
 }
 
+const ADMIN_PROVIDER_PROFILE_SECTIONS = ADMIN_PROVIDER_CONFIG_SECTIONS;
+const ADMIN_PROVIDER_PROFILE_KEYS = Object.freeze({
+  face: Object.freeze([
+    "provider",
+    "baseUrl",
+    "endpoint",
+    "apiKey",
+    "model",
+    "timeoutMs"
+  ]),
+  analysis: Object.freeze([
+    "provider",
+    "baseUrl",
+    "endpoint",
+    "apiKey",
+    "model",
+    "timeoutMs"
+  ]),
+  image: Object.freeze([
+    "provider",
+    "baseUrl",
+    "endpoint",
+    "apiKey",
+    "model",
+    "mode",
+    "size",
+    "resolution",
+    "compatibilityMode",
+    "timeoutMs",
+    "maxRetries",
+    "retryEnabled",
+    "retryPreferenceVersion"
+  ]),
+  imageBackup: Object.freeze([
+    "provider",
+    "baseUrl",
+    "endpoint",
+    "apiKey",
+    "model",
+    "mode",
+    "size",
+    "resolution",
+    "compatibilityMode",
+    "timeoutMs",
+    "maxRetries",
+    "retryEnabled",
+    "retryPreferenceVersion"
+  ]),
+  video: Object.freeze([
+    "provider",
+    "baseUrl",
+    "endpoint",
+    "queryEndpoint",
+    "apiKey",
+    "model",
+    "createPath",
+    "queryPath",
+    "resolution",
+    "aspectRatio",
+    "timeoutMs"
+  ])
+});
+
+function isAdminProviderObject(value) {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function normalizeAdminProviderId(value) {
+  const raw = String(value === undefined || value === null ? "" : value).trim();
+  if (!raw) return "";
+  const canonical = canonicalAdminProviderId(raw);
+  if (hasOwn(DEFAULT_ADMIN_PROVIDER_LABELS, canonical)) return canonical;
+  const builtInFromLabel = Object.keys(DEFAULT_ADMIN_PROVIDER_LABELS).find(
+    (providerId) => DEFAULT_ADMIN_PROVIDER_LABELS[providerId] === raw
+  );
+  return builtInFromLabel || canonical;
+}
+
+function isDangerousAdminProviderId(value) {
+  return FORBIDDEN_ADMIN_PROVIDER_LABEL_KEYS.has(
+    String(value === undefined || value === null ? "" : value).trim().toLowerCase()
+  );
+}
+
+function sortAdminProviderObject(value) {
+  const source = isAdminProviderObject(value) ? value : {};
+  return Object.keys(source)
+    .sort((left, right) => left.localeCompare(right, "zh-CN", {
+      numeric: true,
+      sensitivity: "base"
+    }))
+    .reduce((result, key) => {
+      result[key] = source[key];
+      return result;
+    }, {});
+}
+
+function normalizeAdminProviderProfileValue(section, value, providerId) {
+  const source = isAdminProviderObject(value) ? value : {};
+  const normalizedProviderId = normalizeAdminProviderId(
+    providerId || source.provider
+  );
+  const result = {};
+  (ADMIN_PROVIDER_PROFILE_KEYS[section] || []).forEach((key) => {
+    if (!hasOwn(source, key)) return;
+    if (key === "provider") return;
+    if (key === "apiKey") {
+      result.apiKey = normalizeApiKey(source.apiKey);
+      return;
+    }
+    if (key === "compatibilityMode" || key === "retryEnabled") {
+      result[key] = overrideBoolean(source, key, false);
+      return;
+    }
+    result[key] = source[key];
+  });
+  if (normalizedProviderId) result.provider = normalizedProviderId;
+  return result;
+}
+
+function normalizeAdminProviderProfiles(value) {
+  const source = isAdminProviderObject(value) ? value : {};
+  const result = {};
+  ADMIN_PROVIDER_PROFILE_SECTIONS.forEach((section) => {
+    const rawSection = isAdminProviderObject(source[section])
+      ? source[section]
+      : {};
+    const profiles = {};
+    Object.keys(rawSection).forEach((rawProviderId) => {
+      const providerId = normalizeAdminProviderId(rawProviderId);
+      if (!providerId || isDangerousAdminProviderId(providerId)) return;
+      const rawProfile = rawSection[rawProviderId];
+      if (!isAdminProviderObject(rawProfile)) return;
+      profiles[providerId] = normalizeAdminProviderProfileValue(
+        section,
+        rawProfile,
+        providerId
+      );
+    });
+    result[section] = sortAdminProviderObject(profiles);
+  });
+  return result;
+}
+
+function mergeAdminProviderProfiles(current, patch) {
+  const existing = normalizeAdminProviderProfiles(current);
+  const submitted = normalizeAdminProviderProfiles(patch);
+  const result = {};
+  ADMIN_PROVIDER_PROFILE_SECTIONS.forEach((section) => {
+    const profiles = {};
+    const providerIds = new Set([
+      ...Object.keys(existing[section] || {}),
+      ...Object.keys(submitted[section] || {})
+    ]);
+    Array.from(providerIds).forEach((providerId) => {
+      const submittedProfile = Object.assign(
+        {},
+        submitted[section] && submitted[section][providerId] || {}
+      );
+      if (hasOwn(submittedProfile, "apiKey") && !normalizeApiKey(submittedProfile.apiKey)) {
+        delete submittedProfile.apiKey;
+      }
+      profiles[providerId] = Object.assign(
+        {},
+        existing[section] && existing[section][providerId] || {},
+        submittedProfile,
+        { provider: providerId }
+      );
+    });
+    result[section] = sortAdminProviderObject(profiles);
+  });
+  return result;
+}
+
+function syncAdminTopLevelProviderProfiles(config, baseProfiles) {
+  const source = isAdminProviderObject(config) ? config : {};
+  const profiles = mergeAdminProviderProfiles(
+    baseProfiles || source.providerProfiles,
+    {}
+  );
+  ADMIN_PROVIDER_PROFILE_SECTIONS.forEach((section) => {
+    const topLevel = isAdminProviderObject(source[section]) ? source[section] : {};
+    const providerId = normalizeAdminProviderId(topLevel.provider);
+    if (!providerId || isDangerousAdminProviderId(providerId)) return;
+    profiles[section][providerId] = Object.assign(
+      {},
+      profiles[section][providerId] || {},
+      normalizeAdminProviderProfileValue(section, topLevel, providerId),
+      { provider: providerId }
+    );
+    profiles[section] = sortAdminProviderObject(profiles[section]);
+  });
+  return profiles;
+}
+
 function configuredAdminProviderIds(config) {
-  const source = config && typeof config === "object" ? config : {};
-  const seen = new Set();
-  const values = [];
-  ADMIN_PROVIDER_CONFIG_SECTIONS.forEach((section) => {
-    const providerId = canonicalAdminProviderId(
+  const source = isAdminProviderObject(config) ? config : {};
+  const result = new Set();
+  ADMIN_PROVIDER_PROFILE_SECTIONS.forEach((section) => {
+    const providerId = normalizeAdminProviderId(
       source[section] && source[section].provider
     );
-    if (!providerId) return;
-    const lookupKey = providerId.toLowerCase();
-    if (seen.has(lookupKey)) return;
-    seen.add(lookupKey);
-    values.push(providerId);
+    if (providerId && !isDangerousAdminProviderId(providerId)) result.add(providerId);
   });
-  return values.sort((left, right) => left.localeCompare(right, undefined, {
+  const profiles = normalizeAdminProviderProfiles(source.providerProfiles);
+  ADMIN_PROVIDER_PROFILE_SECTIONS.forEach((section) => {
+    Object.keys(profiles[section] || {}).forEach((providerId) => result.add(providerId));
+  });
+  return Array.from(result).sort((left, right) => left.localeCompare(right, "zh-CN", {
+    numeric: true,
     sensitivity: "base"
   }));
 }
@@ -6423,6 +6618,36 @@ function validateAdminProviderLabels(labels, config) {
     }
   });
   return Array.from(new Set(errors));
+}
+
+function mergeAdminRuntimeProviderSection(
+  section,
+  existingSection,
+  patchSection,
+  profiles
+) {
+  const existingValue = isAdminProviderObject(existingSection) ? existingSection : {};
+  const submittedValue = isAdminProviderObject(patchSection) ? patchSection : {};
+  if (!Object.keys(submittedValue).length) return Object.assign({}, existingValue);
+  const existingProviderId = normalizeAdminProviderId(existingValue.provider);
+  const providerId = hasOwn(submittedValue, "provider")
+    ? normalizeAdminProviderId(submittedValue.provider)
+    : existingProviderId;
+  const storedProfile = providerId
+    && profiles[section]
+    && profiles[section][providerId]
+    ? profiles[section][providerId]
+    : {};
+  const sameExistingProvider = providerId === existingProviderId
+    ? existingValue
+    : {};
+  return Object.assign(
+    {},
+    sameExistingProvider,
+    storedProfile,
+    submittedValue,
+    providerId ? { provider: providerId } : {}
+  );
 }
 
 function normalizeRuntimePatch(input = {}) {
@@ -6690,8 +6915,7 @@ function normalizeRuntimePatch(input = {}) {
   if (Object.keys(analysisPricing).length) costs.analysis = analysisPricing;
   if (Object.keys(imagePricing).length) costs.image = imagePricing;
   if (Object.keys(videoPricing).length) costs.video = videoPricing;
-  return {
-    providerLabels,
+const result = {
     face: faceConfig,
     analysis,
     image,
@@ -6702,6 +6926,17 @@ function normalizeRuntimePatch(input = {}) {
     costs,
     generationQueue
   };
+  if (hasOwn(source, "providerLabels")) {
+    result.providerLabels = isAdminProviderObject(source.providerLabels)
+      ? normalizeAdminProviderLabels(source.providerLabels)
+      : source.providerLabels;
+  }
+  if (hasOwn(source, "providerProfiles")) {
+    result.providerProfiles = isAdminProviderObject(source.providerProfiles)
+      ? normalizeAdminProviderProfiles(source.providerProfiles)
+      : source.providerProfiles;
+  }
+  return result;
 }
 
 function isValidHttpUrl(value) {
@@ -6736,7 +6971,7 @@ function validateCostNumber(value, field) {
   return "";
 }
 
-function validateRuntimePatch(patch) {
+function validateRuntimePatch(patch, options = {}) {
   const errors = [];
   errors.push(...validateAdminProviderLabels(patch.providerLabels, {}));
   const face = patch.face || {};
@@ -7045,13 +7280,89 @@ function validateRuntimePatch(patch) {
       errors.push(`${field} 必须是 ${minimum}～${maximum} 的整数`);
     }
   });
+  if (options.skipProviderMetadata !== true) {
+    if (hasOwn(patch, "providerLabels")) {
+      errors.push(...validateAdminProviderLabels(patch.providerLabels, patch));
+    }
+    if (
+      hasOwn(patch, "providerProfiles")
+      && !isAdminProviderObject(patch.providerProfiles)
+    ) {
+      errors.push("providerProfiles 必须是对象");
+    } else if (hasOwn(patch, "providerProfiles")) {
+      const profiles = normalizeAdminProviderProfiles(patch.providerProfiles);
+      ADMIN_PROVIDER_PROFILE_SECTIONS.forEach((section) => {
+        Object.keys(profiles[section] || {}).forEach((providerId) => {
+          const profileErrors = validateRuntimePatch({
+            [section]: profiles[section][providerId]
+          }, {
+            skipProviderMetadata: true
+          });
+          profileErrors.forEach((message) => {
+            const sectionPrefix = `${section}.`;
+            errors.push(
+              message.startsWith(sectionPrefix)
+                ? `providerProfiles.${section}.${providerId}.${message.slice(sectionPrefix.length)}`
+                : `providerProfiles.${section}.${providerId}：${message}`
+            );
+          });
+        });
+      });
+    }
+  }
   return errors;
 }
 
 function mergeRuntimeConfig(current, patch) {
   const existing = current && typeof current === "object" ? current : {};
+  const submitted = patch && typeof patch === "object" ? patch : {};
+  const existingProfiles = syncAdminTopLevelProviderProfiles(
+    existing,
+    existing.providerProfiles
+  );
+  let providerProfiles = mergeAdminProviderProfiles(
+    existingProfiles,
+    submitted.providerProfiles
+  );
+  const faceConfig = mergeAdminRuntimeProviderSection(
+    "face",
+    existing.face,
+    submitted.face,
+    providerProfiles
+  );
+  const analysisConfig = mergeAdminRuntimeProviderSection(
+    "analysis",
+    existing.analysis,
+    submitted.analysis,
+    providerProfiles
+  );
+  const imageConfig = mergeAdminRuntimeProviderSection(
+    "image",
+    existing.image,
+    submitted.image,
+    providerProfiles
+  );
+  const imageBackupConfig = mergeAdminRuntimeProviderSection(
+    "imageBackup",
+    existing.imageBackup,
+    submitted.imageBackup,
+    providerProfiles
+  );
+  const videoConfig = mergeAdminRuntimeProviderSection(
+    "video",
+    existing.video,
+    submitted.video,
+    providerProfiles
+  );
+  providerProfiles = syncAdminTopLevelProviderProfiles({
+    face: faceConfig,
+    analysis: analysisConfig,
+    image: imageConfig,
+    imageBackup: imageBackupConfig,
+    video: videoConfig
+  }, providerProfiles);
   const existingCosts = existing.costs || {};
-  const patchCosts = patch.costs || {};
+  const patchCosts = submitted.costs || {};
   const existingImageCosts = existingCosts.image || {};
   const patchImageCosts = patchCosts.image || {};
   const existingImageProviders = existingImageCosts.providers || {};
@@ -7077,28 +7388,25 @@ function mergeRuntimeConfig(current, patch) {
   return {
     providerLabels: mergeAdminProviderLabels(
       existing.providerLabels,
-      patch.providerLabels
+      submitted.providerLabels
     ),
-    face: Object.assign({}, existing.face || {}, patch.face || {}),
-    analysis: Object.assign({}, existing.analysis || {}, patch.analysis || {}),
-    image: Object.assign({}, existing.image || {}, patch.image || {}),
-    imageBackup: Object.assign(
-      {},
-      existing.imageBackup || {},
-      patch.imageBackup || {}
-    ),
+    providerProfiles,
+    face: faceConfig,
+    analysis: analysisConfig,
+    image: imageConfig,
+    imageBackup: imageBackupConfig,
     tencentFaceFusion: Object.assign(
       {},
       existing.tencentFaceFusion || {},
-      patch.tencentFaceFusion || {}
+      submitted.tencentFaceFusion || {}
     ),
-    video: Object.assign({}, existing.video || {}, patch.video || {}),
-    points: Object.assign({}, existing.points || {}, patch.points || {}),
+    video: videoConfig,
+    points: Object.assign({}, existing.points || {}, submitted.points || {}),
     generationQueue: generationQueueMonitor.normalizeQueueSettings(
       Object.assign(
         {},
         existing.generationQueue || {},
-        patch.generationQueue || {}
+        submitted.generationQueue || {}
       )
     ),
     costs: Object.assign({}, existingCosts, patchCosts, {
@@ -7166,6 +7474,7 @@ function isLegacyLingyunImageConfig(value) {
 
 const ADMIN_CONFIG_AUDIT_SECTIONS = Object.freeze([
   "providerLabels",
+  "providerProfiles",
   "face",
   "analysis",
   "image",
@@ -7567,6 +7876,28 @@ function guardAdminImageProviderConfig(current, merged, patch) {
   };
 }
 
+function redactAdminProviderProfiles(value, defaultsValue = {}) {
+  const profiles = normalizeAdminProviderProfiles(value);
+  const defaults = normalizeAdminProviderProfiles(defaultsValue);
+  const result = {};
+  ADMIN_PROVIDER_PROFILE_SECTIONS.forEach((section) => {
+    const rows = {};
+    Object.keys(profiles[section] || {}).forEach((providerId) => {
+      const profile = Object.assign({}, profiles[section][providerId]);
+      const defaultProfile = defaults[section] && defaults[section][providerId] || {};
+      const apiKeyConfigured = Boolean(
+        normalizeApiKey(profile.apiKey)
+        || normalizeApiKey(defaultProfile.apiKey)
+      );
+      profile.apiKey = "";
+      profile.apiKeyConfigured = apiKeyConfigured;
+      rows[providerId] = profile;
+    });
+    result[section] = sortAdminProviderObject(rows);
+  });
+  return result;
+}
+
 function redactConfig(config, defaults) {
   const face = config.face || {};
   const analysis = config.analysis || {};
@@ -7585,8 +7916,20 @@ function redactConfig(config, defaults) {
   const generationQueue = generationQueueMonitor.normalizeQueueSettings(
     config.generationQueue
   );
+  const providerProfiles = syncAdminTopLevelProviderProfiles(
+    config,
+    config.providerProfiles
+  );
+  const defaultProviderProfiles = syncAdminTopLevelProviderProfiles(
+    defaults,
+    defaults.providerProfiles
+  );
   return {
     providerLabels,
+    providerProfiles: redactAdminProviderProfiles(
+      providerProfiles,
+      defaultProviderProfiles
+    ),
     face: {
       provider: face.provider || "",
       baseUrl: face.baseUrl || "",
@@ -7594,7 +7937,10 @@ function redactConfig(config, defaults) {
       apiKey: "",
       model: face.faceModel || face.model || "",
       timeoutMs: Number(face.timeoutMs || 0),
-      apiKeyConfigured: Boolean(defaults.face && defaults.face.apiKey)
+      apiKeyConfigured: Boolean(
+        normalizeApiKey(face.apiKey)
+        || normalizeApiKey(defaults.face && defaults.face.apiKey)
+      )
     },
     analysis: {
       provider: analysis.provider || "",
@@ -7603,7 +7949,10 @@ function redactConfig(config, defaults) {
       apiKey: "",
       model: analysis.model || "",
       timeoutMs: Number(analysis.timeoutMs || 0),
-      apiKeyConfigured: Boolean(defaults.analysis && defaults.analysis.apiKey)
+      apiKeyConfigured: Boolean(
+        normalizeApiKey(analysis.apiKey)
+        || normalizeApiKey(defaults.analysis && defaults.analysis.apiKey)
+      )
     },
     image: {
       provider: image.provider || "",
@@ -7622,7 +7971,10 @@ function redactConfig(config, defaults) {
       maxRetries: Number(image.maxRetries || 0),
       retryEnabled: Boolean(image.retryEnabled),
       retryPreferenceVersion: imageRetryPreferenceVersion(image),
-      apiKeyConfigured: Boolean(defaults.image.apiKey)
+      apiKeyConfigured: Boolean(
+        normalizeApiKey(image.apiKey)
+        || normalizeApiKey(defaults.image && defaults.image.apiKey)
+      )
     },
     imageBackup: {
       provider: imageBackup.provider || "",
@@ -7646,8 +7998,8 @@ function redactConfig(config, defaults) {
       retryEnabled: Boolean(imageBackup.retryEnabled),
       retryPreferenceVersion: imageRetryPreferenceVersion(imageBackup),
       apiKeyConfigured: Boolean(
-        defaults.imageBackup
-        && defaults.imageBackup.apiKey
+        normalizeApiKey(imageBackup.apiKey)
+        || normalizeApiKey(defaults.imageBackup && defaults.imageBackup.apiKey)
       )
     },
     tencentFaceFusion: {
@@ -7680,7 +8032,10 @@ function redactConfig(config, defaults) {
       resolution: video.resolution || "",
       aspectRatio: video.aspectRatio || "",
       timeoutMs: Number(video.timeoutMs || 0),
-      apiKeyConfigured: Boolean(defaults.video.apiKey)
+      apiKeyConfigured: Boolean(
+        normalizeApiKey(video.apiKey)
+        || normalizeApiKey(defaults.video && defaults.video.apiKey)
+      )
     },
     points: {
       dailyFreeLimit: Number(points.dailyFreeLimit || 0),
@@ -7816,6 +8171,35 @@ function migrateLegacyModelCostConfig(runtime, rawConfig) {
   };
 }
 
+function migrateLegacyAdminProviderProfiles(runtime, rawConfig) {
+  const normalized = runtime && typeof runtime === "object"
+    ? runtime
+    : normalizeRuntimePatch(rawConfig);
+  const providerLabels = normalizeAdminProviderLabels(
+    normalized && normalized.providerLabels,
+    { includeDefaults: true }
+  );
+  const providerProfiles = syncAdminTopLevelProviderProfiles(
+    normalized,
+    normalized && normalized.providerProfiles
+  );
+  const rawLabels = normalizeAdminProviderLabels(
+    rawConfig && rawConfig.providerLabels
+  );
+  const rawProfiles = normalizeAdminProviderProfiles(
+    rawConfig && rawConfig.providerProfiles
+  );
+  const migrated = JSON.stringify(providerLabels) !== JSON.stringify(rawLabels)
+    || JSON.stringify(providerProfiles) !== JSON.stringify(rawProfiles);
+  return {
+    value: Object.assign({}, normalized, {
+      providerLabels,
+      providerProfiles
+    }),
+    migrated
+  };
+}
+
 async function loadAdminRuntimeConfig(force = false, options = {}) {
   const allowMigrations = options.allowMigrations !== false;
   const useCache = options.cache !== false;
@@ -7848,6 +8232,10 @@ async function loadAdminRuntimeConfig(force = false, options = {}) {
       providerMigration.value,
       rawConfig
     );
+    const profileMigration = migrateLegacyAdminProviderProfiles(
+      costMigration.value,
+      rawConfig
+    );
     let migrationApplied = false;
     let migrationVersion = Number(rawConfig && rawConfig.version) || 0;
     let migrationUpdatedAt = rawConfig && rawConfig.updatedAt
@@ -7861,6 +8249,7 @@ async function loadAdminRuntimeConfig(force = false, options = {}) {
         retryMigration.migrated
         || providerMigration.migrated
         || costMigration.migrated
+        || profileMigration.migrated
       )
       && allowMigrations
       && process.env.WECHAT_MINIAPP_TEST !== "1"
@@ -7874,7 +8263,11 @@ async function loadAdminRuntimeConfig(force = false, options = {}) {
           migrationData.image = costMigration.value.image;
         }
         if (costMigration.migrated) {
-          migrationData.costs = costMigration.value.costs;
+          migrationData.costs = profileMigration.value.costs;
+        }
+        if (profileMigration.migrated) {
+          migrationData.providerLabels = profileMigration.value.providerLabels;
+          migrationData.providerProfiles = profileMigration.value.providerProfiles;
         }
         migrationVersion += 1;
         migrationUpdatedAt = new Date();
@@ -7902,6 +8295,7 @@ async function loadAdminRuntimeConfig(force = false, options = {}) {
           retryMigrated: retryMigration.migrated,
           imageProviderMigrated: providerMigration.migrated,
           modelCostsMigrated: costMigration.migrated,
+          providerProfilesMigrated: profileMigration.migrated,
           costConfigVersion: MODEL_COST_CONFIG_VERSION
         });
       } catch (migrationError) {
@@ -7912,9 +8306,9 @@ async function loadAdminRuntimeConfig(force = false, options = {}) {
       }
     }
     const value = rawConfig
-      ? Object.assign(costMigration.value, {
+      ? Object.assign(profileMigration.value, {
           generationQueue: generationQueueMonitor.normalizeQueueSettings(
-            costMigration.value && costMigration.value.generationQueue
+            profileMigration.value && profileMigration.value.generationQueue
           ),
           generationQueueAlertState: rawConfig.generationQueueAlertState
             && typeof rawConfig.generationQueueAlertState === "object"
@@ -7960,7 +8354,8 @@ async function resolveEffectiveConfigs(options = {}) {
   const image = resolveImageConfig(runtime && runtime.image);
   return {
     runtime: runtime || {
-      providerLabels: {},
+      providerLabels: normalizeAdminProviderLabels({}, { includeDefaults: true }),
+      providerProfiles: normalizeAdminProviderProfiles({}),
       face: {},
       analysis: {},
       image: {},
@@ -8054,6 +8449,7 @@ function adminConfigView(configs, runtime, metadata = {}) {
     }),
     effective: redactConfig({
       providerLabels: configs.providerLabels,
+      providerProfiles: overrides.providerProfiles,
       face: configs.face,
       analysis: configs.analysis,
       image: configs.image,
@@ -8118,7 +8514,30 @@ async function getAdminConfig(context) {
 async function getAdminImageApiKeys(context) {
   if (!isAdminContext(context)) return adminForbidden();
   const configs = await resolveEffectiveConfigs();
+  const providerProfiles = syncAdminTopLevelProviderProfiles(
+    configs,
+    configs.runtime && configs.runtime.providerProfiles
+  );
+  const providerProfileKeys = {};
+  ADMIN_PROVIDER_PROFILE_SECTIONS.forEach((section) => {
+    const rows = {};
+    Object.keys(providerProfiles[section] || {}).forEach((providerId) => {
+      rows[providerId] = {
+        apiKey: normalizeApiKey(
+          providerProfiles[section][providerId]
+          && providerProfiles[section][providerId].apiKey
+        )
+      };
+    });
+    providerProfileKeys[section] = sortAdminProviderObject(rows);
+  });
   return jsonResponse(true, {
+    face: {
+      apiKey: String(configs.face && configs.face.apiKey || "")
+    },
+    analysis: {
+      apiKey: String(configs.analysis && configs.analysis.apiKey || "")
+    },
     image: {
       apiKey: String(configs.image && configs.image.apiKey || "")
     },
@@ -8128,7 +8547,11 @@ async function getAdminImageApiKeys(context) {
         && configs.imageBackup.apiKey
         || ""
       )
-    }
+    },
+    video: {
+      apiKey: String(configs.video && configs.video.apiKey || "")
+    },
+    providerProfiles: providerProfileKeys
   });
 }
 
@@ -8755,6 +9178,22 @@ function dropBlankRuntimeApiKeys(patch = {}) {
       }
     });
   }
+  if (isAdminProviderObject(patch.providerProfiles)) {
+    ADMIN_PROVIDER_PROFILE_SECTIONS.forEach((section) => {
+      const profiles = patch.providerProfiles[section];
+      if (!isAdminProviderObject(profiles)) return;
+      Object.keys(profiles).forEach((providerId) => {
+        const profile = profiles[providerId];
+        if (
+          isAdminProviderObject(profile)
+          && hasOwn(profile, "apiKey")
+          && !normalizeApiKey(profile.apiKey)
+        ) {
+          delete profile.apiKey;
+        }
+      });
+    });
+  }
   return patch;
 }
 
@@ -8782,6 +9221,15 @@ async function saveAdminConfig(event, context) {
   if (hasOwn(patch.imageBackup, "retryEnabled")) {
     patch.imageBackup.retryPreferenceVersion = IMAGE_RETRY_PREFERENCE_VERSION;
   }
+  ["image", "imageBackup"].forEach((section) => {
+    const profiles = patch.providerProfiles && patch.providerProfiles[section];
+    if (!isAdminProviderObject(profiles)) return;
+    Object.keys(profiles).forEach((providerId) => {
+      if (hasOwn(profiles[providerId], "retryEnabled")) {
+        profiles[providerId].retryPreferenceVersion = IMAGE_RETRY_PREFERENCE_VERSION;
+      }
+    });
+  });
   const errors = validateRuntimePatch(patch);
   if (errors.length) return fail(errors.join("；"), "ADMIN_CONFIG_INVALID", { fields: errors });
   const current = await loadAdminRuntimeConfig(true);
@@ -8803,10 +9251,23 @@ async function saveAdminConfig(event, context) {
     next.providerLabels,
     { includeDefaults: true }
   );
+  next.providerProfiles = syncAdminTopLevelProviderProfiles(
+    next,
+    next.providerProfiles
+  );
+  const mergedErrors = validateRuntimePatch(next);
+  if (mergedErrors.length) {
+    return fail(
+      mergedErrors.join("；"),
+      "ADMIN_CONFIG_INVALID",
+      { fields: mergedErrors }
+    );
+  }
   const previousVersion = Number(current && current.version) || 0;
   const data = {
     _id: ADMIN_RUNTIME_CONFIG_ID,
     providerLabels: next.providerLabels,
+    providerProfiles: next.providerProfiles,
     face: next.face,
     analysis: next.analysis,
     image: next.image,
@@ -8840,6 +9301,7 @@ async function saveAdminConfig(event, context) {
   adminRuntimeCache = {
     value: {
       providerLabels: next.providerLabels,
+      providerProfiles: next.providerProfiles,
       face: next.face,
       analysis: next.analysis,
       image: next.image,
@@ -18552,6 +19014,11 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     mergeAdminProviderLabels,
     validateAdminProviderLabels,
     configuredAdminProviderIds,
+    normalizeAdminProviderProfiles,
+    mergeAdminProviderProfiles,
+    syncAdminTopLevelProviderProfiles,
+    redactAdminProviderProfiles,
+    migrateLegacyAdminProviderProfiles,
     normalizeRuntimePatch,
     dropBlankRuntimeApiKeys,
     extractModelUsage,

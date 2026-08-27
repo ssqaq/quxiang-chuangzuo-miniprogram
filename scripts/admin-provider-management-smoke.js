@@ -52,7 +52,7 @@ assert.ok(
 );
 
 assert.ok(
-  adminJs.includes("providerId: providerIdFromDisplay(item.provider)")
+  adminJs.includes("providerIdFromDisplay(item && (item.providerId || item.provider))")
     && adminJs.includes("filteredResults")
     && adminWxml.includes('wx:for="{{modelProbes.filteredResults}}"'),
   "模型探测结果没有保留英文服务商标识或接入筛选"

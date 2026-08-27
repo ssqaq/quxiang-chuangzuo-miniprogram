@@ -274,6 +274,7 @@
         </view>
         <view class="config-editor-body">
           <view class="config-helper">API Key 只在服务端保存，页面不会回显真实内容；输入框留空并保存，会继续使用原来的密钥。</view>
+          <view class="config-helper">切换服务商只修改当前页面草稿，点击“保存全部配置”后才写入云端。</view>
           <view class="config-model-actions">
             <view
               class="config-model-button config-model-test"
@@ -293,10 +294,22 @@
             >{{modelActionType === 'face' && modelActionKind === 'list' ? '读取中...' : '获取模型'}}</view>
           </view>
           <view class="admin-grid">
-            <view class="admin-field"><text>服务商</text><input value="{{form.face.provider}}" data-section="face" data-key="provider" bindinput="onInput" /></view>
+            <view class="admin-field">
+              <text>服务商</text>
+              <picker
+                mode="selector"
+                range="{{faceProviderProfileOptions}}"
+                range-key="label"
+                value="{{faceProviderProfileIndex}}"
+                data-section="face"
+                bindchange="onProviderProfileChange"
+              >
+                <view class="admin-picker">{{faceProviderProfileOptions[faceProviderProfileIndex].label}}</view>
+              </picker>
+            </view>
             <view class="admin-field"><text>使用的模型</text><input value="{{form.face.model}}" data-section="face" data-key="model" bindinput="onInput" /></view>
             <view class="admin-field admin-field-wide"><text>接口地址</text><input value="{{form.face.baseUrl}}" data-section="face" data-key="baseUrl" bindinput="onInput" /></view>
-            <view class="admin-field admin-field-wide"><text>API Key</text><input password value="{{form.face.apiKey}}" data-section="face" data-key="apiKey" placeholder="{{effective.face.apiKeyConfigured ? '已配置，留空继续使用' : '填写后可测试并保存'}}" bindinput="onInput" /></view>
+            <view class="admin-field admin-field-wide"><text>API Key</text><input password value="{{form.face.apiKey}}" data-section="face" data-key="apiKey" placeholder="{{form.face.apiKeyConfigured ? '已配置，留空继续使用' : '填写后可测试并保存'}}" bindinput="onInput" /></view>
             <view class="admin-field"><text>超时毫秒</text><input type="number" value="{{form.face.timeoutMs}}" data-section="face" data-key="timeoutMs" bindinput="onInput" /></view>
           </view>
         </view>
@@ -360,6 +373,7 @@
         </view>
         <view class="config-editor-body">
           <view class="config-helper">图片分析模型独立保存服务商、接口地址、API Key、使用的模型和超时；真实 Key 不会回显，留空保存会继续使用原来的密钥。</view>
+          <view class="config-helper">切换服务商只修改当前页面草稿，点击“保存全部配置”后才写入云端。</view>
           <view class="config-editor-tools config-model-actions">
             <view
               class="config-tool-button"
@@ -386,10 +400,22 @@
             >{{modelActionType === 'analysis' && modelActionKind === 'list' ? '读取中...' : '获取模型'}}</view>
           </view>
           <view class="admin-grid">
-            <view class="admin-field"><text>服务商</text><input value="{{form.analysis.provider}}" data-section="analysis" data-key="provider" bindinput="onInput" /></view>
+            <view class="admin-field">
+              <text>服务商</text>
+              <picker
+                mode="selector"
+                range="{{analysisProviderProfileOptions}}"
+                range-key="label"
+                value="{{analysisProviderProfileIndex}}"
+                data-section="analysis"
+                bindchange="onProviderProfileChange"
+              >
+                <view class="admin-picker">{{analysisProviderProfileOptions[analysisProviderProfileIndex].label}}</view>
+              </picker>
+            </view>
             <view class="admin-field"><text>使用的模型</text><input value="{{form.analysis.model}}" data-section="analysis" data-key="model" bindinput="onInput" /></view>
             <view class="admin-field admin-field-wide"><text>接口地址</text><input value="{{form.analysis.baseUrl}}" data-section="analysis" data-key="baseUrl" bindinput="onInput" /></view>
-            <view class="admin-field admin-field-wide"><text>API Key</text><input password value="{{form.analysis.apiKey}}" data-section="analysis" data-key="apiKey" placeholder="{{effective.analysis.apiKeyConfigured ? '已配置，留空继续使用' : '填写后可测试并保存'}}" bindinput="onInput" /></view>
+            <view class="admin-field admin-field-wide"><text>API Key</text><input password value="{{form.analysis.apiKey}}" data-section="analysis" data-key="apiKey" placeholder="{{form.analysis.apiKeyConfigured ? '已配置，留空继续使用' : '填写后可测试并保存'}}" bindinput="onInput" /></view>
             <view class="admin-field"><text>超时毫秒</text><input type="number" value="{{form.analysis.timeoutMs}}" data-section="analysis" data-key="timeoutMs" bindinput="onInput" /></view>
           </view>
         </view>
@@ -429,8 +455,8 @@
             </view>
         </view>
         <view class="current-config-side">
-          <view class="config-state {{effective.image.apiKeyConfigured ? 'is-ready' : 'is-off'}}">
-            {{effective.image.apiKeyConfigured ? '正常' : '未就绪'}}
+          <view class="config-state {{form.image.apiKeyConfigured ? 'is-ready' : 'is-off'}}">
+            {{form.image.apiKeyConfigured ? '正常' : '未就绪'}}
           </view>
           <text class="current-config-arrow">›</text>
         </view>
@@ -470,6 +496,7 @@
           </view>
           <view wx:if="{{tencentImageTab === 'image'}}" class="tencent-image-tab-panel">
           <view class="config-helper">API Key 只在服务端保存，页面不会回显真实内容；输入框留空并保存，会继续使用原来的密钥。</view>
+          <view class="config-helper">切换服务商只修改当前页面草稿，点击“保存全部配置”后才写入云端。</view>
           <view class="config-model-actions">
             <view
               class="config-model-button config-model-test"
@@ -536,14 +563,26 @@
             <view class="image-provider-role-badge is-primary">主用</view>
           </view>
           <view class="admin-grid">
-            <view class="admin-field"><text>服务商</text><input value="{{form.image.provider}}" data-section="image" data-key="provider" bindinput="onInput" /></view>
+            <view class="admin-field">
+              <text>服务商</text>
+              <picker
+                mode="selector"
+                range="{{imageProviderProfileOptions}}"
+                range-key="label"
+                value="{{imageProviderProfileIndex}}"
+                data-section="image"
+                bindchange="onProviderProfileChange"
+              >
+                <view class="admin-picker">{{imageProviderProfileOptions[imageProviderProfileIndex].label}}</view>
+              </picker>
+            </view>
             <view class="admin-field"><text>使用的模型</text><input value="{{form.image.model}}" data-section="image" data-key="model" bindinput="onInput" /></view>
             <view class="admin-field admin-field-wide"><text>接口地址</text><input value="{{form.image.baseUrl}}" data-section="image" data-key="baseUrl" bindinput="onInput" /></view>
             <view class="admin-field admin-field-wide"><text>编辑接口（可留空）</text><input value="{{form.image.endpoint}}" data-section="image" data-key="endpoint" placeholder="留空自动使用 /v1/images/edits" bindinput="onInput" /></view>
             <view class="admin-field admin-field-wide admin-api-key-field">
               <view class="admin-field-label-row">
                 <text>API Key</text>
-                <text class="api-key-config-state {{form.image.apiKey ? 'is-ready' : 'is-off'}}">{{form.image.apiKey ? '已显示完整 Key' : (effective.image.apiKeyConfigured ? '完整 Key 读取失败' : '未配置')}}</text>
+                <text class="api-key-config-state {{form.image.apiKey ? 'is-ready' : 'is-off'}}">{{form.image.apiKey ? '已显示完整 Key' : (form.image.apiKeyConfigured ? '完整 Key 读取失败' : '未配置')}}</text>
               </view>
               <input value="{{form.image.apiKey}}" data-section="image" data-key="apiKey" placeholder="请填写星炬 API Key" bindinput="onInput" />
               <view class="api-key-field-tip">当前显示云端实际生效的完整 Key；修改后点击“保存全部配置”才会生效。</view>
@@ -653,14 +692,26 @@
             </view>
           </view>
           <view class="admin-grid">
-            <view class="admin-field"><text>服务商</text><input value="{{form.imageBackup.provider}}" data-section="imageBackup" data-key="provider" bindinput="onInput" /></view>
+            <view class="admin-field">
+              <text>服务商</text>
+              <picker
+                mode="selector"
+                range="{{imageBackupProviderProfileOptions}}"
+                range-key="label"
+                value="{{imageBackupProviderProfileIndex}}"
+                data-section="imageBackup"
+                bindchange="onProviderProfileChange"
+              >
+                <view class="admin-picker">{{imageBackupProviderProfileOptions[imageBackupProviderProfileIndex].label}}</view>
+              </picker>
+            </view>
             <view class="admin-field"><text>使用的模型</text><input value="{{form.imageBackup.model}}" data-section="imageBackup" data-key="model" bindinput="onInput" /></view>
             <view class="admin-field admin-field-wide"><text>接口地址</text><input value="{{form.imageBackup.baseUrl}}" data-section="imageBackup" data-key="baseUrl" bindinput="onInput" /></view>
             <view class="admin-field admin-field-wide"><text>编辑接口（可留空）</text><input value="{{form.imageBackup.endpoint}}" data-section="imageBackup" data-key="endpoint" placeholder="留空自动使用 /v1/images/edits" bindinput="onInput" /></view>
             <view class="admin-field admin-field-wide admin-api-key-field">
               <view class="admin-field-label-row">
                 <text>API Key</text>
-                <text class="api-key-config-state {{form.imageBackup.apiKey ? 'is-ready' : 'is-off'}}">{{form.imageBackup.apiKey ? '已显示完整 Key' : (effective.imageBackup.apiKeyConfigured ? '完整 Key 读取失败' : '未配置')}}</text>
+                <text class="api-key-config-state {{form.imageBackup.apiKey ? 'is-ready' : 'is-off'}}">{{form.imageBackup.apiKey ? '已显示完整 Key' : (form.imageBackup.apiKeyConfigured ? '完整 Key 读取失败' : '未配置')}}</text>
               </view>
               <input value="{{form.imageBackup.apiKey}}" data-section="imageBackup" data-key="apiKey" placeholder="请填写凌云 API Key" bindinput="onInput" />
               <view class="api-key-field-tip">当前显示云端实际生效的完整 Key；备用模型仍只在服务端使用。</view>
@@ -765,8 +816,8 @@
             </view>
         </view>
         <view class="current-config-side">
-          <view class="config-state {{effective.video.apiKeyConfigured ? 'is-ready' : 'is-off'}}">
-            {{effective.video.apiKeyConfigured ? '正常' : '未就绪'}}
+          <view class="config-state {{form.video.apiKeyConfigured ? 'is-ready' : 'is-off'}}">
+            {{form.video.apiKeyConfigured ? '正常' : '未就绪'}}
           </view>
           <text class="current-config-arrow">›</text>
         </view>
@@ -789,6 +840,7 @@
         </view>
         <view class="config-editor-body">
           <view class="config-helper">创建任务只发一次，查询任务按配置轮询；API Key 只在服务端保存，页面不会回显真实内容。</view>
+          <view class="config-helper">切换服务商只修改当前页面草稿，点击“保存全部配置”后才写入云端。</view>
           <view class="config-model-actions">
             <view
               class="config-model-button config-model-test"
@@ -808,10 +860,22 @@
             >{{modelActionType === 'video' && modelActionKind === 'list' ? '读取中...' : '获取模型'}}</view>
           </view>
           <view class="admin-grid">
-            <view class="admin-field"><text>服务商</text><input value="{{form.video.provider}}" data-section="video" data-key="provider" bindinput="onInput" /></view>
+            <view class="admin-field">
+              <text>服务商</text>
+              <picker
+                mode="selector"
+                range="{{videoProviderProfileOptions}}"
+                range-key="label"
+                value="{{videoProviderProfileIndex}}"
+                data-section="video"
+                bindchange="onProviderProfileChange"
+              >
+                <view class="admin-picker">{{videoProviderProfileOptions[videoProviderProfileIndex].label}}</view>
+              </picker>
+            </view>
             <view class="admin-field"><text>使用的模型</text><input value="{{form.video.model}}" data-section="video" data-key="model" bindinput="onInput" /></view>
             <view class="admin-field admin-field-wide"><text>接口地址</text><input value="{{form.video.baseUrl}}" data-section="video" data-key="baseUrl" bindinput="onInput" /></view>
-            <view class="admin-field admin-field-wide"><text>API Key</text><input password value="{{form.video.apiKey}}" data-section="video" data-key="apiKey" placeholder="{{effective.video.apiKeyConfigured ? '已配置，留空继续使用' : '填写后可测试并保存'}}" bindinput="onInput" /></view>
+            <view class="admin-field admin-field-wide"><text>API Key</text><input password value="{{form.video.apiKey}}" data-section="video" data-key="apiKey" placeholder="{{form.video.apiKeyConfigured ? '已配置，留空继续使用' : '填写后可测试并保存'}}" bindinput="onInput" /></view>
             <view class="admin-field admin-field-wide"><text>创建路径</text><input value="{{form.video.createPath}}" data-section="video" data-key="createPath" bindinput="onInput" /></view>
             <view class="admin-field admin-field-wide"><text>查询路径</text><input value="{{form.video.queryPath}}" data-section="video" data-key="queryPath" bindinput="onInput" /></view>
           <view class="admin-field">

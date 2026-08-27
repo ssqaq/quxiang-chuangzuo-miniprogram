@@ -77,6 +77,29 @@ const ADMIN_PROVIDER_FORM_SECTIONS = Object.freeze([
   "imageBackup",
   "video"
 ]);
+const ADMIN_PROVIDER_PROFILE_SECTIONS = ADMIN_PROVIDER_FORM_SECTIONS;
+const ADMIN_PROVIDER_PROFILE_STATE = Object.freeze({
+  face: Object.freeze({
+    options: "faceProviderProfileOptions",
+    index: "faceProviderProfileIndex"
+  }),
+  analysis: Object.freeze({
+    options: "analysisProviderProfileOptions",
+    index: "analysisProviderProfileIndex"
+  }),
+  image: Object.freeze({
+    options: "imageProviderProfileOptions",
+    index: "imageProviderProfileIndex"
+  }),
+  imageBackup: Object.freeze({
+    options: "imageBackupProviderProfileOptions",
+    index: "imageBackupProviderProfileIndex"
+  }),
+  video: Object.freeze({
+    options: "videoProviderProfileOptions",
+    index: "videoProviderProfileIndex"
+  })
+});
 const ADMIN_PROVIDER_DISPLAY_ORDER = Object.freeze([
   "xingju",
   "lingyun",
@@ -140,6 +163,18 @@ function adminProviderIdsFromForm(form) {
   return sortAdminProviderIds(providerIds);
 }
 
+function adminProviderIdsFromProfiles(form) {
+  const source = form && typeof form === "object" ? form : {};
+  const profiles = normalizeAdminProviderProfiles(source.providerProfiles);
+  const providerIds = [];
+  ADMIN_PROVIDER_PROFILE_SECTIONS.forEach((section) => {
+    Object.keys(profiles[section] || {}).forEach((providerId) => {
+      if (providerId && !providerIds.includes(providerId)) providerIds.push(providerId);
+    });
+  });
+  return providerIds;
+}
+
 function providerLabelsFromForm(form) {
   const source = form && typeof form === "object" ? form : {};
   return mergeAdminProviderLabels(source.providerLabels);
@@ -199,7 +234,8 @@ function buildAdminProviderLabelRows(form, errors = {}) {
   const providerIds = [
     ...Object.keys(ADMIN_PROVIDER_LABELS),
     ...Object.keys(rawLabels),
-    ...adminProviderIdsFromForm(source)
+    ...adminProviderIdsFromForm(source),
+    ...adminProviderIdsFromProfiles(source)
   ]
     .map((providerId) => String(providerId || "").trim())
     .filter((providerId) => (
@@ -329,7 +365,8 @@ function relabelAdminProviderForm(form, nextLabels, previousLabels = activeAdmin
   });
   const activeLabels = setActiveAdminProviderLabels(nextLabels);
   const result = Object.assign({}, source, {
-    providerLabels: Object.assign({}, nextLabels)
+    providerLabels: Object.assign({}, nextLabels),
+    providerProfiles: normalizeAdminProviderProfiles(source.providerProfiles)
   });
   ADMIN_PROVIDER_FORM_SECTIONS.forEach((section) => {
     result[section] = Object.assign({}, source[section] || {}, {
@@ -723,9 +760,376 @@ function buildQualityPickerState(form, capabilityPayload = {}) {
   );
 }
 
+const ADMIN_PROVIDER_PROFILE_FORM_KEYS = Object.freeze({
+  face: Object.freeze([
+    "provider",
+    "baseUrl",
+    "endpoint",
+    "apiKey",
+    "model",
+    "timeoutMs"
+  ]),
+  analysis: Object.freeze([
+    "provider",
+    "baseUrl",
+    "endpoint",
+    "apiKey",
+    "model",
+    "timeoutMs"
+  ]),
+  image: Object.freeze([
+    "provider",
+    "baseUrl",
+    "endpoint",
+    "apiKey",
+    "model",
+    "mode",
+    "size",
+    "resolution",
+    "compatibilityMode",
+    "timeoutMs",
+    "maxRetries",
+    "retryEnabled",
+    "retryPreferenceVersion"
+  ]),
+  imageBackup: Object.freeze([
+    "provider",
+    "baseUrl",
+    "endpoint",
+    "apiKey",
+    "model",
+    "mode",
+    "size",
+    "resolution",
+    "compatibilityMode",
+    "timeoutMs",
+    "maxRetries",
+    "retryEnabled",
+    "retryPreferenceVersion"
+  ]),
+  video: Object.freeze([
+    "provider",
+    "baseUrl",
+    "endpoint",
+    "queryEndpoint",
+    "apiKey",
+    "model",
+    "createPath",
+    "queryPath",
+    "resolution",
+    "aspectRatio",
+    "timeoutMs"
+  ])
+});
+
+function normalizeAdminProviderProfiles(value) {
+  const source = value && typeof value === "object" && !Array.isArray(value)
+    ? value
+    : {};
+  const result = {};
+  ADMIN_PROVIDER_PROFILE_SECTIONS.forEach((section) => {
+    const rawSection = source[section];
+    if (!rawSection || typeof rawSection !== "object" || Array.isArray(rawSection)) return;
+    const profiles = {};
+    Object.keys(rawSection).forEach((rawProviderId) => {
+      const providerId = providerIdFromDisplay(rawProviderId);
+      if (!providerId || ADMIN_PROVIDER_DANGEROUS_KEYS.includes(providerId)) return;
+      const rawProfile = rawSection[rawProviderId];
+      if (!rawProfile || typeof rawProfile !== "object" || Array.isArray(rawProfile)) return;
+      const profile = {};
+      (ADMIN_PROVIDER_PROFILE_FORM_KEYS[section] || []).forEach((key) => {
+        if (!Object.prototype.hasOwnProperty.call(rawProfile, key)) return;
+        profile[key] = rawProfile[key];
+      });
+      profile.provider = displayAdminProvider(providerId, providerId);
+      profile.apiKeyConfigured = Boolean(
+        rawProfile.apiKeyConfigured
+        || String(rawProfile.apiKey || "").trim()
+      );
+      profiles[providerId] = profile;
+    });
+    if (Object.keys(profiles).length) result[section] = profiles;
+  });
+  return result;
+}
+
+function formSectionToProviderConfig(section, source = {}) {
+  const value = source && typeof source === "object" ? source : {};
+  if (section === "face" || section === "analysis") {
+    return {
+      provider: normalizeAdminProviderInput(value.provider),
+      baseUrl: String(value.baseUrl || "").trim(),
+      endpoint: String(value.endpoint || "").trim(),
+      apiKey: String(value.apiKey || "").trim(),
+      model: String(value.model || "").trim(),
+      timeoutMs: Number(value.timeoutMs || 0)
+    };
+  }
+  if (section === "image") {
+    return {
+      provider: normalizeAdminImageProviderInput(value.provider),
+      baseUrl: String(value.baseUrl || "").trim(),
+      endpoint: String(value.endpoint || "").trim(),
+      apiKey: String(value.apiKey || "").trim(),
+      model: String(value.model || "").trim(),
+      mode: String(value.mode || "").trim().toLowerCase(),
+      size: String(value.size || "").trim(),
+      resolution: normalizeAdminImageResolution(
+        value.resolution || value.size,
+        "1K"
+      ),
+      compatibilityMode: Boolean(value.compatibilityMode),
+      timeoutMs: Number(value.timeoutMs || 0),
+      maxRetries: Number(value.maxRetries || 0),
+      retryEnabled: Boolean(value.retryEnabled),
+      retryPreferenceVersion: 1
+    };
+  }
+  if (section === "imageBackup") {
+    return {
+      provider: normalizeAdminImageProviderInput(value.provider),
+      baseUrl: String(value.baseUrl || "").trim(),
+      endpoint: String(value.endpoint || "").trim(),
+      apiKey: String(value.apiKey || "").trim(),
+      model: String(value.model || "").trim(),
+      mode: String(value.mode || "edits").trim().toLowerCase(),
+      size: String(value.size || "").trim(),
+      resolution: normalizeAdminImageResolution(
+        value.resolution || value.size,
+        "1K"
+      ),
+      compatibilityMode: Boolean(value.compatibilityMode),
+      timeoutMs: Number(value.timeoutMs || 0),
+      maxRetries: 0,
+      retryEnabled: false,
+      retryPreferenceVersion: 1
+    };
+  }
+  if (section === "video") {
+    return {
+      provider: normalizeAdminProviderInput(value.provider),
+      baseUrl: String(value.baseUrl || "").trim(),
+      endpoint: String(value.endpoint || "").trim(),
+      queryEndpoint: String(value.queryEndpoint || "").trim(),
+      apiKey: String(value.apiKey || "").trim(),
+      model: String(value.model || "").trim(),
+      createPath: String(value.createPath || "").trim(),
+      queryPath: String(value.queryPath || "").trim(),
+      resolution: String(value.resolution || "").trim(),
+      aspectRatio: String(value.aspectRatio || "").trim(),
+      timeoutMs: Number(value.timeoutMs || 0)
+    };
+  }
+  return {};
+}
+
+function providerProfilesFromForm(form) {
+  const source = form && typeof form === "object" ? form : {};
+  const normalized = normalizeAdminProviderProfiles(source.providerProfiles);
+  const result = {};
+  ADMIN_PROVIDER_PROFILE_SECTIONS.forEach((section) => {
+    result[section] = {};
+    const savedProfiles = normalized[section] || {};
+    Object.keys(savedProfiles).forEach((providerId) => {
+      const saved = savedProfiles[providerId] || {};
+      const profile = Object.assign(
+        {},
+        saved,
+        formSectionToProviderConfig(section, saved),
+        {
+          provider: providerId
+        }
+      );
+      if (saved.apiKeyConfigured && !profile.apiKey) profile.apiKeyConfigured = true;
+      result[section][providerId] = profile;
+    });
+    const active = source[section] && typeof source[section] === "object"
+      ? source[section]
+      : {};
+    const providerId = providerIdFromDisplay(active.provider);
+    if (!providerId || ADMIN_PROVIDER_DANGEROUS_KEYS.includes(providerId)) return;
+    const previous = result[section][providerId] || {};
+    const current = formSectionToProviderConfig(section, active);
+    const merged = Object.assign({}, previous, current, { provider: providerId });
+    if (!current.apiKey && previous.apiKey) merged.apiKey = previous.apiKey;
+    merged.apiKeyConfigured = Boolean(
+      active.apiKeyConfigured
+      || previous.apiKeyConfigured
+      || merged.apiKey
+    );
+    result[section][providerId] = merged;
+  });
+  return result;
+}
+
+function syncAdminProviderProfiles(form) {
+  const source = form && typeof form === "object" ? form : {};
+  const next = Object.assign({}, source, {
+    providerProfiles: providerProfilesFromForm(source)
+  });
+  return next;
+}
+
+function buildAdminProviderProfileOptions(form, section) {
+  const source = form && typeof form === "object" ? form : {};
+  const profileSection = source.providerProfiles
+    && source.providerProfiles[section]
+    && typeof source.providerProfiles[section] === "object"
+    ? source.providerProfiles[section]
+    : {};
+  const currentProviderId = providerIdFromDisplay(
+    source[section] && source[section].provider
+  );
+  const ids = sortAdminProviderIds([
+    ...Object.keys(ADMIN_PROVIDER_LABELS),
+    ...Object.keys(
+      source.providerLabels
+      && typeof source.providerLabels === "object"
+      && !Array.isArray(source.providerLabels)
+        ? source.providerLabels
+        : {}
+    ),
+    ...Object.keys(profileSection),
+    currentProviderId
+  ], source.providerLabels);
+  return ids.map((providerId) => ({
+    value: providerId,
+    label: `${displayAdminProvider(providerId, providerId)}${
+      profileSection[providerId] ? "（已有参数）" : "（未配置）"
+    }`
+  }));
+}
+
+function buildAdminProviderProfilePickerState(form) {
+  const source = form && typeof form === "object" ? form : {};
+  const patch = {};
+  ADMIN_PROVIDER_PROFILE_SECTIONS.forEach((section) => {
+    const state = ADMIN_PROVIDER_PROFILE_STATE[section];
+    const options = buildAdminProviderProfileOptions(source, section);
+    const currentProviderId = providerIdFromDisplay(
+      source[section] && source[section].provider
+    );
+    patch[state.options] = options;
+    patch[state.index] = pickerIndex(options, currentProviderId, 0);
+  });
+  return patch;
+}
+
+function captureAdminProviderProfile(form, section) {
+  const source = form && typeof form === "object" ? form : {};
+  const current = source[section] && typeof source[section] === "object"
+    ? source[section]
+    : {};
+  const providerId = providerIdFromDisplay(current.provider);
+  if (!providerId || ADMIN_PROVIDER_DANGEROUS_KEYS.includes(providerId)) {
+    return normalizeAdminProviderProfiles(source.providerProfiles);
+  }
+  const profiles = normalizeAdminProviderProfiles(source.providerProfiles);
+  profiles[section] = Object.assign({}, profiles[section] || {});
+  const previous = profiles[section][providerId] || {};
+  const captured = Object.assign(
+    {},
+    previous,
+    formSectionToProviderConfig(section, current),
+    {
+      provider: displayAdminProvider(providerId, providerId),
+      apiKeyConfigured: Boolean(
+        current.apiKeyConfigured
+        || previous.apiKeyConfigured
+        || current.apiKey
+      )
+    }
+  );
+  if (!captured.apiKey && previous.apiKey) captured.apiKey = previous.apiKey;
+  profiles[section][providerId] = captured;
+  return profiles;
+}
+
+function providerProfileDefaultForm(section, providerId) {
+  const normalizedProviderId = providerIdFromDisplay(providerId);
+  const defaults = emptyForm();
+  const source = defaults[section] && typeof defaults[section] === "object"
+    ? defaults[section]
+    : {};
+  const useBuiltInDefaults = (
+    section === "image"
+    && normalizedProviderId === "xingju"
+  ) || (
+    section === "imageBackup"
+    && normalizedProviderId === "lingyun"
+  );
+  const result = Object.assign({}, source, {
+    provider: displayAdminProvider(normalizedProviderId, normalizedProviderId),
+    apiKey: "",
+    apiKeyConfigured: false
+  });
+  if (!useBuiltInDefaults) {
+    result.baseUrl = "";
+    result.endpoint = "";
+    result.apiKey = "";
+    result.model = "";
+  }
+  if (section === "video") {
+    result.queryEndpoint = "";
+  }
+  return result;
+}
+
+function profileFormForProvider(form, section, providerId) {
+  const source = form && typeof form === "object" ? form : {};
+  const normalizedProviderId = providerIdFromDisplay(providerId);
+  const profile = source.providerProfiles
+    && source.providerProfiles[section]
+    && source.providerProfiles[section][normalizedProviderId]
+    && typeof source.providerProfiles[section][normalizedProviderId] === "object"
+    ? source.providerProfiles[section][normalizedProviderId]
+    : null;
+  if (profile) {
+    return Object.assign({}, profile, {
+      provider: displayAdminProvider(normalizedProviderId, normalizedProviderId),
+      apiKeyConfigured: Boolean(profile.apiKeyConfigured || profile.apiKey)
+    });
+  }
+  return providerProfileDefaultForm(section, normalizedProviderId);
+}
+
+function updateAdminProviderProfileForm(form, section, patch) {
+  const source = form && typeof form === "object" ? form : {};
+  const next = Object.assign({}, source, {
+    [section]: Object.assign({}, source[section] || {}, patch || {})
+  });
+  return Object.assign({}, next, {
+    providerProfiles: captureAdminProviderProfile(next, section)
+  });
+}
+
+function switchAdminProviderProfile(form, section, providerId) {
+  const source = form && typeof form === "object" ? form : {};
+  if (!ADMIN_PROVIDER_PROFILE_SECTIONS.includes(section)) return source;
+  const normalizedProviderId = providerIdFromDisplay(providerId);
+  if (
+    !normalizedProviderId
+    || ADMIN_PROVIDER_DANGEROUS_KEYS.includes(normalizedProviderId)
+  ) {
+    return source;
+  }
+  const capturedProfiles = captureAdminProviderProfile(source, section);
+  const working = Object.assign({}, source, {
+    providerProfiles: capturedProfiles
+  });
+  return Object.assign({}, working, {
+    [section]: profileFormForProvider(
+      working,
+      section,
+      normalizedProviderId
+    )
+  });
+}
+
 function emptyForm() {
   return {
     providerLabels: Object.assign({}, ADMIN_PROVIDER_LABELS),
+    providerProfiles: {},
     face: {
       provider: "",
       baseUrl: "",
@@ -3282,6 +3686,9 @@ function buildEntryHealth(
 function formFromConfig(result) {
   const source = result && result.effective ? result.effective : {};
   const providerLabels = setActiveAdminProviderLabels(source.providerLabels);
+  const providerProfiles = normalizeAdminProviderProfiles(
+    source.providerProfiles
+  );
   const face = source.face || {};
   const analysis = source.analysis || {};
   const image = source.image || {};
@@ -3314,11 +3721,13 @@ function formFromConfig(result) {
   const generationQueue = source.generationQueue || {};
   return {
     providerLabels,
+    providerProfiles,
     face: {
       provider: displayAdminProvider(face.provider),
       baseUrl: face.baseUrl || "",
       endpoint: face.endpoint || "",
       apiKey: face.apiKey || "",
+      apiKeyConfigured: Boolean(face.apiKeyConfigured || face.apiKey),
       model: face.model || "",
       timeoutMs: String(face.timeoutMs || 30000)
     },
@@ -3327,6 +3736,10 @@ function formFromConfig(result) {
       baseUrl: analysis.baseUrl || "",
       endpoint: analysis.endpoint || "",
       apiKey: analysis.apiKey || "",
+      apiKeyConfigured: Boolean(
+        analysis.apiKeyConfigured
+        || analysis.apiKey
+      ),
       model: analysis.model || "",
       timeoutMs: String(analysis.timeoutMs || 30000)
     },
@@ -3335,6 +3748,7 @@ function formFromConfig(result) {
       baseUrl: image.baseUrl || "",
       endpoint: image.endpoint || "",
       apiKey: image.apiKey || "",
+      apiKeyConfigured: Boolean(image.apiKeyConfigured || image.apiKey),
       model: image.model || "",
       mode: image.mode || "edits",
       size: image.size || "1080x1440",
@@ -3355,6 +3769,10 @@ function formFromConfig(result) {
       baseUrl: imageBackup.baseUrl || "https://api.lingyunapi.xyz/v1",
       endpoint: imageBackup.endpoint || "",
       apiKey: imageBackup.apiKey || "",
+      apiKeyConfigured: Boolean(
+        imageBackup.apiKeyConfigured
+        || imageBackup.apiKey
+      ),
       model: imageBackup.model || "gpt-image-2",
       mode: imageBackup.mode || "edits",
       size: imageBackup.size || image.size || "1080x1440",
@@ -3390,6 +3808,7 @@ function formFromConfig(result) {
       endpoint: video.endpoint || "",
       queryEndpoint: video.queryEndpoint || "",
       apiKey: video.apiKey || "",
+      apiKeyConfigured: Boolean(video.apiKeyConfigured || video.apiKey),
       model: video.model || "",
       createPath: video.createPath || "/v1/videos/generations",
       queryPath: video.queryPath || "/v1/videos/{taskId}",
@@ -3476,7 +3895,27 @@ function formFromConfig(result) {
   };
 }
 
+function providerProfilesToConfig(form) {
+  const profiles = providerProfilesFromForm(form);
+  const result = {};
+  ADMIN_PROVIDER_PROFILE_SECTIONS.forEach((section) => {
+    result[section] = {};
+    Object.keys(profiles[section] || {}).forEach((providerId) => {
+      result[section][providerId] = Object.assign(
+        {},
+        formSectionToProviderConfig(
+          section,
+          profiles[section][providerId]
+        ),
+        { provider: providerId }
+      );
+    });
+  });
+  return result;
+}
+
 function formToConfig(form) {
+  form = syncAdminProviderProfiles(form);
   const providerLabels = providerLabelsFromForm(form);
   setActiveAdminProviderLabels(providerLabels);
   const xingjuImagePrices = {
@@ -3495,6 +3934,7 @@ function formToConfig(form) {
   const tencentFaceFusion = form.tencentFaceFusion || emptyTencentFaceFusionForm();
   return {
     providerLabels: providerLabelsFromForm(form),
+    providerProfiles: providerProfilesToConfig(form),
     face: {
       provider: normalizeAdminProviderInput(form.face.provider),
       baseUrl: String(form.face.baseUrl || "").trim(),
@@ -3633,73 +4073,188 @@ function formToConfig(form) {
 }
 
 function emptyAdminImageApiKeys() {
+  const providerProfiles = {};
+  ADMIN_PROVIDER_PROFILE_SECTIONS.forEach((section) => {
+    providerProfiles[section] = {};
+  });
   return {
+    face: "",
+    analysis: "",
     image: "",
-    imageBackup: ""
+    imageBackup: "",
+    video: "",
+    providerProfiles
   };
 }
 
 function normalizeAdminImageApiKeys(result) {
   const source = result && typeof result === "object" ? result : {};
-  return {
-    image: String(
-      source.image
-      && source.image.apiKey
-      || ""
-    ).trim(),
-    imageBackup: String(
-      source.imageBackup
-      && source.imageBackup.apiKey
-      || ""
-    ).trim()
-  };
+  const normalized = emptyAdminImageApiKeys();
+  ADMIN_PROVIDER_PROFILE_SECTIONS.forEach((section) => {
+    const topLevel = source[section];
+    normalized[section] = String(
+      topLevel && typeof topLevel === "object"
+        ? topLevel.apiKey || ""
+        : topLevel || ""
+    ).trim();
+    const rawProfiles = source.providerProfiles
+      && source.providerProfiles[section]
+      && typeof source.providerProfiles[section] === "object"
+      && !Array.isArray(source.providerProfiles[section])
+      ? source.providerProfiles[section]
+      : {};
+    Object.keys(rawProfiles).forEach((rawProviderId) => {
+      const providerId = providerIdFromDisplay(rawProviderId);
+      if (
+        !providerId
+        || ADMIN_PROVIDER_DANGEROUS_KEYS.includes(providerId)
+      ) {
+        return;
+      }
+      const profile = rawProfiles[rawProviderId];
+      normalized.providerProfiles[section][providerId] = String(
+        profile && typeof profile === "object"
+          ? profile.apiKey || ""
+          : profile || ""
+      ).trim();
+    });
+  });
+  return normalized;
 }
 
 function adminImageApiKeysFromForm(form) {
-  const source = form && typeof form === "object" ? form : {};
-  return {
-    image: String(
-      source.image
-      && source.image.apiKey
+  const source = syncAdminProviderProfiles(
+    form && typeof form === "object" ? form : {}
+  );
+  const result = emptyAdminImageApiKeys();
+  const profiles = normalizeAdminProviderProfiles(source.providerProfiles);
+  ADMIN_PROVIDER_PROFILE_SECTIONS.forEach((section) => {
+    result[section] = String(
+      source[section]
+      && source[section].apiKey
       || ""
-    ).trim(),
-    imageBackup: String(
-      source.imageBackup
-      && source.imageBackup.apiKey
-      || ""
-    ).trim()
-  };
+    ).trim();
+    Object.keys(profiles[section] || {}).forEach((providerId) => {
+      result.providerProfiles[section][providerId] = String(
+        profiles[section][providerId]
+        && profiles[section][providerId].apiKey
+        || ""
+      ).trim();
+    });
+    const activeProviderId = providerIdFromDisplay(
+      source[section]
+      && source[section].provider
+    );
+    if (
+      activeProviderId
+      && result[section]
+      && !result.providerProfiles[section][activeProviderId]
+    ) {
+      result.providerProfiles[section][activeProviderId] = result[section];
+    }
+  });
+  return result;
 }
 
 function formWithAdminImageApiKeys(form, apiKeys) {
   const source = form && typeof form === "object" ? form : {};
-  const keys = normalizeAdminImageApiKeys({
-    image: { apiKey: apiKeys && apiKeys.image },
-    imageBackup: { apiKey: apiKeys && apiKeys.imageBackup }
+  const keys = normalizeAdminImageApiKeys(apiKeys);
+  const providerProfiles = normalizeAdminProviderProfiles(
+    source.providerProfiles
+  );
+  ADMIN_PROVIDER_PROFILE_SECTIONS.forEach((section) => {
+    providerProfiles[section] = Object.assign(
+      {},
+      providerProfiles[section] || {}
+    );
+    const profileKeys = keys.providerProfiles[section] || {};
+    Object.keys(profileKeys).forEach((providerId) => {
+      const existing = providerProfiles[section][providerId];
+      if (!existing) return;
+      const apiKey = String(profileKeys[providerId] || "").trim();
+      providerProfiles[section][providerId] = Object.assign({}, existing, {
+        apiKey,
+        apiKeyConfigured: Boolean(
+          existing.apiKeyConfigured
+          || apiKey
+        )
+      });
+    });
   });
-  return Object.assign({}, source, {
-    image: Object.assign({}, source.image || {}, {
-      apiKey: keys.image
-    }),
-    imageBackup: Object.assign({}, source.imageBackup || {}, {
-      apiKey: keys.imageBackup
-    })
+  let next = Object.assign({}, source, { providerProfiles });
+  ADMIN_PROVIDER_PROFILE_SECTIONS.forEach((section) => {
+    const activeProviderId = providerIdFromDisplay(
+      source[section]
+      && source[section].provider
+    );
+    const profileKey = activeProviderId
+      ? String(
+        keys.providerProfiles[section]
+        && keys.providerProfiles[section][activeProviderId]
+        || ""
+      ).trim()
+      : "";
+    const apiKey = keys[section]
+      || profileKey
+      || String(
+        source[section]
+        && source[section].apiKey
+        || ""
+      ).trim();
+    next = Object.assign({}, next, {
+      [section]: Object.assign({}, source[section] || {}, {
+        apiKey,
+        apiKeyConfigured: Boolean(
+          source[section]
+          && source[section].apiKeyConfigured
+          || apiKey
+        )
+      })
+    });
+    next.providerProfiles = captureAdminProviderProfile(next, section);
   });
+  return next;
 }
 
 function adminConfigSavePayload(form, baseline) {
-  const configPayload = formToConfig(form);
-  const currentKeys = adminImageApiKeysFromForm(form);
-  const loadedKeys = Object.assign(
-    emptyAdminImageApiKeys(),
-    baseline && typeof baseline === "object" ? baseline : {}
-  );
-  ["image", "imageBackup"].forEach((section) => {
+  const syncedForm = syncAdminProviderProfiles(form);
+  const configPayload = formToConfig(syncedForm);
+  const currentKeys = adminImageApiKeysFromForm(syncedForm);
+  const loadedKeys = normalizeAdminImageApiKeys(baseline);
+  ADMIN_PROVIDER_PROFILE_SECTIONS.forEach((section) => {
     const current = currentKeys[section];
-    const loaded = String(loadedKeys[section] || "").trim();
+    const activeProviderId = providerIdFromDisplay(
+      syncedForm[section]
+      && syncedForm[section].provider
+    );
+    const loaded = activeProviderId
+      ? String(
+        loadedKeys.providerProfiles[section]
+        && loadedKeys.providerProfiles[section][activeProviderId]
+        || ""
+      ).trim()
+      : String(loadedKeys[section] || "").trim();
     if (!current || current === loaded) {
       delete configPayload[section].apiKey;
     }
+    const payloadProfiles = configPayload.providerProfiles
+      && configPayload.providerProfiles[section]
+      || {};
+    Object.keys(payloadProfiles).forEach((providerId) => {
+      const profileKey = String(
+        currentKeys.providerProfiles[section]
+        && currentKeys.providerProfiles[section][providerId]
+        || ""
+      ).trim();
+      const loadedProfileKey = String(
+        loadedKeys.providerProfiles[section]
+        && loadedKeys.providerProfiles[section][providerId]
+        || ""
+      ).trim();
+      if (!profileKey || profileKey === loadedProfileKey) {
+        delete payloadProfiles[providerId].apiKey;
+      }
+    });
   });
   return configPayload;
 }
@@ -3722,23 +4277,49 @@ function formWithTencentFaceFusionSecrets(form, current) {
 }
 
 function adminImageApiKeysAfterSave(form, baseline) {
-  const currentKeys = adminImageApiKeysFromForm(form);
-  const loadedKeys = Object.assign(
-    emptyAdminImageApiKeys(),
-    baseline && typeof baseline === "object" ? baseline : {}
-  );
-  return {
-    image: currentKeys.image || String(loadedKeys.image || "").trim(),
-    imageBackup: currentKeys.imageBackup
-      || String(loadedKeys.imageBackup || "").trim()
-  };
+  const syncedForm = syncAdminProviderProfiles(form);
+  const currentKeys = adminImageApiKeysFromForm(syncedForm);
+  const loadedKeys = normalizeAdminImageApiKeys(baseline);
+  const result = emptyAdminImageApiKeys();
+  ADMIN_PROVIDER_PROFILE_SECTIONS.forEach((section) => {
+    const providerIds = new Set([
+      ...Object.keys(loadedKeys.providerProfiles[section] || {}),
+      ...Object.keys(currentKeys.providerProfiles[section] || {})
+    ]);
+    Array.from(providerIds).forEach((providerId) => {
+      result.providerProfiles[section][providerId] = String(
+        currentKeys.providerProfiles[section][providerId]
+        || loadedKeys.providerProfiles[section][providerId]
+        || ""
+      ).trim();
+    });
+    const activeProviderId = providerIdFromDisplay(
+      syncedForm[section]
+      && syncedForm[section].provider
+    );
+    result[section] = String(
+      currentKeys[section]
+      || activeProviderId
+        && result.providerProfiles[section][activeProviderId]
+      || (!activeProviderId && loadedKeys[section])
+      || ""
+    ).trim();
+    if (
+      activeProviderId
+      && result[section]
+      && !result.providerProfiles[section][activeProviderId]
+    ) {
+      result.providerProfiles[section][activeProviderId] = result[section];
+    }
+  });
+  return result;
 }
 
 async function fetchAdminConfigBundle() {
   const apiKeyTask = withTimeout(
     cloud.getAdminImageApiKeys({ retryLimit: 0 }),
     10000,
-    "生图完整 Key"
+    "服务商完整 Key"
   )
     .then((result) => {
       if (!result || result.ok === false) {
@@ -3965,6 +4546,31 @@ Page({
     refreshingAll: false,
     isAdmin: false,
     form: emptyForm(),
+    faceProviderProfileOptions: buildAdminProviderProfileOptions(
+      emptyForm(),
+      "face"
+    ),
+    faceProviderProfileIndex: 0,
+    analysisProviderProfileOptions: buildAdminProviderProfileOptions(
+      emptyForm(),
+      "analysis"
+    ),
+    analysisProviderProfileIndex: 0,
+    imageProviderProfileOptions: buildAdminProviderProfileOptions(
+      emptyForm(),
+      "image"
+    ),
+    imageProviderProfileIndex: 0,
+    imageBackupProviderProfileOptions: buildAdminProviderProfileOptions(
+      emptyForm(),
+      "imageBackup"
+    ),
+    imageBackupProviderProfileIndex: 1,
+    videoProviderProfileOptions: buildAdminProviderProfileOptions(
+      emptyForm(),
+      "video"
+    ),
+    videoProviderProfileIndex: 0,
     providerLabelRows: buildAdminProviderLabelRows(emptyForm()),
     providerLabelErrors: {},
     providerFilterOptions: buildAdminProviderFilterState(emptyForm()).providerFilterOptions,
@@ -4585,7 +5191,7 @@ Page({
         formFromConfig(result),
         imageApiKeys
       );
-      this._imageApiKeyBaseline = imageApiKeys;
+      this._imageApiKeyBaseline = adminImageApiKeysFromForm(form);
       const moduleStates = loadingAdminModuleStates(this.data.moduleStates);
       const basePatch = Object.assign({
         loading: false,
@@ -4601,7 +5207,8 @@ Page({
         message: apiKeyResult.ok
           ? ""
           : "普通配置已读取，但完整 Key 读取失败，请刷新。"
-      }, buildQualityPickerState(form), buildAdminProviderManagementState(
+      }, buildQualityPickerState(form), buildAdminProviderProfilePickerState(form),
+      buildAdminProviderManagementState(
         form,
         this.data.modelProbes,
         this.data.providerFilterValue,
@@ -4615,8 +5222,8 @@ Page({
       if (!apiKeyResult.ok) {
         diagnosticLog.warn(
           "admin",
-          "image-api-key-load-failed",
-          "管理员生图完整 Key 读取失败",
+          "provider-api-key-load-failed",
+          "管理员服务商完整 Key 读取失败",
           adminImageApiKeyFailureLog(apiKeyResult.error)
         );
       }
@@ -5346,13 +5953,14 @@ Page({
           formFromConfig(result),
           imageApiKeys
         );
-        this._imageApiKeyBaseline = imageApiKeys;
+        this._imageApiKeyBaseline = adminImageApiKeysFromForm(form);
         const patch = Object.assign({
           form,
           costFieldErrors: {},
           defaults: result.defaults || null,
           effective: result.effective || null
-        }, buildQualityPickerState(form), buildAdminProviderManagementState(
+        }, buildQualityPickerState(form), buildAdminProviderProfilePickerState(form),
+        buildAdminProviderManagementState(
           form,
           this.data.modelProbes,
           this.data.providerFilterValue,
@@ -5364,8 +5972,8 @@ Page({
         if (!apiKeyResult.ok) {
           diagnosticLog.warn(
             "admin",
-            "image-api-key-refresh-failed",
-            "刷新管理员生图完整 Key 失败",
+            "provider-api-key-refresh-failed",
+            "刷新管理员服务商完整 Key 失败",
             adminImageApiKeyFailureLog(apiKeyResult.error)
           );
         }
@@ -5471,7 +6079,7 @@ Page({
     const failed = [];
     if (!configResult.ok) failed.push("模型配置");
     if (configResult.ok && configResult.imageApiKeysOk === false) {
-      failed.push("生图完整 Key");
+      failed.push("服务商完整 Key");
     }
     parts.forEach((part, index) => {
       if (!part || part.ok) return;
@@ -5559,6 +6167,147 @@ Page({
     }
   },
 
+  onProviderProfileChange(event) {
+    const section = String(
+      event
+      && event.currentTarget
+      && event.currentTarget.dataset
+      && event.currentTarget.dataset.section
+      || ""
+    ).trim();
+    const state = ADMIN_PROVIDER_PROFILE_STATE[section];
+    if (!state) return;
+    const options = Array.isArray(this.data[state.options])
+      ? this.data[state.options]
+      : [];
+    const index = Math.max(
+      0,
+      Number(event && event.detail && event.detail.value) || 0
+    );
+    const option = options[index];
+    if (!option || !option.value) return;
+    const nextForm = switchAdminProviderProfile(
+      this.data.form,
+      section,
+      option.value
+    );
+    const imageModel = String(
+      nextForm.image
+      && nextForm.image.model
+      || ""
+    ).trim();
+    const videoModel = String(
+      nextForm.video
+      && nextForm.video.model
+      || ""
+    ).trim();
+    const capabilityProfiles = this.data.modelCapabilityProfiles || {};
+    const patch = Object.assign({
+      form: nextForm,
+      message: `已切换到${displayAdminProvider(option.value, option.value)}；当前只修改页面草稿，点击“保存全部配置”后才写入云端。`
+    }, buildAdminProviderProfilePickerState(nextForm),
+    buildAdminProviderManagementState(
+      nextForm,
+      this.data.modelProbes,
+      this.data.providerFilterValue,
+      this.data.providerLabelErrors
+    ), buildQualityPickerState(nextForm, {
+      image: capabilityProfiles.image
+        && capabilityProfiles.image[imageModel]
+        || {},
+      video: capabilityProfiles.video
+        && capabilityProfiles.video[videoModel]
+        || {}
+    }));
+    Object.assign(
+      patch,
+      this.buildAdminDerivedPatch({ form: nextForm }, this.data.moduleStates)
+    );
+    this.setData(patch);
+  },
+
+  onProviderLabelInput(event) {
+    const providerId = String(
+      event
+      && event.currentTarget
+      && event.currentTarget.dataset
+      && event.currentTarget.dataset.providerId
+      || ""
+    ).trim();
+    if (
+      !providerId
+      || ADMIN_PROVIDER_DANGEROUS_KEYS.includes(providerId)
+    ) {
+      return;
+    }
+    const label = String(
+      event
+      && event.detail
+      && event.detail.value
+      || ""
+    ).slice(0, ADMIN_PROVIDER_LABEL_MAX_LENGTH);
+    const previousLabels = Object.assign({}, activeAdminProviderLabels);
+    const nextLabels = Object.assign(
+      {},
+      this.data.form
+      && this.data.form.providerLabels
+      || {},
+      { [providerId]: label }
+    );
+    const nextForm = relabelAdminProviderForm(
+      this.data.form,
+      nextLabels,
+      previousLabels
+    );
+    const providerLabelErrors = validateAdminProviderLabelRows(
+      buildAdminProviderLabelRows(nextForm)
+    );
+    const patch = Object.assign({
+      form: nextForm
+    }, buildAdminProviderProfilePickerState(nextForm),
+    buildAdminProviderManagementState(
+      nextForm,
+      this.data.modelProbes,
+      this.data.providerFilterValue,
+      providerLabelErrors
+    ), buildQualityPickerState(nextForm));
+    Object.assign(
+      patch,
+      this.buildAdminDerivedPatch({ form: nextForm }, this.data.moduleStates)
+    );
+    this.setData(patch);
+  },
+
+  onProviderFilterChange(event) {
+    const options = Array.isArray(this.data.providerFilterOptions)
+      ? this.data.providerFilterOptions
+      : [];
+    const index = Math.max(
+      0,
+      Number(event && event.detail && event.detail.value) || 0
+    );
+    const option = options[index] || options[0] || {
+      value: "all",
+      label: "全部服务商"
+    };
+    const patch = buildAdminProviderManagementState(
+      this.data.form,
+      this.data.modelProbes,
+      option.value,
+      this.data.providerLabelErrors
+    );
+    const activeSection = String(this.data.activeConfigSection || "");
+    if (
+      ["face", "analysis", "image", "video"].includes(activeSection)
+      && patch.providerSectionVisibility
+      && !patch.providerSectionVisibility[activeSection]
+    ) {
+      patch.activeConfigSection = "";
+      patch.activeConfigTitle = "";
+    }
+    this.setData(patch, () => this.persistMonitorLayout());
+  },
+
   onInput(event) {
     const section = event.currentTarget.dataset.section;
     const key = event.currentTarget.dataset.key
@@ -5571,47 +6320,70 @@ Page({
     )
       ? displayAdminProvider(inputValue)
       : inputValue;
-    const patch = {
-      [`form.${section}.${key}`]: value
-    };
-    if (ADMIN_PROVIDER_FORM_SECTIONS.includes(section) && key === "provider") {
-      const nextForm = Object.assign({}, this.data.form, {
-        [section]: Object.assign({}, this.data.form[section], {
-          provider: value
+    let nextForm;
+    if (ADMIN_PROVIDER_PROFILE_SECTIONS.includes(section)) {
+      if (key === "provider") {
+        const currentProviderId = providerIdFromDisplay(
+          this.data.form[section]
+          && this.data.form[section].provider
+        );
+        const nextProviderId = providerIdFromDisplay(value);
+        nextForm = currentProviderId === nextProviderId
+          ? updateAdminProviderProfileForm(
+            this.data.form,
+            section,
+            { provider: value }
+          )
+          : switchAdminProviderProfile(
+            this.data.form,
+            section,
+            nextProviderId
+          );
+      } else {
+        nextForm = updateAdminProviderProfileForm(
+          this.data.form,
+          section,
+          { [key]: value }
+        );
+      }
+    } else {
+      nextForm = Object.assign({}, this.data.form, {
+        [section]: Object.assign({}, this.data.form[section] || {}, {
+          [key]: value
         })
       });
-      Object.assign(patch, buildAdminProviderManagementState(
-        nextForm,
-        this.data.modelProbes,
-        this.data.providerFilterValue,
-        this.data.providerLabelErrors
-      ));
-      if (
-        ["face", "analysis", "image", "video"].includes(this.data.activeConfigSection)
-        && !patch.providerSectionVisibility[this.data.activeConfigSection]
-      ) {
-        patch.activeConfigSection = "";
-        patch.activeConfigTitle = "";
-      }
     }
+    const patch = { form: nextForm };
     if (section === "tencentFaceFusion") {
       patch[`tencentFaceFusionFieldErrors.${key}`] = "";
     }
     if (section === "costs" && ADMIN_COST_KEYS.includes(key)) {
       patch[`costFieldErrors.${key}`] = validateAdminCostInput(value);
     }
-    if (key === "model") {
-      patch[`currentConfigModels.${section}`] = displayModelName(event.detail.value);
+    if (ADMIN_PROVIDER_PROFILE_SECTIONS.includes(section)) {
+      Object.assign(
+        patch,
+        buildAdminProviderProfilePickerState(nextForm),
+        buildAdminProviderManagementState(
+          nextForm,
+          this.data.modelProbes,
+          this.data.providerFilterValue,
+          this.data.providerLabelErrors
+        )
+      );
+      if (
+        ["face", "analysis", "image", "video"].includes(this.data.activeConfigSection)
+        && patch.providerSectionVisibility
+        && !patch.providerSectionVisibility[this.data.activeConfigSection]
+      ) {
+        patch.activeConfigSection = "";
+        patch.activeConfigTitle = "";
+      }
     }
     if (
       (section === "image" || section === "imageBackup" || section === "video")
       && (key === "model" || key === "provider")
     ) {
-      const nextForm = Object.assign({}, this.data.form, {
-        [section]: Object.assign({}, this.data.form[section], {
-          [key]: value
-        })
-      });
       const profiles = this.data.modelCapabilityProfiles
         && this.data.modelCapabilityProfiles[section]
         ? this.data.modelCapabilityProfiles[section]
@@ -5625,11 +6397,6 @@ Page({
       section === "costs"
       && (IMAGE_COST_KEYS.includes(key) || VIDEO_COST_KEYS.includes(key))
     ) {
-      const nextForm = Object.assign({}, this.data.form, {
-        costs: Object.assign({}, this.data.form.costs, {
-          [key]: event.detail.value
-        })
-      });
       const currentImageModel = String(nextForm.image && nextForm.image.model || "").trim();
       const currentVideoModel = String(nextForm.video && nextForm.video.model || "").trim();
       const profiles = this.data.modelCapabilityProfiles || {};
@@ -5638,60 +6405,11 @@ Page({
         video: profiles.video && profiles.video[currentVideoModel] || {}
       }));
     }
+    Object.assign(
+      patch,
+      this.buildAdminDerivedPatch({ form: nextForm }, this.data.moduleStates)
+    );
     this.setData(patch);
-  },
-
-  onProviderLabelInput(event) {
-    const providerId = String(
-      event && event.currentTarget && event.currentTarget.dataset.providerId || ""
-    ).trim();
-    if (!providerId || ADMIN_PROVIDER_DANGEROUS_KEYS.includes(providerId)) return;
-    const label = String(event && event.detail && event.detail.value || "");
-    const previousLabels = Object.assign({}, activeAdminProviderLabels);
-    const nextLabels = Object.assign(
-      {},
-      this.data.form && this.data.form.providerLabels || {},
-      { [providerId]: label }
-    );
-    const nextForm = relabelAdminProviderForm(
-      Object.assign({}, this.data.form, { providerLabels: nextLabels }),
-      nextLabels,
-      previousLabels
-    );
-    const providerLabelErrors = validateAdminProviderLabelRows(
-      buildAdminProviderLabelRows(nextForm)
-    );
-    const patch = Object.assign({
-      form: nextForm
-    }, buildQualityPickerState(nextForm), buildAdminProviderManagementState(
-      nextForm,
-      this.data.modelProbes,
-      this.data.providerFilterValue,
-      providerLabelErrors
-    ));
-    this.setData(patch);
-  },
-
-  onProviderFilterChange(event) {
-    const options = Array.isArray(this.data.providerFilterOptions)
-      ? this.data.providerFilterOptions
-      : [{ value: "all", label: "全部服务商" }];
-    const index = Math.max(0, Number(event && event.detail && event.detail.value) || 0);
-    const selected = options[index] && options[index].value || "all";
-    const patch = buildAdminProviderManagementState(
-      this.data.form,
-      this.data.modelProbes,
-      selected,
-      this.data.providerLabelErrors
-    );
-    if (
-      ["face", "analysis", "image", "video"].includes(this.data.activeConfigSection)
-      && !patch.providerSectionVisibility[this.data.activeConfigSection]
-    ) {
-      patch.activeConfigSection = "";
-      patch.activeConfigTitle = "";
-    }
-    this.setData(patch, () => this.persistMonitorLayout());
   },
 
   async loadTencentFaceFusionStatus(token = this._adminLoadToken || 0) {
@@ -5931,14 +6649,14 @@ Page({
   onImageQualityChange(event) {
     const index = Math.max(0, Number(event && event.detail && event.detail.value) || 0);
     const option = this.data.imageQualityOptions[index] || IMAGE_QUALITY_OPTIONS[0];
-    const nextForm = Object.assign({}, this.data.form, {
-      image: Object.assign({}, this.data.form.image, {
-        resolution: option.value
-      })
-    });
+    const nextForm = updateAdminProviderProfileForm(
+      this.data.form,
+      "image",
+      { resolution: option.value }
+    );
     this.setData(Object.assign({
-      "form.image.resolution": option.value
-    }, buildQualityPickerState(nextForm, {
+      form: nextForm
+    }, buildAdminProviderProfilePickerState(nextForm), buildQualityPickerState(nextForm, {
       image: this.data.modelCapabilityProfiles.image
         && this.data.modelCapabilityProfiles.image[nextForm.image.model]
         || {}
@@ -5948,57 +6666,57 @@ Page({
   onImageSizeChange(event) {
     const index = Math.max(0, Number(event && event.detail && event.detail.value) || 0);
     const option = this.data.imageSizeOptions[index] || IMAGE_SIZE_OPTIONS[0];
-    const nextForm = Object.assign({}, this.data.form, {
-      image: Object.assign({}, this.data.form.image, {
-        size: option.value
-      })
-    });
+    const nextForm = updateAdminProviderProfileForm(
+      this.data.form,
+      "image",
+      { size: option.value }
+    );
     this.setData(Object.assign({
-      "form.image.size": option.value
-    }, buildQualityPickerState(nextForm, {
+      form: nextForm
+    }, buildAdminProviderProfilePickerState(nextForm), buildQualityPickerState(nextForm, {
       image: this.data.modelCapabilityProfiles.image
         && this.data.modelCapabilityProfiles.image[nextForm.image.model]
         || {}
-      })));
+    })));
   },
 
   onImageBackupQualityChange(event) {
     const index = Math.max(0, Number(event && event.detail && event.detail.value) || 0);
     const option = this.data.imageBackupQualityOptions[index] || IMAGE_QUALITY_OPTIONS[0];
-    const nextForm = Object.assign({}, this.data.form, {
-      imageBackup: Object.assign({}, this.data.form.imageBackup, {
-        resolution: option.value
-      })
-    });
+    const nextForm = updateAdminProviderProfileForm(
+      this.data.form,
+      "imageBackup",
+      { resolution: option.value }
+    );
     this.setData(Object.assign({
-      "form.imageBackup.resolution": option.value
-    }, buildQualityPickerState(nextForm)));
+      form: nextForm
+    }, buildAdminProviderProfilePickerState(nextForm), buildQualityPickerState(nextForm)));
   },
 
   onImageBackupSizeChange(event) {
     const index = Math.max(0, Number(event && event.detail && event.detail.value) || 0);
     const option = this.data.imageBackupSizeOptions[index] || IMAGE_SIZE_OPTIONS[0];
-    const nextForm = Object.assign({}, this.data.form, {
-      imageBackup: Object.assign({}, this.data.form.imageBackup, {
-        size: option.value
-      })
-    });
+    const nextForm = updateAdminProviderProfileForm(
+      this.data.form,
+      "imageBackup",
+      { size: option.value }
+    );
     this.setData(Object.assign({
-      "form.imageBackup.size": option.value
-    }, buildQualityPickerState(nextForm)));
+      form: nextForm
+    }, buildAdminProviderProfilePickerState(nextForm), buildQualityPickerState(nextForm)));
   },
 
   onVideoQualityChange(event) {
     const index = Math.max(0, Number(event && event.detail && event.detail.value) || 1);
     const option = this.data.videoQualityOptions[index] || VIDEO_QUALITY_OPTIONS[1];
-    const nextForm = Object.assign({}, this.data.form, {
-      video: Object.assign({}, this.data.form.video, {
-        resolution: option.value
-      })
-    });
+    const nextForm = updateAdminProviderProfileForm(
+      this.data.form,
+      "video",
+      { resolution: option.value }
+    );
     this.setData(Object.assign({
-      "form.video.resolution": option.value
-    }, buildQualityPickerState(nextForm, {
+      form: nextForm
+    }, buildAdminProviderProfilePickerState(nextForm), buildQualityPickerState(nextForm, {
       video: this.data.modelCapabilityProfiles.video
         && this.data.modelCapabilityProfiles.video[nextForm.video.model]
         || {}
@@ -6006,24 +6724,48 @@ Page({
   },
 
   onRetryChange(event) {
-    this.setData({
-      "form.image.retryEnabled": Array.isArray(event.detail.value)
-        && event.detail.value.includes("enabled")
-    });
+    const nextForm = updateAdminProviderProfileForm(
+      this.data.form,
+      "image",
+      {
+        retryEnabled: Array.isArray(event.detail.value)
+          && event.detail.value.includes("enabled")
+      }
+    );
+    this.setData(Object.assign({
+      form: nextForm
+    }, buildAdminProviderProfilePickerState(nextForm)));
   },
 
   onImageCompatibilityChange(event) {
-    this.setData({
-      "form.image.compatibilityMode": Array.isArray(event.detail.value)
-        && event.detail.value.includes("enabled")
-    });
+    const nextForm = updateAdminProviderProfileForm(
+      this.data.form,
+      "image",
+      {
+        compatibilityMode: Array.isArray(event.detail.value)
+          && event.detail.value.includes("enabled")
+      }
+    );
+    this.setData(Object.assign({
+      form: nextForm
+    }, buildAdminProviderProfilePickerState(nextForm)));
   },
 
   onImageBackupCompatibilityChange(event) {
-    this.setData({
-      "form.imageBackup.compatibilityMode": Array.isArray(event && event.detail && event.detail.value)
-        && event.detail.value.includes("enabled")
-    });
+    const nextForm = updateAdminProviderProfileForm(
+      this.data.form,
+      "imageBackup",
+      {
+        compatibilityMode: Array.isArray(
+          event
+          && event.detail
+          && event.detail.value
+        ) && event.detail.value.includes("enabled")
+      }
+    );
+    this.setData(Object.assign({
+      form: nextForm
+    }, buildAdminProviderProfilePickerState(nextForm)));
   },
 
   onTencentLogoAddChange(event) {
@@ -6049,15 +6791,48 @@ Page({
     const face = this.data.form && this.data.form.face
       ? this.data.form.face
       : emptyForm().face;
-    this.setData({
-      "form.analysis.provider": face.provider || "",
-      "form.analysis.baseUrl": face.baseUrl || "",
-      "form.analysis.endpoint": face.endpoint || "",
-      "form.analysis.apiKey": face.apiKey || "",
-      "form.analysis.model": face.model || "",
-      "form.analysis.timeoutMs": String(face.timeoutMs || "30000"),
+    const targetProviderId = providerIdFromDisplay(face.provider);
+    const currentProviderId = providerIdFromDisplay(
+      this.data.form
+      && this.data.form.analysis
+      && this.data.form.analysis.provider
+    );
+    let nextForm = this.data.form;
+    if (targetProviderId && targetProviderId !== currentProviderId) {
+      nextForm = switchAdminProviderProfile(
+        nextForm,
+        "analysis",
+        targetProviderId
+      );
+    }
+    nextForm = updateAdminProviderProfileForm(
+      nextForm,
+      "analysis",
+      {
+        provider: face.provider || "",
+        baseUrl: face.baseUrl || "",
+        endpoint: face.endpoint || "",
+        apiKey: face.apiKey || "",
+        apiKeyConfigured: Boolean(face.apiKey),
+        model: face.model || "",
+        timeoutMs: String(face.timeoutMs || "30000")
+      }
+    );
+    const patch = Object.assign({
+      form: nextForm,
       message: "已复制人脸配置到图片分析；点击“保存全部配置”后才会生效。"
-    });
+    }, buildAdminProviderProfilePickerState(nextForm),
+    buildAdminProviderManagementState(
+      nextForm,
+      this.data.modelProbes,
+      this.data.providerFilterValue,
+      this.data.providerLabelErrors
+    ));
+    Object.assign(
+      patch,
+      this.buildAdminDerivedPatch({ form: nextForm }, this.data.moduleStates)
+    );
+    this.setData(patch);
     wx.showToast({ title: "已复制，记得保存", icon: "none" });
   },
 
@@ -6229,11 +7004,11 @@ Page({
       usageSections,
       autoFaceFailureSections,
       deploymentSections,
+      providerFilterValue: storedProviderFilterValue,
       activeConfigSection: storedActiveConfigSection,
       activeConfigTitle: storedActiveConfigSection
         ? CONFIG_SECTION_TITLES[storedActiveConfigSection]
         : "",
-      providerFilterValue: storedProviderFilterValue,
       tencentImageTab: legacyTencentImagePanel
         ? "fusion"
         : ["image", "fusion"].includes(stored.tencentImageTab)
@@ -6278,20 +7053,20 @@ Page({
   persistMonitorLayout() {
     try {
       wx.setStorageSync(MONITOR_LAYOUT_STORAGE_KEY, {
-        version: 6,
+        version: 7,
         monitorExpanded: Boolean(this.data.monitorExpanded),
         usageExpanded: Boolean(this.data.usageExpanded),
-      monitorSections: Object.assign({}, this.data.monitorSections),
-      usageSections: Object.assign({}, this.data.usageSections),
-      autoFaceFailureSections: Object.assign({}, this.data.autoFaceFailureSections),
-      deploymentSections: Object.assign({}, this.data.deploymentSections),
-      providerFilterValue: String(this.data.providerFilterValue || "all"),
-      tencentImageTab: ["image", "fusion"].includes(this.data.tencentImageTab)
-        ? this.data.tencentImageTab
-        : "image",
-      activeConfigSection: CONFIG_SECTION_TITLES[this.data.activeConfigSection]
-        ? this.data.activeConfigSection
-        : ""
+        monitorSections: Object.assign({}, this.data.monitorSections),
+        usageSections: Object.assign({}, this.data.usageSections),
+        autoFaceFailureSections: Object.assign({}, this.data.autoFaceFailureSections),
+        deploymentSections: Object.assign({}, this.data.deploymentSections),
+        providerFilterValue: String(this.data.providerFilterValue || "all"),
+        tencentImageTab: ["image", "fusion"].includes(this.data.tencentImageTab)
+          ? this.data.tencentImageTab
+          : "image",
+        activeConfigSection: CONFIG_SECTION_TITLES[this.data.activeConfigSection]
+          ? this.data.activeConfigSection
+          : ""
       });
     } catch (error) {
       // 本地缓存不可用时不影响管理页继续使用。
@@ -6474,7 +7249,7 @@ Page({
         ),
         tencentFaceFusionBeforeSave
       );
-      this._imageApiKeyBaseline = savedImageApiKeys;
+      this._imageApiKeyBaseline = adminImageApiKeysFromForm(form);
       const patch = Object.assign({
         form,
         costFieldErrors: {},
@@ -6482,7 +7257,8 @@ Page({
         effective,
         saving: false,
         message: `配置已保存，第 ${result.version || 0} 版；正在自动测试四套模型和生图三档清晰度...`
-      }, buildQualityPickerState(form), buildAdminProviderManagementState(
+      }, buildQualityPickerState(form), buildAdminProviderProfilePickerState(form),
+      buildAdminProviderManagementState(
         form,
         this.data.modelProbes,
         this.data.providerFilterValue,
@@ -6787,11 +7563,17 @@ Page({
       type,
       this.data.modelPickerTarget
     );
-    const nextForm = Object.assign({}, this.data.form, {
-      [configKey]: Object.assign({}, this.data.form[configKey], {
-        model: value
-      })
-    });
+    const nextForm = ADMIN_PROVIDER_PROFILE_SECTIONS.includes(configKey)
+      ? updateAdminProviderProfileForm(
+          this.data.form,
+          configKey,
+          { model: value }
+        )
+      : Object.assign({}, this.data.form, {
+          [configKey]: Object.assign({}, this.data.form[configKey], {
+            model: value
+          })
+        });
     const profile = this.data.modelCapabilityProfiles
       && this.data.modelCapabilityProfiles[configKey]
       && this.data.modelCapabilityProfiles[configKey][value]
@@ -6800,8 +7582,8 @@ Page({
     if (configKey === type) {
       capabilityPayload[type] = profile;
     }
-    const patch = {
-      [`form.${configKey}.model`]: value,
+    const patch = Object.assign({
+      form: nextForm,
       modelPickerOpen: false,
       modelPickerType: "",
       modelPickerTarget: "",
@@ -6810,10 +7592,17 @@ Page({
       modelPickerAllOptions: [],
       modelPickerOptions: [],
       message: `已选择${configKey === "imageBackup" ? "备用生图" : usageTypeLabel(type)}模型：${value}；点击“保存全部配置”后才会生效。`
-    };
-    if (configKey === type) {
-      patch[`currentConfigModels.${type}`] = displayModelName(value);
-    }
+    }, buildAdminProviderProfilePickerState(nextForm),
+    buildAdminProviderManagementState(
+      nextForm,
+      this.data.modelProbes,
+      this.data.providerFilterValue,
+      this.data.providerLabelErrors
+    ));
+    Object.assign(
+      patch,
+      this.buildAdminDerivedPatch({ form: nextForm }, this.data.moduleStates)
+    );
     this.setData(Object.assign(
       patch,
       buildQualityPickerState(nextForm, capabilityPayload)
@@ -6879,10 +7668,15 @@ Page({
       const pickerPatch = Object.keys(capabilityPayload).length
         ? buildQualityPickerState(this.data.form, capabilityPayload)
         : {};
+      const providerManagementPatch = buildAdminProviderManagementState(
+        this.data.form,
+        modelProbes,
+        this.data.providerFilterValue,
+        this.data.providerLabelErrors
+      );
       this.setData(Object.assign({
         modelProbing: false,
         modelProbingType: "",
-        modelProbes,
         modelCapabilityProfiles,
         imageQualityProbe: imageProbe && imageProbe.qualityProbe
           ? imageProbe.qualityProbe
@@ -6899,12 +7693,9 @@ Page({
           : modelProbes.readyCount === modelProbes.total
             ? `模型接口探测完成：${modelProbes.readyCount}/${modelProbes.total} 套正常。${qualitySummary}`
             : `模型接口探测完成：${modelProbes.readyCount}/${modelProbes.total} 套正常，失败项请按下方修复建议处理。${qualitySummary}`
-      }, buildAdminProviderManagementState(
-        this.data.form,
-        modelProbes,
-        this.data.providerFilterValue,
-        this.data.providerLabelErrors
-      ), pickerPatch));
+      }, providerManagementPatch,
+      buildAdminProviderProfilePickerState(this.data.form),
+      pickerPatch));
       wx.showToast({
         title: modelType && target
           ? `${target.typeLabel}${target.statusText}`
@@ -6923,7 +7714,6 @@ Page({
       this.setData(Object.assign({
         modelProbing: false,
         modelProbingType: "",
-        modelProbes,
         monitorExpanded: true,
         message: `${typeLabel}接口探测失败，请查看结果说明。`
       }, buildAdminProviderManagementState(

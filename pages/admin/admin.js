@@ -52,24 +52,250 @@ const VIDEO_QUALITY_OPTIONS = Object.freeze([
   { value: "720p", label: "720p" },
   { value: "1080p", label: "1080p" }
 ]);
-const ADMIN_IMAGE_PROVIDER_LABELS = Object.freeze({
+const ADMIN_PROVIDER_LABELS = Object.freeze({
   xingju: "星炬",
-  lingyun: "凌云"
+  lingyun: "凌云",
+  dashscope: "阿里云百炼"
 });
+const ADMIN_PROVIDER_LABEL_MAX_LENGTH = 20;
+const ADMIN_PROVIDER_LABEL_REQUIRED = "ADMIN_PROVIDER_LABEL_REQUIRED";
+const ADMIN_PROVIDER_DANGEROUS_KEYS = Object.freeze([
+  "__proto__",
+  "prototype",
+  "constructor"
+]);
+const ADMIN_PROVIDER_VALUES = Object.freeze({
+  星炬: "xingju",
+  凌云: "lingyun",
+  阿里云百炼: "dashscope",
+  阿里百炼: "dashscope"
+});
+const ADMIN_PROVIDER_FORM_SECTIONS = Object.freeze([
+  "face",
+  "analysis",
+  "image",
+  "imageBackup",
+  "video"
+]);
+let activeAdminProviderLabels = Object.assign({}, ADMIN_PROVIDER_LABELS);
+
+function mergeAdminProviderLabels(value) {
+  const result = Object.assign({}, ADMIN_PROVIDER_LABELS);
+  if (!value || typeof value !== "object" || Array.isArray(value)) return result;
+  Object.keys(value).forEach((rawProviderId) => {
+    const rawId = String(rawProviderId || "").trim();
+    if (!rawId || ADMIN_PROVIDER_DANGEROUS_KEYS.includes(rawId)) return;
+    const lowerId = rawId.toLowerCase();
+    const providerId = ADMIN_PROVIDER_LABELS[lowerId] ? lowerId : rawId;
+    const label = String(value[rawProviderId] == null ? "" : value[rawProviderId]).trim();
+    if (label) result[providerId] = label;
+  });
+  return result;
+}
+
+function setActiveAdminProviderLabels(value) {
+  activeAdminProviderLabels = mergeAdminProviderLabels(value);
+  return Object.assign({}, activeAdminProviderLabels);
+}
+
+function providerIdFromDisplay(value, labels = activeAdminProviderLabels) {
+  const raw = String(value === undefined || value === null ? "" : value).trim();
+  if (!raw) return "";
+  if (ADMIN_PROVIDER_VALUES[raw]) return ADMIN_PROVIDER_VALUES[raw];
+  const lower = raw.toLowerCase();
+  if (ADMIN_PROVIDER_LABELS[lower]) return lower;
+  const effectiveLabels = mergeAdminProviderLabels(labels);
+  const matchedId = Object.keys(effectiveLabels).find(
+    (providerId) => effectiveLabels[providerId] === raw
+  );
+  return matchedId || raw;
+}
+
+function normalizeAdminProviderInput(value) {
+  return providerIdFromDisplay(value);
+}
+
+function displayAdminProvider(value, fallback = "") {
+  const raw = String(value === undefined || value === null ? "" : value).trim();
+  if (!raw) return fallback;
+  const normalized = providerIdFromDisplay(raw);
+  return activeAdminProviderLabels[normalized] || ADMIN_PROVIDER_LABELS[normalized] || raw;
+}
+
+function adminProviderIdsFromForm(form) {
+  const source = form && typeof form === "object" ? form : {};
+  const providerIds = [];
+  ADMIN_PROVIDER_FORM_SECTIONS.forEach((section) => {
+    const providerId = providerIdFromDisplay(
+      source[section] && source[section].provider
+    );
+    if (providerId && !providerIds.includes(providerId)) providerIds.push(providerId);
+  });
+  return providerIds;
+}
+
+function providerLabelsFromForm(form) {
+  const source = form && typeof form === "object" ? form : {};
+  return mergeAdminProviderLabels(source.providerLabels);
+}
+
+function buildAdminProviderLabelRows(form, errors = {}) {
+  const source = form && typeof form === "object" ? form : {};
+  const rawLabels = source.providerLabels && typeof source.providerLabels === "object"
+    && !Array.isArray(source.providerLabels)
+    ? source.providerLabels
+    : {};
+  const providerIds = [
+    ...Object.keys(ADMIN_PROVIDER_LABELS),
+    ...Object.keys(rawLabels),
+    ...adminProviderIdsFromForm(source)
+  ]
+    .map((providerId) => String(providerId || "").trim())
+    .filter((providerId) => (
+      providerId
+      && !ADMIN_PROVIDER_DANGEROUS_KEYS.includes(providerId)
+    ));
+  return Array.from(new Set(providerIds))
+    .sort((left, right) => left.localeCompare(right, "zh-CN", {
+      numeric: true,
+      sensitivity: "base"
+    }))
+    .map((providerId) => {
+      const hasRawLabel = Object.prototype.hasOwnProperty.call(rawLabels, providerId);
+      const label = String(
+        hasRawLabel
+          ? rawLabels[providerId]
+          : activeAdminProviderLabels[providerId] || ADMIN_PROVIDER_LABELS[providerId] || ""
+      ).trim();
+      return {
+        providerId,
+        label,
+        builtIn: Boolean(ADMIN_PROVIDER_LABELS[providerId]),
+        error: String(errors[providerId] || "")
+      };
+    });
+}
+
+function validateAdminProviderLabelRows(rows) {
+  const errors = {};
+  (Array.isArray(rows) ? rows : []).forEach((item) => {
+    const providerId = String(item && item.providerId || "").trim();
+    const label = String(item && item.label || "").trim();
+    if (!providerId) return;
+    if (!label) {
+      errors[providerId] = `服务商 ${providerId} 还没有中文名称，请先填写。`;
+      return;
+    }
+    if (!/[\u3400-\u9fff]/.test(label)) {
+      errors[providerId] = `服务商 ${providerId} 的名称必须包含中文，不能只写英文。`;
+      return;
+    }
+    if (Array.from(label).length > ADMIN_PROVIDER_LABEL_MAX_LENGTH) {
+      errors[providerId] = `服务商 ${providerId} 的中文名称最多 20 个字符。`;
+    }
+  });
+  return errors;
+}
+
+function buildAdminProviderFilterState(form, selectedValue = "all") {
+  const providerIds = adminProviderIdsFromForm(form);
+  const options = [{ value: "all", label: "全部服务商" }].concat(
+    providerIds.map((providerId) => ({
+      value: providerId,
+      label: displayAdminProvider(providerId, providerId)
+    }))
+  );
+  const requested = String(selectedValue || "all").trim() || "all";
+  const selected = options.some((item) => item.value === requested)
+    ? requested
+    : "all";
+  const index = Math.max(0, options.findIndex((item) => item.value === selected));
+  const sectionProviderId = (section) => providerIdFromDisplay(
+    form && form[section] && form[section].provider
+  );
+  const matches = (section) => selected === "all" || sectionProviderId(section) === selected;
+  return {
+    providerFilterOptions: options,
+    providerFilterValue: selected,
+    providerFilterIndex: index,
+    providerFilterLabel: options[index] && options[index].label || "全部服务商",
+    providerSectionVisibility: {
+      face: matches("face"),
+      analysis: matches("analysis"),
+      image: selected === "all"
+        || sectionProviderId("image") === selected
+        || sectionProviderId("imageBackup") === selected,
+      video: matches("video")
+    }
+  };
+}
+
+function filterAdminModelProbeResults(modelProbes, selectedValue = "all") {
+  const source = modelProbes && typeof modelProbes === "object"
+    ? modelProbes
+    : emptyModelProbes();
+  const results = (Array.isArray(source.results) ? source.results : []).map((item) => {
+    const providerId = providerIdFromDisplay(item && (item.providerId || item.provider));
+    return Object.assign({}, item, {
+      providerId,
+      provider: displayAdminProvider(providerId, "未填写")
+    });
+  });
+  const selected = String(selectedValue || "all").trim() || "all";
+  return Object.assign({}, source, {
+    results,
+    filteredResults: selected === "all"
+      ? results.slice()
+      : results.filter((item) => item.providerId === selected)
+  });
+}
+
+function buildAdminProviderManagementState(
+  form,
+  modelProbes,
+  selectedValue = "all",
+  errors = {}
+) {
+  const filterState = buildAdminProviderFilterState(form, selectedValue);
+  return Object.assign({
+    providerLabelRows: buildAdminProviderLabelRows(form, errors),
+    providerLabelErrors: Object.assign({}, errors),
+    modelProbes: filterAdminModelProbeResults(
+      modelProbes,
+      filterState.providerFilterValue
+    )
+  }, filterState);
+}
+
+function relabelAdminProviderForm(form, nextLabels, previousLabels = activeAdminProviderLabels) {
+  const source = form && typeof form === "object" ? form : {};
+  const providerIds = {};
+  ADMIN_PROVIDER_FORM_SECTIONS.forEach((section) => {
+    providerIds[section] = providerIdFromDisplay(
+      source[section] && source[section].provider,
+      previousLabels
+    );
+  });
+  const activeLabels = setActiveAdminProviderLabels(nextLabels);
+  const result = Object.assign({}, source, {
+    providerLabels: Object.assign({}, nextLabels)
+  });
+  ADMIN_PROVIDER_FORM_SECTIONS.forEach((section) => {
+    result[section] = Object.assign({}, source[section] || {}, {
+      provider: providerIds[section]
+        ? activeLabels[providerIds[section]] || providerIds[section]
+        : ""
+    });
+  });
+  return result;
+}
 
 function normalizeAdminImageProviderInput(value) {
-  const raw = String(value === undefined || value === null ? "" : value).trim();
-  const text = raw.toLowerCase();
-  if (raw === "星炬" || text === "xingju") return "xingju";
-  if (raw === "凌云" || text === "lingyun") return "lingyun";
-  return raw;
+  return normalizeAdminProviderInput(value);
 }
 
 function displayAdminImageProvider(value, fallback = "") {
-  const raw = String(value === undefined || value === null ? "" : value).trim();
-  if (!raw) return fallback;
-  const normalized = normalizeAdminImageProviderInput(raw);
-  return ADMIN_IMAGE_PROVIDER_LABELS[normalized] || raw;
+  return displayAdminProvider(value, fallback);
 }
 
 function normalizeAdminImageResolution(value, fallback = "1K") {
@@ -448,6 +674,7 @@ function buildQualityPickerState(form, capabilityPayload = {}) {
 
 function emptyForm() {
   return {
+    providerLabels: Object.assign({}, ADMIN_PROVIDER_LABELS),
     face: {
       provider: "",
       baseUrl: "",
@@ -681,6 +908,7 @@ function formatCostDisplay(value) {
 }
 
 const CONFIG_SECTION_TITLES = Object.freeze({
+  providers: "服务商中文名称",
   face: "人脸识别模型",
   analysis: "图片分析模型",
   image: "生图模型",
@@ -916,7 +1144,7 @@ function formatImageProviderAttemptCounter(value, fallbackProvider, fallbackMode
       totalDurationMs,
       averageDurationMs,
       averageDurationText: `${(averageDurationMs / 1000).toFixed(1)} 秒`,
-      provider: source.provider || fallbackProvider,
+      provider: displayAdminProvider(source.provider, displayAdminProvider(fallbackProvider)),
       model: source.model || fallbackModel
     }
   );
@@ -931,6 +1159,7 @@ function formatImageProviderStats(result) {
     const durationMs = Math.max(0, Number(item.durationMs) || 0);
     return Object.assign({}, item, {
       roleText: item.role === "backup" ? "备用模型" : "主模型",
+      provider: displayAdminProvider(item.provider),
       createdAtText: formatAdminDate(item.createdAt || item.dateKey),
       durationText: `${(durationMs / 1000).toFixed(1)} 秒`,
       statusText: Number(item.status) ? `HTTP ${Number(item.status)}` : "无状态码",
@@ -1100,6 +1329,7 @@ function emptyModelProbes() {
     readyCount: 0,
     total: 4,
     results: [],
+    filteredResults: [],
     message: ""
   };
 }
@@ -1680,7 +1910,7 @@ function formatAutoFaceProbe(result, error = null) {
     nodeVersion: runtime.nodeVersion || "",
     cloudEnvConfigured: Boolean(runtime.cloudEnvConfigured),
     visionConfigured: Boolean(vision.configured),
-    provider: vision.provider || "",
+    provider: displayAdminProvider(vision.provider),
     model: displayModelName(vision.model),
     durationMs: clientDurationMs,
     durationText: failed && !hasClientDuration && !hasServerDuration
@@ -1964,7 +2194,7 @@ function formatImageEditCapabilityProbe(result) {
     tone: ready ? "ready" : "error",
     status,
     statusText: String(source.statusText || (ready ? "图片编辑配置完整" : "图片编辑配置不完整")),
-    provider: displayAdminImageProvider(source.provider, "未配置"),
+    provider: displayAdminProvider(source.provider, "未配置"),
     model: String(source.model || "未配置"),
     editEndpoint: String(source.editEndpoint || "未配置"),
     endpointSource: String(source.endpointSource || ""),
@@ -2075,7 +2305,8 @@ function formatModelProbes(result, error = null) {
   const results = (Array.isArray(source.results) ? source.results : []).map((item) => ({
     type: item.type || "",
     typeLabel: item.typeLabel || usageTypeLabel(item.type),
-    provider: item.provider || "未填写",
+    providerId: providerIdFromDisplay(item.provider),
+    provider: displayAdminProvider(item.provider, "未填写"),
     modelId: String(item.model || ""),
     model: displayModelName(item.model),
     configured: Boolean(item.configured),
@@ -2115,6 +2346,7 @@ function formatModelProbes(result, error = null) {
     readyCount: normalizedReadyCount,
     total,
     results,
+    filteredResults: results.slice(),
     message: error && error.message || source.message || ""
   });
 }
@@ -2143,7 +2375,8 @@ function mergeSingleModelProbe(current, incoming, modelType) {
       : `${readyCount}/${total} 套正常`,
     readyCount,
     total,
-    results
+    results,
+    filteredResults: results.slice()
   });
 }
 
@@ -2162,7 +2395,7 @@ function formatAutoFaceProbeHistory(result) {
       buildMarker: item.buildMarker || "",
       nodeVersion: item.nodeVersion || "",
       visionConfigured: Boolean(item.visionConfigured),
-      provider: item.provider || "未知",
+      provider: displayAdminProvider(item.provider, "未知"),
       model: displayModelName(item.model),
       durationMs: Number(item.durationMs) || 0,
       durationText: `云函数 ${Number(item.durationMs) || 0} 毫秒`,
@@ -2252,10 +2485,10 @@ function buildFaceConfigSummary(
     ? autoFaceProbeHistory.history
     : [];
   const latestHistory = history[0] || {};
-  const provider = face.provider
+  const provider = displayAdminProvider(face.provider
     || currentProbe.provider
     || latestHistory.provider
-    || "未读取";
+    || "未读取");
   const model = pickModelName(face.model, currentProbe.model, latestHistory.model);
   const ready = Boolean(
     face.apiKeyConfigured
@@ -2280,7 +2513,7 @@ function emptyAnalysisConfigSummary() {
 function buildAnalysisConfigSummary(effective) {
   const analysis = effective && effective.analysis || {};
   return {
-    provider: analysis.provider || "未读取",
+    provider: displayAdminProvider(analysis.provider, "未读取"),
     model: displayModelName(analysis.model),
     ready: Boolean(
       analysis.apiKeyConfigured
@@ -2360,6 +2593,7 @@ function formatUsageStats(result) {
     byType: item.byType || {}
   }));
   const formattedModels = models.map((item) => Object.assign({}, item, {
+    provider: displayAdminProvider(item.provider),
     modelDisplay: displayModelName(item.model),
     estimatedCostDisplay: formatCostDisplay(item.estimatedCost),
     pricedCostDisplay: formatCostDisplay(item.pricedCost)
@@ -2395,7 +2629,7 @@ function formatUsageStats(result) {
       lastSeen: item.lastSeen || "",
       usageType: item.usageType || "",
       usageTypeLabel: item.usageTypeLabel || usageTypeLabel(item.usageType),
-      provider: item.provider || "",
+      provider: displayAdminProvider(item.provider),
       model: item.model || "",
       modelDisplay: displayModelName(item.model),
       status: Number(item.status) || 0,
@@ -2407,7 +2641,7 @@ function formatUsageStats(result) {
     ).map((item) => ({
       usageType: item.usageType || "",
       usageTypeLabel: item.usageTypeLabel || usageTypeLabel(item.usageType),
-      provider: item.provider || "未知 Provider",
+      provider: displayAdminProvider(item.provider, "未知服务商"),
       model: item.model || "未知模型",
       modelDisplay: displayModelName(item.model),
       modelDisplayZh: displayModelNameZh(item.model, item.usageType),
@@ -2426,7 +2660,7 @@ function formatUsageStats(result) {
       userHash: item.userHash || "anonymous",
       usageType: item.usageType || "unknown",
       usageTypeLabel: item.usageTypeLabel || usageTypeLabel(item.usageType),
-      provider: item.provider || "未知 Provider",
+      provider: displayAdminProvider(item.provider, "未知服务商"),
       model: item.model || "未知模型",
       modelDisplay: displayModelName(item.model),
       modelDisplayZh: displayModelNameZh(item.model, item.usageType),
@@ -2546,7 +2780,7 @@ function buildModelFailureView(stats, requestedMonth = "") {
         lastSeen: item.createdAt || "",
         usageType: item.usageType || "",
         usageTypeLabel: item.usageTypeLabel || usageTypeLabel(item.usageType),
-         provider: item.provider || "",
+         provider: displayAdminProvider(item.provider),
          model: item.model || "",
          modelDisplay: pickModelName(item.model, item.modelDisplay),
          modelDisplayZh: displayModelNameZh(item.model, item.usageType),
@@ -2584,7 +2818,7 @@ function buildModelFailureView(stats, requestedMonth = "") {
       modelMap[modelKey] = {
         usageType: item.usageType || "unknown",
         usageTypeLabel: item.usageTypeLabel || usageTypeLabel(item.usageType),
-         provider: item.provider || "未知 Provider",
+         provider: displayAdminProvider(item.provider, "未知服务商"),
          model: item.model || "未知模型",
          modelDisplay: displayModelName(item.model),
          modelDisplayZh: displayModelNameZh(item.model, item.usageType),
@@ -2921,6 +3155,7 @@ function buildEntryHealth(
 
 function formFromConfig(result) {
   const source = result && result.effective ? result.effective : {};
+  const providerLabels = setActiveAdminProviderLabels(source.providerLabels);
   const face = source.face || {};
   const analysis = source.analysis || {};
   const image = source.image || {};
@@ -2951,8 +3186,9 @@ function formFromConfig(result) {
   const videoCosts = costs.video || {};
   const generationQueue = source.generationQueue || {};
   return {
+    providerLabels,
     face: {
-      provider: face.provider || "",
+      provider: displayAdminProvider(face.provider),
       baseUrl: face.baseUrl || "",
       endpoint: face.endpoint || "",
       apiKey: face.apiKey || "",
@@ -2960,7 +3196,7 @@ function formFromConfig(result) {
       timeoutMs: String(face.timeoutMs || 30000)
     },
     analysis: {
-      provider: analysis.provider || "",
+      provider: displayAdminProvider(analysis.provider),
       baseUrl: analysis.baseUrl || "",
       endpoint: analysis.endpoint || "",
       apiKey: analysis.apiKey || "",
@@ -3009,7 +3245,7 @@ function formFromConfig(result) {
       retryPreferenceVersion: 1
     },
     video: {
-      provider: video.provider || "",
+      provider: displayAdminProvider(video.provider),
       baseUrl: video.baseUrl || "",
       endpoint: video.endpoint || "",
       queryEndpoint: video.queryEndpoint || "",
@@ -3101,6 +3337,8 @@ function formFromConfig(result) {
 }
 
 function formToConfig(form) {
+  const providerLabels = providerLabelsFromForm(form);
+  setActiveAdminProviderLabels(providerLabels);
   const xingjuImagePrices = {
     "1K": adminCostText(form.costs.imageXingju1K),
     "2K": adminCostText(form.costs.imageXingju2K),
@@ -3115,8 +3353,9 @@ function formToConfig(form) {
     ? lingyunImagePrices
     : xingjuImagePrices;
   return {
+    providerLabels: providerLabelsFromForm(form),
     face: {
-      provider: String(form.face.provider || "").trim(),
+      provider: normalizeAdminProviderInput(form.face.provider),
       baseUrl: String(form.face.baseUrl || "").trim(),
       endpoint: String(form.face.endpoint || "").trim(),
       apiKey: String(form.face.apiKey || "").trim(),
@@ -3124,7 +3363,7 @@ function formToConfig(form) {
       timeoutMs: Number(form.face.timeoutMs || 0)
     },
     analysis: {
-      provider: String(form.analysis.provider || "").trim(),
+      provider: normalizeAdminProviderInput(form.analysis.provider),
       baseUrl: String(form.analysis.baseUrl || "").trim(),
       endpoint: String(form.analysis.endpoint || "").trim(),
       apiKey: String(form.analysis.apiKey || "").trim(),
@@ -3175,7 +3414,7 @@ function formToConfig(form) {
       retryPreferenceVersion: 1
     },
     video: {
-      provider: String(form.video.provider || "").trim(),
+      provider: normalizeAdminProviderInput(form.video.provider),
       baseUrl: String(form.video.baseUrl || "").trim(),
       endpoint: String(form.video.endpoint || "").trim(),
       queryEndpoint: String(form.video.queryEndpoint || "").trim(),
@@ -3379,9 +3618,7 @@ function modelConfigKeyForAction(form, modelType, requestedKey = "") {
 function modelConfigForAction(form, modelType, configKey = modelType) {
   const key = modelConfigKeyForAction(form, modelType, configKey);
   const source = form && form[key] ? form[key] : {};
-  const provider = key === "image" || key === "imageBackup"
-    ? normalizeAdminImageProviderInput(source.provider)
-    : String(source.provider || "").trim();
+  const provider = normalizeAdminProviderInput(source.provider);
   return {
     configTarget: key,
     provider,
@@ -3555,6 +3792,18 @@ Page({
     refreshingAll: false,
     isAdmin: false,
     form: emptyForm(),
+    providerLabelRows: buildAdminProviderLabelRows(emptyForm()),
+    providerLabelErrors: {},
+    providerFilterOptions: buildAdminProviderFilterState(emptyForm()).providerFilterOptions,
+    providerFilterValue: "all",
+    providerFilterIndex: 0,
+    providerFilterLabel: "全部服务商",
+    providerSectionVisibility: {
+      face: true,
+      analysis: true,
+      image: true,
+      video: true
+    },
     costFieldErrors: {},
     imageQualityOptions: buildAdminImageQualityOptions(
       emptyForm().costs,
@@ -4082,11 +4331,46 @@ Page({
         "管理员权限"
       );
       if (!this.isCurrentAdminLoad(token)) return;
+      if (status && status.unavailable) {
+        this.setData({
+          loading: false,
+          isAdmin: false,
+          canRetry: true,
+          todayFailureText: "读取失败",
+          message: "管理员服务暂时不可用，请稍后点击重新读取。"
+        });
+        diagnosticLog.warn(
+          "admin",
+          "status-unavailable",
+          "管理员状态服务暂时不可用",
+          {
+            requestId: String(status.requestId || ""),
+            code: String(status.errorCode || status.code || "")
+          }
+        );
+        return;
+      }
       if (!status || !status.isAdmin) {
         const identityHash = String(status && status.identityHash || "").trim();
-        const message = identityHash
-          ? `当前账号没有管理员权限。请把识别码 ${identityHash} 加入 ADMIN_OPENIDS，保存云函数环境变量后重新编译。`
-          : "当前账号没有管理员权限。";
+        if (!identityHash) {
+          this.setData({
+            loading: false,
+            isAdmin: false,
+            canRetry: true,
+            todayFailureText: "读取失败",
+            message: "暂时无法识别微信身份，请点击重新读取。"
+          });
+          diagnosticLog.warn(
+            "admin",
+            "identity-unavailable",
+            "管理员状态未返回微信身份识别码",
+            {
+              requestId: String(status && status.requestId || "")
+            }
+          );
+          return;
+        }
+        const message = `当前账号没有管理员权限。请把识别码 ${identityHash} 加入 ADMIN_OPENIDS，保存云函数环境变量后重新编译。`;
         this.setData({
           loading: false,
           isAdmin: false,
@@ -4095,9 +4379,7 @@ Page({
         });
         wx.showModal({
           title: "无权访问",
-          content: identityHash
-            ? `当前账号不在白名单中。\n识别码：${identityHash}\n请把识别码加入 ADMIN_OPENIDS 后重试。`
-            : "当前微信账号不在管理员白名单中。",
+          content: `当前账号不在白名单中。\n识别码：${identityHash}\n请把识别码加入 ADMIN_OPENIDS 后重试。`,
           showCancel: false,
           success: () => wx.reLaunch({ url: "/pages/workbench/workbench" })
         });
@@ -4129,7 +4411,12 @@ Page({
         message: apiKeyResult.ok
           ? ""
           : "普通配置已读取，但完整 Key 读取失败，请刷新。"
-      }, buildQualityPickerState(form));
+      }, buildQualityPickerState(form), buildAdminProviderManagementState(
+        form,
+        this.data.modelProbes,
+        this.data.providerFilterValue,
+        {}
+      ));
       Object.assign(basePatch, this.buildAdminDerivedPatch(basePatch, moduleStates));
       this.setData(basePatch);
       diagnosticLog.info("admin", "config-loaded", "管理员配置读取完成", {
@@ -4867,7 +5154,12 @@ Page({
           costFieldErrors: {},
           defaults: result.defaults || null,
           effective: result.effective || null
-        }, buildQualityPickerState(form));
+        }, buildQualityPickerState(form), buildAdminProviderManagementState(
+          form,
+          this.data.modelProbes,
+          this.data.providerFilterValue,
+          {}
+        ));
         Object.assign(patch, this.buildAdminDerivedPatch(patch, this.data.moduleStates));
         this.setData(patch);
         if (!apiKeyResult.ok) {
@@ -5055,14 +5347,34 @@ Page({
     if (!section || !key) return;
     const inputValue = event.detail.value;
     const value = (
-      (section === "image" || section === "imageBackup")
+      ADMIN_PROVIDER_FORM_SECTIONS.includes(section)
       && key === "provider"
     )
-      ? displayAdminImageProvider(inputValue)
+      ? displayAdminProvider(inputValue)
       : inputValue;
     const patch = {
       [`form.${section}.${key}`]: value
     };
+    if (ADMIN_PROVIDER_FORM_SECTIONS.includes(section) && key === "provider") {
+      const nextForm = Object.assign({}, this.data.form, {
+        [section]: Object.assign({}, this.data.form[section], {
+          provider: value
+        })
+      });
+      Object.assign(patch, buildAdminProviderManagementState(
+        nextForm,
+        this.data.modelProbes,
+        this.data.providerFilterValue,
+        this.data.providerLabelErrors
+      ));
+      if (
+        ["face", "analysis", "image", "video"].includes(this.data.activeConfigSection)
+        && !patch.providerSectionVisibility[this.data.activeConfigSection]
+      ) {
+        patch.activeConfigSection = "";
+        patch.activeConfigTitle = "";
+      }
+    }
     if (section === "costs" && ADMIN_COST_KEYS.includes(key)) {
       patch[`costFieldErrors.${key}`] = validateAdminCostInput(value);
     }
@@ -5105,6 +5417,59 @@ Page({
       }));
     }
     this.setData(patch);
+  },
+
+  onProviderLabelInput(event) {
+    const providerId = String(
+      event && event.currentTarget && event.currentTarget.dataset.providerId || ""
+    ).trim();
+    if (!providerId || ADMIN_PROVIDER_DANGEROUS_KEYS.includes(providerId)) return;
+    const label = String(event && event.detail && event.detail.value || "");
+    const previousLabels = Object.assign({}, activeAdminProviderLabels);
+    const nextLabels = Object.assign(
+      {},
+      this.data.form && this.data.form.providerLabels || {},
+      { [providerId]: label }
+    );
+    const nextForm = relabelAdminProviderForm(
+      Object.assign({}, this.data.form, { providerLabels: nextLabels }),
+      nextLabels,
+      previousLabels
+    );
+    const providerLabelErrors = validateAdminProviderLabelRows(
+      buildAdminProviderLabelRows(nextForm)
+    );
+    const patch = Object.assign({
+      form: nextForm
+    }, buildQualityPickerState(nextForm), buildAdminProviderManagementState(
+      nextForm,
+      this.data.modelProbes,
+      this.data.providerFilterValue,
+      providerLabelErrors
+    ));
+    this.setData(patch);
+  },
+
+  onProviderFilterChange(event) {
+    const options = Array.isArray(this.data.providerFilterOptions)
+      ? this.data.providerFilterOptions
+      : [{ value: "all", label: "全部服务商" }];
+    const index = Math.max(0, Number(event && event.detail && event.detail.value) || 0);
+    const selected = options[index] && options[index].value || "all";
+    const patch = buildAdminProviderManagementState(
+      this.data.form,
+      this.data.modelProbes,
+      selected,
+      this.data.providerLabelErrors
+    );
+    if (
+      ["face", "analysis", "image", "video"].includes(this.data.activeConfigSection)
+      && !patch.providerSectionVisibility[this.data.activeConfigSection]
+    ) {
+      patch.activeConfigSection = "";
+      patch.activeConfigTitle = "";
+    }
+    this.setData(patch, () => this.persistMonitorLayout());
   },
 
   async loadTencentFaceFusionStatus(token = this._adminLoadToken || 0) {
@@ -5706,6 +6071,31 @@ Page({
 
   async saveConfig() {
     if (this.data.saving) return;
+    const providerLabelRows = buildAdminProviderLabelRows(this.data.form);
+    const providerLabelErrors = validateAdminProviderLabelRows(providerLabelRows);
+    const invalidProviderIds = Object.keys(providerLabelErrors);
+    if (invalidProviderIds.length) {
+      const firstProviderId = invalidProviderIds[0];
+      const message = providerLabelErrors[firstProviderId];
+      this.setData({
+        providerLabelRows: buildAdminProviderLabelRows(this.data.form, providerLabelErrors),
+        providerLabelErrors,
+        activeConfigSection: "providers",
+        activeConfigTitle: CONFIG_SECTION_TITLES.providers,
+        message,
+        providerErrorCode: ADMIN_PROVIDER_LABEL_REQUIRED
+      }, () => {
+        if (typeof wx.pageScrollTo === "function") {
+          wx.pageScrollTo({ selector: "#config-editor", duration: 220 });
+        }
+      });
+      wx.showModal({
+        title: "服务商中文名称未填写",
+        content: message,
+        showCancel: false
+      });
+      return;
+    }
     const costFieldErrors = validateAdminCostFields(this.data.form.costs);
     const invalidCostKeys = Object.keys(costFieldErrors);
     if (invalidCostKeys.length) {
@@ -5747,7 +6137,12 @@ Page({
         effective,
         saving: false,
         message: `配置已保存，第 ${result.version || 0} 版；正在自动测试四套模型和生图三档清晰度...`
-      }, buildQualityPickerState(form));
+      }, buildQualityPickerState(form), buildAdminProviderManagementState(
+        form,
+        this.data.modelProbes,
+        this.data.providerFilterValue,
+        {}
+      ));
       Object.assign(patch, this.buildAdminDerivedPatch(patch, this.data.moduleStates));
       this.setData(patch);
       diagnosticLog.info("admin", "config-saved", "管理员配置保存完成", {
@@ -6142,7 +6537,6 @@ Page({
       this.setData(Object.assign({
         modelProbing: false,
         modelProbingType: "",
-        modelProbes,
         modelCapabilityProfiles,
         imageQualityProbe: imageProbe && imageProbe.qualityProbe
           ? imageProbe.qualityProbe
@@ -6159,7 +6553,12 @@ Page({
           : modelProbes.readyCount === modelProbes.total
             ? `模型接口探测完成：${modelProbes.readyCount}/${modelProbes.total} 套正常。${qualitySummary}`
             : `模型接口探测完成：${modelProbes.readyCount}/${modelProbes.total} 套正常，失败项请按下方修复建议处理。${qualitySummary}`
-      }, pickerPatch));
+      }, buildAdminProviderManagementState(
+        this.data.form,
+        modelProbes,
+        this.data.providerFilterValue,
+        this.data.providerLabelErrors
+      ), pickerPatch));
       wx.showToast({
         title: modelType && target
           ? `${target.typeLabel}${target.statusText}`
@@ -6175,13 +6574,17 @@ Page({
       const modelProbes = modelType && formatted.results.length
         ? mergeSingleModelProbe(this.data.modelProbes, formatted, modelType)
         : this.data.modelProbes;
-      this.setData({
+      this.setData(Object.assign({
         modelProbing: false,
         modelProbingType: "",
-        modelProbes,
         monitorExpanded: true,
         message: `${typeLabel}接口探测失败，请查看结果说明。`
-      });
+      }, buildAdminProviderManagementState(
+        this.data.form,
+        modelProbes,
+        this.data.providerFilterValue,
+        this.data.providerLabelErrors
+      )));
       diagnosticLog.error(
         "admin",
         "model-probe-failed",

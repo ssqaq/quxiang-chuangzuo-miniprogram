@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.48.1";
-const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0481";
+const API_BUILD_VERSION = "0.49.0";
+const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0490";
 const DEFAULT_IMAGE_MODE = "edits";
 // 图片和视频默认成本只在云函数入口维护；管理员页读取云端有效配置，
 // 避免前后端各写一份价格。入口保持单文件可启动，兼容 CloudBase 部署。
@@ -1212,6 +1212,23 @@ const DEFAULT_RETRY_STATUSES = new Set([408, 409, 425, 429, 500, 502, 503, 504])
 const ADMIN_RUNTIME_CONFIG_COLLECTION = "admin_runtime_config";
 const ADMIN_RUNTIME_CONFIG_ID = "global";
 const IMAGE_RETRY_PREFERENCE_VERSION = 1;
+const DEFAULT_ADMIN_PROVIDER_LABELS = Object.freeze({
+  dashscope: "阿里云百炼",
+  lingyun: "凌云",
+  xingju: "星炬"
+});
+const FORBIDDEN_ADMIN_PROVIDER_LABEL_KEYS = new Set([
+  "__proto__",
+  "prototype",
+  "constructor"
+]);
+const ADMIN_PROVIDER_CONFIG_SECTIONS = Object.freeze([
+  "face",
+  "analysis",
+  "image",
+  "imageBackup",
+  "video"
+]);
 const ADMIN_CONFIG_AUDIT_LOG_COLLECTION = "admin_config_audit_logs";
 const ADMIN_CONFIG_AUDIT_MAX_READ = 200;
 const IMAGE_QUALITY_LONG_EDGES = Object.freeze({
@@ -6169,8 +6186,138 @@ function hasOwn(object, key) {
   return Boolean(object && Object.prototype.hasOwnProperty.call(object, key));
 }
 
+function canonicalAdminProviderId(value) {
+  const raw = String(value === undefined || value === null ? "" : value).trim();
+  if (!raw) return "";
+  const lower = raw.toLowerCase();
+  return hasOwn(DEFAULT_ADMIN_PROVIDER_LABELS, lower) ? lower : raw;
+}
+
+function sortAdminProviderLabels(value) {
+  const source = value && typeof value === "object" ? value : {};
+  return Object.keys(source)
+    .sort((left, right) => left.localeCompare(right, undefined, {
+      sensitivity: "base"
+    }))
+    .reduce((output, key) => Object.assign(output, {
+      [key]: source[key]
+    }), {});
+}
+
+function normalizeAdminProviderLabels(input, options = {}) {
+  const output = Object.create(null);
+  if (options.includeDefaults) {
+    Object.keys(DEFAULT_ADMIN_PROVIDER_LABELS).forEach((key) => {
+      output[key] = DEFAULT_ADMIN_PROVIDER_LABELS[key];
+    });
+  }
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return sortAdminProviderLabels(output);
+  }
+  Object.getOwnPropertyNames(input).forEach((rawKey) => {
+    const key = canonicalAdminProviderId(rawKey);
+    const forbiddenKey = String(key || "").toLowerCase();
+    const label = String(input[rawKey] === undefined || input[rawKey] === null
+      ? ""
+      : input[rawKey]).trim();
+    if (
+      !key
+      || key.length > 120
+      || FORBIDDEN_ADMIN_PROVIDER_LABEL_KEYS.has(forbiddenKey)
+      || !label
+      || label.length > 20
+    ) {
+      return;
+    }
+    output[key] = label;
+  });
+  return sortAdminProviderLabels(output);
+}
+
+function mergeAdminProviderLabels(current, patch) {
+  return sortAdminProviderLabels(Object.assign(
+    {},
+    normalizeAdminProviderLabels(current),
+    normalizeAdminProviderLabels(patch)
+  ));
+}
+
+function configuredAdminProviderIds(config) {
+  const source = config && typeof config === "object" ? config : {};
+  const seen = new Set();
+  const values = [];
+  ADMIN_PROVIDER_CONFIG_SECTIONS.forEach((section) => {
+    const providerId = canonicalAdminProviderId(
+      source[section] && source[section].provider
+    );
+    if (!providerId) return;
+    const lookupKey = providerId.toLowerCase();
+    if (seen.has(lookupKey)) return;
+    seen.add(lookupKey);
+    values.push(providerId);
+  });
+  return values.sort((left, right) => left.localeCompare(right, undefined, {
+    sensitivity: "base"
+  }));
+}
+
+function adminProviderLabelFor(labels, providerId) {
+  const source = labels && typeof labels === "object" ? labels : {};
+  const id = canonicalAdminProviderId(providerId);
+  if (!id) return "";
+  if (hasOwn(source, id)) return String(source[id] || "").trim();
+  const matchedKey = Object.keys(source).find((key) => (
+    String(key).toLowerCase() === id.toLowerCase()
+  ));
+  return matchedKey ? String(source[matchedKey] || "").trim() : "";
+}
+
+function validateAdminProviderLabels(labels, config) {
+  const errors = [];
+  if (
+    labels !== undefined
+    && (
+      !labels
+      || typeof labels !== "object"
+      || Array.isArray(labels)
+    )
+  ) {
+    return ["providerLabels 必须是对象"];
+  }
+  const raw = labels && typeof labels === "object" ? labels : {};
+  Object.getOwnPropertyNames(raw).forEach((rawKey) => {
+    const key = canonicalAdminProviderId(rawKey);
+    const forbiddenKey = String(key || "").toLowerCase();
+    const label = String(raw[rawKey] === undefined || raw[rawKey] === null
+      ? ""
+      : raw[rawKey]).trim();
+    if (
+      !key
+      || key.length > 120
+      || FORBIDDEN_ADMIN_PROVIDER_LABEL_KEYS.has(forbiddenKey)
+    ) {
+      errors.push(`服务商标识 ${String(rawKey || "未填写").slice(0, 120)} 不合法`);
+      return;
+    }
+    if (!label || label.length > 20 || !/[\u3400-\u9fff]/.test(label)) {
+      errors.push(`服务商 ${key} 还没有合格的中文名称`);
+    }
+  });
+  const normalized = normalizeAdminProviderLabels(raw, { includeDefaults: true });
+  configuredAdminProviderIds(config).forEach((providerId) => {
+    const label = adminProviderLabelFor(normalized, providerId);
+    if (!label || !/[\u3400-\u9fff]/.test(label)) {
+      errors.push(`服务商 ${providerId} 还没有中文名称，请先填写`);
+    }
+  });
+  return Array.from(new Set(errors));
+}
+
 function normalizeRuntimePatch(input = {}) {
   const source = input && typeof input === "object" ? input : {};
+  const providerLabels = hasOwn(source, "providerLabels")
+    ? normalizeAdminProviderLabels(source.providerLabels)
+    : {};
   const faceSource = source.face && typeof source.face === "object" ? source.face : {};
   const analysisSource = source.analysis && typeof source.analysis === "object"
     ? source.analysis
@@ -6385,6 +6532,7 @@ function normalizeRuntimePatch(input = {}) {
   if (Object.keys(imagePricing).length) costs.image = imagePricing;
   if (Object.keys(videoPricing).length) costs.video = videoPricing;
   return {
+    providerLabels,
     face: faceConfig,
     analysis,
     image,
@@ -6430,6 +6578,7 @@ function validateCostNumber(value, field) {
 
 function validateRuntimePatch(patch) {
   const errors = [];
+  errors.push(...validateAdminProviderLabels(patch.providerLabels, {}));
   const face = patch.face || {};
   const analysis = patch.analysis || {};
   const image = patch.image || {};
@@ -6705,6 +6854,10 @@ function mergeRuntimeConfig(current, patch) {
     );
   });
   return {
+    providerLabels: mergeAdminProviderLabels(
+      existing.providerLabels,
+      patch.providerLabels
+    ),
     face: Object.assign({}, existing.face || {}, patch.face || {}),
     analysis: Object.assign({}, existing.analysis || {}, patch.analysis || {}),
     image: Object.assign({}, existing.image || {}, patch.image || {}),
@@ -6786,6 +6939,7 @@ function isLegacyLingyunImageConfig(value) {
 }
 
 const ADMIN_CONFIG_AUDIT_SECTIONS = Object.freeze([
+  "providerLabels",
   "face",
   "analysis",
   "image",
@@ -7200,6 +7354,10 @@ function redactConfig(config, defaults) {
     config.generationQueue
   );
   return {
+    providerLabels: normalizeAdminProviderLabels(
+      config.providerLabels,
+      { includeDefaults: true }
+    ),
     face: {
       provider: face.provider || "",
       baseUrl: face.baseUrl || "",
@@ -7555,6 +7713,7 @@ async function resolveEffectiveConfigs(options = {}) {
   const image = resolveImageConfig(runtime && runtime.image);
   return {
     runtime: runtime || {
+      providerLabels: {},
       face: {},
       analysis: {},
       image: {},
@@ -7564,6 +7723,10 @@ async function resolveEffectiveConfigs(options = {}) {
       costs: {},
       generationQueue: generationQueueMonitor.normalizeQueueSettings()
     },
+    providerLabels: normalizeAdminProviderLabels(
+      runtime && runtime.providerLabels,
+      { includeDefaults: true }
+    ),
     face: resolveFaceConfig(runtime && runtime.face),
     analysis: resolveAnalysisConfig(runtime && runtime.analysis),
     image,
@@ -7591,6 +7754,7 @@ function adminConfigView(configs, runtime, metadata = {}) {
   });
   const generationQueueDefaults = generationQueueMonitor.normalizeQueueSettings();
   const overrides = runtime || {
+    providerLabels: {},
     face: {},
     analysis: {},
     image: {},
@@ -7602,6 +7766,7 @@ function adminConfigView(configs, runtime, metadata = {}) {
   };
   return {
     defaults: redactConfig({
+      providerLabels: DEFAULT_ADMIN_PROVIDER_LABELS,
       face: faceDefaults,
       analysis: analysisDefaults,
       image: imageDefaults,
@@ -7611,6 +7776,7 @@ function adminConfigView(configs, runtime, metadata = {}) {
       costs: costDefaults,
       generationQueue: generationQueueDefaults
     }, {
+      providerLabels: DEFAULT_ADMIN_PROVIDER_LABELS,
       face: faceDefaults,
       analysis: analysisDefaults,
       image: imageDefaults,
@@ -7621,6 +7787,7 @@ function adminConfigView(configs, runtime, metadata = {}) {
       generationQueue: generationQueueDefaults
     }),
     overrides: redactConfig(overrides, {
+      providerLabels: DEFAULT_ADMIN_PROVIDER_LABELS,
       face: faceDefaults,
       analysis: analysisDefaults,
       image: imageDefaults,
@@ -7630,6 +7797,7 @@ function adminConfigView(configs, runtime, metadata = {}) {
       costs: costDefaults
     }),
     effective: redactConfig({
+      providerLabels: configs.providerLabels,
       face: configs.face,
       analysis: configs.analysis,
       image: configs.image,
@@ -7639,6 +7807,7 @@ function adminConfigView(configs, runtime, metadata = {}) {
       costs: configs.costs,
       generationQueue: configs.generationQueue
     }, {
+      providerLabels: configs.providerLabels,
       face: configs.face,
       analysis: configs.analysis,
       image: configs.image,
@@ -8321,8 +8490,21 @@ function dropBlankRuntimeApiKeys(patch = {}) {
 
 async function saveAdminConfig(event, context) {
   if (!isAdminContext(context)) return adminForbidden();
+  const rawConfig = event && event.config && typeof event.config === "object"
+    ? event.config
+    : {};
+  const rawProviderLabelErrors = hasOwn(rawConfig, "providerLabels")
+    ? validateAdminProviderLabels(rawConfig.providerLabels, {})
+    : [];
+  if (rawProviderLabelErrors.length) {
+    return fail(
+      rawProviderLabelErrors.join("；"),
+      "ADMIN_PROVIDER_LABEL_REQUIRED",
+      { fields: rawProviderLabelErrors }
+    );
+  }
   const patch = dropBlankRuntimeApiKeys(
-    normalizeRuntimePatch(event && event.config)
+    normalizeRuntimePatch(rawConfig)
   );
   if (hasOwn(patch.image, "retryEnabled")) {
     patch.image.retryPreferenceVersion = IMAGE_RETRY_PREFERENCE_VERSION;
@@ -8336,9 +8518,25 @@ async function saveAdminConfig(event, context) {
   let next = mergeRuntimeConfig(current, patch);
   const providerGuard = guardAdminImageProviderConfig(current, next, patch);
   next = providerGuard.value;
+  const providerLabelErrors = validateAdminProviderLabels(
+    next.providerLabels,
+    next
+  );
+  if (providerLabelErrors.length) {
+    return fail(
+      providerLabelErrors.join("；"),
+      "ADMIN_PROVIDER_LABEL_REQUIRED",
+      { fields: providerLabelErrors }
+    );
+  }
+  next.providerLabels = normalizeAdminProviderLabels(
+    next.providerLabels,
+    { includeDefaults: true }
+  );
   const previousVersion = Number(current && current.version) || 0;
   const data = {
     _id: ADMIN_RUNTIME_CONFIG_ID,
+    providerLabels: next.providerLabels,
     face: next.face,
     analysis: next.analysis,
     image: next.image,
@@ -8370,6 +8568,7 @@ async function saveAdminConfig(event, context) {
   });
   adminRuntimeCache = {
     value: {
+      providerLabels: next.providerLabels,
       face: next.face,
       analysis: next.analysis,
       image: next.image,
@@ -8389,6 +8588,7 @@ async function saveAdminConfig(event, context) {
     updatedBy: getOpenId(context),
     version: data.version,
     imageProviderAutoCorrected: providerGuard.corrected,
+    providerLabelFields: Object.keys(patch.providerLabels || {}),
     faceFields: Object.keys(patch.face),
     analysisFields: Object.keys(patch.analysis),
     imageFields: Object.keys(patch.image),
@@ -18060,6 +18260,10 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     normalizeVideoResolution,
     modelCapabilities,
     buildImageQualityProbe,
+    normalizeAdminProviderLabels,
+    mergeAdminProviderLabels,
+    validateAdminProviderLabels,
+    configuredAdminProviderIds,
     normalizeRuntimePatch,
     dropBlankRuntimeApiKeys,
     extractModelUsage,
@@ -18277,6 +18481,8 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     generationExecutionKernel,
     videoExecutionKernel,
     generationStateMachine,
+    mapActionErrorResult,
+    processQueuedGenerationOperation,
     sanitizeVideoOperationResult,
     completeVideoGenerationOperation,
     failVideoGenerationOperation,

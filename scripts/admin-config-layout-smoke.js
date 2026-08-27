@@ -19,7 +19,7 @@ const js = normalizeNewlines(
 const currentConfigMarker =
   '    <view class="overview-section">\n      <view class="overview-heading">当前配置</view>';
 const configEditorMarker =
-  '    <view wx:if="{{activeConfigSection === \'points\' || activeConfigSection === \'costs\' || activeConfigSection === \'users\'}}" id="config-editor"';
+  '    <view wx:if="{{activeConfigSection === \'providers\' || activeConfigSection === \'points\' || activeConfigSection === \'costs\' || activeConfigSection === \'users\'}}" id="config-editor"';
 const usageMarker = '    <view id="usage-section"';
 const monitorMarker =
   '      <view\n        id="monitor-command-toggle"';
@@ -27,7 +27,7 @@ const monitorMarker =
 assert.strictEqual(
   (wxml.match(/id="config-editor"/g) || []).length,
   1,
-  "积分/成本/用户统一配置区必须只保留一个滚动目标"
+  "服务商/积分/成本/用户统一配置区必须只保留一个滚动目标"
 );
 ["face", "analysis", "image", "tencentImage", "video"].forEach((section) => {
   assert.strictEqual(
@@ -216,24 +216,36 @@ assert.ok(
   "管理页没有接入主备统计和配置审计刷新"
 );
 assert.ok(
-  js.includes("function normalizeAdminImageProviderInput")
-    && js.includes("function displayAdminImageProvider")
+  js.includes("function normalizeAdminProviderInput")
+    && js.includes("function displayAdminProvider")
     && js.includes('xingju: "星炬"')
     && js.includes('lingyun: "凌云"')
+    && js.includes('dashscope: "阿里云百炼"')
+    && js.includes('provider: displayAdminProvider(face.provider)')
+    && js.includes('provider: displayAdminProvider(analysis.provider)')
     && js.includes('provider: displayAdminImageProvider(image.provider)')
     && js.includes('provider: displayAdminImageProvider(imageBackup.provider, "凌云")')
+    && js.includes('provider: displayAdminProvider(video.provider)')
+    && js.includes("provider: normalizeAdminProviderInput(form.face.provider)")
+    && js.includes("provider: normalizeAdminProviderInput(form.analysis.provider)")
     && js.includes("provider: normalizeAdminImageProviderInput(form.image.provider)")
-    && js.includes("provider: normalizeAdminImageProviderInput(form.imageBackup.provider)"),
-  "图片主备服务商中文显示映射缺失"
+    && js.includes("provider: normalizeAdminImageProviderInput(form.imageBackup.provider)")
+    && js.includes("provider: normalizeAdminProviderInput(form.video.provider)")
+    && js.includes("const provider = normalizeAdminProviderInput(source.provider)")
+    && js.includes("ADMIN_PROVIDER_FORM_SECTIONS.includes(section)"),
+  "管理员模型服务商中文显示或英文传参映射缺失"
 );
 assert.ok(
-  wxml.includes('value="{{form.image.provider}}"')
+  wxml.includes('value="{{form.face.provider}}"')
+    && wxml.includes('value="{{form.analysis.provider}}"')
+    && wxml.includes('value="{{form.image.provider}}"')
     && wxml.includes('value="{{form.imageBackup.provider}}"')
+    && wxml.includes('value="{{form.video.provider}}"')
     && wxml.includes("主模型：{{form.image.provider")
     && wxml.includes("备用模型：{{form.imageBackup.provider")
     && !wxml.includes("imageProviderDisplayName")
     && !wxml.includes("imageBackupProviderDisplayName"),
-  "图片主备服务商没有直接使用已中文化的表单值"
+  "管理员模型服务商没有直接使用已中文化的表单值"
 );
 assert.ok(
   wxml.includes('data-section="imageBackup" data-key="mode"')

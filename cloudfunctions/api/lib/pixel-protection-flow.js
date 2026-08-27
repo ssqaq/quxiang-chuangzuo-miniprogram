@@ -182,7 +182,15 @@ function normalizeGeneratedDimensions(baselineImage, generatedImage, options = {
   const resized = sourceWidth !== targetWidth || sourceHeight !== targetHeight;
   const scaleW = sourceWidth / targetWidth;
   const scaleH = sourceHeight / targetHeight;
-  const anisotropy = Math.abs(scaleW - scaleH) / Math.max(scaleW, scaleH);
+  const aspectLeft = sourceWidth * targetHeight;
+  const aspectRight = sourceHeight * targetWidth;
+  const aspectDelta = Math.abs(aspectLeft - aspectRight);
+  const aspectMaximum = Math.max(aspectLeft, aspectRight);
+  const anisotropy = aspectDelta / aspectMaximum;
+  const anisotropyExceeded = (
+    aspectDelta * 1000
+    > aspectMaximum * (MAX_GENERATED_ANISOTROPY * 1000)
+  );
   const metadata = {
     resized,
     strategy: resized ? "isotropic-bilinear-to-baseline" : "none",
@@ -210,7 +218,7 @@ function normalizeGeneratedDimensions(baselineImage, generatedImage, options = {
       metadata
     );
   }
-  if (resized && anisotropy > MAX_GENERATED_ANISOTROPY) {
+  if (resized && anisotropyExceeded) {
     throw flowError(
       "图片模型结果宽高比偏差超过安全范围，已停止处理。",
       "PIXEL_IMAGE_ASPECT_MISMATCH",

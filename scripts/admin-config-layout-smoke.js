@@ -171,6 +171,23 @@ assert.ok(
     && !wxml.includes("imageBackupProviderDisplayName"),
   "图片主备服务商没有直接使用已中文化的表单值"
 );
+assert.ok(
+  wxml.includes('data-section="imageBackup" data-key="mode"')
+    && wxml.includes('range="{{imageBackupQualityOptions}}"')
+    && wxml.includes('bindchange="onImageBackupQualityChange"')
+    && wxml.includes('range="{{imageBackupSizeOptions}}"')
+    && wxml.includes('bindchange="onImageBackupSizeChange"')
+    && wxml.includes('data-section="imageBackup" data-key="timeoutMs"'),
+  "备用模型没有完整显示模式、清晰度、尺寸比例和超时四项配置"
+);
+assert.ok(
+  js.includes("imageBackupQualityOptions")
+    && js.includes("imageBackupSizeOptions")
+    && js.includes("onImageBackupQualityChange(event)")
+    && js.includes("onImageBackupSizeChange(event)")
+    && js.includes('mode: String(form.imageBackup.mode || "edits")'),
+  "备用模型四项配置没有接入独立状态或保存逻辑"
+);
 
 const toggleStart = js.indexOf("toggleConfigSection(event)");
 const toggleEnd = js.indexOf("closeConfigSection()", toggleStart);

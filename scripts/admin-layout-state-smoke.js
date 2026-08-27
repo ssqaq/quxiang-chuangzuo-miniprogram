@@ -76,6 +76,20 @@ assert.deepStrictEqual(
   ],
   "云端成本尚未返回时，视频清晰度不得在客户端重复写默认价格"
 );
+assert.deepStrictEqual(
+  firstPage.data.imageBackupQualityOptions.map((item) => item.label),
+  [
+    "1K（价格读取中）",
+    "2K（价格读取中）",
+    "4K（价格读取中）"
+  ],
+  "备用模型清晰度选项必须单独显示"
+);
+assert.deepStrictEqual(
+  firstPage.data.imageBackupSizeOptions.map((item) => item.value),
+  ["1080x1440", "1242x1660", "1080x1920"],
+  "备用模型尺寸比例选项必须单独显示"
+);
 firstPage.onInput({
   currentTarget: { dataset: { section: "costs", key: "imageXingju2K" } },
   detail: { value: "0.12" }
@@ -112,6 +126,30 @@ assert.ok(
     && firstPage.data.imageBackupPricingNotice.includes("2K ¥0.12/张")
     && firstPage.data.imageBackupPricingNotice.includes("4K ¥0.07/张"),
   "切换备用服务商时，备用价格说明必须马上切换"
+);
+const primaryResolutionBeforeBackupChange = firstPage.data.form.image.resolution;
+const primarySizeBeforeBackupChange = firstPage.data.form.image.size;
+firstPage.onImageBackupQualityChange({ detail: { value: 2 } });
+assert.strictEqual(
+  firstPage.data.form.imageBackup.resolution,
+  "4K",
+  "备用模型清晰度必须独立保存"
+);
+assert.strictEqual(
+  firstPage.data.form.image.resolution,
+  primaryResolutionBeforeBackupChange,
+  "修改备用清晰度不能改变主模型清晰度"
+);
+firstPage.onImageBackupSizeChange({ detail: { value: 1 } });
+assert.strictEqual(
+  firstPage.data.form.imageBackup.size,
+  "1242x1660",
+  "备用模型尺寸比例必须独立保存"
+);
+assert.strictEqual(
+  firstPage.data.form.image.size,
+  primarySizeBeforeBackupChange,
+  "修改备用尺寸比例不能改变主模型尺寸比例"
 );
 firstPage.onInput({
   currentTarget: { dataset: { section: "image", key: "provider" } },

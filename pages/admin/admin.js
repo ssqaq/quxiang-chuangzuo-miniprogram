@@ -373,14 +373,28 @@ function buildQualityPickerState(form, capabilityPayload = {}) {
   const videoCapability = capabilityPayload.video || {};
   const imageQuality = buildAdminQualityOptions("image", imageCapability, form);
   const videoQuality = buildAdminQualityOptions("video", videoCapability, form);
+  const imageBackupQualityOptions = buildAdminImageQualityOptions(
+    form && form.costs,
+    imageBackup.provider
+  );
   const imageQualityValue = normalizeAdminImageResolution(
     image.resolution || image.size,
+    "1K"
+  );
+  const imageBackupQualityValue = normalizeAdminImageResolution(
+    imageBackup.resolution || imageBackup.size || image.resolution || image.size,
     "1K"
   );
   const videoQualityValue = normalizeAdminVideoResolution(video.resolution, "720p");
   const imageSizeOptions = buildAdminImageSizeOptions(image.size || "1080x1440");
   const imageSizeValue = String(image.size || "").trim().toLowerCase().replace("×", "x")
     || "1080x1440";
+  const imageBackupSizeOptions = buildAdminImageSizeOptions(
+    imageBackup.size || image.size || "1080x1440"
+  );
+  const imageBackupSizeValue = String(
+    imageBackup.size || image.size || ""
+  ).trim().toLowerCase().replace("×", "x") || "1080x1440";
   const imageCosts = form && form.costs ? form.costs : {};
   return Object.assign(
     {
@@ -392,6 +406,18 @@ function buildQualityPickerState(form, capabilityPayload = {}) {
       ),
       imageSizeOptions,
       imageSizeIndex: pickerIndex(imageSizeOptions, imageSizeValue, 0),
+      imageBackupQualityOptions,
+      imageBackupQualityIndex: pickerIndex(
+        imageBackupQualityOptions,
+        imageBackupQualityValue,
+        0
+      ),
+      imageBackupSizeOptions,
+      imageBackupSizeIndex: pickerIndex(
+        imageBackupSizeOptions,
+        imageBackupSizeValue,
+        0
+      ),
       imagePricingNotice: buildAdminImagePricingNotice(imageCosts, image.provider),
       imageBackupPricingNotice: buildAdminImagePricingNotice(
         imageCosts,
@@ -3028,7 +3054,7 @@ function formToConfig(form) {
       endpoint: String(form.imageBackup.endpoint || "").trim(),
       apiKey: String(form.imageBackup.apiKey || "").trim(),
       model: String(form.imageBackup.model || "").trim(),
-      mode: "edits",
+      mode: String(form.imageBackup.mode || "edits").trim().toLowerCase(),
       size: String(
         form.imageBackup.size
         || form.image.size
@@ -3427,6 +3453,13 @@ Page({
     imageQualityIndex: 0,
     imageSizeOptions: IMAGE_SIZE_OPTIONS.slice(),
     imageSizeIndex: 0,
+    imageBackupQualityOptions: buildAdminImageQualityOptions(
+      emptyForm().costs,
+      emptyForm().imageBackup.provider
+    ),
+    imageBackupQualityIndex: 0,
+    imageBackupSizeOptions: IMAGE_SIZE_OPTIONS.slice(),
+    imageBackupSizeIndex: 0,
     imagePricingNotice: buildAdminImagePricingNotice(
       emptyForm().costs,
       emptyForm().image.provider
@@ -5158,7 +5191,33 @@ Page({
       image: this.data.modelCapabilityProfiles.image
         && this.data.modelCapabilityProfiles.image[nextForm.image.model]
         || {}
-    })));
+      })));
+  },
+
+  onImageBackupQualityChange(event) {
+    const index = Math.max(0, Number(event && event.detail && event.detail.value) || 0);
+    const option = this.data.imageBackupQualityOptions[index] || IMAGE_QUALITY_OPTIONS[0];
+    const nextForm = Object.assign({}, this.data.form, {
+      imageBackup: Object.assign({}, this.data.form.imageBackup, {
+        resolution: option.value
+      })
+    });
+    this.setData(Object.assign({
+      "form.imageBackup.resolution": option.value
+    }, buildQualityPickerState(nextForm)));
+  },
+
+  onImageBackupSizeChange(event) {
+    const index = Math.max(0, Number(event && event.detail && event.detail.value) || 0);
+    const option = this.data.imageBackupSizeOptions[index] || IMAGE_SIZE_OPTIONS[0];
+    const nextForm = Object.assign({}, this.data.form, {
+      imageBackup: Object.assign({}, this.data.form.imageBackup, {
+        size: option.value
+      })
+    });
+    this.setData(Object.assign({
+      "form.imageBackup.size": option.value
+    }, buildQualityPickerState(nextForm)));
   },
 
   onVideoQualityChange(event) {

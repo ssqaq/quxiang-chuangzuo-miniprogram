@@ -213,11 +213,11 @@ assert.strictEqual(
   "普通配置加图片主备配置共五个 API Key 输入框必须完整"
 );
 assert.ok(
-  ["face", "analysis"].every((section) => (
+  ["face", "analysis", "image", "imageBackup"].every((section) => (
     apiKeyInputBySection[section]
-    && /\bpassword\b/.test(apiKeyInputBySection[section])
+    && !/\bpassword\b/.test(apiKeyInputBySection[section])
   )),
-  "人脸和图片分析 API Key 必须继续使用密码输入"
+  "人脸、图片分析和图片主备 API Key 必须直接显示完整内容"
 );
 assert.ok(
   apiKeyInputBySection.video
@@ -226,23 +226,19 @@ assert.ok(
   "视频 API Key 必须只读显示，不能再用密码输入"
 );
 assert.ok(
-  ["image", "imageBackup"].every((section) => (
-    apiKeyInputBySection[section]
-    && !/\bpassword\b/.test(apiKeyInputBySection[section])
-  )),
-  "图片主备 API Key 必须直接显示完整内容"
-);
-assert.ok(
   (wxml.match(/data-section="image" data-(?:key|field-key)="apiKey"/g) || []).length >= 1
     && (wxml.match(/data-section="imageBackup" data-(?:key|field-key)="apiKey"/g) || []).length >= 1,
   "图片主备 API Key 输入框缺失"
 );
 assert.ok(
   wxml.includes("form.image.apiKeyConfigured")
+    && wxml.includes("form.face.apiKeyConfigured")
+    && wxml.includes("form.analysis.apiKeyConfigured")
     && wxml.includes("form.imageBackup.apiKeyConfigured")
     && wxml.includes("form.video.apiKeyConfigured")
-    && (wxml.match(/已显示完整 Key/g) || []).length >= 2,
-  "图片主备和视频模型没有显示完整密钥状态"
+    && (wxml.match(/已显示完整 Key/g) || []).length >= 5
+    && wxml.includes("已显示完整内容"),
+  "五组模型或腾讯融合没有显示完整密钥状态"
 );
 assert.ok(
   wxss.includes(".api-key-config-state {")

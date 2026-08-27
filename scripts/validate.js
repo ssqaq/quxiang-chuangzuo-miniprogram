@@ -1037,23 +1037,19 @@ const adminApiKeyInputBySection = adminApiKeyInputs.reduce((result, input) => {
 }, {});
 if (
   adminApiKeyInputs.length !== 5
-  || !["face", "analysis"].every((section) => (
+  || !["face", "analysis", "image", "imageBackup", "video"].every((section) => (
     adminApiKeyInputBySection[section]
-    && /\bpassword\b/.test(adminApiKeyInputBySection[section])
+    && !/\bpassword\b/.test(adminApiKeyInputBySection[section])
   ))
   || !(
     adminApiKeyInputBySection.video
     && /\bdisabled\b/.test(adminApiKeyInputBySection.video)
-    && !/\bpassword\b/.test(adminApiKeyInputBySection.video)
   )
-  || !["image", "imageBackup"].every((section) => (
-    adminApiKeyInputBySection[section]
-    && !/\bpassword\b/.test(adminApiKeyInputBySection[section])
-  ))
   || !["face", "analysis", "image", "imageBackup", "video"].every(
     (section) => adminWxml.includes(`form.${section}.apiKeyConfigured`)
   )
-  || (adminWxml.match(/已显示完整 Key/g) || []).length < 2
+  || (adminWxml.match(/已显示完整 Key/g) || []).length < 5
+  || !adminWxml.includes("已显示完整内容")
   || !clientCloudJs.includes('action: "getAdminImageApiKeys"')
   || !cloudJs.includes("async function getAdminImageApiKeys")
   || !adminJs.includes("fetchAdminConfigBundle")
@@ -1061,7 +1057,7 @@ if (
   || !adminWxss.includes(".api-key-config-state")
   || !adminWxss.includes(".api-key-field-tip")
 ) {
-  throw new Error("管理员生图完整 Key 显示、其他密钥密码保护或专用接口不完整。");
+  throw new Error("管理员页面五组完整 Key 明文显示、腾讯密钥状态或专用接口不完整。");
 }
 if (
   !clientCloudJs.includes('action: "getModelUsageStats"')

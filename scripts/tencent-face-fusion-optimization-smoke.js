@@ -22,21 +22,9 @@ assert.ok(adminWxml.includes("真实测试腾讯接口"), "管理员页面必须
 assert.ok(adminWxml.includes("模板图"), "管理员页面必须能选择模板图");
 assert.ok(adminWxml.includes("参考脸"), "管理员页面必须能选择参考脸");
 assert.ok(adminJs.includes("testTencentFaceFusion"), "管理员页面必须调用腾讯真实测试接口");
-assert.ok(
-  adminJs.includes("tencentFaceFusionConfigFromForm")
-    && adminJs.includes("tencentFaceFusion: tencentConfig"),
-  "真实测试必须使用当前页面填写的腾讯参数"
-);
-assert.ok(
-  !adminJs.includes("TENCENT_FACEFUSION_LAST_TEST_STORAGE_KEY")
-    && !adminJs.includes("mergeTencentFaceFusionStatus"),
-  "管理员腾讯测试状态不能依赖本地缓存覆盖云端状态"
-);
-assert.ok(
-  adminWxml.includes("tencentFaceFusionStatus.lastCallStatusText")
-    && adminWxml.includes("tencentFaceFusionStatus.lastErrorMessage"),
-  "管理员页面必须只显示最终状态和错误原因"
-);
+assert.ok(adminJs.includes("TENCENT_FACEFUSION_LAST_TEST_STORAGE_KEY"), "真实测试成功后必须保留本地状态");
+assert.ok(adminJs.includes("mergeTencentFaceFusionStatus"), "管理员状态读取必须避免旧请求覆盖新结果");
+assert.ok(adminJs.includes("lastCallTimestamp"), "腾讯测试状态必须带时间戳避免回退");
 assert.ok(tencentJs.includes("progressText"), "腾讯版页面必须维护进度文案");
 assert.ok(tencentWxml.includes("progress-fill"), "腾讯版页面必须显示进度条");
 assert.ok(apiJs.includes("testTencentFaceFusion"), "云函数必须注册腾讯真实测试动作");

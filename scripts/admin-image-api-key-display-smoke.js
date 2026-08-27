@@ -10,34 +10,12 @@ process.env.ADMIN_OPENIDS = "admin-image-key-smoke";
 process.env.AI_IMAGE_PRIMARY_API_KEY = "smoke-primary-value";
 process.env.AI_IMAGE_BACKUP_API_KEY = "smoke-backup-value";
 
-const root = path.resolve(__dirname, "..");
-const dependencyRoots = [
-  path.join(root, "cloudfunctions", "api", "node_modules"),
-  path.join(path.dirname(path.dirname(root)), "cloudfunctions", "api", "node_modules")
-].filter((candidate, index, list) => (
-  fs.existsSync(candidate) && list.indexOf(candidate) === index
-));
-if (dependencyRoots.length) {
-  process.env.NODE_PATH = [
-    ...dependencyRoots,
-    process.env.NODE_PATH || ""
-  ].filter(Boolean).join(path.delimiter);
-  Module._initPaths();
-}
-
 const api = require("../cloudfunctions/api/index.js");
 
 function redactedConfig() {
   return {
     ok: true,
     effective: {
-      providerLabels: {
-        xingju: "星炬",
-        lingyun: "凌云",
-        "face-provider": "人脸服务商",
-        "analysis-provider": "分析服务商",
-        "video-provider": "视频服务商"
-      },
       face: {
         provider: "face-provider",
         model: "face-model",
@@ -75,17 +53,6 @@ function redactedConfig() {
         retryEnabled: false,
         apiKey: "",
         apiKeyConfigured: true
-      },
-      tencentFaceFusion: {
-        region: "ap-guangzhou",
-        endpoint: "https://facefusion.tencentcloudapi.com",
-        apiVersion: "2022-09-27",
-        action: "FuseFaceUltra",
-        model: "FuseFaceUltra",
-        swapModelType: 4,
-        logoAdd: false,
-        timeoutMs: 75000,
-        maxImageBytes: 5 * 1024 * 1024
       },
       video: {
         provider: "video-provider",

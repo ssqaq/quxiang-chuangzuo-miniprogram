@@ -191,46 +191,23 @@ assert.ok(
   "视频价格提示必须与成本输入同步"
 );
 firstPage.toggleConfigSection({
-  currentTarget: { dataset: { section: "image" } }
+  currentTarget: { dataset: { section: "tencentImage" } }
 });
-assert.strictEqual(firstPage.data.activeConfigSection, "image");
-assert.strictEqual(firstPage.data.activeConfigTitle, "生图模型");
-assert.strictEqual(firstPage.data.tencentImageTab, "image");
-firstPage.switchTencentImageTab({
-  currentTarget: { dataset: { tab: "fusion" } }
-});
-assert.strictEqual(firstPage.data.tencentImageTab, "fusion");
-firstPage.onInput({
-  currentTarget: { dataset: { section: "tencentFaceFusion", key: "endpoint" } },
-  detail: { value: "https://example.com/tencent" }
-});
-assert.strictEqual(
-  firstPage.data.form.tencentFaceFusion.endpoint,
-  "https://example.com/tencent"
-);
+assert.strictEqual(firstPage.data.activeConfigSection, "tencentImage");
+assert.strictEqual(firstPage.data.activeConfigTitle, "生图模型-腾讯版");
 firstPage.toggleConfigSection({
-  currentTarget: { dataset: { section: "image" } }
+  currentTarget: { dataset: { section: "tencentImage" } }
 });
-assert.strictEqual(firstPage.data.activeConfigSection, "", "生图模型再次点击必须收起");
+assert.strictEqual(firstPage.data.activeConfigSection, "", "腾讯版再次点击必须收起");
 firstPage.toggleConfigSection({
-  currentTarget: { dataset: { section: "image" } }
+  currentTarget: { dataset: { section: "tencentImage" } }
 });
-assert.strictEqual(firstPage.data.tencentImageTab, "image", "生图模型重新打开必须回到图片模型页签");
-storage["admin-monitor-layout-v3"] = {
-  activeConfigSection: "tencentImage",
-  tencentImageTab: "image"
-};
 const restoredTencentPage = createPageInstance();
 restoredTencentPage.restoreMonitorLayout();
 assert.strictEqual(
   restoredTencentPage.data.activeConfigSection,
-  "image",
-  "旧腾讯独立面板状态必须恢复到生图模型面板"
-);
-assert.strictEqual(
-  restoredTencentPage.data.tencentImageTab,
-  "fusion",
-  "旧腾讯独立面板状态必须恢复到腾讯融合页签"
+  "tencentImage",
+  "腾讯版展开状态必须能恢复"
 );
 firstPage.toggleConfigSection({
   currentTarget: { dataset: { section: "users" } }
@@ -284,9 +261,6 @@ async function verifyTencentAdminStatusDisplay() {
   assert.strictEqual(configuredPage.data.tencentFaceFusionStatus.statusText, "正常");
   assert.strictEqual(configuredPage.data.tencentFaceFusionStatus.secretId, "visible-secret-id");
   assert.strictEqual(configuredPage.data.tencentFaceFusionStatus.secretKey, "visible-secret-key");
-  assert.strictEqual(configuredPage.data.form.tencentFaceFusion.secretId, "visible-secret-id");
-  assert.strictEqual(configuredPage.data.form.tencentFaceFusion.secretKey, "visible-secret-key");
-  assert.strictEqual(configuredPage.data.form.tencentFaceFusion.endpoint, "https://facefusion.tencentcloudapi.com");
   assert.strictEqual(configuredPage.data.tencentFaceFusionStatus.lastCallStatusText, "调用成功");
   assert.strictEqual(configuredPage.data.tencentFaceFusionStatus.lastCalledAt, "2026-08-27 12:30");
 
@@ -312,7 +286,7 @@ async function verifyTencentAdminStatusDisplay() {
   assert.strictEqual(failedPage.data.tencentFaceFusionStatus.statusText, "读取失败");
   assert.strictEqual(failedPage.data.tencentFaceFusionStatus.readFailed, true);
 
-  console.log("admin layout state smoke: OK (主备/页签切换、重新打开重置、腾讯参数状态可显示)");
+  console.log("admin layout state smoke: OK (展开/收起状态可恢复；腾讯参数状态可显示)");
 }
 
 verifyTencentAdminStatusDisplay().catch((error) => {

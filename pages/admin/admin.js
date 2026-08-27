@@ -57,13 +57,6 @@ const ADMIN_PROVIDER_LABELS = Object.freeze({
   lingyun: "凌云",
   dashscope: "阿里云百炼"
 });
-const ADMIN_PROVIDER_LABEL_MAX_LENGTH = 20;
-const ADMIN_PROVIDER_LABEL_REQUIRED = "ADMIN_PROVIDER_LABEL_REQUIRED";
-const ADMIN_PROVIDER_DANGEROUS_KEYS = Object.freeze([
-  "__proto__",
-  "prototype",
-  "constructor"
-]);
 const ADMIN_PROVIDER_VALUES = Object.freeze({
   星炬: "xingju",
   凌云: "lingyun",
@@ -77,268 +70,20 @@ const ADMIN_PROVIDER_FORM_SECTIONS = Object.freeze([
   "imageBackup",
   "video"
 ]);
-const ADMIN_PROVIDER_DISPLAY_ORDER = Object.freeze([
-  "xingju",
-  "lingyun",
-  "dashscope"
-]);
-const ADMIN_BUILT_IN_PROVIDER_ORDER = ADMIN_PROVIDER_DISPLAY_ORDER;
-let activeAdminProviderLabels = Object.assign({}, ADMIN_PROVIDER_LABELS);
-
-function mergeAdminProviderLabels(value) {
-  const result = Object.assign({}, ADMIN_PROVIDER_LABELS);
-  if (!value || typeof value !== "object" || Array.isArray(value)) return result;
-  Object.keys(value).forEach((rawProviderId) => {
-    const rawId = String(rawProviderId || "").trim();
-    if (!rawId || ADMIN_PROVIDER_DANGEROUS_KEYS.includes(rawId)) return;
-    const lowerId = rawId.toLowerCase();
-    const providerId = ADMIN_PROVIDER_LABELS[lowerId] ? lowerId : rawId;
-    const label = String(value[rawProviderId] == null ? "" : value[rawProviderId]).trim();
-    if (label) result[providerId] = label;
-  });
-  return result;
-}
-
-function setActiveAdminProviderLabels(value) {
-  activeAdminProviderLabels = mergeAdminProviderLabels(value);
-  return Object.assign({}, activeAdminProviderLabels);
-}
-
-function providerIdFromDisplay(value, labels = activeAdminProviderLabels) {
-  const raw = String(value === undefined || value === null ? "" : value).trim();
-  if (!raw) return "";
-  if (ADMIN_PROVIDER_VALUES[raw]) return ADMIN_PROVIDER_VALUES[raw];
-  const lower = raw.toLowerCase();
-  if (ADMIN_PROVIDER_LABELS[lower]) return lower;
-  const effectiveLabels = mergeAdminProviderLabels(labels);
-  const matchedId = Object.keys(effectiveLabels).find(
-    (providerId) => effectiveLabels[providerId] === raw
-  );
-  return matchedId || raw;
-}
 
 function normalizeAdminProviderInput(value) {
-  return providerIdFromDisplay(value);
+  const raw = String(value === undefined || value === null ? "" : value).trim();
+  const text = raw.toLowerCase();
+  if (ADMIN_PROVIDER_VALUES[raw]) return ADMIN_PROVIDER_VALUES[raw];
+  if (ADMIN_PROVIDER_LABELS[text]) return text;
+  return raw;
 }
 
 function displayAdminProvider(value, fallback = "") {
   const raw = String(value === undefined || value === null ? "" : value).trim();
   if (!raw) return fallback;
-  const normalized = providerIdFromDisplay(raw);
-  return activeAdminProviderLabels[normalized] || ADMIN_PROVIDER_LABELS[normalized] || raw;
-}
-
-function adminProviderIdsFromForm(form) {
-  const source = form && typeof form === "object" ? form : {};
-  const providerIds = [];
-  ADMIN_PROVIDER_FORM_SECTIONS.forEach((section) => {
-    const providerId = providerIdFromDisplay(
-      source[section] && source[section].provider
-    );
-    if (providerId && !providerIds.includes(providerId)) providerIds.push(providerId);
-  });
-  return sortAdminProviderIds(providerIds);
-}
-
-function providerLabelsFromForm(form) {
-  const source = form && typeof form === "object" ? form : {};
-  return mergeAdminProviderLabels(source.providerLabels);
-}
-
-function adminProviderSortLabel(providerId, rawLabels = {}) {
-  const normalizedId = String(providerId || "").trim();
-  const labels = rawLabels && typeof rawLabels === "object" && !Array.isArray(rawLabels)
-    ? rawLabels
-    : {};
-  const directLabel = Object.prototype.hasOwnProperty.call(labels, normalizedId)
-    ? labels[normalizedId]
-    : "";
-  return String(
-    directLabel
-      || activeAdminProviderLabels[normalizedId]
-      || ADMIN_PROVIDER_LABELS[normalizedId]
-      || normalizedId
-  ).trim();
-}
-
-function sortAdminProviderIds(providerIds, rawLabels = {}) {
-  const ids = Array.from(new Set(
-    (Array.isArray(providerIds) ? providerIds : [])
-      .map((providerId) => String(providerId || "").trim())
-      .filter((providerId) => (
-        providerId
-        && !ADMIN_PROVIDER_DANGEROUS_KEYS.includes(providerId)
-      ))
-  ));
-  return ids.sort((left, right) => {
-    const leftIndex = ADMIN_BUILT_IN_PROVIDER_ORDER.indexOf(left.toLowerCase());
-    const rightIndex = ADMIN_BUILT_IN_PROVIDER_ORDER.indexOf(right.toLowerCase());
-    const leftBuiltIn = leftIndex >= 0;
-    const rightBuiltIn = rightIndex >= 0;
-    if (leftBuiltIn || rightBuiltIn) {
-      if (leftBuiltIn && rightBuiltIn) return leftIndex - rightIndex;
-      return leftBuiltIn ? -1 : 1;
-    }
-    return adminProviderSortLabel(left, rawLabels).localeCompare(
-      adminProviderSortLabel(right, rawLabels),
-      "zh-CN",
-      { numeric: true, sensitivity: "base" }
-    ) || left.localeCompare(right, undefined, {
-      numeric: true,
-      sensitivity: "base"
-    });
-  });
-}
-
-function buildAdminProviderLabelRows(form, errors = {}) {
-  const source = form && typeof form === "object" ? form : {};
-  const rawLabels = source.providerLabels && typeof source.providerLabels === "object"
-    && !Array.isArray(source.providerLabels)
-    ? source.providerLabels
-    : {};
-  const providerIds = [
-    ...Object.keys(ADMIN_PROVIDER_LABELS),
-    ...Object.keys(rawLabels),
-    ...adminProviderIdsFromForm(source)
-  ]
-    .map((providerId) => String(providerId || "").trim())
-    .filter((providerId) => (
-      providerId
-      && !ADMIN_PROVIDER_DANGEROUS_KEYS.includes(providerId)
-    ));
-  return sortAdminProviderIds(providerIds, rawLabels)
-    .map((providerId) => {
-      const hasRawLabel = Object.prototype.hasOwnProperty.call(rawLabels, providerId);
-      const label = String(
-        hasRawLabel
-          ? rawLabels[providerId]
-          : activeAdminProviderLabels[providerId] || ADMIN_PROVIDER_LABELS[providerId] || ""
-      ).trim();
-      return {
-        providerId,
-        label,
-        builtIn: Boolean(ADMIN_PROVIDER_LABELS[providerId]),
-        error: String(errors[providerId] || "")
-      };
-    });
-}
-
-function validateAdminProviderLabelRows(rows) {
-  const errors = {};
-  (Array.isArray(rows) ? rows : []).forEach((item) => {
-    const providerId = String(item && item.providerId || "").trim();
-    const label = String(item && item.label || "").trim();
-    if (!providerId) return;
-    if (!label) {
-      errors[providerId] = `服务商 ${providerId} 还没有中文名称，请先填写。`;
-      return;
-    }
-    if (!/[\u3400-\u9fff]/.test(label)) {
-      errors[providerId] = `服务商 ${providerId} 的名称必须包含中文，不能只写英文。`;
-      return;
-    }
-    if (Array.from(label).length > ADMIN_PROVIDER_LABEL_MAX_LENGTH) {
-      errors[providerId] = `服务商 ${providerId} 的中文名称最多 20 个字符。`;
-    }
-  });
-  return errors;
-}
-
-function buildAdminProviderFilterState(form, selectedValue = "all") {
-  const source = form && typeof form === "object" ? form : {};
-  const providerIds = sortAdminProviderIds(
-    adminProviderIdsFromForm(source),
-    source.providerLabels
-  );
-  const options = [{ value: "all", label: "全部服务商" }].concat(
-    providerIds.map((providerId) => ({
-      value: providerId,
-      label: displayAdminProvider(providerId, providerId)
-    }))
-  );
-  const requested = String(selectedValue || "all").trim() || "all";
-  const selected = options.some((item) => item.value === requested)
-    ? requested
-    : "all";
-  const index = Math.max(0, options.findIndex((item) => item.value === selected));
-  const sectionProviderId = (section) => providerIdFromDisplay(
-    form && form[section] && form[section].provider
-  );
-  const matches = (section) => selected === "all" || sectionProviderId(section) === selected;
-  return {
-    providerFilterOptions: options,
-    providerFilterValue: selected,
-    providerFilterIndex: index,
-    providerFilterLabel: options[index] && options[index].label || "全部服务商",
-    providerSectionVisibility: {
-      face: matches("face"),
-      analysis: matches("analysis"),
-      image: selected === "all"
-        || sectionProviderId("image") === selected
-        || sectionProviderId("imageBackup") === selected,
-      video: matches("video")
-    }
-  };
-}
-
-function filterAdminModelProbeResults(modelProbes, selectedValue = "all") {
-  const source = modelProbes && typeof modelProbes === "object"
-    ? modelProbes
-    : emptyModelProbes();
-  const results = (Array.isArray(source.results) ? source.results : []).map((item) => {
-    const providerId = providerIdFromDisplay(item && (item.providerId || item.provider));
-    return Object.assign({}, item, {
-      providerId: providerIdFromDisplay(item.provider) || providerId,
-      provider: displayAdminProvider(providerId, "未填写")
-    });
-  });
-  const selected = String(selectedValue || "all").trim() || "all";
-  return Object.assign({}, source, {
-    results,
-    filteredResults: selected === "all"
-      ? results.slice()
-      : results.filter((item) => item.providerId === selected)
-  });
-}
-
-function buildAdminProviderManagementState(
-  form,
-  modelProbes,
-  selectedValue = "all",
-  errors = {}
-) {
-  const filterState = buildAdminProviderFilterState(form, selectedValue);
-  return Object.assign({
-    providerLabelRows: buildAdminProviderLabelRows(form, errors),
-    providerLabelErrors: Object.assign({}, errors),
-    modelProbes: filterAdminModelProbeResults(
-      modelProbes,
-      filterState.providerFilterValue
-    )
-  }, filterState);
-}
-
-function relabelAdminProviderForm(form, nextLabels, previousLabels = activeAdminProviderLabels) {
-  const source = form && typeof form === "object" ? form : {};
-  const providerIds = {};
-  ADMIN_PROVIDER_FORM_SECTIONS.forEach((section) => {
-    providerIds[section] = providerIdFromDisplay(
-      source[section] && source[section].provider,
-      previousLabels
-    );
-  });
-  const activeLabels = setActiveAdminProviderLabels(nextLabels);
-  const result = Object.assign({}, source, {
-    providerLabels: Object.assign({}, nextLabels)
-  });
-  ADMIN_PROVIDER_FORM_SECTIONS.forEach((section) => {
-    result[section] = Object.assign({}, source[section] || {}, {
-      provider: providerIds[section]
-        ? activeLabels[providerIds[section]] || providerIds[section]
-        : ""
-    });
-  });
-  return result;
+  const normalized = normalizeAdminProviderInput(raw);
+  return ADMIN_PROVIDER_LABELS[normalized] || raw;
 }
 
 function normalizeAdminImageProviderInput(value) {
@@ -725,7 +470,6 @@ function buildQualityPickerState(form, capabilityPayload = {}) {
 
 function emptyForm() {
   return {
-    providerLabels: Object.assign({}, ADMIN_PROVIDER_LABELS),
     face: {
       provider: "",
       baseUrl: "",
@@ -772,7 +516,6 @@ function emptyForm() {
       retryEnabled: false,
       retryPreferenceVersion: 1
     },
-    tencentFaceFusion: emptyTencentFaceFusionForm(),
     video: {
       provider: "",
       baseUrl: "",
@@ -963,8 +706,8 @@ const CONFIG_SECTION_TITLES = Object.freeze({
   face: "人脸识别模型",
   analysis: "图片分析模型",
   image: "生图模型",
+  tencentImage: "生图模型-腾讯版",
   video: "视频模型",
-  providers: "服务商中文名称",
   points: "签到与积分规则",
   costs: "模型成本配置",
   users: "用户统计"
@@ -973,6 +716,7 @@ const MODEL_CONFIG_SECTIONS = Object.freeze([
   "face",
   "analysis",
   "image",
+  "tencentImage",
   "video"
 ]);
 
@@ -1006,6 +750,7 @@ const AUTO_FACE_FAILURE_SECTION_KEYS = Object.freeze([
   "monthly"
 ]);
 const MONITOR_LAYOUT_STORAGE_KEY = "admin-monitor-layout-v3";
+const TENCENT_FACEFUSION_LAST_TEST_STORAGE_KEY = "admin-tencent-facefusion-last-test-v1";
 const AUTO_FACE_FAILURE_AUTO_REFRESH_MS = 10 * 60 * 1000;
 const MODEL_FAILURE_AUTO_REFRESH_MS = 10 * 60 * 1000;
 
@@ -2126,22 +1871,6 @@ function emptyTencentFaceFusionStatus() {
   };
 }
 
-function emptyTencentFaceFusionForm() {
-  return {
-    secretId: "",
-    secretKey: "",
-    region: "ap-guangzhou",
-    endpoint: "https://facefusion.tencentcloudapi.com",
-    apiVersion: "2022-09-27",
-    action: "FuseFaceUltra",
-    model: "FuseFaceUltra",
-    swapModelType: "4",
-    logoAdd: false,
-    timeoutMs: "75000",
-    maxImageBytes: String(5 * 1024 * 1024)
-  };
-}
-
 function tencentFaceFusionCallStatusText(value) {
   const status = String(value || "not-called").trim().toLowerCase();
   const labels = {
@@ -2226,60 +1955,92 @@ function formatTencentFaceFusionStatus(result) {
   });
 }
 
-function tencentFaceFusionConfigFromForm(form) {
-  const source = form && form.tencentFaceFusion
-    ? form.tencentFaceFusion
-    : emptyTencentFaceFusionForm();
-  return {
-    secretId: String(source.secretId || "").trim(),
-    secretKey: String(source.secretKey || "").trim(),
-    region: String(source.region || "").trim(),
-    endpoint: String(source.endpoint || "").trim(),
-    apiVersion: String(source.apiVersion || "").trim(),
-    action: String(source.action || "").trim(),
-    model: String(source.model || "").trim(),
-    swapModelType: Number(source.swapModelType || 0),
-    logoAdd: Boolean(source.logoAdd),
-    timeoutMs: Number(source.timeoutMs || 0),
-    maxImageBytes: Number(source.maxImageBytes || 0)
-  };
+function readTencentFaceFusionLocalStatus() {
+  try {
+    const value = wx.getStorageSync(TENCENT_FACEFUSION_LAST_TEST_STORAGE_KEY);
+    if (!value || typeof value !== "object") return null;
+    return Object.assign(emptyTencentFaceFusionStatus(), value);
+  } catch (error) {
+    return null;
+  }
 }
 
-function validateTencentFaceFusionForm(form) {
-  const source = form && form.tencentFaceFusion
-    ? form.tencentFaceFusion
-    : emptyTencentFaceFusionForm();
-  const errors = {};
-  const endpoint = String(source.endpoint || "").trim();
-  const apiVersion = String(source.apiVersion || "").trim();
-  const swapModelType = Number(source.swapModelType);
-  const timeoutMs = Number(source.timeoutMs);
-  const maxImageBytes = Number(source.maxImageBytes);
-  if (!String(source.region || "").trim()) errors.region = "Region 不能为空";
-  if (!endpoint) {
-    errors.endpoint = "Endpoint 不能为空";
-  } else if (!/^https:\/\//i.test(endpoint)) {
-    errors.endpoint = "Endpoint 必须使用 HTTPS";
+function saveTencentFaceFusionLocalStatus(status) {
+  try {
+    const source = status && typeof status === "object" ? status : {};
+    wx.setStorageSync(
+      TENCENT_FACEFUSION_LAST_TEST_STORAGE_KEY,
+      {
+        lastCallStatus: String(source.lastCallStatus || "not-called"),
+        lastCallStage: String(source.lastCallStage || ""),
+        lastErrorCode: String(source.lastErrorCode || ""),
+        lastErrorMessage: String(source.lastErrorMessage || ""),
+        lastRequestId: String(source.lastRequestId || ""),
+        lastDurationMs: Number(source.lastDurationMs) || 0,
+        lastTestType: String(source.lastTestType || ""),
+        lastCalledAt: String(source.lastCalledAt || ""),
+        lastCallTimestamp: Number(source.lastCallTimestamp) || 0,
+        checkedAt: new Date().toISOString()
+      }
+    );
+  } catch (error) {
+    diagnosticLog.warn(
+      "admin",
+      "tencent-facefusion-local-status-save-failed",
+      "腾讯测试状态本地保存失败",
+      { error }
+    );
   }
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(apiVersion)) {
-    errors.apiVersion = "API Version 必须是 YYYY-MM-DD";
-  }
-  if (!String(source.action || "").trim()) errors.action = "Action 不能为空";
-  if (!String(source.model || "").trim()) errors.model = "模型不能为空";
-  if (!Number.isInteger(swapModelType) || swapModelType < 1 || swapModelType > 9) {
-    errors.swapModelType = "必须填写 1～9 的整数";
-  }
-  if (!Number.isFinite(timeoutMs) || timeoutMs < 5000 || timeoutMs > 120000) {
-    errors.timeoutMs = "必须填写 5000～120000";
-  }
+}
+
+function mergeTencentFaceFusionStatus(remoteStatus) {
+  const remote = formatTencentFaceFusionStatus(remoteStatus);
+  const local = formatTencentFaceFusionStatus(readTencentFaceFusionLocalStatus());
+  if (!local || !local.lastCallTimestamp) return remote;
   if (
-    !Number.isFinite(maxImageBytes)
-    || maxImageBytes < 256 * 1024
-    || maxImageBytes > 8 * 1024 * 1024
+    !remote.lastCallTimestamp
+    || local.lastCallTimestamp > remote.lastCallTimestamp
   ) {
-    errors.maxImageBytes = "必须填写 262144～8388608";
+    return Object.assign({}, local, {
+      configured: remote.configured,
+      readFailed: remote.readFailed,
+      statusText: remote.statusText,
+      secretId: remote.secretId,
+      secretKey: remote.secretKey,
+      region: remote.region,
+      endpoint: remote.endpoint,
+      model: remote.model,
+      apiVersion: remote.apiVersion,
+      action: remote.action,
+      swapModelType: remote.swapModelType,
+      logoAdd: remote.logoAdd,
+      logoAddText: remote.logoAddText,
+      timeoutMs: remote.timeoutMs,
+      timeoutText: remote.timeoutText,
+      maxImageBytes: remote.maxImageBytes,
+      maxImageBytesText: remote.maxImageBytesText,
+      checkedAt: remote.checkedAt
+    });
   }
-  return errors;
+  return remote;
+}
+
+function buildTencentFaceFusionLocalStatus(result, requestId, status, errorMessage = "") {
+  const now = Date.now();
+  return Object.assign(emptyTencentFaceFusionStatus(), {
+    configured: true,
+    region: String(result && result.region || ""),
+    model: String(result && result.model || "FuseFaceUltra"),
+    lastCallStatus: status,
+    lastCallStage: status === "succeeded" ? "succeeded" : "facefusion",
+    lastErrorMessage: String(errorMessage || ""),
+    lastRequestId: String(requestId || ""),
+    lastDurationMs: Number(result && result.durationMs) || 0,
+    lastTestType: "admin-real-call",
+    lastCalledAt: new Date(now).toISOString(),
+    lastCallTimestamp: now,
+    checkedAt: new Date(now).toISOString()
+  });
 }
 
 function emptyImageEditCapabilityProbe() {
@@ -3281,12 +3042,10 @@ function buildEntryHealth(
 
 function formFromConfig(result) {
   const source = result && result.effective ? result.effective : {};
-  const providerLabels = setActiveAdminProviderLabels(source.providerLabels);
   const face = source.face || {};
   const analysis = source.analysis || {};
   const image = source.image || {};
   const imageBackup = source.imageBackup || {};
-  const tencentFaceFusion = source.tencentFaceFusion || {};
   const video = source.video || {};
   const points = source.points || {};
   const costs = source.costs || {};
@@ -3313,7 +3072,6 @@ function formFromConfig(result) {
   const videoCosts = costs.video || {};
   const generationQueue = source.generationQueue || {};
   return {
-    providerLabels,
     face: {
       provider: displayAdminProvider(face.provider),
       baseUrl: face.baseUrl || "",
@@ -3370,19 +3128,6 @@ function formFromConfig(result) {
       maxRetries: "0",
       retryEnabled: false,
       retryPreferenceVersion: 1
-    },
-    tencentFaceFusion: {
-      secretId: "",
-      secretKey: "",
-      region: tencentFaceFusion.region || "ap-guangzhou",
-      endpoint: tencentFaceFusion.endpoint || "https://facefusion.tencentcloudapi.com",
-      apiVersion: tencentFaceFusion.apiVersion || "2022-09-27",
-      action: tencentFaceFusion.action || "FuseFaceUltra",
-      model: tencentFaceFusion.model || "FuseFaceUltra",
-      swapModelType: String(tencentFaceFusion.swapModelType || 4),
-      logoAdd: Boolean(tencentFaceFusion.logoAdd),
-      timeoutMs: String(tencentFaceFusion.timeoutMs || 75000),
-      maxImageBytes: String(tencentFaceFusion.maxImageBytes || 5 * 1024 * 1024)
     },
     video: {
       provider: displayAdminProvider(video.provider),
@@ -3477,8 +3222,6 @@ function formFromConfig(result) {
 }
 
 function formToConfig(form) {
-  const providerLabels = providerLabelsFromForm(form);
-  setActiveAdminProviderLabels(providerLabels);
   const xingjuImagePrices = {
     "1K": adminCostText(form.costs.imageXingju1K),
     "2K": adminCostText(form.costs.imageXingju2K),
@@ -3492,9 +3235,7 @@ function formToConfig(form) {
   const primaryImagePrices = normalizeAdminImageCostProvider(form.image.provider) === "lingyun"
     ? lingyunImagePrices
     : xingjuImagePrices;
-  const tencentFaceFusion = form.tencentFaceFusion || emptyTencentFaceFusionForm();
   return {
-    providerLabels: providerLabelsFromForm(form),
     face: {
       provider: normalizeAdminProviderInput(form.face.provider),
       baseUrl: String(form.face.baseUrl || "").trim(),
@@ -3553,19 +3294,6 @@ function formToConfig(form) {
       maxRetries: 0,
       retryEnabled: false,
       retryPreferenceVersion: 1
-    },
-    tencentFaceFusion: {
-      secretId: String(tencentFaceFusion.secretId || "").trim(),
-      secretKey: String(tencentFaceFusion.secretKey || "").trim(),
-      region: String(tencentFaceFusion.region || "").trim(),
-      endpoint: String(tencentFaceFusion.endpoint || "").trim(),
-      apiVersion: String(tencentFaceFusion.apiVersion || "").trim(),
-      action: String(tencentFaceFusion.action || "").trim(),
-      model: String(tencentFaceFusion.model || "").trim(),
-      swapModelType: Number(tencentFaceFusion.swapModelType || 0),
-      logoAdd: Boolean(tencentFaceFusion.logoAdd),
-      timeoutMs: Number(tencentFaceFusion.timeoutMs || 0),
-      maxImageBytes: Number(tencentFaceFusion.maxImageBytes || 0)
     },
     video: {
       provider: normalizeAdminProviderInput(form.video.provider),
@@ -3702,23 +3430,6 @@ function adminConfigSavePayload(form, baseline) {
     }
   });
   return configPayload;
-}
-
-function formWithTencentFaceFusionSecrets(form, current) {
-  const source = form && typeof form === "object" ? form : {};
-  const currentConfig = current && typeof current === "object"
-    ? current
-    : {};
-  return Object.assign({}, source, {
-    tencentFaceFusion: Object.assign(
-      {},
-      source.tencentFaceFusion || emptyTencentFaceFusionForm(),
-      {
-        secretId: String(currentConfig.secretId || "").trim(),
-        secretKey: String(currentConfig.secretKey || "").trim()
-      }
-    )
-  });
 }
 
 function adminImageApiKeysAfterSave(form, baseline) {
@@ -3944,8 +3655,6 @@ function diagnosticLogCopyText(item = {}) {
 Page({
   data: {
     appVersion: config.appVersion,
-    onlineApiVersion: "",
-    onlineBuildMarker: "",
     loading: true,
     canRetry: false,
     saving: false,
@@ -3965,18 +3674,6 @@ Page({
     refreshingAll: false,
     isAdmin: false,
     form: emptyForm(),
-    providerLabelRows: buildAdminProviderLabelRows(emptyForm()),
-    providerLabelErrors: {},
-    providerFilterOptions: buildAdminProviderFilterState(emptyForm()).providerFilterOptions,
-    providerFilterValue: "all",
-    providerFilterIndex: 0,
-    providerFilterLabel: "全部服务商",
-    providerSectionVisibility: {
-      face: true,
-      analysis: true,
-      image: true,
-      video: true
-    },
     costFieldErrors: {},
     imageQualityOptions: buildAdminImageQualityOptions(
       emptyForm().costs,
@@ -4133,8 +3830,6 @@ Page({
     faceConfigSummary: emptyFaceConfigSummary(),
     analysisConfigSummary: emptyAnalysisConfigSummary(),
     tencentFaceFusionStatus: emptyTencentFaceFusionStatus(),
-    tencentFaceFusionFieldErrors: {},
-    tencentImageTab: "image",
     tencentTestTemplate: null,
     tencentTestFace: null,
     tencentTestLoading: false,
@@ -4591,8 +4286,6 @@ Page({
         loading: false,
         isAdmin: true,
         canRetry: false,
-        onlineApiVersion: String(status.buildVersion || "").trim(),
-        onlineBuildMarker: String(status.buildMarker || "").trim(),
         form,
         costFieldErrors: {},
         defaults: result.defaults || null,
@@ -4601,12 +4294,7 @@ Page({
         message: apiKeyResult.ok
           ? ""
           : "普通配置已读取，但完整 Key 读取失败，请刷新。"
-      }, buildQualityPickerState(form), buildAdminProviderManagementState(
-        form,
-        this.data.modelProbes,
-        this.data.providerFilterValue,
-        {}
-      ));
+      }, buildQualityPickerState(form));
       Object.assign(basePatch, this.buildAdminDerivedPatch(basePatch, moduleStates));
       this.setData(basePatch);
       diagnosticLog.info("admin", "config-loaded", "管理员配置读取完成", {
@@ -5352,15 +5040,9 @@ Page({
           costFieldErrors: {},
           defaults: result.defaults || null,
           effective: result.effective || null
-        }, buildQualityPickerState(form), buildAdminProviderManagementState(
-          form,
-          this.data.modelProbes,
-          this.data.providerFilterValue,
-          {}
-        ));
+        }, buildQualityPickerState(form));
         Object.assign(patch, this.buildAdminDerivedPatch(patch, this.data.moduleStates));
         this.setData(patch);
-        await this.loadTencentFaceFusionStatus(token);
         if (!apiKeyResult.ok) {
           diagnosticLog.warn(
             "admin",
@@ -5561,8 +5243,7 @@ Page({
 
   onInput(event) {
     const section = event.currentTarget.dataset.section;
-    const key = event.currentTarget.dataset.key
-      || event.currentTarget.dataset.fieldKey;
+    const key = event.currentTarget.dataset.key;
     if (!section || !key) return;
     const inputValue = event.detail.value;
     const value = (
@@ -5574,29 +5255,6 @@ Page({
     const patch = {
       [`form.${section}.${key}`]: value
     };
-    if (ADMIN_PROVIDER_FORM_SECTIONS.includes(section) && key === "provider") {
-      const nextForm = Object.assign({}, this.data.form, {
-        [section]: Object.assign({}, this.data.form[section], {
-          provider: value
-        })
-      });
-      Object.assign(patch, buildAdminProviderManagementState(
-        nextForm,
-        this.data.modelProbes,
-        this.data.providerFilterValue,
-        this.data.providerLabelErrors
-      ));
-      if (
-        ["face", "analysis", "image", "video"].includes(this.data.activeConfigSection)
-        && !patch.providerSectionVisibility[this.data.activeConfigSection]
-      ) {
-        patch.activeConfigSection = "";
-        patch.activeConfigTitle = "";
-      }
-    }
-    if (section === "tencentFaceFusion") {
-      patch[`tencentFaceFusionFieldErrors.${key}`] = "";
-    }
     if (section === "costs" && ADMIN_COST_KEYS.includes(key)) {
       patch[`costFieldErrors.${key}`] = validateAdminCostInput(value);
     }
@@ -5641,59 +5299,6 @@ Page({
     this.setData(patch);
   },
 
-  onProviderLabelInput(event) {
-    const providerId = String(
-      event && event.currentTarget && event.currentTarget.dataset.providerId || ""
-    ).trim();
-    if (!providerId || ADMIN_PROVIDER_DANGEROUS_KEYS.includes(providerId)) return;
-    const label = String(event && event.detail && event.detail.value || "");
-    const previousLabels = Object.assign({}, activeAdminProviderLabels);
-    const nextLabels = Object.assign(
-      {},
-      this.data.form && this.data.form.providerLabels || {},
-      { [providerId]: label }
-    );
-    const nextForm = relabelAdminProviderForm(
-      Object.assign({}, this.data.form, { providerLabels: nextLabels }),
-      nextLabels,
-      previousLabels
-    );
-    const providerLabelErrors = validateAdminProviderLabelRows(
-      buildAdminProviderLabelRows(nextForm)
-    );
-    const patch = Object.assign({
-      form: nextForm
-    }, buildQualityPickerState(nextForm), buildAdminProviderManagementState(
-      nextForm,
-      this.data.modelProbes,
-      this.data.providerFilterValue,
-      providerLabelErrors
-    ));
-    this.setData(patch);
-  },
-
-  onProviderFilterChange(event) {
-    const options = Array.isArray(this.data.providerFilterOptions)
-      ? this.data.providerFilterOptions
-      : [{ value: "all", label: "全部服务商" }];
-    const index = Math.max(0, Number(event && event.detail && event.detail.value) || 0);
-    const selected = options[index] && options[index].value || "all";
-    const patch = buildAdminProviderManagementState(
-      this.data.form,
-      this.data.modelProbes,
-      selected,
-      this.data.providerLabelErrors
-    );
-    if (
-      ["face", "analysis", "image", "video"].includes(this.data.activeConfigSection)
-      && !patch.providerSectionVisibility[this.data.activeConfigSection]
-    ) {
-      patch.activeConfigSection = "";
-      patch.activeConfigTitle = "";
-    }
-    this.setData(patch, () => this.persistMonitorLayout());
-  },
-
   async loadTencentFaceFusionStatus(token = this._adminLoadToken || 0) {
     if (!this.isCurrentAdminLoad(token) || !this.data.isAdmin) return;
     try {
@@ -5703,42 +5308,8 @@ Page({
         "腾讯人脸融合状态"
       );
       if (!this.isCurrentAdminLoad(token) || !this.data.isAdmin) return;
-      const currentForm = this.data.form.tencentFaceFusion
-        || emptyTencentFaceFusionForm();
-      const tencentForm = Object.assign({}, currentForm, {
-        secretId: String(result && result.secretId || currentForm.secretId || "").trim(),
-        secretKey: String(result && result.secretKey || currentForm.secretKey || "").trim(),
-        region: String(result && result.region || currentForm.region || "ap-guangzhou"),
-        endpoint: String(
-          result && result.endpoint
-            || currentForm.endpoint
-            || "https://facefusion.tencentcloudapi.com"
-        ),
-        apiVersion: String(result && result.apiVersion || currentForm.apiVersion || "2022-09-27"),
-        action: String(result && result.action || currentForm.action || "FuseFaceUltra"),
-        model: String(result && result.model || currentForm.model || "FuseFaceUltra"),
-        swapModelType: String(
-          result && result.swapModelType !== undefined
-            ? result.swapModelType
-            : currentForm.swapModelType || 4
-        ),
-        logoAdd: result && result.logoAdd !== undefined
-          ? Boolean(result.logoAdd)
-          : Boolean(currentForm.logoAdd),
-        timeoutMs: String(
-          result && result.timeoutMs !== undefined
-            ? result.timeoutMs
-            : currentForm.timeoutMs || 75000
-        ),
-        maxImageBytes: String(
-          result && result.maxImageBytes !== undefined
-            ? result.maxImageBytes
-            : currentForm.maxImageBytes || 5 * 1024 * 1024
-        )
-      });
       this.setData({
-        tencentFaceFusionStatus: formatTencentFaceFusionStatus(result),
-        "form.tencentFaceFusion": tencentForm
+        tencentFaceFusionStatus: mergeTencentFaceFusionStatus(result)
       });
     } catch (error) {
       diagnosticLog.warn("admin", "tencent-facefusion-status-failed", "腾讯人脸融合状态读取失败", {
@@ -5791,27 +5362,15 @@ Page({
       wx.showToast({ title: "请先选择模板图和参考脸", icon: "none" });
       return;
     }
-    const tencentConfig = tencentFaceFusionConfigFromForm(this.data.form);
-    const fieldErrors = validateTencentFaceFusionForm(this.data.form);
-    if (Object.keys(fieldErrors).length) {
-      this.setData({
-        tencentImageTab: "fusion",
-        tencentFaceFusionFieldErrors: fieldErrors,
-        message: "腾讯融合参数有误，请先修正标红字段。"
-      });
-      wx.showToast({ title: "请先修正腾讯参数", icon: "none" });
-      return;
-    }
-    if (!tencentConfig.secretId || !tencentConfig.secretKey) {
-      wx.showToast({ title: "请先填写腾讯 SecretId 和 SecretKey", icon: "none" });
+    if (!this.data.tencentFaceFusionStatus.configured) {
+      wx.showToast({ title: "腾讯配置还没完成", icon: "none" });
       return;
     }
     const requestId = `admin-tencent-test-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
     this.setData({
       tencentTestLoading: true,
       "tencentFaceFusionStatus.lastCallStatus": "processing",
-      "tencentFaceFusionStatus.lastErrorMessage": "",
-      "tencentFaceFusionStatus.lastErrorCode": ""
+      "tencentFaceFusionStatus.lastErrorMessage": ""
     });
     let templateFileID = "";
     let faceFileID = "";
@@ -5830,32 +5389,36 @@ Page({
       const result = await cloud.testTencentFaceFusion({
         templateFileID,
         faceFileID,
-        tencentFaceFusion: tencentConfig,
         requestId
       }, { requestId });
+      await this.loadTencentFaceFusionStatus(this._adminLoadToken || 0);
+      const successStatus = buildTencentFaceFusionLocalStatus(
+        result,
+        requestId,
+        "succeeded"
+      );
+      saveTencentFaceFusionLocalStatus(successStatus);
       this.setData({
-        tencentFaceFusionStatus: formatTencentFaceFusionStatus(
-          Object.assign({}, tencentConfig, {
-            configured: true,
-            lastCallStatus: "succeeded",
-            lastErrorCode: "",
-            lastErrorMessage: ""
-          })
+        tencentFaceFusionStatus: mergeTencentFaceFusionStatus(
+          this.data.tencentFaceFusionStatus
         )
       });
       wx.showToast({
-        title: "真实测试成功",
+        title: `真实测试成功 ${Number(result.durationMs) || 0}ms`,
         icon: "success"
       });
     } catch (error) {
+      await this.loadTencentFaceFusionStatus(this._adminLoadToken || 0);
+      const failureStatus = buildTencentFaceFusionLocalStatus(
+        error,
+        requestId,
+        "failed",
+        error && error.message
+      );
+      saveTencentFaceFusionLocalStatus(failureStatus);
       this.setData({
-        tencentFaceFusionStatus: formatTencentFaceFusionStatus(
-          Object.assign({}, tencentConfig, {
-            configured: true,
-            lastCallStatus: "failed",
-            lastErrorCode: String(error && (error.code || error.errCode) || ""),
-            lastErrorMessage: String(error && error.message || "腾讯真实测试失败")
-          })
+        tencentFaceFusionStatus: mergeTencentFaceFusionStatus(
+          this.data.tencentFaceFusionStatus
         )
       });
       this.showError("腾讯真实测试失败", error);
@@ -6019,32 +5582,6 @@ Page({
     });
   },
 
-  onImageBackupCompatibilityChange(event) {
-    this.setData({
-      "form.imageBackup.compatibilityMode": Array.isArray(event && event.detail && event.detail.value)
-        && event.detail.value.includes("enabled")
-    });
-  },
-
-  onTencentLogoAddChange(event) {
-    this.setData({
-      "form.tencentFaceFusion.logoAdd": Array.isArray(event && event.detail && event.detail.value)
-        && event.detail.value.includes("enabled"),
-      "tencentFaceFusionFieldErrors.logoAdd": ""
-    });
-  },
-
-  switchTencentImageTab(event) {
-    const tab = String(
-      event && event.currentTarget && event.currentTarget.dataset && event.currentTarget.dataset.tab
-      || ""
-    ).trim();
-    if (!["image", "fusion"].includes(tab)) return;
-    this.setData({
-      tencentImageTab: tab
-    });
-  },
-
   copyFaceConfigToAnalysis() {
     const face = this.data.form && this.data.form.face
       ? this.data.form.face
@@ -6062,23 +5599,15 @@ Page({
   },
 
   toggleConfigSection(event) {
-    const rawSection = event.currentTarget.dataset.section;
-    const section = rawSection === "tencentImage" ? "image" : rawSection;
+    const section = event.currentTarget.dataset.section;
     if (!CONFIG_SECTION_TITLES[section]) return;
-    const nextSection = section === "users"
-      ? section
-      : this.data.activeConfigSection === section
+    const nextSection = section === "tencentImage" && this.data.activeConfigSection === section
       ? ""
       : section;
-    const patch = {
+    this.setData({
       activeConfigSection: nextSection,
       activeConfigTitle: nextSection ? CONFIG_SECTION_TITLES[nextSection] : ""
-    };
-    if (section === "image") {
-      patch.tencentImageTab = rawSection === "tencentImage" ? "fusion" : "image";
-      patch.tencentFaceFusionFieldErrors = {};
-    }
-    this.setData(patch, () => {
+    }, () => {
       this.persistMonitorLayout();
       if (nextSection === "users" && this.data.userStats.unavailable) {
         this.refreshUserStats(true);
@@ -6093,13 +5622,10 @@ Page({
   },
 
   closeConfigSection() {
-    const patch = {
+    this.setData({
       activeConfigSection: "",
       activeConfigTitle: ""
-    };
-    patch.tencentImageTab = "image";
-    patch.tencentFaceFusionFieldErrors = {};
-    this.setData(patch, () => this.persistMonitorLayout());
+    }, () => this.persistMonitorLayout());
   },
 
   toggleMonitor() {
@@ -6176,20 +5702,9 @@ Page({
     const storedUsageSections = stored.usageSections || {};
     const storedAutoFaceFailureSections = stored.autoFaceFailureSections || {};
     const storedDeploymentSections = stored.deploymentSections || {};
-    const storedProviderFilterValue = String(
-      stored.providerFilterValue === undefined || stored.providerFilterValue === null
-        ? "all"
-        : stored.providerFilterValue
-    ).trim() || "all";
-    const storedActiveConfigSectionValue = typeof stored.activeConfigSection === "string"
+    const storedActiveConfigSection = typeof stored.activeConfigSection === "string"
+      && CONFIG_SECTION_TITLES[stored.activeConfigSection]
       ? stored.activeConfigSection
-      : "";
-    const legacyTencentImagePanel = storedActiveConfigSectionValue === "tencentImage";
-    const normalizedActiveConfigSection = legacyTencentImagePanel
-      ? "image"
-      : storedActiveConfigSectionValue;
-    const storedActiveConfigSection = CONFIG_SECTION_TITLES[normalizedActiveConfigSection]
-      ? normalizedActiveConfigSection
       : "";
     const usageExpanded = typeof stored.usageExpanded === "boolean"
       ? stored.usageExpanded
@@ -6232,13 +5747,7 @@ Page({
       activeConfigSection: storedActiveConfigSection,
       activeConfigTitle: storedActiveConfigSection
         ? CONFIG_SECTION_TITLES[storedActiveConfigSection]
-        : "",
-      providerFilterValue: storedProviderFilterValue,
-      tencentImageTab: legacyTencentImagePanel
-        ? "fusion"
-        : ["image", "fusion"].includes(stored.tencentImageTab)
-          ? stored.tencentImageTab
-          : "image"
+        : ""
     });
   },
 
@@ -6281,17 +5790,13 @@ Page({
         version: 6,
         monitorExpanded: Boolean(this.data.monitorExpanded),
         usageExpanded: Boolean(this.data.usageExpanded),
-      monitorSections: Object.assign({}, this.data.monitorSections),
-      usageSections: Object.assign({}, this.data.usageSections),
-      autoFaceFailureSections: Object.assign({}, this.data.autoFaceFailureSections),
-      deploymentSections: Object.assign({}, this.data.deploymentSections),
-      providerFilterValue: String(this.data.providerFilterValue || "all"),
-      tencentImageTab: ["image", "fusion"].includes(this.data.tencentImageTab)
-        ? this.data.tencentImageTab
-        : "image",
-      activeConfigSection: CONFIG_SECTION_TITLES[this.data.activeConfigSection]
-        ? this.data.activeConfigSection
-        : ""
+        monitorSections: Object.assign({}, this.data.monitorSections),
+        usageSections: Object.assign({}, this.data.usageSections),
+        autoFaceFailureSections: Object.assign({}, this.data.autoFaceFailureSections),
+        deploymentSections: Object.assign({}, this.data.deploymentSections),
+        activeConfigSection: CONFIG_SECTION_TITLES[this.data.activeConfigSection]
+          ? this.data.activeConfigSection
+          : ""
       });
     } catch (error) {
       // 本地缓存不可用时不影响管理页继续使用。
@@ -6393,31 +5898,6 @@ Page({
 
   async saveConfig() {
     if (this.data.saving) return;
-    const providerLabelRows = buildAdminProviderLabelRows(this.data.form);
-    const providerLabelErrors = validateAdminProviderLabelRows(providerLabelRows);
-    const invalidProviderIds = Object.keys(providerLabelErrors);
-    if (invalidProviderIds.length) {
-      const firstProviderId = invalidProviderIds[0];
-      const message = providerLabelErrors[firstProviderId];
-      this.setData({
-        providerLabelRows: buildAdminProviderLabelRows(this.data.form, providerLabelErrors),
-        providerLabelErrors,
-        activeConfigSection: "providers",
-        activeConfigTitle: CONFIG_SECTION_TITLES.providers,
-        message,
-        providerErrorCode: ADMIN_PROVIDER_LABEL_REQUIRED
-      }, () => {
-        if (typeof wx.pageScrollTo === "function") {
-          wx.pageScrollTo({ selector: "#config-editor", duration: 220 });
-        }
-      });
-      wx.showModal({
-        title: "服务商中文名称未填写",
-        content: message,
-        showCancel: false
-      });
-      return;
-    }
     const costFieldErrors = validateAdminCostFields(this.data.form.costs);
     const invalidCostKeys = Object.keys(costFieldErrors);
     if (invalidCostKeys.length) {
@@ -6435,25 +5915,6 @@ Page({
       });
       return;
     }
-    const tencentFaceFusionFieldErrors = validateTencentFaceFusionForm(this.data.form);
-    const invalidTencentFields = Object.keys(tencentFaceFusionFieldErrors);
-    if (invalidTencentFields.length) {
-      this.setData({
-        tencentFaceFusionFieldErrors,
-        activeConfigSection: "image",
-        activeConfigTitle: CONFIG_SECTION_TITLES.image,
-        tencentImageTab: "fusion",
-        message: "腾讯融合参数有误，请先修正标红字段。"
-      });
-      wx.showModal({
-        title: "腾讯融合参数有误",
-        content: tencentFaceFusionFieldErrors[invalidTencentFields[0]],
-        showCancel: false
-      });
-      return;
-    }
-    const tencentFaceFusionBeforeSave = this.data.form.tencentFaceFusion
-      || emptyTencentFaceFusionForm();
     this.setData({ saving: true, message: "" });
     try {
       const savedImageApiKeys = adminImageApiKeysAfterSave(
@@ -6467,27 +5928,18 @@ Page({
         )
       );
       const effective = result.effective || null;
-      const form = formWithTencentFaceFusionSecrets(
-        formWithAdminImageApiKeys(
-          formFromConfig(result),
-          savedImageApiKeys
-        ),
-        tencentFaceFusionBeforeSave
+      const form = formWithAdminImageApiKeys(
+        formFromConfig(result),
+        savedImageApiKeys
       );
       this._imageApiKeyBaseline = savedImageApiKeys;
       const patch = Object.assign({
         form,
         costFieldErrors: {},
-        tencentFaceFusionFieldErrors: {},
         effective,
         saving: false,
         message: `配置已保存，第 ${result.version || 0} 版；正在自动测试四套模型和生图三档清晰度...`
-      }, buildQualityPickerState(form), buildAdminProviderManagementState(
-        form,
-        this.data.modelProbes,
-        this.data.providerFilterValue,
-        {}
-      ));
+      }, buildQualityPickerState(form));
       Object.assign(patch, this.buildAdminDerivedPatch(patch, this.data.moduleStates));
       this.setData(patch);
       diagnosticLog.info("admin", "config-saved", "管理员配置保存完成", {
@@ -6899,12 +6351,7 @@ Page({
           : modelProbes.readyCount === modelProbes.total
             ? `模型接口探测完成：${modelProbes.readyCount}/${modelProbes.total} 套正常。${qualitySummary}`
             : `模型接口探测完成：${modelProbes.readyCount}/${modelProbes.total} 套正常，失败项请按下方修复建议处理。${qualitySummary}`
-      }, buildAdminProviderManagementState(
-        this.data.form,
-        modelProbes,
-        this.data.providerFilterValue,
-        this.data.providerLabelErrors
-      ), pickerPatch));
+      }, pickerPatch));
       wx.showToast({
         title: modelType && target
           ? `${target.typeLabel}${target.statusText}`
@@ -6920,18 +6367,13 @@ Page({
       const modelProbes = modelType && formatted.results.length
         ? mergeSingleModelProbe(this.data.modelProbes, formatted, modelType)
         : this.data.modelProbes;
-      this.setData(Object.assign({
+      this.setData({
         modelProbing: false,
         modelProbingType: "",
         modelProbes,
         monitorExpanded: true,
         message: `${typeLabel}接口探测失败，请查看结果说明。`
-      }, buildAdminProviderManagementState(
-        this.data.form,
-        modelProbes,
-        this.data.providerFilterValue,
-        this.data.providerLabelErrors
-      )));
+      });
       diagnosticLog.error(
         "admin",
         "model-probe-failed",

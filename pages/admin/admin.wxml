@@ -39,19 +39,9 @@
         <view class="status-console-dot"></view>
       </view>
       <view class="status-console-meta">
-        <text>小程序 v{{appVersion}}</text>
+        <text>v{{appVersion}}</text>
         <text>探针 {{dashboardStatus.probeDurationText}}</text>
         <text>今日 {{todayFailureText}}</text>
-      </view>
-      <view class="status-console-build">
-        <view class="status-console-build-row">
-          <text class="status-console-build-label">云端 API</text>
-          <text class="status-console-build-value">v{{onlineApiVersion || '未返回'}}</text>
-        </view>
-        <view class="status-console-build-row">
-          <text class="status-console-build-label">构建标记</text>
-          <text class="status-console-build-value status-console-build-marker" selectable="true">{{onlineBuildMarker || '未返回'}}</text>
-        </view>
       </view>
       <view class="status-console-actions">
         <view
@@ -451,24 +441,7 @@
           </view>
           <view class="config-editor-focus-help">下面的修改只作用于这一项</view>
         </view>
-        <view class="config-editor-body tencent-image-editor-body">
-          <view class="tencent-tabs" role="tablist" aria-label="生图模型配置页签">
-            <view
-              class="tencent-tab {{tencentImageTab === 'image' ? 'is-active' : ''}}"
-              bindtap="switchTencentImageTab"
-              data-tab="image"
-              role="tab"
-              aria-label="图片模型"
-            >图片模型</view>
-            <view
-              class="tencent-tab {{tencentImageTab === 'fusion' ? 'is-active' : ''}}"
-              bindtap="switchTencentImageTab"
-              data-tab="fusion"
-              role="tab"
-              aria-label="腾讯融合"
-            >腾讯融合</view>
-          </view>
-          <view wx:if="{{tencentImageTab === 'image'}}" class="tencent-image-tab-panel">
+        <view class="config-editor-body">
           <view class="config-helper">API Key 只在服务端保存，页面不会回显真实内容；输入框留空并保存，会继续使用原来的密钥。</view>
           <view class="config-model-actions">
             <view
@@ -694,39 +667,6 @@
             <view class="admin-field"><text>备用调用次数</text><input disabled type="number" value="1" /></view>
           </view>
           <view class="config-helper">固定顺序：{{form.image.provider || '主模型'}}第 1 次 → {{form.image.provider || '主模型'}}第 2 次 → {{form.imageBackup.provider || '备用模型'}}第 1 次。主模型和备用模型的模式、尺寸比例、清晰度、超时分别保存；普通版仍是一次请求同时改脸、衣服、背景和光影；腾讯版第一步一次改衣服、背景和光影，第二步腾讯换脸。</view>
-          </view>
-
-          <view wx:if="{{tencentImageTab === 'fusion'}}" class="tencent-fusion-tab-panel">
-            <view class="tencent-status-card">
-              <view class="tencent-status-head">
-                <view>
-                  <view class="tencent-status-title">腾讯融合参数</view>
-                  <view class="tencent-status-subtitle">所有字段可编辑；测试使用当前页面填写值，正式生成使用已保存值。</view>
-                </view>
-                <view class="config-state {{tencentFaceFusionStatus.configured && !tencentFaceFusionStatus.readFailed ? 'is-ready' : 'is-off'}}">{{tencentFaceFusionStatus.statusText}}</view>
-              </view>
-              <view class="admin-grid tencent-fusion-fields">
-                <view class="admin-field"><text>SecretId</text><input value="{{form.tencentFaceFusion.secretId}}" data-section="tencentFaceFusion" data-key="secretId" bindinput="onInput" /></view>
-                <view class="admin-field"><text>SecretKey</text><input value="{{form.tencentFaceFusion.secretKey}}" data-section="tencentFaceFusion" data-key="secretKey" bindinput="onInput" /></view>
-                <view class="admin-field"><text>Region</text><input class="{{tencentFaceFusionFieldErrors.region ? 'has-error' : ''}}" value="{{form.tencentFaceFusion.region}}" data-section="tencentFaceFusion" data-key="region" bindinput="onInput" /><view wx:if="{{tencentFaceFusionFieldErrors.region}}" class="admin-field-error">{{tencentFaceFusionFieldErrors.region}}</view></view>
-                <view class="admin-field admin-field-wide"><text>Endpoint（必须 HTTPS）</text><input class="{{tencentFaceFusionFieldErrors.endpoint ? 'has-error' : ''}}" value="{{form.tencentFaceFusion.endpoint}}" data-section="tencentFaceFusion" data-key="endpoint" bindinput="onInput" /><view wx:if="{{tencentFaceFusionFieldErrors.endpoint}}" class="admin-field-error">{{tencentFaceFusionFieldErrors.endpoint}}</view></view>
-                <view class="admin-field"><text>API Version</text><input class="{{tencentFaceFusionFieldErrors.apiVersion ? 'has-error' : ''}}" value="{{form.tencentFaceFusion.apiVersion}}" data-section="tencentFaceFusion" data-key="apiVersion" bindinput="onInput" /><view wx:if="{{tencentFaceFusionFieldErrors.apiVersion}}" class="admin-field-error">{{tencentFaceFusionFieldErrors.apiVersion}}</view></view>
-                <view class="admin-field"><text>Action</text><input class="{{tencentFaceFusionFieldErrors.action ? 'has-error' : ''}}" value="{{form.tencentFaceFusion.action}}" data-section="tencentFaceFusion" data-key="action" bindinput="onInput" /><view wx:if="{{tencentFaceFusionFieldErrors.action}}" class="admin-field-error">{{tencentFaceFusionFieldErrors.action}}</view></view>
-                <view class="admin-field"><text>模型</text><input class="{{tencentFaceFusionFieldErrors.model ? 'has-error' : ''}}" value="{{form.tencentFaceFusion.model}}" data-section="tencentFaceFusion" data-key="model" bindinput="onInput" /><view wx:if="{{tencentFaceFusionFieldErrors.model}}" class="admin-field-error">{{tencentFaceFusionFieldErrors.model}}</view></view>
-                <view class="admin-field"><text>SwapModelType（1～9）</text><input type="number" class="{{tencentFaceFusionFieldErrors.swapModelType ? 'has-error' : ''}}" value="{{form.tencentFaceFusion.swapModelType}}" data-section="tencentFaceFusion" data-key="swapModelType" bindinput="onInput" /><view wx:if="{{tencentFaceFusionFieldErrors.swapModelType}}" class="admin-field-error">{{tencentFaceFusionFieldErrors.swapModelType}}</view></view>
-                <view class="admin-field"><text>超时毫秒</text><input type="number" class="{{tencentFaceFusionFieldErrors.timeoutMs ? 'has-error' : ''}}" value="{{form.tencentFaceFusion.timeoutMs}}" data-section="tencentFaceFusion" data-key="timeoutMs" bindinput="onInput" /><view wx:if="{{tencentFaceFusionFieldErrors.timeoutMs}}" class="admin-field-error">{{tencentFaceFusionFieldErrors.timeoutMs}}</view></view>
-                <view class="admin-field"><text>最大图片字节数</text><input type="number" class="{{tencentFaceFusionFieldErrors.maxImageBytes ? 'has-error' : ''}}" value="{{form.tencentFaceFusion.maxImageBytes}}" data-section="tencentFaceFusion" data-key="maxImageBytes" bindinput="onInput" /><view wx:if="{{tencentFaceFusionFieldErrors.maxImageBytes}}" class="admin-field-error">{{tencentFaceFusionFieldErrors.maxImageBytes}}</view></view>
-              </view>
-              <label class="admin-checkbox-row tencent-logo-checkbox"><checkbox value="enabled" checked="{{form.tencentFaceFusion.logoAdd}}" bindchange="onTencentLogoAddChange" color="#6848bb"></checkbox><text>LogoAdd：{{form.tencentFaceFusion.logoAdd ? '开启' : '关闭'}}</text></label>
-              <view class="config-helper">当前配置状态：{{tencentFaceFusionStatus.configured ? '已配置' : '未配置'}}。密钥只在管理员页面内存中显示，不写入普通日志、本地缓存或审计明文。</view>
-              <view class="tencent-test-title">真实测试腾讯接口</view>
-              <view class="tencent-test-help">测试会使用当前页面填写的 SecretId、SecretKey 和其他参数，不扣小程序额度，也不会保存制作记录。</view>
-              <view class="tencent-test-result {{tencentFaceFusionStatus.lastCallStatus === 'failed' ? 'is-failed' : ''}}"><view class="tencent-test-result-row"><text>最近测试</text><text>{{tencentFaceFusionStatus.lastCallStatusText}}</text></view><view wx:if="{{tencentFaceFusionStatus.lastCallStatus === 'failed' && tencentFaceFusionStatus.lastErrorMessage}}" class="tencent-test-error">错误原因：{{tencentFaceFusionStatus.lastErrorMessage}}</view></view>
-              <view class="tencent-test-grid"><view class="tencent-test-upload" bindtap="chooseTencentTestImage" data-kind="template"><image wx:if="{{tencentTestTemplate}}" src="{{tencentTestTemplate.path}}" mode="aspectFill"></image><view wx:else class="tencent-test-empty">＋<text>模板图</text></view></view><view class="tencent-test-upload is-face" bindtap="chooseTencentTestImage" data-kind="face"><image wx:if="{{tencentTestFace}}" src="{{tencentTestFace.path}}" mode="aspectFill"></image><view wx:else class="tencent-test-empty">＋<text>参考脸</text></view></view></view>
-              <view class="tencent-test-button {{tencentTestLoading ? 'is-disabled' : ''}}" bindtap="runTencentRealTest" role="button" aria-label="真实测试腾讯接口">{{tencentTestLoading ? '正在真实调用腾讯接口…' : '真实测试腾讯接口'}}</view>
-            </view>
-          </view>
-
         </view>
         <view wx:if="{{activeConfigSection !== 'users'}}" class="admin-actions">
           <view
@@ -748,6 +688,105 @@
         </view>
       </view>
 
+      <view
+        class="current-config-row {{tencentFaceFusionStatus.readFailed ? 'is-abnormal' : ''}}"
+        data-section="tencentImage"
+        bindtap="toggleConfigSection"
+        hover-class="control-tap"
+        role="button"
+        aria-label="查看生图模型腾讯版配置"
+      >
+        <view class="current-config-main">
+          <view class="current-config-title">生图模型-腾讯版</view>
+          <view class="current-config-meta">
+            {{tencentFaceFusionStatus.model}} · {{tencentFaceFusionStatus.region}}
+          </view>
+        </view>
+        <view class="current-config-side">
+          <view class="config-state {{tencentFaceFusionStatus.configured && !tencentFaceFusionStatus.readFailed ? 'is-ready' : 'is-off'}}">
+            {{tencentFaceFusionStatus.statusText}}
+          </view>
+          <text class="current-config-arrow">›</text>
+        </view>
+      </view>
+      <view wx:if="{{activeConfigSection === 'tencentImage'}}" id="config-editor-tencentImage" class="card config-editor config-editor-inline">
+        <view class="config-editor-head">
+          <view>
+            <view class="config-editor-kicker">只读配置</view>
+            <view class="config-editor-title">{{activeConfigTitle}}</view>
+          </view>
+          <view class="config-close-button" bindtap="closeConfigSection" hover-class="control-tap" role="button" aria-label="收起配置">收起</view>
+        </view>
+        <view class="config-editor-focus-tip">
+          <view class="config-editor-focus-dot"></view>
+          <view class="config-editor-focus-copy">
+            <view class="config-editor-focus-label">当前正在查看</view>
+            <view class="config-editor-focus-name">{{activeConfigTitle}}</view>
+          </view>
+          <view class="config-editor-focus-help">参数来自云函数环境变量</view>
+        </view>
+        <view class="config-editor-body">
+          <view class="tencent-status-card">
+            <view class="tencent-status-head">
+              <view>
+                <view class="tencent-status-title">腾讯人脸融合专业版</view>
+                <view class="tencent-status-subtitle">“开始新创作-腾讯版”独立使用，不影响普通生图</view>
+              </view>
+              <view class="config-state {{tencentFaceFusionStatus.configured && !tencentFaceFusionStatus.readFailed ? 'is-ready' : 'is-off'}}">
+                {{tencentFaceFusionStatus.statusText}}
+              </view>
+            </view>
+            <view class="tencent-status-grid">
+              <view class="is-wide"><text>SecretId</text><text class="tencent-readonly-value" user-select="true">{{tencentFaceFusionStatus.secretId}}</text></view>
+              <view class="is-wide"><text>SecretKey</text><text class="tencent-readonly-value" user-select="true">{{tencentFaceFusionStatus.secretKey}}</text></view>
+              <view><text>Region</text><text>{{tencentFaceFusionStatus.region}}</text></view>
+              <view class="is-wide"><text>Endpoint</text><text class="tencent-readonly-value">{{tencentFaceFusionStatus.endpoint}}</text></view>
+              <view><text>API Version</text><text>{{tencentFaceFusionStatus.apiVersion}}</text></view>
+              <view><text>Action</text><text>{{tencentFaceFusionStatus.action}}</text></view>
+              <view><text>模型</text><text>{{tencentFaceFusionStatus.model}}</text></view>
+              <view><text>SwapModelType</text><text>{{tencentFaceFusionStatus.swapModelType}}</text></view>
+              <view><text>LogoAdd</text><text>{{tencentFaceFusionStatus.logoAddText}}</text></view>
+              <view><text>Timeout</text><text>{{tencentFaceFusionStatus.timeoutText}}</text></view>
+              <view class="is-wide"><text>最大图片字节数</text><text>{{tencentFaceFusionStatus.maxImageBytesText}}</text></view>
+              <view><text>最近调用状态</text><text>{{tencentFaceFusionStatus.lastCallStatusText}}</text></view>
+              <view><text>最近阶段</text><text>{{tencentFaceFusionStatus.lastCallStageText}}</text></view>
+              <view><text>最近耗时</text><text>{{tencentFaceFusionStatus.lastDurationText}}</text></view>
+              <view><text>最近时间</text><text>{{tencentFaceFusionStatus.lastCalledAt || '暂无调用'}}</text></view>
+              <view class="is-wide"><text>最近请求编号</text><text class="tencent-readonly-value">{{tencentFaceFusionStatus.lastRequestId || '暂无'}}</text></view>
+              <view class="is-wide"><text>最近错误</text><text class="tencent-readonly-value">{{tencentFaceFusionStatus.lastErrorCode || '无'}}{{tencentFaceFusionStatus.lastErrorMessage ? ' · ' + tencentFaceFusionStatus.lastErrorMessage : ''}}</text></view>
+            </view>
+            <view class="tencent-status-help">
+              这里只允许查看。SecretId、SecretKey 和其他参数仍在云函数环境变量中修改，不会写入日志、数据库或测试状态缓存。
+            </view>
+            <view class="tencent-test-title">真实测试腾讯接口</view>
+            <view class="tencent-test-help">会真实调用 FuseFaceUltra，不调用 GPT Image 2、不扣小程序额度，也不会保存制作记录。</view>
+            <view class="tencent-test-grid">
+              <view
+                class="tencent-test-upload"
+                bindtap="chooseTencentTestImage"
+                data-kind="template"
+              >
+                <image wx:if="{{tencentTestTemplate}}" src="{{tencentTestTemplate.path}}" mode="aspectFill"></image>
+                <view wx:else class="tencent-test-empty">＋<text>模板图</text></view>
+              </view>
+              <view
+                class="tencent-test-upload is-face"
+                bindtap="chooseTencentTestImage"
+                data-kind="face"
+              >
+                <image wx:if="{{tencentTestFace}}" src="{{tencentTestFace.path}}" mode="aspectFill"></image>
+                <view wx:else class="tencent-test-empty">＋<text>参考脸</text></view>
+              </view>
+            </view>
+            <view
+              class="tencent-test-button {{tencentTestLoading ? 'is-disabled' : ''}}"
+              bindtap="runTencentRealTest"
+              role="button"
+              aria-label="真实测试腾讯接口"
+            >{{tencentTestLoading ? '正在真实调用腾讯接口…' : '真实测试腾讯接口'}}</view>
+          </view>
+        </view>
+      </view>
 
       <view
         wx:if="{{providerSectionVisibility.video}}"

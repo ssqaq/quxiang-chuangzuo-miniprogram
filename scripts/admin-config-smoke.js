@@ -270,8 +270,6 @@ api.main({
 }, { OPENID: "admin-openid-001" }).then((result) => {
   assert.strictEqual(result.ok, true);
   assert.strictEqual(result.isAdmin, true);
-  assert.ok(result.buildVersion);
-  assert.ok(result.buildMarker);
   assert.strictEqual(result.identityHash, test.usageUserHash("admin-openid-001"));
   return api.main({
     action: "getAdminConfig",

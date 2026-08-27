@@ -3,11 +3,18 @@ const composite = require("./image-composite");
 const acceptance = require("./pixel-acceptance");
 
 const PIXEL_PROTECTION_VERSION = 1;
+const MAX_GENERATED_ANISOTROPY = 0.003;
+const MIN_GENERATED_SCALE = 0.75;
+const MAX_GENERATED_SCALE = 1.5;
+const MAX_GENERATED_EDGE = codec.DEFAULT_MAX_EDGE;
 
-function flowError(message, code) {
+function flowError(message, code, details) {
   const error = new Error(message);
   error.code = code;
   error.retryable = false;
+  if (details && typeof details === "object") {
+    error.pixelProtectionDetails = details;
+  }
   return error;
 }
 
@@ -173,26 +180,75 @@ function normalizeGeneratedDimensions(baselineImage, generatedImage, options = {
   const targetWidth = Number(baselineImage.width);
   const targetHeight = Number(baselineImage.height);
   const resized = sourceWidth !== targetWidth || sourceHeight !== targetHeight;
-  const image = resized
-    ? codec.resizeDecodedImage(generatedImage, targetWidth, targetHeight, {
+  const scaleW = sourceWidth / targetWidth;
+  const scaleH = sourceHeight / targetHeight;
+  const aspectLeft = sourceWidth * targetHeight;
+  const aspectRight = sourceHeight * targetWidth;
+  const aspectDelta = Math.abs(aspectLeft - aspectRight);
+  const aspectMaximum = Math.max(aspectLeft, aspectRight);
+  const anisotropy = aspectDelta / aspectMaximum;
+  const anisotropyExceeded = (
+    aspectDelta * 1000
+    > aspectMaximum * (MAX_GENERATED_ANISOTROPY * 1000)
+  );
+  const metadata = {
+    resized,
+    strategy: resized ? "isotropic-bilinear-to-baseline" : "none",
+    sourceWidth,
+    sourceHeight,
+    targetWidth,
+    targetHeight,
+    scaleW,
+    scaleH,
+    anisotropy,
+    anisotropyThreshold: MAX_GENERATED_ANISOTROPY,
+    minScale: MIN_GENERATED_SCALE,
+    maxScale: MAX_GENERATED_SCALE,
+    maxEdge: MAX_GENERATED_EDGE
+  };
+  if (resized && (
+    scaleW < MIN_GENERATED_SCALE
+    || scaleW > MAX_GENERATED_SCALE
+    || scaleH < MIN_GENERATED_SCALE
+    || scaleH > MAX_GENERATED_SCALE
+  )) {
+    throw flowError(
+      "图片模型结果缩放比例超出安全范围，已停止处理。",
+      "PIXEL_IMAGE_SCALE_OUT_OF_RANGE",
+      metadata
+    );
+  }
+  if (resized && anisotropyExceeded) {
+    throw flowError(
+      "图片模型结果宽高比偏差超过安全范围，已停止处理。",
+      "PIXEL_IMAGE_ASPECT_MISMATCH",
+      metadata
+    );
+  }
+  let image = generatedImage;
+  if (resized) {
+    try {
+      image = codec.resizeDecodedImage(generatedImage, targetWidth, targetHeight, {
         label: String(options.label || "图片模型结果"),
-        maxPixels: options.maxPixels
-      })
-    : generatedImage;
+        maxPixels: options.maxPixels,
+        maxEdge: MAX_GENERATED_EDGE
+      });
+    } catch (error) {
+      if (error && error.code) throw error;
+      throw flowError(
+        "图片模型结果缩放失败，已停止处理。",
+        "PIXEL_IMAGE_RESIZE_FAILED",
+        metadata
+      );
+    }
+  }
   codec.assertSameDimensions(baselineImage, image, {
     leftLabel: String(options.baselineLabel || "基准图"),
     rightLabel: String(options.label || "图片模型结果")
   });
   return {
     image,
-    metadata: {
-      resized,
-      strategy: resized ? "stretch-to-baseline" : "none",
-      sourceWidth,
-      sourceHeight,
-      targetWidth,
-      targetHeight
-    }
+    metadata
   };
 }
 
@@ -411,6 +467,10 @@ function restoreTencentProtectionState(operation, image) {
 
 module.exports = {
   PIXEL_PROTECTION_VERSION,
+  MAX_GENERATED_ANISOTROPY,
+  MIN_GENERATED_SCALE,
+  MAX_GENERATED_SCALE,
+  MAX_GENERATED_EDGE,
   normalizedProvider,
   assertSupportedImageEditFlow,
   assertLingyunImageEditFlow,

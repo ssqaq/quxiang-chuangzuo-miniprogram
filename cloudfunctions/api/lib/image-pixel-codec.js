@@ -3,6 +3,7 @@ const { PNG } = require("pngjs");
 
 const DEFAULT_MAX_INPUT_BYTES = 20 * 1024 * 1024;
 const DEFAULT_MAX_PIXELS = 4 * 1024 * 1024;
+const DEFAULT_MAX_EDGE = 8192;
 
 function imagePixelError(message, code) {
   const error = new Error(message);
@@ -161,6 +162,7 @@ function assertDecodedImage(image, options = {}) {
   const height = Number(image && image.height);
   const pixels = width * height;
   const maxPixels = Math.max(1, Number(options.maxPixels) || DEFAULT_MAX_PIXELS);
+  const maxEdge = Math.max(1, Number(options.maxEdge) || DEFAULT_MAX_EDGE);
   if (
     !Number.isInteger(width)
     || !Number.isInteger(height)
@@ -174,6 +176,12 @@ function assertDecodedImage(image, options = {}) {
     throw imagePixelError(
       `${label}像素过大，最多支持 ${maxPixels} 像素。`,
       "PIXEL_IMAGE_TOO_LARGE"
+    );
+  }
+  if (width > maxEdge || height > maxEdge) {
+    throw imagePixelError(
+      `${label}单边过长，最多支持 ${maxEdge} 像素。`,
+      "PIXEL_IMAGE_EDGE_TOO_LARGE"
     );
   }
   if (!image.data || image.data.length !== pixels * 4) {
@@ -280,6 +288,7 @@ function resizeDecodedImage(image, targetWidth, targetHeight, options = {}) {
   const height = Number(targetHeight);
   const pixels = width * height;
   const maxPixels = Math.max(1, Number(options.maxPixels) || DEFAULT_MAX_PIXELS);
+  const maxEdge = Math.max(1, Number(options.maxEdge) || DEFAULT_MAX_EDGE);
   if (
     !Number.isInteger(width)
     || !Number.isInteger(height)
@@ -290,6 +299,12 @@ function resizeDecodedImage(image, targetWidth, targetHeight, options = {}) {
     throw imagePixelError(
       `${label}目标尺寸无效。`,
       "PIXEL_IMAGE_RESIZE_TARGET_INVALID"
+    );
+  }
+  if (width > maxEdge || height > maxEdge) {
+    throw imagePixelError(
+      `${label}目标单边过长，最多支持 ${maxEdge} 像素。`,
+      "PIXEL_IMAGE_EDGE_TOO_LARGE"
     );
   }
   if (pixels > maxPixels) {
@@ -308,37 +323,45 @@ function resizeDecodedImage(image, targetWidth, targetHeight, options = {}) {
     });
   }
 
-  const output = Buffer.allocUnsafe(pixels * 4);
-  for (let y = 0; y < height; y += 1) {
-    const sourceY = height === 1
-      ? 0
-      : (y / (height - 1)) * (source.height - 1);
-    const y0 = Math.floor(sourceY);
-    const y1 = Math.min(source.height - 1, y0 + 1);
-    const yWeight = sourceY - y0;
-    for (let x = 0; x < width; x += 1) {
-      const sourceX = width === 1
+  let output;
+  try {
+    output = Buffer.allocUnsafe(pixels * 4);
+    for (let y = 0; y < height; y += 1) {
+      const sourceY = height === 1
         ? 0
-        : (x / (width - 1)) * (source.width - 1);
-      const x0 = Math.floor(sourceX);
-      const x1 = Math.min(source.width - 1, x0 + 1);
-      const xWeight = sourceX - x0;
-      const targetIndex = (y * width + x) * 4;
-      const i00 = (y0 * source.width + x0) * 4;
-      const i10 = (y0 * source.width + x1) * 4;
-      const i01 = (y1 * source.width + x0) * 4;
-      const i11 = (y1 * source.width + x1) * 4;
-      for (let channel = 0; channel < 4; channel += 1) {
-        const top = source.data[i00 + channel] * (1 - xWeight)
-          + source.data[i10 + channel] * xWeight;
-        const bottom = source.data[i01 + channel] * (1 - xWeight)
-          + source.data[i11 + channel] * xWeight;
-        output[targetIndex + channel] = Math.max(
-          0,
-          Math.min(255, Math.round(top * (1 - yWeight) + bottom * yWeight))
-        );
+        : (y / (height - 1)) * (source.height - 1);
+      const y0 = Math.floor(sourceY);
+      const y1 = Math.min(source.height - 1, y0 + 1);
+      const yWeight = sourceY - y0;
+      for (let x = 0; x < width; x += 1) {
+        const sourceX = width === 1
+          ? 0
+          : (x / (width - 1)) * (source.width - 1);
+        const x0 = Math.floor(sourceX);
+        const x1 = Math.min(source.width - 1, x0 + 1);
+        const xWeight = sourceX - x0;
+        const targetIndex = (y * width + x) * 4;
+        const i00 = (y0 * source.width + x0) * 4;
+        const i10 = (y0 * source.width + x1) * 4;
+        const i01 = (y1 * source.width + x0) * 4;
+        const i11 = (y1 * source.width + x1) * 4;
+        for (let channel = 0; channel < 4; channel += 1) {
+          const top = source.data[i00 + channel] * (1 - xWeight)
+            + source.data[i10 + channel] * xWeight;
+          const bottom = source.data[i01 + channel] * (1 - xWeight)
+            + source.data[i11 + channel] * xWeight;
+          output[targetIndex + channel] = Math.max(
+            0,
+            Math.min(255, Math.round(top * (1 - yWeight) + bottom * yWeight))
+          );
+        }
       }
     }
+  } catch (error) {
+    throw imagePixelError(
+      `${label}缩放失败：${error && error.message ? error.message : "无法创建缩放结果"}`,
+      "PIXEL_IMAGE_RESIZE_FAILED"
+    );
   }
   return assertDecodedImage(Object.assign({}, source, {
     data: output,
@@ -432,6 +455,7 @@ function encodePngRoundTrip(image, options = {}) {
 module.exports = {
   DEFAULT_MAX_INPUT_BYTES,
   DEFAULT_MAX_PIXELS,
+  DEFAULT_MAX_EDGE,
   imagePixelError,
   detectImageFormat,
   readJpegOrientation,

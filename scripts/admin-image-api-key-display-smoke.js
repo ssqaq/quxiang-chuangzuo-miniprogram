@@ -282,6 +282,21 @@ async function verifyAdminPage() {
   assert.strictEqual(page.data.form.image.apiKey, "");
   assert.strictEqual(page.data.form.imageBackup.apiKey, "");
   assert.ok(page.data.message.includes("完整 Key 读取失败"));
+
+  keyReadFailure = false;
+  page.setData({
+    "form.imageBackup.mode": "edits",
+    "form.imageBackup.size": "1242x1660",
+    "form.imageBackup.resolution": "4K",
+    "form.imageBackup.timeoutMs": "60000"
+  });
+  await page.saveConfig();
+  assert.strictEqual(savePayloads[3].imageBackup.mode, "edits");
+  assert.strictEqual(savePayloads[3].imageBackup.size, "1242x1660");
+  assert.strictEqual(savePayloads[3].imageBackup.resolution, "4K");
+  assert.strictEqual(savePayloads[3].imageBackup.timeoutMs, 60000);
+  assert.strictEqual(savePayloads[3].image.size, "1080x1440");
+  assert.strictEqual(savePayloads[3].image.resolution, "1K");
 }
 
 function verifyMarkupAndStaticBoundaries() {

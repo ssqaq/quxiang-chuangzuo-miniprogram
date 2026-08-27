@@ -7,6 +7,9 @@ const http = require("http");
 
 process.env.WECHAT_MINIAPP_TEST = "1";
 process.env.AI_IMAGE_RETRY_ENABLED = "false";
+process.env.ADMIN_OPENIDS = "tencent-admin-smoke";
+process.env.TENCENT_FACEFUSION_SECRET_ID = "smoke-admin-secret-id";
+process.env.TENCENT_FACEFUSION_SECRET_KEY = "smoke-admin-secret-key";
 
 const root = path.resolve(__dirname, "..");
 const appJson = JSON.parse(fs.readFileSync(path.join(root, "app.json"), "utf8"));
@@ -97,6 +100,61 @@ function withServer(handler, callback) {
 }
 
 async function main() {
+  const denied = await api.main({
+    action: "getTencentFaceFusionAdminStatus",
+    requestId: "tencent-admin-status-denied"
+  }, { OPENID: "ordinary-user" });
+  assert.strictEqual(denied.ok, false);
+  assert.strictEqual(denied.errorCode, "ADMIN_FORBIDDEN");
+  assert.strictEqual(Object.prototype.hasOwnProperty.call(denied, "secretId"), false);
+  assert.strictEqual(Object.prototype.hasOwnProperty.call(denied, "secretKey"), false);
+
+  const fakeStatusDb = {
+    collection() {
+      return {
+        doc() {
+          return {
+            async get() {
+              return {
+                data: {
+                  status: "succeeded",
+                  stage: "succeeded",
+                  requestId: "latest-tencent-call",
+                  durationMs: 1234,
+                  calledAt: new Date("2026-08-27T04:30:00.000Z")
+                }
+              };
+            }
+          };
+        }
+      };
+    }
+  };
+  const allowed = await test.getTencentFaceFusionAdminStatus(
+    { OPENID: "tencent-admin-smoke" },
+    { db: fakeStatusDb }
+  );
+  assert.strictEqual(allowed.ok, true);
+  assert.strictEqual(allowed.secretId, "smoke-admin-secret-id");
+  assert.strictEqual(allowed.secretKey, "smoke-admin-secret-key");
+  assert.strictEqual(allowed.region, "ap-guangzhou");
+  assert.strictEqual(allowed.endpoint, "https://facefusion.tencentcloudapi.com");
+  assert.strictEqual(allowed.apiVersion, "2022-09-27");
+  assert.strictEqual(allowed.action, "FuseFaceUltra");
+  assert.strictEqual(allowed.model, "FuseFaceUltra");
+  assert.strictEqual(allowed.swapModelType, 4);
+  assert.strictEqual(allowed.logoAdd, false);
+  assert.strictEqual(allowed.timeoutMs, 75000);
+  assert.strictEqual(allowed.maxImageBytes, 5 * 1024 * 1024);
+  assert.strictEqual(allowed.lastCallStatus, "succeeded");
+  assert.strictEqual(allowed.lastRequestId, "latest-tencent-call");
+  const finishLogStart = apiJs.indexOf('log("info", "function.finish"');
+  const finishLogEnd = apiJs.indexOf("return Object.assign({ requestId }", finishLogStart);
+  const finishLogBody = apiJs.slice(finishLogStart, finishLogEnd);
+  assert.ok(finishLogStart >= 0 && finishLogEnd > finishLogStart);
+  assert.ok(!finishLogBody.includes("secretId"), "SecretId 不能进入云函数完成日志");
+  assert.ok(!finishLogBody.includes("secretKey"), "SecretKey 不能进入云函数完成日志");
+
   let requestBody = "";
   let requestHeaders = null;
   await withServer((request, response) => {

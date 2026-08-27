@@ -73,6 +73,16 @@ page {
   font-weight: 700;
 }
 
+.tencent-status-grid .is-wide {
+  grid-column: 1 / -1;
+}
+
+.tencent-status-grid .tencent-readonly-value {
+  overflow: visible;
+  word-break: break-all;
+  white-space: normal;
+}
+
 .tencent-status-error {
   color: #b75560;
 }

@@ -5,10 +5,19 @@ const Module = require("module");
 
 let pageDefinition = null;
 const storage = {};
+let tencentStatusResult = {};
+let tencentStatusError = null;
 
 const originalLoad = Module._load;
 Module._load = function patchedLoad(request, parent, isMain) {
-  if (request === "../../services/cloud") return {};
+  if (request === "../../services/cloud") {
+    return {
+      async getTencentFaceFusionAdminStatus() {
+        if (tencentStatusError) throw tencentStatusError;
+        return tencentStatusResult;
+      }
+    };
+  }
   if (request === "../../utils/diagnostic-log") {
     return { info() {}, warn() {}, error() {} };
   }
@@ -182,6 +191,25 @@ assert.ok(
   "视频价格提示必须与成本输入同步"
 );
 firstPage.toggleConfigSection({
+  currentTarget: { dataset: { section: "tencentImage" } }
+});
+assert.strictEqual(firstPage.data.activeConfigSection, "tencentImage");
+assert.strictEqual(firstPage.data.activeConfigTitle, "生图模型-腾讯版");
+firstPage.toggleConfigSection({
+  currentTarget: { dataset: { section: "tencentImage" } }
+});
+assert.strictEqual(firstPage.data.activeConfigSection, "", "腾讯版再次点击必须收起");
+firstPage.toggleConfigSection({
+  currentTarget: { dataset: { section: "tencentImage" } }
+});
+const restoredTencentPage = createPageInstance();
+restoredTencentPage.restoreMonitorLayout();
+assert.strictEqual(
+  restoredTencentPage.data.activeConfigSection,
+  "tencentImage",
+  "腾讯版展开状态必须能恢复"
+);
+firstPage.toggleConfigSection({
   currentTarget: { dataset: { section: "users" } }
 });
 firstPage.toggleMonitor();
@@ -207,4 +235,61 @@ assert.strictEqual(secondPage.data.usageSections.failure, true);
 assert.strictEqual(secondPage.data.deploymentSections.logs, true);
 assert.strictEqual(secondPage.data.monitorSections.diagnosticLogs, true);
 
-console.log("admin layout state smoke: OK (展开/收起状态可恢复)");
+async function verifyTencentAdminStatusDisplay() {
+  const configuredPage = createPageInstance();
+  configuredPage._adminLoadToken = 1;
+  configuredPage.data.isAdmin = true;
+  tencentStatusResult = {
+    configured: true,
+    secretId: "visible-secret-id",
+    secretKey: "visible-secret-key",
+    region: "ap-guangzhou",
+    endpoint: "https://facefusion.tencentcloudapi.com",
+    apiVersion: "2022-09-27",
+    action: "FuseFaceUltra",
+    model: "FuseFaceUltra",
+    swapModelType: 4,
+    logoAdd: false,
+    timeoutMs: 75000,
+    maxImageBytes: 5 * 1024 * 1024,
+    lastCallStatus: "succeeded",
+    lastCallStage: "succeeded",
+    lastDurationMs: 1234,
+    lastCalledAt: "2026-08-27T04:30:00.000Z"
+  };
+  await configuredPage.loadTencentFaceFusionStatus(1);
+  assert.strictEqual(configuredPage.data.tencentFaceFusionStatus.statusText, "正常");
+  assert.strictEqual(configuredPage.data.tencentFaceFusionStatus.secretId, "visible-secret-id");
+  assert.strictEqual(configuredPage.data.tencentFaceFusionStatus.secretKey, "visible-secret-key");
+  assert.strictEqual(configuredPage.data.tencentFaceFusionStatus.lastCallStatusText, "调用成功");
+  assert.strictEqual(configuredPage.data.tencentFaceFusionStatus.lastCalledAt, "2026-08-27 12:30");
+
+  const unconfiguredPage = createPageInstance();
+  unconfiguredPage._adminLoadToken = 2;
+  unconfiguredPage.data.isAdmin = true;
+  tencentStatusResult = {
+    configured: false,
+    region: "ap-guangzhou",
+    model: "FuseFaceUltra"
+  };
+  await unconfiguredPage.loadTencentFaceFusionStatus(2);
+  assert.strictEqual(unconfiguredPage.data.tencentFaceFusionStatus.statusText, "未就绪");
+  assert.strictEqual(unconfiguredPage.data.tencentFaceFusionStatus.secretId, "未配置");
+  assert.strictEqual(unconfiguredPage.data.tencentFaceFusionStatus.secretKey, "未配置");
+
+  const failedPage = createPageInstance();
+  failedPage._adminLoadToken = 3;
+  failedPage.data.isAdmin = true;
+  tencentStatusError = new Error("status unavailable");
+  await failedPage.loadTencentFaceFusionStatus(3);
+  tencentStatusError = null;
+  assert.strictEqual(failedPage.data.tencentFaceFusionStatus.statusText, "读取失败");
+  assert.strictEqual(failedPage.data.tencentFaceFusionStatus.readFailed, true);
+
+  console.log("admin layout state smoke: OK (展开/收起状态可恢复；腾讯参数状态可显示)");
+}
+
+verifyTencentAdminStatusDisplay().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

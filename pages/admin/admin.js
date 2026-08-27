@@ -684,6 +684,7 @@ const CONFIG_SECTION_TITLES = Object.freeze({
   face: "人脸识别模型",
   analysis: "图片分析模型",
   image: "生图模型",
+  tencentImage: "生图模型-腾讯版",
   video: "视频模型",
   points: "签到与积分规则",
   costs: "模型成本配置",
@@ -693,6 +694,7 @@ const MODEL_CONFIG_SECTIONS = Object.freeze([
   "face",
   "analysis",
   "image",
+  "tencentImage",
   "video"
 ]);
 
@@ -1717,16 +1719,31 @@ function modelProbeRepairAdvice(status, httpStatus) {
 function emptyTencentFaceFusionStatus() {
   return {
     configured: false,
-    region: "未配置",
+    readFailed: false,
+    statusText: "未就绪",
+    secretId: "未配置",
+    secretKey: "未配置",
+    region: "ap-guangzhou",
+    endpoint: "https://facefusion.tencentcloudapi.com",
     model: "FuseFaceUltra",
     apiVersion: "2022-09-27",
+    action: "FuseFaceUltra",
     swapModelType: 4,
+    logoAdd: false,
+    logoAddText: "关闭",
+    timeoutMs: 75000,
+    timeoutText: "75000 ms",
+    maxImageBytes: 5 * 1024 * 1024,
+    maxImageBytesText: "5 MB",
     lastCallStatus: "not-called",
+    lastCallStatusText: "尚未调用",
     lastCallStage: "",
+    lastCallStageText: "暂无",
     lastErrorCode: "",
     lastErrorMessage: "",
     lastRequestId: "",
     lastDurationMs: 0,
+    lastDurationText: "暂无",
     lastTestType: "",
     lastCalledAt: "",
     lastCallTimestamp: 0,
@@ -1734,26 +1751,87 @@ function emptyTencentFaceFusionStatus() {
   };
 }
 
+function tencentFaceFusionCallStatusText(value) {
+  const status = String(value || "not-called").trim().toLowerCase();
+  const labels = {
+    "not-called": "尚未调用",
+    processing: "调用中",
+    succeeded: "调用成功",
+    failed: "调用失败",
+    unavailable: "读取失败",
+    refunded: "失败并已退回额度"
+  };
+  return labels[status] || status || "尚未调用";
+}
+
+function tencentFaceFusionStageText(value) {
+  const stage = String(value || "").trim().toLowerCase();
+  const labels = {
+    facefusion: "腾讯人脸融合",
+    succeeded: "已完成",
+    failed: "调用失败",
+    processing: "处理中"
+  };
+  return labels[stage] || stage || "暂无";
+}
+
+function formatTencentImageBytes(value) {
+  const bytes = Math.max(0, Number(value) || 0);
+  if (!bytes) return "未配置";
+  const megabytes = bytes / 1024 / 1024;
+  const display = Number.isInteger(megabytes)
+    ? String(megabytes)
+    : megabytes.toFixed(2).replace(/\.00$/, "").replace(/0$/, "");
+  return `${bytes} 字节（${display} MB）`;
+}
+
+function formatTencentAdminDate(value, fallback = "") {
+  const text = String(value || "").trim();
+  if (!text) return fallback;
+  if (/^\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}$/.test(text)) return text;
+  return formatAdminDate(value);
+}
+
 function formatTencentFaceFusionStatus(result) {
   const source = result && typeof result === "object" ? result : {};
+  const configured = Boolean(source.configured);
+  const readFailed = Boolean(source.readFailed);
+  const timeoutMs = Math.max(0, Number(source.timeoutMs) || 0);
+  const maxImageBytes = Math.max(0, Number(source.maxImageBytes) || 0);
+  const lastDurationMs = Math.max(0, Number(source.lastDurationMs) || 0);
   return Object.assign(emptyTencentFaceFusionStatus(), {
-    configured: Boolean(source.configured),
-    region: String(source.region || "未配置"),
+    configured,
+    readFailed,
+    statusText: readFailed ? "读取失败" : configured ? "正常" : "未就绪",
+    secretId: String(source.secretId || "未配置"),
+    secretKey: String(source.secretKey || "未配置"),
+    region: String(source.region || "ap-guangzhou"),
+    endpoint: String(source.endpoint || "https://facefusion.tencentcloudapi.com"),
     model: String(source.model || "FuseFaceUltra"),
     apiVersion: String(source.apiVersion || "2022-09-27"),
+    action: String(source.action || "FuseFaceUltra"),
     swapModelType: Number(source.swapModelType) || 4,
+    logoAdd: Boolean(source.logoAdd),
+    logoAddText: source.logoAdd ? "开启" : "关闭",
+    timeoutMs,
+    timeoutText: timeoutMs ? `${timeoutMs} ms` : "未配置",
+    maxImageBytes,
+    maxImageBytesText: formatTencentImageBytes(maxImageBytes),
     lastCallStatus: String(source.lastCallStatus || "not-called"),
+    lastCallStatusText: tencentFaceFusionCallStatusText(source.lastCallStatus),
     lastCallStage: String(source.lastCallStage || ""),
+    lastCallStageText: tencentFaceFusionStageText(source.lastCallStage),
     lastErrorCode: String(source.lastErrorCode || ""),
     lastErrorMessage: String(source.lastErrorMessage || ""),
     lastRequestId: String(source.lastRequestId || ""),
-    lastDurationMs: Number(source.lastDurationMs) || 0,
+    lastDurationMs,
+    lastDurationText: lastDurationMs ? `${lastDurationMs} ms` : "暂无",
     lastTestType: String(source.lastTestType || ""),
-    lastCalledAt: source.lastCalledAt ? formatAdminDate(source.lastCalledAt) : "暂无调用",
+    lastCalledAt: formatTencentAdminDate(source.lastCalledAt, "暂无调用"),
     lastCallTimestamp: Number(source.lastCallTimestamp)
       || (source.lastCalledAt ? Date.parse(source.lastCalledAt) : 0)
       || 0,
-    checkedAt: source.checkedAt ? formatAdminDate(source.checkedAt) : ""
+    checkedAt: formatTencentAdminDate(source.checkedAt)
   });
 }
 
@@ -1769,11 +1847,21 @@ function readTencentFaceFusionLocalStatus() {
 
 function saveTencentFaceFusionLocalStatus(status) {
   try {
+    const source = status && typeof status === "object" ? status : {};
     wx.setStorageSync(
       TENCENT_FACEFUSION_LAST_TEST_STORAGE_KEY,
-      Object.assign({}, status, {
+      {
+        lastCallStatus: String(source.lastCallStatus || "not-called"),
+        lastCallStage: String(source.lastCallStage || ""),
+        lastErrorCode: String(source.lastErrorCode || ""),
+        lastErrorMessage: String(source.lastErrorMessage || ""),
+        lastRequestId: String(source.lastRequestId || ""),
+        lastDurationMs: Number(source.lastDurationMs) || 0,
+        lastTestType: String(source.lastTestType || ""),
+        lastCalledAt: String(source.lastCalledAt || ""),
+        lastCallTimestamp: Number(source.lastCallTimestamp) || 0,
         checkedAt: new Date().toISOString()
-      })
+      }
     );
   } catch (error) {
     diagnosticLog.warn(
@@ -1787,18 +1875,31 @@ function saveTencentFaceFusionLocalStatus(status) {
 
 function mergeTencentFaceFusionStatus(remoteStatus) {
   const remote = formatTencentFaceFusionStatus(remoteStatus);
-  const local = readTencentFaceFusionLocalStatus();
+  const local = formatTencentFaceFusionStatus(readTencentFaceFusionLocalStatus());
   if (!local || !local.lastCallTimestamp) return remote;
   if (
     !remote.lastCallTimestamp
     || local.lastCallTimestamp > remote.lastCallTimestamp
   ) {
-    return Object.assign(remote, local, {
+    return Object.assign({}, local, {
       configured: remote.configured,
+      readFailed: remote.readFailed,
+      statusText: remote.statusText,
+      secretId: remote.secretId,
+      secretKey: remote.secretKey,
       region: remote.region,
+      endpoint: remote.endpoint,
       model: remote.model,
       apiVersion: remote.apiVersion,
-      swapModelType: remote.swapModelType
+      action: remote.action,
+      swapModelType: remote.swapModelType,
+      logoAdd: remote.logoAdd,
+      logoAddText: remote.logoAddText,
+      timeoutMs: remote.timeoutMs,
+      timeoutText: remote.timeoutText,
+      maxImageBytes: remote.maxImageBytes,
+      maxImageBytesText: remote.maxImageBytesText,
+      checkedAt: remote.checkedAt
     });
   }
   return remote;
@@ -5024,10 +5125,10 @@ Page({
       });
       if (this.isCurrentAdminLoad(token) && this.data.isAdmin) {
         this.setData({
-          tencentFaceFusionStatus: Object.assign(
-            emptyTencentFaceFusionStatus(),
-            { lastCallStatus: "unavailable" }
-          )
+          tencentFaceFusionStatus: formatTencentFaceFusionStatus({
+            readFailed: true,
+            lastCallStatus: "unavailable"
+          })
         });
       }
     }
@@ -5106,7 +5207,9 @@ Page({
       );
       saveTencentFaceFusionLocalStatus(successStatus);
       this.setData({
-        tencentFaceFusionStatus: mergeTencentFaceFusionStatus(successStatus)
+        tencentFaceFusionStatus: mergeTencentFaceFusionStatus(
+          this.data.tencentFaceFusionStatus
+        )
       });
       wx.showToast({
         title: `真实测试成功 ${Number(result.durationMs) || 0}ms`,
@@ -5122,7 +5225,9 @@ Page({
       );
       saveTencentFaceFusionLocalStatus(failureStatus);
       this.setData({
-        tencentFaceFusionStatus: mergeTencentFaceFusionStatus(failureStatus)
+        tencentFaceFusionStatus: mergeTencentFaceFusionStatus(
+          this.data.tencentFaceFusionStatus
+        )
       });
       this.showError("腾讯真实测试失败", error);
     } finally {
@@ -5304,7 +5409,9 @@ Page({
   toggleConfigSection(event) {
     const section = event.currentTarget.dataset.section;
     if (!CONFIG_SECTION_TITLES[section]) return;
-    const nextSection = section;
+    const nextSection = section === "tencentImage" && this.data.activeConfigSection === section
+      ? ""
+      : section;
     this.setData({
       activeConfigSection: nextSection,
       activeConfigTitle: nextSection ? CONFIG_SECTION_TITLES[nextSection] : ""

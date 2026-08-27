@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.48.0";
-const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0480";
+const API_BUILD_VERSION = "0.48.1";
+const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0481";
 const DEFAULT_IMAGE_MODE = "edits";
 // 图片和视频默认成本只在云函数入口维护；管理员页读取云端有效配置，
 // 避免前后端各写一份价格。入口保持单文件可启动，兼容 CloudBase 部署。
@@ -14139,13 +14139,14 @@ async function getTencentFaceFusionPipelineStatus(event, context) {
   } : {}));
 }
 
-async function getTencentFaceFusionAdminStatus(context) {
+async function getTencentFaceFusionAdminStatus(context, dependencies = {}) {
   if (!isAdminContext(context)) return adminForbidden();
   const config = resolveTencentFaceFusionConfig();
+  const statusDb = dependencies.db || db;
   let latest = null;
   try {
     latest = await readDocument(
-      db.collection(TENCENT_FACEFUSION_STATUS_COLLECTION).doc(TENCENT_FACEFUSION_STATUS_ID)
+      statusDb.collection(TENCENT_FACEFUSION_STATUS_COLLECTION).doc(TENCENT_FACEFUSION_STATUS_ID)
     );
   } catch (error) {
     log("warn", "tencent.facefusion.status-read-failed", {
@@ -14154,10 +14155,17 @@ async function getTencentFaceFusionAdminStatus(context) {
   }
   return jsonResponse(true, {
     configured: config.configured,
+    secretId: config.secretId,
+    secretKey: config.secretKey,
     region: config.region,
+    endpoint: config.endpoint,
     model: config.model,
     apiVersion: config.apiVersion,
+    action: config.action,
     swapModelType: config.swapModelType,
+    logoAdd: config.logoAdd,
+    timeoutMs: config.timeoutMs,
+    maxImageBytes: config.maxImageBytes,
     lastCallStatus: latest && latest.status || "not-called",
     lastCallStage: latest && latest.stage || "",
     lastErrorCode: latest && latest.errorCode || "",
@@ -17994,6 +18002,7 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     detectTencentPipelineFaces,
     tencentFaceFusionPipeline,
     testTencentFaceFusion,
+    getTencentFaceFusionAdminStatus,
     getTencentFaceFusionPipelineStatus,
     registerTencentFaceFusionIntermediateAsset,
     cleanupTencentFaceFusionIntermediateAssets,

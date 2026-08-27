@@ -78,6 +78,14 @@ async function main() {
     "$caught = $false",
     "try { Assert-CloudBaseRuntimeHealth -Health $missing -ExpectedVersion '0.48.1' } catch { if ($_.Exception.Message -like '*RESPONSE_INVALID*') { $caught = $true } else { throw } }",
     "if (-not $caught) { throw '返回结构缺失没有被拦截' }",
+    "$wrapped = [pscustomobject]@{ data = [pscustomobject]@{ InvokeResult = 0; RetMsg = '{\"ok\":true,\"active\":true,\"readOnly\":true,\"buildVersion\":\"0.48.1\",\"buildMarker\":\"MARKER\",\"checkedAt\":\"2026-08-27T00:00:00.000Z\",\"dependencies\":{\"healthy\":true,\"verified\":[\"jpeg-js\"],\"failed\":[]}}' } }",
+    "$wrappedHealth = Get-CloudBaseFunctionInvokePayload -Response $wrapped",
+    "Assert-CloudBaseRuntimeHealth -Health $wrappedHealth -ExpectedVersion '0.48.1' -ExpectedMarker 'MARKER'",
+    "if ($wrappedHealth.buildVersion -ne '0.48.1') { throw 'RetMsg 内健康结果没有被正确拆包' }",
+    "$invalidWrapped = [pscustomobject]@{ data = [pscustomobject]@{ InvokeResult = 0; RetMsg = 'not-json' } }",
+    "$caught = $false",
+    "try { Assert-CloudBaseRuntimeHealth -Health (Get-CloudBaseFunctionInvokePayload -Response $invalidWrapped) -ExpectedVersion '0.48.1' } catch { if ($_.Exception.Message -like '*RESPONSE_INVALID*') { $caught = $true } else { throw } }",
+    "if (-not $caught) { throw '无效 RetMsg 没有作为返回结构异常被拦截' }",
     "Write-Output 'RUNTIME_ASSERTIONS_OK'"
   ].join("; ");
   const result = cp.spawnSync(

@@ -641,6 +641,19 @@ function Get-CloudBaseFunctionInvokePayload {
         if ($null -eq $current) {
             return $null
         }
+        if ($current -is [string]) {
+            $text = ([string]$current).Trim()
+            if ($text.StartsWith("{") -or $text.StartsWith("[")) {
+                try {
+                    $current = $text | ConvertFrom-Json
+                    continue
+                }
+                catch {
+                    return $current
+                }
+            }
+            return $current
+        }
         if (
             $null -ne $current.PSObject.Properties["buildVersion"] `
             -or $null -ne $current.PSObject.Properties["active"] `
@@ -649,7 +662,16 @@ function Get-CloudBaseFunctionInvokePayload {
             return $current
         }
         $next = $null
-        foreach ($name in @("result", "Result", "data", "Data", "response", "Response")) {
+        foreach ($name in @(
+            "result",
+            "Result",
+            "data",
+            "Data",
+            "response",
+            "Response",
+            "RetMsg",
+            "retMsg"
+        )) {
             $property = $current.PSObject.Properties[$name]
             if ($null -ne $property -and $null -ne $property.Value) {
                 $next = $property.Value
@@ -693,25 +715,43 @@ function Assert-CloudBaseRuntimeHealth {
     if ($null -eq $Health) {
         throw "CloudBase 运行健康返回结构为空。[CLOUDBASE_RUNTIME_RESPONSE_INVALID]"
     }
-    if ([bool]$Health.ok -eq $false) {
-        $errorCode = [string]$Health.errorCode
+    $requiredProperties = @("ok", "active", "readOnly", "buildVersion", "checkedAt")
+    if ($ExpectedMarker) {
+        $requiredProperties += "buildMarker"
+    }
+    $missingProperties = @(
+        $requiredProperties |
+            Where-Object { $null -eq $Health.PSObject.Properties[$_] }
+    )
+    if ($missingProperties.Count -gt 0) {
+        throw "CloudBase 运行健康返回结构不完整。[CLOUDBASE_RUNTIME_RESPONSE_INVALID]"
+    }
+    $ok = $Health.PSObject.Properties["ok"].Value
+    if ([bool]$ok -eq $false) {
+        $errorCodeProperty = $Health.PSObject.Properties["errorCode"]
+        $errorCode = if ($null -eq $errorCodeProperty) {
+            ""
+        }
+        else {
+            [string]$errorCodeProperty.Value
+        }
         if ([string]::IsNullOrWhiteSpace($errorCode)) {
             $errorCode = "CLOUDBASE_RUNTIME_REPORTED_FAILURE"
         }
         throw "CloudBase 运行健康失败：$errorCode"
     }
-    if (-not [bool]$Health.active) {
+    if (-not [bool]$Health.PSObject.Properties["active"].Value) {
         throw "CloudBase 运行健康失败：实例未确认 Active。[CLOUDBASE_RUNTIME_INACTIVE]"
     }
-    if (-not [bool]$Health.readOnly) {
+    if (-not [bool]$Health.PSObject.Properties["readOnly"].Value) {
         throw "CloudBase 运行健康失败：返回结果未标记为只读。[CLOUDBASE_RUNTIME_NOT_READONLY]"
     }
-    if ([string]$Health.buildVersion -ne $ExpectedVersion) {
+    if ([string]$Health.PSObject.Properties["buildVersion"].Value -ne $ExpectedVersion) {
         throw "CloudBase 运行健康版本不一致。[CLOUDBASE_RUNTIME_VERSION_MISMATCH]"
     }
     if (
         $ExpectedMarker `
-        -and [string]$Health.buildMarker -ne $ExpectedMarker
+        -and [string]$Health.PSObject.Properties["buildMarker"].Value -ne $ExpectedMarker
     ) {
         throw "CloudBase 运行健康构建标记不一致。[CLOUDBASE_RUNTIME_MARKER_MISMATCH]"
     }
@@ -719,10 +759,18 @@ function Assert-CloudBaseRuntimeHealth {
     if ($null -eq $dependencies -or $null -eq $dependencies.Value) {
         throw "CloudBase 运行健康缺少依赖结果。[CLOUDBASE_RUNTIME_RESPONSE_INVALID]"
     }
-    if (-not [bool]$dependencies.Value.healthy) {
+    $healthy = $dependencies.Value.PSObject.Properties["healthy"]
+    if ($null -eq $healthy) {
+        throw "CloudBase 运行健康缺少依赖状态。[CLOUDBASE_RUNTIME_RESPONSE_INVALID]"
+    }
+    if (-not [bool]$healthy.Value) {
         throw "CloudBase 运行依赖异常。[CLOUDBASE_RUNTIME_DEPENDENCY_UNHEALTHY]"
     }
-    if ([string]::IsNullOrWhiteSpace([string]$Health.checkedAt)) {
+    if (
+        [string]::IsNullOrWhiteSpace(
+            [string]$Health.PSObject.Properties["checkedAt"].Value
+        )
+    ) {
         throw "CloudBase 运行健康缺少检查时间。[CLOUDBASE_RUNTIME_RESPONSE_INVALID]"
     }
 }

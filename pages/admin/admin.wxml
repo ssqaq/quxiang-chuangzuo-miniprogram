@@ -593,10 +593,35 @@
               <input value="{{form.imageBackup.apiKey}}" data-section="imageBackup" data-key="apiKey" placeholder="请填写凌云 API Key" bindinput="onInput" />
               <view class="api-key-field-tip">当前显示云端实际生效的完整 Key；备用模型仍只在服务端使用。</view>
             </view>
-            <view class="admin-field"><text>单次超时毫秒</text><input type="number" value="{{form.imageBackup.timeoutMs}}" data-section="imageBackup" data-key="timeoutMs" bindinput="onInput" /></view>
+            <view class="admin-field"><text>模式</text><input disabled value="{{form.imageBackup.mode}}" data-section="imageBackup" data-key="mode" /></view>
+            <view class="admin-field">
+              <text>清晰度（价格/张）</text>
+              <picker
+                mode="selector"
+                range="{{imageBackupQualityOptions}}"
+                range-key="label"
+                value="{{imageBackupQualityIndex}}"
+                bindchange="onImageBackupQualityChange"
+              >
+                <view class="admin-picker">{{imageBackupQualityOptions[imageBackupQualityIndex].label}}</view>
+              </picker>
+            </view>
+            <view class="admin-field">
+              <text>尺寸比例</text>
+              <picker
+                mode="selector"
+                range="{{imageBackupSizeOptions}}"
+                range-key="label"
+                value="{{imageBackupSizeIndex}}"
+                bindchange="onImageBackupSizeChange"
+              >
+                <view class="admin-picker">{{imageBackupSizeOptions[imageBackupSizeIndex].label}}</view>
+              </picker>
+            </view>
+            <view class="admin-field"><text>超时毫秒</text><input type="number" value="{{form.imageBackup.timeoutMs}}" data-section="imageBackup" data-key="timeoutMs" bindinput="onInput" /></view>
             <view class="admin-field"><text>备用调用次数</text><input disabled type="number" value="1" /></view>
           </view>
-          <view class="config-helper">固定顺序：{{form.image.provider || '主模型'}}第 1 次 → {{form.image.provider || '主模型'}}第 2 次 → {{form.imageBackup.provider || '备用模型'}}第 1 次。普通版仍是一次请求同时改脸、衣服、背景和光影；腾讯版第一步一次改衣服、背景和光影，第二步腾讯换脸。</view>
+          <view class="config-helper">固定顺序：{{form.image.provider || '主模型'}}第 1 次 → {{form.image.provider || '主模型'}}第 2 次 → {{form.imageBackup.provider || '备用模型'}}第 1 次。主模型和备用模型的模式、尺寸比例、清晰度、超时分别保存；普通版仍是一次请求同时改脸、衣服、背景和光影；腾讯版第一步一次改衣服、背景和光影，第二步腾讯换脸。</view>
         </view>
         <view wx:if="{{activeConfigSection !== 'users'}}" class="admin-actions">
           <view

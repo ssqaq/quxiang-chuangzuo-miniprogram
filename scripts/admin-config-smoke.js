@@ -193,6 +193,28 @@ assert.strictEqual(blankKeyMerged.imageBackup.model, "new-backup-image");
 assert.ok(test.validateRuntimePatch({
   image: { mode: "not-supported" }
 }).length > 0);
+const independentBackupConfig = test.resolveImageBackupConfig({
+  image: {
+    provider: "xingju",
+    model: "primary-image-model",
+    size: "1080x1440",
+    resolution: "1K",
+    mode: "edits",
+    timeoutMs: 150000
+  },
+  imageBackup: {
+    provider: "lingyun",
+    model: "backup-image-model",
+    size: "1242x1660",
+    resolution: "4K",
+    mode: "edits",
+    timeoutMs: 60000
+  }
+});
+assert.strictEqual(independentBackupConfig.size, "1242x1660");
+assert.strictEqual(independentBackupConfig.resolution, "4K");
+assert.strictEqual(independentBackupConfig.timeoutMs, 60000);
+assert.strictEqual(independentBackupConfig.model, "backup-image-model");
 assert.ok(test.validateRuntimePatch({
   video: { baseUrl: "javascript:alert(1)" }
 }).length > 0);

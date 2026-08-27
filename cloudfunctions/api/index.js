@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.48.1";
-const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0481";
+const API_BUILD_VERSION = "0.48.2";
+const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0482";
 const DEFAULT_IMAGE_MODE = "edits";
 // 图片和视频默认成本只在云函数入口维护；管理员页读取云端有效配置，
 // 避免前后端各写一份价格。入口保持单文件可启动，兼容 CloudBase 部署。
@@ -18277,6 +18277,8 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     generationExecutionKernel,
     videoExecutionKernel,
     generationStateMachine,
+    mapActionErrorResult,
+    processQueuedGenerationOperation,
     sanitizeVideoOperationResult,
     completeVideoGenerationOperation,
     failVideoGenerationOperation,

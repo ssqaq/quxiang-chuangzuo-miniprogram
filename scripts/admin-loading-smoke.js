@@ -7,6 +7,9 @@ let pageDefinition = null;
 let usageResolve = null;
 let probeFailure = false;
 let probeCallCount = 0;
+const probeModelCalls = [];
+const listModelCalls = [];
+const imageEditProbeCalls = [];
 
 const baseConfig = {
   effective: {
@@ -28,6 +31,18 @@ const baseConfig = {
       apiKey: "image-key",
       apiKeyConfigured: true,
       size: "1024x1024"
+    },
+    imageBackup: {
+      provider: "backup-provider",
+      baseUrl: "https://backup.example/v1",
+      endpoint: "https://backup.example/v1/images/edits",
+      model: "backup-model",
+      apiKey: "backup-key",
+      apiKeyConfigured: true,
+      mode: "edits",
+      size: "1080x1440",
+      resolution: "2K",
+      timeoutMs: 65000
     },
     video: {
       provider: "video-provider",
@@ -117,6 +132,10 @@ const cloudMock = {
   listDeploymentLogs: async () => ({ logs: [] }),
   probeModels: async (modelType, modelConfig) => {
     probeCallCount += 1;
+    probeModelCalls.push({
+      modelType,
+      modelConfig: JSON.parse(JSON.stringify(modelConfig || null))
+    });
     const types = modelType
       ? [modelType]
       : ["face", "analysis", "image", "video"];
@@ -146,9 +165,11 @@ const cloudMock = {
       }))
     };
   },
-  probeImageEditCapability: async (modelConfig) => ({
-    ok: true,
-    probe: {
+  probeImageEditCapability: async (modelConfig) => {
+    imageEditProbeCalls.push(JSON.parse(JSON.stringify(modelConfig || null)));
+    return {
+      ok: true,
+      probe: {
       status: "config-ready",
       statusText: "图片编辑配置完整",
       configured: true,
@@ -168,14 +189,21 @@ const cloudMock = {
       billingRisk: false,
       message: "本次只核对配置，不调用生图、不扣费；不代表上游已经实测支持 mask。",
       checkedAt: "2026-08-26T08:00:00.000Z"
-    }
-  }),
-  listModels: async () => ({
-    ok: true,
-    status: "ok",
-    models: ["model-10", "model-2", "model-a", "model-b"],
-    message: "接口可访问，已读取 4 个模型。"
-  })
+      }
+    };
+  },
+  listModels: async (modelType, modelConfig) => {
+    listModelCalls.push({
+      modelType,
+      modelConfig: JSON.parse(JSON.stringify(modelConfig || null))
+    });
+    return {
+      ok: true,
+      status: "ok",
+      models: ["model-10", "model-2", "model-a", "model-b"],
+      message: "接口可访问，已读取 4 个模型。"
+    };
+  }
 };
 
 const diagnosticLogMock = {
@@ -295,6 +323,8 @@ async function main() {
   assert.strictEqual(page.data.costTrend.days[6].costDisplay, "0.0007");
   assert.strictEqual(page.data.costTrend.totalCostDisplay, "0.0007");
   assert.strictEqual(page.data.form.face.apiKey, "face-key");
+  assert.strictEqual(page.data.form.imageBackup.provider, "backup-provider");
+  assert.strictEqual(page.data.form.imageBackup.model, "backup-model");
 
   await page.runImageEditCapabilityProbe();
   assert.strictEqual(page.data.imageEditCapabilityLoading, false);
@@ -303,6 +333,29 @@ async function main() {
   assert.strictEqual(page.data.imageEditCapabilityProbe.billingRiskText, "不扣费");
   assert.strictEqual(page.data.imageEditCapabilityProbe.maskField, "mask");
   assert.ok(page.data.imageEditCapabilityProbe.message.includes("不代表上游"));
+  assert.strictEqual(imageEditProbeCalls[0].provider, "image-provider");
+  const primaryImageProbeBeforeBackup = JSON.stringify(
+    page.data.imageEditCapabilityProbe
+  );
+
+  await page.runImageBackupEditCapabilityProbe();
+  assert.strictEqual(page.data.imageBackupEditCapabilityLoading, false);
+  assert.strictEqual(page.data.imageBackupEditCapabilityProbe.ready, true);
+  assert.strictEqual(
+    page.data.imageBackupEditCapabilityProbe.provider,
+    "backup-provider"
+  );
+  assert.strictEqual(
+    page.data.imageBackupEditCapabilityProbe.model,
+    "backup-model"
+  );
+  assert.strictEqual(imageEditProbeCalls[1].provider, "backup-provider");
+  assert.strictEqual(imageEditProbeCalls[1].model, "backup-model");
+  assert.strictEqual(
+    JSON.stringify(page.data.imageEditCapabilityProbe),
+    primaryImageProbeBeforeBackup,
+    "备用图片编辑检查不能覆盖主模型检查结果"
+  );
 
   const probesBeforeSave = probeCallCount;
   await page.saveConfig();
@@ -317,6 +370,65 @@ async function main() {
   });
   assert.strictEqual(page.data.modelActionType, "");
   assert.ok(page.data.message.includes("测试完成"));
+
+  await page.testModelConnection({
+    currentTarget: {
+      dataset: {
+        modelType: "image",
+        modelConfig: "imageBackup"
+      }
+    }
+  });
+  assert.strictEqual(page.data.modelActionType, "");
+  assert.strictEqual(page.data.modelActionTarget, "");
+  assert.strictEqual(
+    probeModelCalls[probeModelCalls.length - 1].modelConfig.provider,
+    "backup-provider"
+  );
+  assert.strictEqual(
+    probeModelCalls[probeModelCalls.length - 1].modelConfig.model,
+    "backup-model"
+  );
+  assert.strictEqual(
+    probeModelCalls[probeModelCalls.length - 1].modelConfig.configTarget,
+    "imageBackup"
+  );
+  assert.ok(page.data.message.includes("备用生图测试完成"));
+
+  const primaryImageModelBeforeBackupSelection = page.data.form.image.model;
+  await page.getModelOptions({
+    currentTarget: {
+      dataset: {
+        modelType: "image",
+        modelConfig: "imageBackup"
+      }
+    }
+  });
+  assert.strictEqual(page.data.modelPickerOpen, true);
+  assert.strictEqual(page.data.modelPickerType, "image");
+  assert.strictEqual(page.data.modelPickerTarget, "imageBackup");
+  assert.strictEqual(
+    listModelCalls[listModelCalls.length - 1].modelConfig.provider,
+    "backup-provider"
+  );
+  assert.strictEqual(
+    listModelCalls[listModelCalls.length - 1].modelConfig.configTarget,
+    "imageBackup"
+  );
+  page.selectModelOption({
+    currentTarget: {
+      dataset: {
+        value: "model-10"
+      }
+    }
+  });
+  assert.strictEqual(page.data.form.imageBackup.model, "model-10");
+  assert.strictEqual(
+    page.data.form.image.model,
+    primaryImageModelBeforeBackupSelection,
+    "选择备用模型不能覆盖主模型"
+  );
+  assert.strictEqual(page.data.modelPickerTarget, "");
 
   await page.getModelOptions({
     currentTarget: { dataset: { modelType: "face" } }

@@ -3245,9 +3245,16 @@ function adminImageApiKeyFailureLog(error) {
   };
 }
 
-function modelConfigForAction(form, modelType) {
-  const source = form && form[modelType] ? form[modelType] : {};
+function modelConfigKeyForAction(form, modelType, requestedKey = "") {
+  const key = String(requestedKey || modelType || "").trim();
+  return form && form[key] ? key : modelType;
+}
+
+function modelConfigForAction(form, modelType, configKey = modelType) {
+  const key = modelConfigKeyForAction(form, modelType, configKey);
+  const source = form && form[key] ? form[key] : {};
   return {
+    configTarget: key,
     provider: String(source.provider || "").trim(),
     baseUrl: String(source.baseUrl || "").trim(),
     endpoint: String(source.endpoint || "").trim(),
@@ -3408,8 +3415,10 @@ Page({
     modelProbingType: "",
     modelActionType: "",
     modelActionKind: "",
+    modelActionTarget: "",
     modelPickerOpen: false,
     modelPickerType: "",
+    modelPickerTarget: "",
     modelPickerTitle: "",
     modelPickerSearch: "",
     modelPickerAllOptions: [],
@@ -3574,6 +3583,8 @@ Page({
     tencentTestLoading: false,
     imageEditCapabilityLoading: false,
     imageEditCapabilityProbe: emptyImageEditCapabilityProbe(),
+    imageBackupEditCapabilityLoading: false,
+    imageBackupEditCapabilityProbe: emptyImageEditCapabilityProbe(),
     entryHealth: buildEntryHealth(),
     activeConfigSection: "",
     activeConfigTitle: "",
@@ -5074,21 +5085,28 @@ Page({
     }
   },
 
-  async runImageEditCapabilityProbe() {
-    if (this.data.imageEditCapabilityLoading) return;
+  async runImageEditCapabilityProbeFor(
+    configKey,
+    loadingKey,
+    probeKey,
+    targetLabel
+  ) {
+    if (this.data[loadingKey]) return;
     this.setData({
-      imageEditCapabilityLoading: true,
-      message: "正在检查图片编辑配置；本次不会调用生图，也不会扣费。"
+      [loadingKey]: true,
+      message: `正在检查${targetLabel}图片编辑配置；本次不会调用生图，也不会扣费。`
     });
     try {
       const result = await cloud.probeImageEditCapability(
-        this.data.form && this.data.form.image ? this.data.form.image : null
+        this.data.form && this.data.form[configKey]
+          ? this.data.form[configKey]
+          : null
       );
       const probe = formatImageEditCapabilityProbe(result);
       this.setData({
-        imageEditCapabilityLoading: false,
-        imageEditCapabilityProbe: probe,
-        message: `${probe.statusText}。${probe.message}`
+        [loadingKey]: false,
+        [probeKey]: probe,
+        message: `${targetLabel}${probe.statusText}。${probe.message}`
       });
       wx.showToast({
         title: probe.ready ? "配置检查完成" : "配置需要处理",
@@ -5103,12 +5121,30 @@ Page({
         message: String(error && error.message || "图片编辑配置检查失败")
       });
       this.setData({
-        imageEditCapabilityLoading: false,
-        imageEditCapabilityProbe: probe,
-        message: probe.message
+        [loadingKey]: false,
+        [probeKey]: probe,
+        message: `${targetLabel}${probe.message}`
       });
-      this.showError("图片编辑配置检查失败", error);
+      this.showError(`${targetLabel}图片编辑配置检查失败`, error);
     }
+  },
+
+  runImageEditCapabilityProbe() {
+    return this.runImageEditCapabilityProbeFor(
+      "image",
+      "imageEditCapabilityLoading",
+      "imageEditCapabilityProbe",
+      "主模型"
+    );
+  },
+
+  runImageBackupEditCapabilityProbe() {
+    return this.runImageEditCapabilityProbeFor(
+      "imageBackup",
+      "imageBackupEditCapabilityLoading",
+      "imageBackupEditCapabilityProbe",
+      "备用模型"
+    );
   },
 
   onImageQualityChange(event) {
@@ -5662,23 +5698,31 @@ Page({
   },
 
   async testModelConnection(event) {
-    const modelType = String(
-      event && event.currentTarget && event.currentTarget.dataset
-        ? event.currentTarget.dataset.modelType
-        : ""
-    ).trim();
+    const dataset = event && event.currentTarget && event.currentTarget.dataset
+      ? event.currentTarget.dataset
+      : {};
+    const modelType = String(dataset.modelType || "").trim();
+    const modelConfigKey = modelConfigKeyForAction(
+      this.data.form,
+      modelType,
+      dataset.modelConfig
+    );
     if (!USAGE_TYPE_META.some((item) => item.key === modelType)) return;
     if (this.data.modelActionType) return;
     const typeLabel = usageTypeLabel(modelType);
+    const targetLabel = modelConfigKey === "imageBackup"
+      ? "备用生图"
+      : typeLabel;
     this.setData({
       modelActionType: modelType,
       modelActionKind: "test",
-      message: `正在测试${typeLabel}连接...`
+      modelActionTarget: modelConfigKey,
+      message: `正在测试${targetLabel}连接...`
     });
     try {
       const result = await cloud.probeModels(
         modelType,
-        modelConfigForAction(this.data.form, modelType)
+        modelConfigForAction(this.data.form, modelType, modelConfigKey)
       );
       const target = result && Array.isArray(result.results)
         ? result.results[0]
@@ -5690,7 +5734,7 @@ Page({
           : "接口可访问，当前模型配置正常。"
         : formatModelConnectionFailure(typeLabel, result);
       this.setData({
-        message: `${typeLabel}测试完成：${message}`
+        message: `${targetLabel}测试完成：${message}`
       });
       wx.showModal({
         title: ok ? "连接成功" : "连接未通过",
@@ -5704,7 +5748,7 @@ Page({
       });
       const message = formatModelConnectionFailure(typeLabel, null, error);
       this.setData({
-        message: `${typeLabel}测试失败：${message}`
+        message: `${targetLabel}测试失败：${message}`
       });
       wx.showModal({
         title: "连接失败",
@@ -5714,29 +5758,38 @@ Page({
     } finally {
       this.setData({
         modelActionType: "",
-        modelActionKind: ""
+        modelActionKind: "",
+        modelActionTarget: ""
       });
     }
   },
 
   async getModelOptions(event) {
-    const modelType = String(
-      event && event.currentTarget && event.currentTarget.dataset
-        ? event.currentTarget.dataset.modelType
-        : ""
-    ).trim();
+    const dataset = event && event.currentTarget && event.currentTarget.dataset
+      ? event.currentTarget.dataset
+      : {};
+    const modelType = String(dataset.modelType || "").trim();
+    const modelConfigKey = modelConfigKeyForAction(
+      this.data.form,
+      modelType,
+      dataset.modelConfig
+    );
     if (!USAGE_TYPE_META.some((item) => item.key === modelType)) return;
     if (this.data.modelActionType) return;
     const typeLabel = usageTypeLabel(modelType);
+    const targetLabel = modelConfigKey === "imageBackup"
+      ? "备用生图"
+      : typeLabel;
     this.setData({
       modelActionType: modelType,
       modelActionKind: "list",
-      message: `正在读取${typeLabel}模型列表...`
+      modelActionTarget: modelConfigKey,
+      message: `正在读取${targetLabel}模型列表...`
     });
     try {
       const result = await cloud.listModels(
         modelType,
-        modelConfigForAction(this.data.form, modelType)
+        modelConfigForAction(this.data.form, modelType, modelConfigKey)
       );
       const options = normalizeModelOptions(result);
       if (!options.length) {
@@ -5754,25 +5807,30 @@ Page({
         {},
         this.data.modelCapabilityProfiles || {},
         {
-          [modelType]: result.modelCapabilities || {}
+          [modelConfigKey]: result.modelCapabilities || {}
         }
       );
       const currentModel = String(
-        this.data.form[modelType] && this.data.form[modelType].model || ""
+        this.data.form[modelConfigKey]
+          && this.data.form[modelConfigKey].model
+          || ""
       ).trim();
       const capabilityPayload = {};
-      capabilityPayload[modelType] = result.capabilities
-        || modelCapabilityProfiles[modelType][currentModel]
-        || {};
+      if (modelConfigKey === modelType) {
+        capabilityPayload[modelType] = result.capabilities
+          || modelCapabilityProfiles[modelConfigKey][currentModel]
+          || {};
+      }
       this.setData(Object.assign({
         modelPickerOpen: true,
         modelPickerType: modelType,
-        modelPickerTitle: `${typeLabel}模型列表`,
+        modelPickerTarget: modelConfigKey,
+        modelPickerTitle: `${targetLabel}模型列表`,
         modelPickerSearch: "",
         modelPickerAllOptions: options,
         modelPickerOptions: options,
         modelCapabilityProfiles,
-        message: `已读取 ${options.length} 个${typeLabel}模型。`
+        message: `已读取 ${options.length} 个${targetLabel}模型。`
       }, buildQualityPickerState(this.data.form, capabilityPayload)));
     } catch (error) {
       diagnosticLog.error("admin", "model-list-failed", `${typeLabel}模型列表读取失败`, {
@@ -5783,7 +5841,8 @@ Page({
     } finally {
       this.setData({
         modelActionType: "",
-        modelActionKind: ""
+        modelActionKind: "",
+        modelActionTarget: ""
       });
     }
   },
@@ -5792,6 +5851,7 @@ Page({
     this.setData({
       modelPickerOpen: false,
       modelPickerType: "",
+      modelPickerTarget: "",
       modelPickerTitle: "",
       modelPickerSearch: "",
       modelPickerAllOptions: [],
@@ -5825,31 +5885,45 @@ Page({
     const value = String(
       event && event.currentTarget && event.currentTarget.dataset
         ? event.currentTarget.dataset.value
-        : ""
+      : ""
     ).trim();
     if (!type || !value) return;
+    const configKey = modelConfigKeyForAction(
+      this.data.form,
+      type,
+      this.data.modelPickerTarget
+    );
     const nextForm = Object.assign({}, this.data.form, {
-      [type]: Object.assign({}, this.data.form[type], {
+      [configKey]: Object.assign({}, this.data.form[configKey], {
         model: value
       })
     });
     const profile = this.data.modelCapabilityProfiles
-      && this.data.modelCapabilityProfiles[type]
-      && this.data.modelCapabilityProfiles[type][value]
+      && this.data.modelCapabilityProfiles[configKey]
+      && this.data.modelCapabilityProfiles[configKey][value]
       || {};
     const capabilityPayload = {};
-    capabilityPayload[type] = profile;
-    this.setData(Object.assign({
-      [`form.${type}.model`]: value,
-      [`currentConfigModels.${type}`]: displayModelName(value),
+    if (configKey === type) {
+      capabilityPayload[type] = profile;
+    }
+    const patch = {
+      [`form.${configKey}.model`]: value,
       modelPickerOpen: false,
       modelPickerType: "",
+      modelPickerTarget: "",
       modelPickerTitle: "",
       modelPickerSearch: "",
       modelPickerAllOptions: [],
       modelPickerOptions: [],
-      message: `已选择${usageTypeLabel(type)}模型：${value}；点击“保存全部配置”后才会生效。`
-    }, buildQualityPickerState(nextForm, capabilityPayload)));
+      message: `已选择${configKey === "imageBackup" ? "备用生图" : usageTypeLabel(type)}模型：${value}；点击“保存全部配置”后才会生效。`
+    };
+    if (configKey === type) {
+      patch[`currentConfigModels.${type}`] = displayModelName(value);
+    }
+    this.setData(Object.assign(
+      patch,
+      buildQualityPickerState(nextForm, capabilityPayload)
+    ));
     wx.showToast({ title: "模型已填入", icon: "success" });
   },
 

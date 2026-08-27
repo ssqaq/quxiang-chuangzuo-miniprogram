@@ -462,19 +462,21 @@
             <view
               class="config-model-button config-model-test"
               data-model-type="image"
+              data-model-config="image"
               bindtap="testModelConnection"
               hover-class="control-tap"
               role="button"
               aria-label="测试生图模型连接"
-            >{{modelActionType === 'image' && modelActionKind === 'test' ? '测试中...' : '测试连接'}}</view>
+            >{{modelActionType === 'image' && modelActionTarget === 'image' && modelActionKind === 'test' ? '测试中...' : '测试连接'}}</view>
             <view
               class="config-model-button config-model-list"
               data-model-type="image"
+              data-model-config="image"
               bindtap="getModelOptions"
               hover-class="control-tap"
               role="button"
               aria-label="获取生图模型列表"
-            >{{modelActionType === 'image' && modelActionKind === 'list' ? '读取中...' : '获取模型'}}</view>
+            >{{modelActionType === 'image' && modelActionTarget === 'image' && modelActionKind === 'list' ? '读取中...' : '获取模型'}}</view>
             <view
               class="config-model-button config-image-edit-probe {{imageEditCapabilityLoading ? 'is-disabled' : ''}}"
               bindtap="runImageEditCapabilityProbe"
@@ -579,6 +581,64 @@
               <view class="image-provider-section-desc">{{imageBackupPricingNotice}} 主模型两次都没成功后才调用 1 次，不在底层重复重试。</view>
             </view>
             <view class="image-provider-role-badge is-backup">备用</view>
+          </view>
+          <view class="config-model-actions image-backup-model-actions">
+            <view
+              class="config-model-button config-model-test"
+              data-model-type="image"
+              data-model-config="imageBackup"
+              bindtap="testModelConnection"
+              hover-class="control-tap"
+              role="button"
+              aria-label="测试备用生图模型连接"
+            >{{modelActionType === 'image' && modelActionTarget === 'imageBackup' && modelActionKind === 'test' ? '测试中...' : '测试连接'}}</view>
+            <view
+              class="config-model-button config-model-list"
+              data-model-type="image"
+              data-model-config="imageBackup"
+              bindtap="getModelOptions"
+              hover-class="control-tap"
+              role="button"
+              aria-label="获取备用生图模型列表"
+            >{{modelActionType === 'image' && modelActionTarget === 'imageBackup' && modelActionKind === 'list' ? '读取中...' : '获取模型'}}</view>
+            <view
+              class="config-model-button config-image-edit-probe {{imageBackupEditCapabilityLoading ? 'is-disabled' : ''}}"
+              bindtap="runImageBackupEditCapabilityProbe"
+              hover-class="control-tap"
+              role="button"
+              aria-label="不扣费检查备用图片编辑配置"
+            >{{imageBackupEditCapabilityLoading ? '检查中...' : '检查图片编辑配置'}}</view>
+          </view>
+          <view
+            wx:if="{{imageBackupEditCapabilityProbe.checked}}"
+            class="image-edit-probe-card is-{{imageBackupEditCapabilityProbe.tone}}"
+          >
+            <view class="image-edit-probe-head">
+              <view>
+                <view class="image-edit-probe-title">备用模型：{{imageBackupEditCapabilityProbe.statusText}}</view>
+                <view class="image-edit-probe-subtitle">
+                  {{imageBackupEditCapabilityProbe.billingRiskText}} · {{imageBackupEditCapabilityProbe.liveVerifiedText}}
+                </view>
+              </view>
+              <view class="config-state {{imageBackupEditCapabilityProbe.ready ? 'is-ready' : 'is-off'}}">
+                {{imageBackupEditCapabilityProbe.ready ? '配置完整' : '需要处理'}}
+              </view>
+            </view>
+            <view class="image-edit-probe-grid">
+              <view><text>服务商</text><text>{{imageBackupEditCapabilityProbe.provider}}</text></view>
+              <view><text>模型</text><text>{{imageBackupEditCapabilityProbe.model}}</text></view>
+              <view><text>请求格式</text><text>{{imageBackupEditCapabilityProbe.requestFormatText}}</text></view>
+              <view><text>API Key</text><text>{{imageBackupEditCapabilityProbe.apiKeyStatusText}}</text></view>
+              <view class="is-wide"><text>edits endpoint</text><text>{{imageBackupEditCapabilityProbe.editEndpoint}}</text></view>
+              <view><text>主图字段</text><text>{{imageBackupEditCapabilityProbe.mainField}}</text></view>
+              <view><text>mask 字段</text><text>{{imageBackupEditCapabilityProbe.maskField}}</text></view>
+              <view><text>参考图字段</text><text>{{imageBackupEditCapabilityProbe.referenceField}}</text></view>
+              <view><text>mask 反转</text><text>{{imageBackupEditCapabilityProbe.maskInvertText}}</text></view>
+            </view>
+            <view class="image-edit-probe-warning">{{imageBackupEditCapabilityProbe.message}}</view>
+            <view wx:if="{{imageBackupEditCapabilityProbe.checkedAt}}" class="image-edit-probe-time">
+              检查时间：{{imageBackupEditCapabilityProbe.checkedAt}}
+            </view>
           </view>
           <view class="admin-grid">
             <view class="admin-field"><text>服务商</text><input value="{{form.imageBackup.provider}}" data-section="imageBackup" data-key="provider" bindinput="onInput" /></view>

@@ -1060,6 +1060,9 @@ function providerProfileDefaultForm(section, providerId) {
   ) || (
     section === "imageBackup"
     && normalizedProviderId === "lingyun"
+  ) || (
+    section === "video"
+    && normalizedProviderId === "xingju"
   );
   const result = Object.assign({}, source, {
     provider: displayAdminProvider(normalizedProviderId, normalizedProviderId),

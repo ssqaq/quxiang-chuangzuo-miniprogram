@@ -839,7 +839,7 @@
           <view class="config-editor-focus-help">下面的修改只作用于这一项</view>
         </view>
         <view class="config-editor-body">
-          <view class="config-helper">选择“星炬”后，模型、创建路径、查询路径、清晰度和超时会自动补齐空白项；接口地址只显示云端已配置的地址，没有就提示你填写，不乱猜地址。</view>
+          <view class="config-helper">选择“星炬”后，会自动填入星炬接口地址、模型、创建路径、查询路径、清晰度和超时；API Key 只从云函数读取，不写进小程序代码。</view>
           <view class="config-model-actions">
             <view
               class="config-model-button config-model-test"

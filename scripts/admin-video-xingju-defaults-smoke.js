@@ -42,10 +42,28 @@ const manual = applyAdminVideoProviderDefaults({
   }
 });
 assert.strictEqual(manual.video.model, "my-video-model");
+assert.strictEqual(manual.video.baseUrl, "https://newapi.akiyo.fun");
 assert.strictEqual(manual.video.createPath, "/custom/create");
 assert.strictEqual(manual.video.queryPath, "/custom/query/{taskId}");
 assert.strictEqual(manual.video.resolution, "1080p");
 assert.strictEqual(manual.video.timeoutMs, "120000");
+
+const customEndpoint = applyAdminVideoProviderDefaults({
+  video: {
+    provider: "星炬",
+    baseUrl: "https://video.example.com",
+    model: "custom-model",
+    createPath: "/custom/create",
+    queryPath: "/custom/query/{taskId}",
+    resolution: "1080p",
+    timeoutMs: "120000"
+  }
+});
+assert.strictEqual(
+  customEndpoint.video.baseUrl,
+  "https://video.example.com",
+  "手动填写的星炬接口地址不能被覆盖"
+);
 
 const invalidTimeout = applyAdminVideoProviderDefaults({
   video: { provider: "xingju", timeoutMs: "bad" }

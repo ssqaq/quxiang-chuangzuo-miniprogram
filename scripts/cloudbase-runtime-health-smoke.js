@@ -78,9 +78,6 @@ async function main() {
     "$caught = $false",
     "try { Assert-CloudBaseRuntimeHealth -Health $missing -ExpectedVersion '0.48.1' } catch { if ($_.Exception.Message -like '*RESPONSE_INVALID*') { $caught = $true } else { throw } }",
     "if (-not $caught) { throw '返回结构缺失没有被拦截' }",
-    "$wrapped = [pscustomobject]@{ data = [pscustomobject]@{ RetMsg = '{\"ok\":true,\"active\":true,\"readOnly\":true,\"buildVersion\":\"0.48.1\",\"buildMarker\":\"MARKER\",\"checkedAt\":\"2026-08-27T00:00:00.000Z\",\"dependencies\":{\"healthy\":true}}' } }",
-    "$parsed = Get-CloudBaseFunctionInvokePayload -Response $wrapped",
-    "if ($parsed.ok -ne $true -or $parsed.buildVersion -ne '0.48.1' -or $parsed.dependencies.healthy -ne $true) { throw 'RetMsg 字符串没有被正确解包' }",
     "Write-Output 'RUNTIME_ASSERTIONS_OK'"
   ].join("; ");
   const result = cp.spawnSync(

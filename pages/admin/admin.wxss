@@ -162,6 +162,125 @@ page {
   pointer-events: none;
 }
 
+.tencent-image-editor-body {
+  padding-top: 12rpx;
+}
+
+.tencent-tabs {
+  display: flex;
+  gap: 8rpx;
+  padding: 6rpx;
+  border: 1rpx solid #ddd2f4;
+  border-radius: 16rpx;
+  background: #f7f3ff;
+}
+
+.tencent-tab {
+  flex: 1 1 0;
+  min-height: 64rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12rpx;
+  color: #765e9e;
+  font-size: 21rpx;
+  font-weight: 700;
+}
+
+.tencent-tab.is-active {
+  color: #ffffff;
+  background: #6848bb;
+  box-shadow: 0 6rpx 14rpx rgba(104, 72, 187, 0.2);
+}
+
+.tencent-panel-intro {
+  margin-top: 18rpx;
+}
+
+.tencent-role-head {
+  margin-top: 18rpx;
+}
+
+.tencent-model-actions {
+  justify-content: flex-start;
+  margin-top: 18rpx;
+}
+
+.tencent-role-switch-button {
+  color: #6848bb;
+  border-color: #cfc0ee;
+  background: #f4efff;
+}
+
+.tencent-role-switch-button.is-backup-switch {
+  color: #94641b;
+  border-color: #e7cf9e;
+  background: #fff8e9;
+}
+
+.tencent-image-fields {
+  margin-top: 16rpx;
+}
+
+.tencent-fusion-tab-panel {
+  margin-top: 16rpx;
+}
+
+.tencent-fusion-fields {
+  margin-top: 16rpx;
+}
+
+.tencent-fusion-fields .admin-field input.has-error {
+  border-color: #dc4c64;
+  background: #fff7f8;
+  box-shadow: 0 0 0 2rpx rgba(220, 76, 100, 0.08);
+}
+
+.tencent-logo-checkbox {
+  margin-top: 18rpx;
+}
+
+.tencent-test-result {
+  margin-top: 14rpx;
+  padding: 14rpx 16rpx;
+  border: 1rpx solid #cce6d8;
+  border-radius: 14rpx;
+  color: #236845;
+  background: #f3fbf6;
+}
+
+.tencent-test-result.is-failed {
+  border-color: #f0c4cb;
+  color: #a33e50;
+  background: #fff6f7;
+}
+
+.tencent-test-result-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12rpx;
+  font-size: 20rpx;
+  font-weight: 700;
+}
+
+.tencent-test-error {
+  margin-top: 8rpx;
+  line-height: 28rpx;
+  word-break: break-all;
+}
+
+@media (max-width: 560px) {
+  .tencent-model-actions {
+    justify-content: stretch;
+  }
+
+  .tencent-model-actions .config-model-button {
+    min-width: 0;
+    flex: 1 1 calc(50% - 10rpx);
+  }
+}
+
 .card {
   border: 1rpx solid #dce4ef;
   border-radius: 26rpx;

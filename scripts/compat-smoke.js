@@ -130,9 +130,6 @@ async function main() {
         }));
       });
     }, async (url) => {
-      process.env.AI_IMAGE_PROVIDER = "lingyun";
-      process.env.AI_IMAGE_MODEL = "gpt-image-2";
-      process.env.AI_IMAGE_EDIT_ENDPOINT = `${url}/v1/images/edits`;
       const result = await cloud.__test.requestImageEdits({
         mainFileID: "main-file",
         maskFileID: "mask-file",
@@ -140,7 +137,15 @@ async function main() {
         wardrobeFileIDs: ["wardrobe-file"],
         prompt: "只改红圈",
         size: "1024x1024"
-      }, "test-key", "smoke-edits");
+      }, "test-key", "smoke-edits", {
+        provider: "lingyun",
+        model: "gpt-image-2",
+        endpoint: `${url}/v1/images/edits`,
+        timeoutMs: 30000,
+        maxRetries: 0,
+        retryEnabled: false,
+        mode: "edits"
+      });
       assert.ok(result.data && result.data[0] && result.data[0].b64_json);
     });
   } finally {

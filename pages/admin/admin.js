@@ -3944,6 +3944,8 @@ function diagnosticLogCopyText(item = {}) {
 Page({
   data: {
     appVersion: config.appVersion,
+    onlineApiVersion: "",
+    onlineBuildMarker: "",
     loading: true,
     canRetry: false,
     saving: false,
@@ -4589,6 +4591,8 @@ Page({
         loading: false,
         isAdmin: true,
         canRetry: false,
+        onlineApiVersion: String(status.buildVersion || "").trim(),
+        onlineBuildMarker: String(status.buildMarker || "").trim(),
         form,
         costFieldErrors: {},
         defaults: result.defaults || null,

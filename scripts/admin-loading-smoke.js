@@ -348,12 +348,22 @@ async function main() {
 
   modalCalls.length = 0;
   reLaunchCalls.length = 0;
-  adminStatus = { ok: true, isAdmin: true };
+  adminStatus = {
+    ok: true,
+    isAdmin: true,
+    buildVersion: "0.51.1-test",
+    buildMarker: "API_BUILD_TAG_AUTO_VERSION_V0511_TEST"
+  };
   const page = createPageInstance();
   await page.loadAdminPage();
 
   assert.strictEqual(page.data.loading, false);
   assert.strictEqual(page.data.isAdmin, true);
+  assert.strictEqual(page.data.onlineApiVersion, "0.51.1-test");
+  assert.strictEqual(
+    page.data.onlineBuildMarker,
+    "API_BUILD_TAG_AUTO_VERSION_V0511_TEST"
+  );
   assert.strictEqual(page.data.moduleStates.usage.status, "loading");
   assert.strictEqual(page.data.todayFailureText, "读取中");
   assert.strictEqual(page.data.usageStats.today.total, 0);

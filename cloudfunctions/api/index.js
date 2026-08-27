@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.51.1";
-const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0511";
+const API_BUILD_VERSION = "0.51.2";
+const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0512";
 const DEFAULT_IMAGE_MODE = "edits";
 // 图片和视频默认成本只在云函数入口维护；管理员页读取云端有效配置，
 // 避免前后端各写一份价格。入口保持单文件可启动，兼容 CloudBase 部署。
@@ -8089,6 +8089,8 @@ async function getAdminStatus(context) {
   });
   return jsonResponse(true, {
     isAdmin,
+    buildVersion: API_BUILD_VERSION,
+    buildMarker: API_BUILD_MARKER,
     // 不返回原始 OpenID，只返回可用于白名单匹配的不可逆识别码。
     identityHash: openid === "anonymous" ? "" : usageUserHash(openid)
   });

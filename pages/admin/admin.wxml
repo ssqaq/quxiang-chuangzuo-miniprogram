@@ -39,9 +39,19 @@
         <view class="status-console-dot"></view>
       </view>
       <view class="status-console-meta">
-        <text>v{{appVersion}}</text>
+        <text>小程序 v{{appVersion}}</text>
         <text>探针 {{dashboardStatus.probeDurationText}}</text>
         <text>今日 {{todayFailureText}}</text>
+      </view>
+      <view class="status-console-build">
+        <view class="status-console-build-row">
+          <text class="status-console-build-label">云端 API</text>
+          <text class="status-console-build-value">v{{onlineApiVersion || '未返回'}}</text>
+        </view>
+        <view class="status-console-build-row">
+          <text class="status-console-build-label">构建标记</text>
+          <text class="status-console-build-value status-console-build-marker" selectable="true">{{onlineBuildMarker || '未返回'}}</text>
+        </view>
       </view>
       <view class="status-console-actions">
         <view

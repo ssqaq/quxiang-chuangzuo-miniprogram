@@ -534,7 +534,7 @@
               <input value="{{form.image.apiKey}}" data-section="image" data-key="apiKey" placeholder="请填写星炬 API Key" bindinput="onInput" />
               <view class="api-key-field-tip">当前显示云端实际生效的完整 Key；修改后点击“保存全部配置”才会生效。</view>
             </view>
-            <view class="admin-field"><text>模式</text><input disabled value="{{form.image.mode}}" data-section="image" data-key="mode" /></view>
+            <view class="admin-field"><text>模式</text><input disabled value="图片编辑模式" /></view>
           <view class="admin-field">
             <text>清晰度（价格/张）</text>
             <picker

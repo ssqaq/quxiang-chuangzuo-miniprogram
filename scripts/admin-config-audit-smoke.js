@@ -202,6 +202,33 @@ assert.ok(
   "审计记录缺少主 Key 配置状态变化"
 );
 
+const providerLabelChanges = test.buildAdminConfigAuditChanges(
+  {
+    providerLabels: { lingyun: "凌云" },
+    image: { apiKey: oldPrimaryKey }
+  },
+  {
+    providerLabels: { lingyun: "凌云官方" },
+    image: { apiKey: oldPrimaryKey }
+  },
+  {
+    providerLabels: { lingyun: "凌云官方" }
+  }
+);
+assert.ok(
+  providerLabelChanges.some((item) => (
+    item.section === "providerLabels"
+    && item.field === "lingyun"
+    && item.oldValue === "凌云"
+    && item.newValue === "凌云官方"
+  )),
+  "审计记录缺少服务商中文名称变化"
+);
+assert.ok(
+  !JSON.stringify(providerLabelChanges).includes(oldPrimaryKey),
+  "服务商名称审计不能泄露同一配置中的 API Key"
+);
+
 async function main() {
   const written = await test.writeAdminConfigAuditLog({
     source: "system-auto-correct",

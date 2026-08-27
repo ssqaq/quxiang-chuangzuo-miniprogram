@@ -153,6 +153,26 @@ assert.deepStrictEqual(patch.analysis, {
 });
 assert.deepStrictEqual(patch.face, { apiKey: "smoke-face-key" });
 assert.deepStrictEqual(test.validateRuntimePatch(patch), []);
+assert.deepStrictEqual(
+  test.normalizeRuntimePatch({
+    providerLabels: {
+      lingyun: "凌云官方",
+      "custom-provider": "自定义服务商"
+    }
+  }).providerLabels,
+  {
+    "custom-provider": "自定义服务商",
+    lingyun: "凌云官方"
+  }
+);
+assert.ok(
+  test.validateRuntimePatch({
+    providerLabels: {
+      "custom-provider": "custom provider"
+    }
+  }).some((item) => item.includes("custom-provider")),
+  "管理员配置校验必须拒绝没有中文名称的服务商"
+);
 const blankKeyPatch = test.dropBlankRuntimeApiKeys(
   test.normalizeRuntimePatch({
     image: {
@@ -262,6 +282,11 @@ api.main({
   assert.ok(result.effective.analysis.model);
   assert.ok(result.effective.image.model);
   assert.ok(result.effective.video.model);
+  assert.deepStrictEqual(result.effective.providerLabels, {
+    dashscope: "阿里云百炼",
+    lingyun: "凌云",
+    xingju: "星炬"
+  });
   ["face", "analysis", "image", "imageBackup", "video"].forEach((type) => {
     assert.strictEqual(
       Object.prototype.hasOwnProperty.call(result.effective[type], "apiKey"),

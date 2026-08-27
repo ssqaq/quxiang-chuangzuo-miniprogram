@@ -19,7 +19,7 @@ const js = normalizeNewlines(
 const currentConfigMarker =
   '    <view class="overview-section">\n      <view class="overview-heading">当前配置</view>';
 const configEditorMarker =
-  '    <view wx:if="{{activeConfigSection === \'points\' || activeConfigSection === \'costs\' || activeConfigSection === \'users\'}}" id="config-editor"';
+  '    <view wx:if="{{activeConfigSection === \'providers\' || activeConfigSection === \'points\' || activeConfigSection === \'costs\' || activeConfigSection === \'users\'}}" id="config-editor"';
 const usageMarker = '    <view id="usage-section"';
 const monitorMarker =
   '      <view\n        id="monitor-command-toggle"';
@@ -27,7 +27,7 @@ const monitorMarker =
 assert.strictEqual(
   (wxml.match(/id="config-editor"/g) || []).length,
   1,
-  "积分/成本/用户统一配置区必须只保留一个滚动目标"
+  "服务商/积分/成本/用户统一配置区必须只保留一个滚动目标"
 );
 ["face", "analysis", "image", "tencentImage", "video"].forEach((section) => {
   assert.strictEqual(

@@ -10,6 +10,7 @@ let probeCallCount = 0;
 let lastProbeModelConfig = null;
 let lastImageEditProbeConfig = null;
 let savedConfigPayload = null;
+let saveConfigCallCount = 0;
 let adminStatus = { isAdmin: true };
 let adminConfigCallCount = 0;
 const modalCalls = [];
@@ -100,10 +101,11 @@ const cloudMock = {
     imageBackup: { apiKey: "image-backup-key" }
   }),
   saveAdminConfig: async (payload) => {
+    saveConfigCallCount += 1;
     savedConfigPayload = payload;
     return {
       ok: true,
-      effective: baseConfig.effective,
+      effective: Object.assign({}, baseConfig.effective, payload),
       version: 2
     };
   },
@@ -159,6 +161,12 @@ const cloudMock = {
       image: "生图",
       video: "视频"
     };
+    const providers = {
+      face: "dashscope",
+      analysis: "dashscope",
+      image: "xingju",
+      video: "lingyun"
+    };
     return {
       ok: true,
       readyCount: probeFailure ? 0 : types.length,
@@ -166,7 +174,7 @@ const cloudMock = {
       results: types.map((type) => ({
         type,
         typeLabel: labels[type] || type,
-        provider: modelConfig && modelConfig.provider || `${type}-provider`,
+        provider: modelConfig && modelConfig.provider || providers[type] || `${type}-provider`,
         model: modelConfig && modelConfig.model || `${type}-model`,
         ready: !probeFailure,
         reachable: true,
@@ -245,7 +253,8 @@ global.wx = {
   reLaunch(options) {
     reLaunchCalls.push(options || {});
   },
-  stopPullDownRefresh() {}
+  stopPullDownRefresh() {},
+  pageScrollTo() {}
 };
 
 require("../pages/admin/admin.js");
@@ -257,7 +266,7 @@ function createPageInstance() {
   const instance = {
     data: JSON.parse(JSON.stringify(pageDefinition.data)),
     _adminLoadToken: 0,
-    setData(patch) {
+    setData(patch, callback) {
       Object.keys(patch || {}).forEach((key) => {
         const parts = key.split(".");
         let target = this.data;
@@ -267,6 +276,7 @@ function createPageInstance() {
         });
         target[parts[parts.length - 1]] = patch[key];
       });
+      if (typeof callback === "function") callback();
     }
   };
   Object.keys(pageDefinition).forEach((key) => {
@@ -403,6 +413,15 @@ async function main() {
   assert.strictEqual(page.data.form.imageBackup.provider, "凌云");
   assert.strictEqual(page.data.form.imageBackup.model, "gpt-image-2");
   assert.strictEqual(page.data.form.video.provider, "凌云");
+  assert.deepStrictEqual(page.data.form.providerLabels, {
+    dashscope: "阿里云百炼",
+    lingyun: "凌云",
+    xingju: "星炬"
+  });
+  assert.deepStrictEqual(
+    page.data.providerLabelRows.map((item) => item.providerId),
+    ["dashscope", "lingyun", "xingju"]
+  );
 
   page.onInput({
     currentTarget: { dataset: { section: "image", key: "provider" } },
@@ -421,6 +440,29 @@ async function main() {
     detail: { value: "custom-face-provider" }
   });
   assert.strictEqual(page.data.form.face.provider, "custom-face-provider");
+  const customProviderRow = page.data.providerLabelRows.find(
+    (item) => item.providerId === "custom-face-provider"
+  );
+  assert.ok(customProviderRow, "输入自定义服务商后没有补中文名称行");
+  assert.strictEqual(customProviderRow.label, "");
+  const savesBeforeInvalidProvider = saveConfigCallCount;
+  await page.saveConfig();
+  assert.strictEqual(
+    saveConfigCallCount,
+    savesBeforeInvalidProvider,
+    "自定义服务商缺中文名称时不应调用保存接口"
+  );
+  assert.strictEqual(page.data.activeConfigSection, "providers");
+  assert.ok(page.data.message.includes("custom-face-provider 还没有中文名称"));
+  assert.ok(modalCalls[modalCalls.length - 1].content.includes("custom-face-provider"));
+  page.onProviderLabelInput({
+    currentTarget: { dataset: { providerId: "custom-face-provider" } },
+    detail: { value: "自定义服务商" }
+  });
+  assert.strictEqual(
+    page.data.form.providerLabels["custom-face-provider"],
+    "自定义服务商"
+  );
   page.onInput({
     currentTarget: { dataset: { section: "face", key: "provider" } },
     detail: { value: "dashscope" }
@@ -469,10 +511,34 @@ async function main() {
   assert.strictEqual(savedConfigPayload.face.provider, "dashscope");
   assert.strictEqual(savedConfigPayload.analysis.provider, "dashscope");
   assert.strictEqual(savedConfigPayload.video.provider, "lingyun");
+  assert.strictEqual(
+    savedConfigPayload.providerLabels["custom-face-provider"],
+    "自定义服务商"
+  );
   assert.ok(probeCallCount > probesBeforeSave);
   assert.strictEqual(page.data.modelProbes.readyCount, 4);
   assert.strictEqual(page.data.modelProbes.total, 4);
   assert.ok(page.data.message.includes("4/4"));
+  const lingyunFilterIndex = page.data.providerFilterOptions.findIndex(
+    (item) => item.value === "lingyun"
+  );
+  assert.ok(lingyunFilterIndex > 0, "筛选项缺少凌云");
+  page.setData({
+    activeConfigSection: "face",
+    activeConfigTitle: "人脸识别模型"
+  });
+  page.onProviderFilterChange({ detail: { value: lingyunFilterIndex } });
+  assert.strictEqual(page.data.providerFilterValue, "lingyun");
+  assert.strictEqual(page.data.providerSectionVisibility.face, false);
+  assert.strictEqual(page.data.providerSectionVisibility.analysis, false);
+  assert.strictEqual(page.data.providerSectionVisibility.image, true);
+  assert.strictEqual(page.data.providerSectionVisibility.video, true);
+  assert.strictEqual(page.data.activeConfigSection, "");
+  assert.deepStrictEqual(
+    page.data.modelProbes.filteredResults.map((item) => item.providerId),
+    ["lingyun"]
+  );
+  page.onProviderFilterChange({ detail: { value: 0 } });
 
   await page.testModelConnection({
     currentTarget: { dataset: { modelType: "image" } }

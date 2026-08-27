@@ -74,8 +74,25 @@
       </view>
     </view>
 
+    <view class="provider-filter-panel">
+      <view class="provider-filter-copy">
+        <view class="provider-filter-title">按服务商筛选</view>
+        <view class="provider-filter-help">只切换页面显示，不会修改模型配置。</view>
+      </view>
+      <picker
+        mode="selector"
+        range="{{providerFilterOptions}}"
+        range-key="label"
+        value="{{providerFilterIndex}}"
+        bindchange="onProviderFilterChange"
+      >
+        <view class="provider-filter-picker">{{providerFilterLabel}}</view>
+      </picker>
+    </view>
+
     <view class="quick-launch-grid">
       <view
+        wx:if="{{providerSectionVisibility.face}}"
         class="quick-launch quick-face {{activeConfigSection === 'face' ? 'is-active' : ''}} {{entryHealth.face.abnormal ? 'is-abnormal' : ''}}"
         data-section="face"
         bindtap="toggleConfigSection"
@@ -88,6 +105,7 @@
         <view class="quick-launch-state">{{entryHealth.face.label}}</view>
       </view>
       <view
+        wx:if="{{providerSectionVisibility.analysis}}"
         class="quick-launch quick-analysis {{activeConfigSection === 'analysis' ? 'is-active' : ''}} {{entryHealth.analysis.abnormal ? 'is-abnormal' : ''}}"
         data-section="analysis"
         bindtap="toggleConfigSection"
@@ -100,6 +118,7 @@
         <view class="quick-launch-state">{{entryHealth.analysis.label}}</view>
       </view>
       <view
+        wx:if="{{providerSectionVisibility.image}}"
         class="quick-launch quick-image {{activeConfigSection === 'image' ? 'is-active' : ''}} {{entryHealth.image.abnormal ? 'is-abnormal' : ''}}"
         data-section="image"
         bindtap="toggleConfigSection"
@@ -112,6 +131,7 @@
         <view class="quick-launch-state">{{entryHealth.image.label}}</view>
       </view>
       <view
+        wx:if="{{providerSectionVisibility.video}}"
         class="quick-launch quick-video {{activeConfigSection === 'video' ? 'is-active' : ''}} {{entryHealth.video.abnormal ? 'is-abnormal' : ''}}"
         data-section="video"
         bindtap="toggleConfigSection"
@@ -122,6 +142,18 @@
         <view class="quick-launch-icon">视</view>
         <view class="quick-launch-name">视频</view>
         <view class="quick-launch-state">{{entryHealth.video.label}}</view>
+      </view>
+      <view
+        class="quick-launch quick-providers {{activeConfigSection === 'providers' ? 'is-active' : ''}}"
+        data-section="providers"
+        bindtap="toggleConfigSection"
+        hover-class="control-tap"
+        role="button"
+        aria-label="打开服务商中文名称配置"
+      >
+        <view class="quick-launch-icon">名</view>
+        <view class="quick-launch-name">服务商</view>
+        <view class="quick-launch-state">{{providerLabelRows.length}} 个名称</view>
       </view>
       <view
         class="quick-launch quick-usage {{usageExpanded ? 'is-active' : ''}} {{entryHealth.usage.abnormal ? 'is-abnormal' : ''}}"
@@ -193,6 +225,7 @@
     <view class="overview-section">
       <view class="overview-heading">当前配置</view>
       <view
+        wx:if="{{providerSectionVisibility.face}}"
         class="current-config-row {{entryHealth.face.abnormal ? 'is-abnormal' : ''}}"
         data-section="face"
         bindtap="toggleConfigSection"
@@ -278,6 +311,7 @@
       </view>
 
       <view
+        wx:if="{{providerSectionVisibility.analysis}}"
         class="current-config-row {{entryHealth.analysis.abnormal ? 'is-abnormal' : ''}}"
         data-section="analysis"
         bindtap="toggleConfigSection"
@@ -370,6 +404,7 @@
       </view>
 
       <view
+        wx:if="{{providerSectionVisibility.image}}"
         class="current-config-row {{entryHealth.image.abnormal ? 'is-abnormal' : ''}}"
         data-section="image"
         bindtap="toggleConfigSection"
@@ -754,6 +789,7 @@
       </view>
 
       <view
+        wx:if="{{providerSectionVisibility.video}}"
         class="current-config-row {{entryHealth.video.abnormal ? 'is-abnormal' : ''}}"
         data-section="video"
         bindtap="toggleConfigSection"
@@ -858,7 +894,7 @@
     </view>
 
 
-    <view wx:if="{{activeConfigSection === 'points' || activeConfigSection === 'costs' || activeConfigSection === 'users'}}" id="config-editor" class="card config-editor">
+    <view wx:if="{{activeConfigSection === 'providers' || activeConfigSection === 'points' || activeConfigSection === 'costs' || activeConfigSection === 'users'}}" id="config-editor" class="card config-editor">
       <view class="config-editor-head">
         <view>
           <view class="config-editor-kicker">正在配置</view>
@@ -882,6 +918,30 @@
           <view class="config-editor-focus-name">{{activeConfigTitle}}</view>
         </view>
         <view class="config-editor-focus-help">下面的修改只作用于这一项</view>
+      </view>
+
+      <view wx:if="{{activeConfigSection === 'providers'}}" class="config-editor-body">
+        <view class="config-helper">英文标识是接口真正使用的名称，只能查看；中文名称可以修改，保存后页面统一显示中文。</view>
+        <view class="provider-label-list">
+          <view wx:for="{{providerLabelRows}}" wx:key="providerId" class="provider-label-row">
+            <view class="provider-label-meta">
+              <text class="provider-label-caption">英文标识（只读）</text>
+              <text class="provider-label-id" user-select="true">{{item.providerId}}</text>
+            </view>
+            <view class="provider-label-field">
+              <text class="provider-label-caption">中文名称</text>
+              <input
+                class="provider-label-input {{item.error ? 'has-error' : ''}}"
+                value="{{item.label}}"
+                maxlength="20"
+                data-provider-id="{{item.providerId}}"
+                placeholder="例如：自定义服务商"
+                bindinput="onProviderLabelInput"
+              />
+              <view wx:if="{{item.error}}" class="admin-field-error">{{item.error}}</view>
+            </view>
+          </view>
+        </view>
       </view>
 
       <view wx:if="{{activeConfigSection === 'points'}}" class="config-editor-body">
@@ -2300,7 +2360,7 @@
           <view><text>检查时间</text><text>{{modelProbes.checkedAtText}}</text></view>
         </view>
         <view class="model-probe-list">
-          <view wx:for="{{modelProbes.results}}" wx:key="type" class="model-probe-row">
+          <view wx:for="{{modelProbes.filteredResults}}" wx:key="type" class="model-probe-row">
             <view class="model-probe-main">
               <view class="model-probe-title">{{item.typeLabel}}</view>
               <view class="model-probe-meta">{{item.model}}</view>

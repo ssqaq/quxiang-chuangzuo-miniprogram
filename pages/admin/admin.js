@@ -57,6 +57,13 @@ const ADMIN_PROVIDER_LABELS = Object.freeze({
   lingyun: "凌云",
   dashscope: "阿里云百炼"
 });
+const ADMIN_PROVIDER_LABEL_MAX_LENGTH = 20;
+const ADMIN_PROVIDER_LABEL_REQUIRED = "ADMIN_PROVIDER_LABEL_REQUIRED";
+const ADMIN_PROVIDER_DANGEROUS_KEYS = Object.freeze([
+  "__proto__",
+  "prototype",
+  "constructor"
+]);
 const ADMIN_PROVIDER_VALUES = Object.freeze({
   星炬: "xingju",
   凌云: "lingyun",
@@ -70,20 +77,217 @@ const ADMIN_PROVIDER_FORM_SECTIONS = Object.freeze([
   "imageBackup",
   "video"
 ]);
+let activeAdminProviderLabels = Object.assign({}, ADMIN_PROVIDER_LABELS);
+
+function mergeAdminProviderLabels(value) {
+  const result = Object.assign({}, ADMIN_PROVIDER_LABELS);
+  if (!value || typeof value !== "object" || Array.isArray(value)) return result;
+  Object.keys(value).forEach((rawProviderId) => {
+    const rawId = String(rawProviderId || "").trim();
+    if (!rawId || ADMIN_PROVIDER_DANGEROUS_KEYS.includes(rawId)) return;
+    const lowerId = rawId.toLowerCase();
+    const providerId = ADMIN_PROVIDER_LABELS[lowerId] ? lowerId : rawId;
+    const label = String(value[rawProviderId] == null ? "" : value[rawProviderId]).trim();
+    if (label) result[providerId] = label;
+  });
+  return result;
+}
+
+function setActiveAdminProviderLabels(value) {
+  activeAdminProviderLabels = mergeAdminProviderLabels(value);
+  return Object.assign({}, activeAdminProviderLabels);
+}
+
+function providerIdFromDisplay(value, labels = activeAdminProviderLabels) {
+  const raw = String(value === undefined || value === null ? "" : value).trim();
+  if (!raw) return "";
+  if (ADMIN_PROVIDER_VALUES[raw]) return ADMIN_PROVIDER_VALUES[raw];
+  const lower = raw.toLowerCase();
+  if (ADMIN_PROVIDER_LABELS[lower]) return lower;
+  const effectiveLabels = mergeAdminProviderLabels(labels);
+  const matchedId = Object.keys(effectiveLabels).find(
+    (providerId) => effectiveLabels[providerId] === raw
+  );
+  return matchedId || raw;
+}
 
 function normalizeAdminProviderInput(value) {
-  const raw = String(value === undefined || value === null ? "" : value).trim();
-  const text = raw.toLowerCase();
-  if (ADMIN_PROVIDER_VALUES[raw]) return ADMIN_PROVIDER_VALUES[raw];
-  if (ADMIN_PROVIDER_LABELS[text]) return text;
-  return raw;
+  return providerIdFromDisplay(value);
 }
 
 function displayAdminProvider(value, fallback = "") {
   const raw = String(value === undefined || value === null ? "" : value).trim();
   if (!raw) return fallback;
-  const normalized = normalizeAdminProviderInput(raw);
-  return ADMIN_PROVIDER_LABELS[normalized] || raw;
+  const normalized = providerIdFromDisplay(raw);
+  return activeAdminProviderLabels[normalized] || ADMIN_PROVIDER_LABELS[normalized] || raw;
+}
+
+function adminProviderIdsFromForm(form) {
+  const source = form && typeof form === "object" ? form : {};
+  const providerIds = [];
+  ADMIN_PROVIDER_FORM_SECTIONS.forEach((section) => {
+    const providerId = providerIdFromDisplay(
+      source[section] && source[section].provider
+    );
+    if (providerId && !providerIds.includes(providerId)) providerIds.push(providerId);
+  });
+  return providerIds;
+}
+
+function providerLabelsFromForm(form) {
+  const source = form && typeof form === "object" ? form : {};
+  return mergeAdminProviderLabels(source.providerLabels);
+}
+
+function buildAdminProviderLabelRows(form, errors = {}) {
+  const source = form && typeof form === "object" ? form : {};
+  const rawLabels = source.providerLabels && typeof source.providerLabels === "object"
+    && !Array.isArray(source.providerLabels)
+    ? source.providerLabels
+    : {};
+  const providerIds = [
+    ...Object.keys(ADMIN_PROVIDER_LABELS),
+    ...Object.keys(rawLabels),
+    ...adminProviderIdsFromForm(source)
+  ]
+    .map((providerId) => String(providerId || "").trim())
+    .filter((providerId) => (
+      providerId
+      && !ADMIN_PROVIDER_DANGEROUS_KEYS.includes(providerId)
+    ));
+  return Array.from(new Set(providerIds))
+    .sort((left, right) => left.localeCompare(right, "zh-CN", {
+      numeric: true,
+      sensitivity: "base"
+    }))
+    .map((providerId) => {
+      const hasRawLabel = Object.prototype.hasOwnProperty.call(rawLabels, providerId);
+      const label = String(
+        hasRawLabel
+          ? rawLabels[providerId]
+          : activeAdminProviderLabels[providerId] || ADMIN_PROVIDER_LABELS[providerId] || ""
+      ).trim();
+      return {
+        providerId,
+        label,
+        builtIn: Boolean(ADMIN_PROVIDER_LABELS[providerId]),
+        error: String(errors[providerId] || "")
+      };
+    });
+}
+
+function validateAdminProviderLabelRows(rows) {
+  const errors = {};
+  (Array.isArray(rows) ? rows : []).forEach((item) => {
+    const providerId = String(item && item.providerId || "").trim();
+    const label = String(item && item.label || "").trim();
+    if (!providerId) return;
+    if (!label) {
+      errors[providerId] = `服务商 ${providerId} 还没有中文名称，请先填写。`;
+      return;
+    }
+    if (!/[\u3400-\u9fff]/.test(label)) {
+      errors[providerId] = `服务商 ${providerId} 的名称必须包含中文，不能只写英文。`;
+      return;
+    }
+    if (Array.from(label).length > ADMIN_PROVIDER_LABEL_MAX_LENGTH) {
+      errors[providerId] = `服务商 ${providerId} 的中文名称最多 20 个字符。`;
+    }
+  });
+  return errors;
+}
+
+function buildAdminProviderFilterState(form, selectedValue = "all") {
+  const providerIds = adminProviderIdsFromForm(form);
+  const options = [{ value: "all", label: "全部服务商" }].concat(
+    providerIds.map((providerId) => ({
+      value: providerId,
+      label: displayAdminProvider(providerId, providerId)
+    }))
+  );
+  const requested = String(selectedValue || "all").trim() || "all";
+  const selected = options.some((item) => item.value === requested)
+    ? requested
+    : "all";
+  const index = Math.max(0, options.findIndex((item) => item.value === selected));
+  const sectionProviderId = (section) => providerIdFromDisplay(
+    form && form[section] && form[section].provider
+  );
+  const matches = (section) => selected === "all" || sectionProviderId(section) === selected;
+  return {
+    providerFilterOptions: options,
+    providerFilterValue: selected,
+    providerFilterIndex: index,
+    providerFilterLabel: options[index] && options[index].label || "全部服务商",
+    providerSectionVisibility: {
+      face: matches("face"),
+      analysis: matches("analysis"),
+      image: selected === "all"
+        || sectionProviderId("image") === selected
+        || sectionProviderId("imageBackup") === selected,
+      video: matches("video")
+    }
+  };
+}
+
+function filterAdminModelProbeResults(modelProbes, selectedValue = "all") {
+  const source = modelProbes && typeof modelProbes === "object"
+    ? modelProbes
+    : emptyModelProbes();
+  const results = (Array.isArray(source.results) ? source.results : []).map((item) => {
+    const providerId = providerIdFromDisplay(item && (item.providerId || item.provider));
+    return Object.assign({}, item, {
+      providerId,
+      provider: displayAdminProvider(providerId, "未填写")
+    });
+  });
+  const selected = String(selectedValue || "all").trim() || "all";
+  return Object.assign({}, source, {
+    results,
+    filteredResults: selected === "all"
+      ? results.slice()
+      : results.filter((item) => item.providerId === selected)
+  });
+}
+
+function buildAdminProviderManagementState(
+  form,
+  modelProbes,
+  selectedValue = "all",
+  errors = {}
+) {
+  const filterState = buildAdminProviderFilterState(form, selectedValue);
+  return Object.assign({
+    providerLabelRows: buildAdminProviderLabelRows(form, errors),
+    providerLabelErrors: Object.assign({}, errors),
+    modelProbes: filterAdminModelProbeResults(
+      modelProbes,
+      filterState.providerFilterValue
+    )
+  }, filterState);
+}
+
+function relabelAdminProviderForm(form, nextLabels, previousLabels = activeAdminProviderLabels) {
+  const source = form && typeof form === "object" ? form : {};
+  const providerIds = {};
+  ADMIN_PROVIDER_FORM_SECTIONS.forEach((section) => {
+    providerIds[section] = providerIdFromDisplay(
+      source[section] && source[section].provider,
+      previousLabels
+    );
+  });
+  const activeLabels = setActiveAdminProviderLabels(nextLabels);
+  const result = Object.assign({}, source, {
+    providerLabels: Object.assign({}, nextLabels)
+  });
+  ADMIN_PROVIDER_FORM_SECTIONS.forEach((section) => {
+    result[section] = Object.assign({}, source[section] || {}, {
+      provider: providerIds[section]
+        ? activeLabels[providerIds[section]] || providerIds[section]
+        : ""
+    });
+  });
+  return result;
 }
 
 function normalizeAdminImageProviderInput(value) {
@@ -470,6 +674,7 @@ function buildQualityPickerState(form, capabilityPayload = {}) {
 
 function emptyForm() {
   return {
+    providerLabels: Object.assign({}, ADMIN_PROVIDER_LABELS),
     face: {
       provider: "",
       baseUrl: "",
@@ -703,6 +908,7 @@ function formatCostDisplay(value) {
 }
 
 const CONFIG_SECTION_TITLES = Object.freeze({
+  providers: "服务商中文名称",
   face: "人脸识别模型",
   analysis: "图片分析模型",
   image: "生图模型",
@@ -1123,6 +1329,7 @@ function emptyModelProbes() {
     readyCount: 0,
     total: 4,
     results: [],
+    filteredResults: [],
     message: ""
   };
 }
@@ -2098,6 +2305,7 @@ function formatModelProbes(result, error = null) {
   const results = (Array.isArray(source.results) ? source.results : []).map((item) => ({
     type: item.type || "",
     typeLabel: item.typeLabel || usageTypeLabel(item.type),
+    providerId: providerIdFromDisplay(item.provider),
     provider: displayAdminProvider(item.provider, "未填写"),
     modelId: String(item.model || ""),
     model: displayModelName(item.model),
@@ -2138,6 +2346,7 @@ function formatModelProbes(result, error = null) {
     readyCount: normalizedReadyCount,
     total,
     results,
+    filteredResults: results.slice(),
     message: error && error.message || source.message || ""
   });
 }
@@ -2166,7 +2375,8 @@ function mergeSingleModelProbe(current, incoming, modelType) {
       : `${readyCount}/${total} 套正常`,
     readyCount,
     total,
-    results
+    results,
+    filteredResults: results.slice()
   });
 }
 
@@ -2945,6 +3155,7 @@ function buildEntryHealth(
 
 function formFromConfig(result) {
   const source = result && result.effective ? result.effective : {};
+  const providerLabels = setActiveAdminProviderLabels(source.providerLabels);
   const face = source.face || {};
   const analysis = source.analysis || {};
   const image = source.image || {};
@@ -2975,6 +3186,7 @@ function formFromConfig(result) {
   const videoCosts = costs.video || {};
   const generationQueue = source.generationQueue || {};
   return {
+    providerLabels,
     face: {
       provider: displayAdminProvider(face.provider),
       baseUrl: face.baseUrl || "",
@@ -3125,6 +3337,8 @@ function formFromConfig(result) {
 }
 
 function formToConfig(form) {
+  const providerLabels = providerLabelsFromForm(form);
+  setActiveAdminProviderLabels(providerLabels);
   const xingjuImagePrices = {
     "1K": adminCostText(form.costs.imageXingju1K),
     "2K": adminCostText(form.costs.imageXingju2K),
@@ -3139,6 +3353,7 @@ function formToConfig(form) {
     ? lingyunImagePrices
     : xingjuImagePrices;
   return {
+    providerLabels: providerLabelsFromForm(form),
     face: {
       provider: normalizeAdminProviderInput(form.face.provider),
       baseUrl: String(form.face.baseUrl || "").trim(),
@@ -3577,6 +3792,18 @@ Page({
     refreshingAll: false,
     isAdmin: false,
     form: emptyForm(),
+    providerLabelRows: buildAdminProviderLabelRows(emptyForm()),
+    providerLabelErrors: {},
+    providerFilterOptions: buildAdminProviderFilterState(emptyForm()).providerFilterOptions,
+    providerFilterValue: "all",
+    providerFilterIndex: 0,
+    providerFilterLabel: "全部服务商",
+    providerSectionVisibility: {
+      face: true,
+      analysis: true,
+      image: true,
+      video: true
+    },
     costFieldErrors: {},
     imageQualityOptions: buildAdminImageQualityOptions(
       emptyForm().costs,
@@ -4184,7 +4411,12 @@ Page({
         message: apiKeyResult.ok
           ? ""
           : "普通配置已读取，但完整 Key 读取失败，请刷新。"
-      }, buildQualityPickerState(form));
+      }, buildQualityPickerState(form), buildAdminProviderManagementState(
+        form,
+        this.data.modelProbes,
+        this.data.providerFilterValue,
+        {}
+      ));
       Object.assign(basePatch, this.buildAdminDerivedPatch(basePatch, moduleStates));
       this.setData(basePatch);
       diagnosticLog.info("admin", "config-loaded", "管理员配置读取完成", {
@@ -4922,7 +5154,12 @@ Page({
           costFieldErrors: {},
           defaults: result.defaults || null,
           effective: result.effective || null
-        }, buildQualityPickerState(form));
+        }, buildQualityPickerState(form), buildAdminProviderManagementState(
+          form,
+          this.data.modelProbes,
+          this.data.providerFilterValue,
+          {}
+        ));
         Object.assign(patch, this.buildAdminDerivedPatch(patch, this.data.moduleStates));
         this.setData(patch);
         if (!apiKeyResult.ok) {
@@ -5118,6 +5355,26 @@ Page({
     const patch = {
       [`form.${section}.${key}`]: value
     };
+    if (ADMIN_PROVIDER_FORM_SECTIONS.includes(section) && key === "provider") {
+      const nextForm = Object.assign({}, this.data.form, {
+        [section]: Object.assign({}, this.data.form[section], {
+          provider: value
+        })
+      });
+      Object.assign(patch, buildAdminProviderManagementState(
+        nextForm,
+        this.data.modelProbes,
+        this.data.providerFilterValue,
+        this.data.providerLabelErrors
+      ));
+      if (
+        ["face", "analysis", "image", "video"].includes(this.data.activeConfigSection)
+        && !patch.providerSectionVisibility[this.data.activeConfigSection]
+      ) {
+        patch.activeConfigSection = "";
+        patch.activeConfigTitle = "";
+      }
+    }
     if (section === "costs" && ADMIN_COST_KEYS.includes(key)) {
       patch[`costFieldErrors.${key}`] = validateAdminCostInput(value);
     }
@@ -5160,6 +5417,59 @@ Page({
       }));
     }
     this.setData(patch);
+  },
+
+  onProviderLabelInput(event) {
+    const providerId = String(
+      event && event.currentTarget && event.currentTarget.dataset.providerId || ""
+    ).trim();
+    if (!providerId || ADMIN_PROVIDER_DANGEROUS_KEYS.includes(providerId)) return;
+    const label = String(event && event.detail && event.detail.value || "");
+    const previousLabels = Object.assign({}, activeAdminProviderLabels);
+    const nextLabels = Object.assign(
+      {},
+      this.data.form && this.data.form.providerLabels || {},
+      { [providerId]: label }
+    );
+    const nextForm = relabelAdminProviderForm(
+      Object.assign({}, this.data.form, { providerLabels: nextLabels }),
+      nextLabels,
+      previousLabels
+    );
+    const providerLabelErrors = validateAdminProviderLabelRows(
+      buildAdminProviderLabelRows(nextForm)
+    );
+    const patch = Object.assign({
+      form: nextForm
+    }, buildQualityPickerState(nextForm), buildAdminProviderManagementState(
+      nextForm,
+      this.data.modelProbes,
+      this.data.providerFilterValue,
+      providerLabelErrors
+    ));
+    this.setData(patch);
+  },
+
+  onProviderFilterChange(event) {
+    const options = Array.isArray(this.data.providerFilterOptions)
+      ? this.data.providerFilterOptions
+      : [{ value: "all", label: "全部服务商" }];
+    const index = Math.max(0, Number(event && event.detail && event.detail.value) || 0);
+    const selected = options[index] && options[index].value || "all";
+    const patch = buildAdminProviderManagementState(
+      this.data.form,
+      this.data.modelProbes,
+      selected,
+      this.data.providerLabelErrors
+    );
+    if (
+      ["face", "analysis", "image", "video"].includes(this.data.activeConfigSection)
+      && !patch.providerSectionVisibility[this.data.activeConfigSection]
+    ) {
+      patch.activeConfigSection = "";
+      patch.activeConfigTitle = "";
+    }
+    this.setData(patch, () => this.persistMonitorLayout());
   },
 
   async loadTencentFaceFusionStatus(token = this._adminLoadToken || 0) {
@@ -5761,6 +6071,31 @@ Page({
 
   async saveConfig() {
     if (this.data.saving) return;
+    const providerLabelRows = buildAdminProviderLabelRows(this.data.form);
+    const providerLabelErrors = validateAdminProviderLabelRows(providerLabelRows);
+    const invalidProviderIds = Object.keys(providerLabelErrors);
+    if (invalidProviderIds.length) {
+      const firstProviderId = invalidProviderIds[0];
+      const message = providerLabelErrors[firstProviderId];
+      this.setData({
+        providerLabelRows: buildAdminProviderLabelRows(this.data.form, providerLabelErrors),
+        providerLabelErrors,
+        activeConfigSection: "providers",
+        activeConfigTitle: CONFIG_SECTION_TITLES.providers,
+        message,
+        providerErrorCode: ADMIN_PROVIDER_LABEL_REQUIRED
+      }, () => {
+        if (typeof wx.pageScrollTo === "function") {
+          wx.pageScrollTo({ selector: "#config-editor", duration: 220 });
+        }
+      });
+      wx.showModal({
+        title: "服务商中文名称未填写",
+        content: message,
+        showCancel: false
+      });
+      return;
+    }
     const costFieldErrors = validateAdminCostFields(this.data.form.costs);
     const invalidCostKeys = Object.keys(costFieldErrors);
     if (invalidCostKeys.length) {
@@ -5802,7 +6137,12 @@ Page({
         effective,
         saving: false,
         message: `配置已保存，第 ${result.version || 0} 版；正在自动测试四套模型和生图三档清晰度...`
-      }, buildQualityPickerState(form));
+      }, buildQualityPickerState(form), buildAdminProviderManagementState(
+        form,
+        this.data.modelProbes,
+        this.data.providerFilterValue,
+        {}
+      ));
       Object.assign(patch, this.buildAdminDerivedPatch(patch, this.data.moduleStates));
       this.setData(patch);
       diagnosticLog.info("admin", "config-saved", "管理员配置保存完成", {
@@ -6197,7 +6537,6 @@ Page({
       this.setData(Object.assign({
         modelProbing: false,
         modelProbingType: "",
-        modelProbes,
         modelCapabilityProfiles,
         imageQualityProbe: imageProbe && imageProbe.qualityProbe
           ? imageProbe.qualityProbe
@@ -6214,7 +6553,12 @@ Page({
           : modelProbes.readyCount === modelProbes.total
             ? `模型接口探测完成：${modelProbes.readyCount}/${modelProbes.total} 套正常。${qualitySummary}`
             : `模型接口探测完成：${modelProbes.readyCount}/${modelProbes.total} 套正常，失败项请按下方修复建议处理。${qualitySummary}`
-      }, pickerPatch));
+      }, buildAdminProviderManagementState(
+        this.data.form,
+        modelProbes,
+        this.data.providerFilterValue,
+        this.data.providerLabelErrors
+      ), pickerPatch));
       wx.showToast({
         title: modelType && target
           ? `${target.typeLabel}${target.statusText}`
@@ -6230,13 +6574,17 @@ Page({
       const modelProbes = modelType && formatted.results.length
         ? mergeSingleModelProbe(this.data.modelProbes, formatted, modelType)
         : this.data.modelProbes;
-      this.setData({
+      this.setData(Object.assign({
         modelProbing: false,
         modelProbingType: "",
-        modelProbes,
         monitorExpanded: true,
         message: `${typeLabel}接口探测失败，请查看结果说明。`
-      });
+      }, buildAdminProviderManagementState(
+        this.data.form,
+        modelProbes,
+        this.data.providerFilterValue,
+        this.data.providerLabelErrors
+      )));
       diagnosticLog.error(
         "admin",
         "model-probe-failed",

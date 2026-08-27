@@ -641,6 +641,24 @@ function Get-CloudBaseFunctionInvokePayload {
         if ($null -eq $current) {
             return $null
         }
+        $retMsgProperty = $current.PSObject.Properties["RetMsg"]
+        if ($null -eq $retMsgProperty) {
+            $retMsgProperty = $current.PSObject.Properties["retMsg"]
+        }
+        if (
+            $null -ne $retMsgProperty `
+            -and $retMsgProperty.Value -is [string]
+        ) {
+            $retMsg = ([string]$retMsgProperty.Value).Trim()
+            if ($retMsg.StartsWith("{") -or $retMsg.StartsWith("[")) {
+                try {
+                    return $retMsg | ConvertFrom-Json
+                }
+                catch {
+                    # 保留原对象，让上层断言给出统一的结构错误。
+                }
+            }
+        }
         if (
             $null -ne $current.PSObject.Properties["buildVersion"] `
             -or $null -ne $current.PSObject.Properties["active"] `

@@ -14,6 +14,8 @@ const adminWxss = fs.readFileSync(path.join(root, "pages", "admin", "admin.wxss"
   "setActiveAdminProviderLabels",
   "providerIdFromDisplay",
   "adminProviderIdsFromForm",
+  "adminProviderSortLabel",
+  "sortAdminProviderIds",
   "buildAdminProviderLabelRows",
   "validateAdminProviderLabelRows",
   "buildAdminProviderFilterState",
@@ -40,6 +42,9 @@ assert.ok(
 assert.ok(
   adminJs.includes("onProviderLabelInput(event)")
     && adminJs.includes("onProviderFilterChange(event)")
+    && adminJs.includes("ADMIN_BUILT_IN_PROVIDER_ORDER")
+    && adminJs.includes("providerFilterValue: storedProviderFilterValue")
+    && adminJs.includes("providerFilterValue: String(this.data.providerFilterValue")
     && adminJs.includes("ADMIN_PROVIDER_LABEL_REQUIRED")
     && adminJs.includes("还没有中文名称，请先填写")
     && adminJs.includes("providerLabels: providerLabelsFromForm(form)"),
@@ -59,6 +64,7 @@ assert.ok(
     && adminWxml.includes('class="quick-launch quick-providers')
     && adminWxml.includes('data-section="providers"')
     && adminWxml.includes("activeConfigSection === 'providers'")
+    && adminWxml.includes("下次打开会保留这次选择")
     && adminWxml.includes('wx:for="{{providerLabelRows}}"')
     && adminWxml.includes('bindinput="onProviderLabelInput"')
     && adminWxml.includes('data-provider-id="{{item.providerId}}"'),

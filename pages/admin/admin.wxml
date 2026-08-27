@@ -77,7 +77,7 @@
     <view class="provider-filter-panel">
       <view class="provider-filter-copy">
         <view class="provider-filter-title">按服务商筛选</view>
-        <view class="provider-filter-help">只切换页面显示，不会修改模型配置。</view>
+        <view class="provider-filter-help">只切换页面显示，不会修改模型配置；下次打开会保留这次选择。</view>
       </view>
       <picker
         mode="selector"

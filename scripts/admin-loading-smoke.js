@@ -18,6 +18,7 @@ const reLaunchCalls = [];
 const probeModelCalls = [];
 const listModelCalls = [];
 const imageEditProbeCalls = [];
+const localStorage = Object.create(null);
 
 const baseConfig = {
   effective: {
@@ -246,6 +247,12 @@ global.Page = (definition) => {
   pageDefinition = definition;
 };
 global.wx = {
+  getStorageSync(key) {
+    return localStorage[key];
+  },
+  setStorageSync(key, value) {
+    localStorage[key] = value;
+  },
   showModal(options) {
     modalCalls.push(options || {});
   },
@@ -420,7 +427,7 @@ async function main() {
   });
   assert.deepStrictEqual(
     page.data.providerLabelRows.map((item) => item.providerId),
-    ["dashscope", "lingyun", "xingju"]
+    ["xingju", "lingyun", "dashscope"]
   );
 
   page.onInput({
@@ -463,8 +470,36 @@ async function main() {
     page.data.form.providerLabels["custom-face-provider"],
     "自定义服务商"
   );
+  assert.deepStrictEqual(
+    page.data.providerLabelRows.map((item) => item.providerId),
+    ["xingju", "lingyun", "dashscope", "custom-face-provider"],
+    "内置服务商必须固定排前，自定义服务商按中文名称排在后面"
+  );
+  page.onInput({
+    currentTarget: { dataset: { section: "analysis", key: "provider" } },
+    detail: { value: "custom-alpha-provider" }
+  });
+  page.onProviderLabelInput({
+    currentTarget: { dataset: { providerId: "custom-alpha-provider" } },
+    detail: { value: "阿尔法服务商" }
+  });
+  assert.deepStrictEqual(
+    page.data.providerLabelRows.map((item) => item.providerId),
+    [
+      "xingju",
+      "lingyun",
+      "dashscope",
+      "custom-alpha-provider",
+      "custom-face-provider"
+    ],
+    "多个自定义服务商必须按中文名称排序"
+  );
   page.onInput({
     currentTarget: { dataset: { section: "face", key: "provider" } },
+    detail: { value: "dashscope" }
+  });
+  page.onInput({
+    currentTarget: { dataset: { section: "analysis", key: "provider" } },
     detail: { value: "dashscope" }
   });
   assert.strictEqual(page.data.form.face.provider, "阿里云百炼");
@@ -523,6 +558,11 @@ async function main() {
     (item) => item.value === "lingyun"
   );
   assert.ok(lingyunFilterIndex > 0, "筛选项缺少凌云");
+  assert.deepStrictEqual(
+    page.data.providerFilterOptions.map((item) => item.value),
+    ["all", "xingju", "lingyun", "dashscope"],
+    "服务商筛选项必须先显示内置服务商固定顺序"
+  );
   page.setData({
     activeConfigSection: "face",
     activeConfigTitle: "人脸识别模型"
@@ -537,6 +577,37 @@ async function main() {
   assert.deepStrictEqual(
     page.data.modelProbes.filteredResults.map((item) => item.providerId),
     ["lingyun"]
+  );
+  assert.strictEqual(
+    localStorage["admin-monitor-layout-v3"].providerFilterValue,
+    "lingyun",
+    "筛选服务商后必须保存到本地缓存"
+  );
+  const reopenedPage = createPageInstance();
+  reopenedPage.restoreMonitorLayout();
+  assert.strictEqual(
+    reopenedPage.data.providerFilterValue,
+    "lingyun",
+    "重新打开管理员页必须恢复上次服务商筛选"
+  );
+  localStorage["admin-monitor-layout-v3"] = Object.assign(
+    {},
+    localStorage["admin-monitor-layout-v3"],
+    { providerFilterValue: "removed-provider" }
+  );
+  const changedConfigPage = createPageInstance();
+  changedConfigPage.restoreMonitorLayout();
+  changedConfigPage.data.form = JSON.parse(JSON.stringify(page.data.form));
+  changedConfigPage.data.modelProbes = JSON.parse(JSON.stringify(page.data.modelProbes));
+  changedConfigPage.data.providerLabelErrors = {};
+  changedConfigPage.onProviderLabelInput({
+    currentTarget: { dataset: { providerId: "custom-face-provider" } },
+    detail: { value: "自定义服务商" }
+  });
+  assert.strictEqual(
+    changedConfigPage.data.providerFilterValue,
+    "all",
+    "服务商不存在或配置变化时必须回退到全部服务商"
   );
   page.onProviderFilterChange({ detail: { value: 0 } });
 

@@ -10,6 +10,10 @@ let probeCallCount = 0;
 let lastProbeModelConfig = null;
 let lastImageEditProbeConfig = null;
 let savedConfigPayload = null;
+let adminStatus = { isAdmin: true };
+let adminConfigCallCount = 0;
+const modalCalls = [];
+const reLaunchCalls = [];
 const probeModelCalls = [];
 const listModelCalls = [];
 const imageEditProbeCalls = [];
@@ -86,8 +90,11 @@ const delayedUsage = new Promise((resolve) => {
 
 const cloudMock = {
   isCloudReady: () => true,
-  getAdminStatus: async () => ({ isAdmin: true }),
-  getAdminConfig: async () => baseConfig,
+  getAdminStatus: async () => Object.assign({}, adminStatus),
+  getAdminConfig: async () => {
+    adminConfigCallCount += 1;
+    return baseConfig;
+  },
   getAdminImageApiKeys: async () => ({
     image: { apiKey: "image-key" },
     imageBackup: { apiKey: "image-backup-key" }
@@ -231,9 +238,13 @@ global.Page = (definition) => {
   pageDefinition = definition;
 };
 global.wx = {
-  showModal() {},
+  showModal(options) {
+    modalCalls.push(options || {});
+  },
   showToast() {},
-  reLaunch() {},
+  reLaunch(options) {
+    reLaunchCalls.push(options || {});
+  },
   stopPullDownRefresh() {}
 };
 
@@ -267,6 +278,60 @@ function createPageInstance() {
 }
 
 async function main() {
+  adminStatus = {
+    ok: false,
+    isAdmin: false,
+    unavailable: true,
+    errorCode: "CLOUD_FUNCTION_UNAVAILABLE"
+  };
+  const unavailablePage = createPageInstance();
+  await unavailablePage.loadAdminPage();
+  assert.strictEqual(unavailablePage.data.loading, false);
+  assert.strictEqual(unavailablePage.data.isAdmin, false);
+  assert.strictEqual(unavailablePage.data.canRetry, true);
+  assert.ok(unavailablePage.data.message.includes("管理员服务暂时不可用"));
+  assert.strictEqual(modalCalls.length, 0, "服务不可用时不能误弹无权访问");
+  assert.strictEqual(reLaunchCalls.length, 0, "服务不可用时不能跳回工作台");
+  assert.strictEqual(adminConfigCallCount, 0, "服务不可用时不能继续读取管理员配置");
+
+  adminStatus = {
+    ok: true,
+    isAdmin: false,
+    identityHash: ""
+  };
+  const identityUnavailablePage = createPageInstance();
+  await identityUnavailablePage.loadAdminPage();
+  assert.strictEqual(identityUnavailablePage.data.loading, false);
+  assert.strictEqual(identityUnavailablePage.data.isAdmin, false);
+  assert.strictEqual(identityUnavailablePage.data.canRetry, true);
+  assert.ok(identityUnavailablePage.data.message.includes("无法识别微信身份"));
+  assert.strictEqual(modalCalls.length, 0, "身份无法识别时不能误弹无权访问");
+  assert.strictEqual(reLaunchCalls.length, 0, "身份无法识别时不能跳回工作台");
+  assert.strictEqual(adminConfigCallCount, 0, "身份无法识别时不能继续读取管理员配置");
+
+  adminStatus = {
+    ok: true,
+    isAdmin: false,
+    identityHash: "admin-user-hash"
+  };
+  const forbiddenPage = createPageInstance();
+  await forbiddenPage.loadAdminPage();
+  assert.strictEqual(forbiddenPage.data.loading, false);
+  assert.strictEqual(forbiddenPage.data.isAdmin, false);
+  assert.strictEqual(forbiddenPage.data.canRetry, false);
+  assert.ok(forbiddenPage.data.message.includes("admin-user-hash"));
+  assert.strictEqual(modalCalls.length, 1, "明确不在白名单时必须弹无权访问");
+  assert.strictEqual(modalCalls[0].title, "无权访问");
+  assert.ok(modalCalls[0].content.includes("admin-user-hash"));
+  assert.strictEqual(reLaunchCalls.length, 0);
+  modalCalls[0].success();
+  assert.strictEqual(reLaunchCalls.length, 1, "确认无权访问提示后必须返回工作台");
+  assert.strictEqual(reLaunchCalls[0].url, "/pages/workbench/workbench");
+  assert.strictEqual(adminConfigCallCount, 0, "无权限时不能继续读取管理员配置");
+
+  modalCalls.length = 0;
+  reLaunchCalls.length = 0;
+  adminStatus = { ok: true, isAdmin: true };
   const page = createPageInstance();
   await page.loadAdminPage();
 
@@ -275,6 +340,7 @@ async function main() {
   assert.strictEqual(page.data.moduleStates.usage.status, "loading");
   assert.strictEqual(page.data.todayFailureText, "读取中");
   assert.strictEqual(page.data.usageStats.today.total, 0);
+  assert.strictEqual(adminConfigCallCount, 1, "只有确认管理员身份后才能读取配置");
 
   usageResolve({
     todayKey: "2026-08-24",

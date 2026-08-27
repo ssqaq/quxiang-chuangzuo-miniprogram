@@ -4104,11 +4104,46 @@ Page({
         "管理员权限"
       );
       if (!this.isCurrentAdminLoad(token)) return;
+      if (status && status.unavailable) {
+        this.setData({
+          loading: false,
+          isAdmin: false,
+          canRetry: true,
+          todayFailureText: "读取失败",
+          message: "管理员服务暂时不可用，请稍后点击重新读取。"
+        });
+        diagnosticLog.warn(
+          "admin",
+          "status-unavailable",
+          "管理员状态服务暂时不可用",
+          {
+            requestId: String(status.requestId || ""),
+            code: String(status.errorCode || status.code || "")
+          }
+        );
+        return;
+      }
       if (!status || !status.isAdmin) {
         const identityHash = String(status && status.identityHash || "").trim();
-        const message = identityHash
-          ? `当前账号没有管理员权限。请把识别码 ${identityHash} 加入 ADMIN_OPENIDS，保存云函数环境变量后重新编译。`
-          : "当前账号没有管理员权限。";
+        if (!identityHash) {
+          this.setData({
+            loading: false,
+            isAdmin: false,
+            canRetry: true,
+            todayFailureText: "读取失败",
+            message: "暂时无法识别微信身份，请点击重新读取。"
+          });
+          diagnosticLog.warn(
+            "admin",
+            "identity-unavailable",
+            "管理员状态未返回微信身份识别码",
+            {
+              requestId: String(status && status.requestId || "")
+            }
+          );
+          return;
+        }
+        const message = `当前账号没有管理员权限。请把识别码 ${identityHash} 加入 ADMIN_OPENIDS，保存云函数环境变量后重新编译。`;
         this.setData({
           loading: false,
           isAdmin: false,
@@ -4117,9 +4152,7 @@ Page({
         });
         wx.showModal({
           title: "无权访问",
-          content: identityHash
-            ? `当前账号不在白名单中。\n识别码：${identityHash}\n请把识别码加入 ADMIN_OPENIDS 后重试。`
-            : "当前微信账号不在管理员白名单中。",
+          content: `当前账号不在白名单中。\n识别码：${identityHash}\n请把识别码加入 ADMIN_OPENIDS 后重试。`,
           showCancel: false,
           success: () => wx.reLaunch({ url: "/pages/workbench/workbench" })
         });

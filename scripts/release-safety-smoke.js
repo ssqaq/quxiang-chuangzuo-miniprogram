@@ -7,6 +7,7 @@ const cp = require("child_process");
 
 const root = path.resolve(__dirname, "..");
 const syncScript = path.join(root, "scripts", "sync-to-github.ps1");
+const releaseLockScript = path.join(root, "scripts", "release-lock.ps1");
 const versionScript = path.join(root, "scripts", "release-version.ps1");
 const versionConcurrencySmoke = path.join(root, "scripts", "version-concurrency-smoke.js");
 const packageScript = path.join(root, "scripts", "package-release.py");
@@ -41,7 +42,7 @@ function assertFileIncludes(file, text, label) {
 function testStaticContracts() {
   const syncContent = fs.readFileSync(syncScript, "utf8");
   assertFileIncludes(syncScript, "[string[]]$IncludePath", "同步脚本参数");
-  assertFileIncludes(syncScript, "FileShare]::None", "发布锁");
+  assertFileIncludes(releaseLockScript, "FileShare]::None", "发布锁");
   assertFileIncludes(syncScript, "write-tree", "Git tree 校验");
   assertFileIncludes(syncScript, "Assert-FileSnapshotStable", "SHA/工作区校验");
   assertFileIncludes(syncScript, "Get-WorktreeSignature", "工作区指纹校验");
@@ -250,6 +251,7 @@ function testWorktreeCannotPublishMain() {
     const worktreeScript = path.join(worktreeRoot, "scripts", "sync-to-github.ps1");
     fs.mkdirSync(path.dirname(worktreeScript), { recursive: true });
     fs.copyFileSync(syncScript, worktreeScript);
+    fs.copyFileSync(releaseLockScript, path.join(worktreeRoot, "scripts", "release-lock.ps1"));
     const result = run(
       "pwsh",
       [

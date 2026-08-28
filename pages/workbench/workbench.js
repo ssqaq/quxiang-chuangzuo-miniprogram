@@ -342,6 +342,7 @@ Page({
     try {
       const result = await cloud.getAdminStatus();
       if (result && result.unavailable) {
+        this.setData({ adminVisible: false });
         this.scheduleAdminAccessRetry(attempt);
         return;
       }
@@ -353,6 +354,7 @@ Page({
         adminEntryVisible: isPreviewEnvironment() || adminVisible
       });
     } catch (error) {
+      this.setData({ adminVisible: false });
       this.scheduleAdminAccessRetry(attempt);
       diagnosticLog.warn("admin", "status-failed", "管理员入口状态读取失败", { error });
     }

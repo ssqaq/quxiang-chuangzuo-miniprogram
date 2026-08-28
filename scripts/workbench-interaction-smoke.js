@@ -154,6 +154,11 @@ async function main() {
     true,
     "权限检查失败时不能把预览版管理员入口隐藏"
   );
+  assert.strictEqual(
+    page.data.adminVisible,
+    false,
+    "权限检查失败时腾讯版入口必须默认隐藏"
+  );
   cloudService.getAdminStatus = () => Promise.resolve({ isAdmin: true });
   await page.refreshAdminAccess();
   assert.strictEqual(page.data.adminVisible, true);

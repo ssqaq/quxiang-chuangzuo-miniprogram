@@ -26,7 +26,7 @@ function providerConfig(endpoint) {
       provider: "xingju",
       baseUrl: endpoint.replace(/\/images\/edits$/, ""),
       endpoint,
-      model: "jw-gpt-image-2",
+      model: "jw-wy-gpt-image-2",
       mode: "edits",
       compatibilityMode: true,
       timeoutMs: 5000,

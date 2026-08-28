@@ -127,9 +127,15 @@ function createGenerationExecutionKernel(services = {}) {
         "missing-edit-asset"
       );
     }
+    const imageBackupUsable = Boolean(
+      imageBackupConfig.enabled
+      && imageBackupConfig.apiKey
+      && (imageBackupConfig.baseUrl || imageBackupConfig.endpoint)
+      && imageBackupConfig.model
+    );
     if (
       mode === "edits"
-        ? !imageConfig.apiKey && !imageBackupConfig.apiKey
+        ? !imageConfig.apiKey && !imageBackupUsable
         : !imageConfig.apiKey
     ) {
       return failResponse(
@@ -201,7 +207,9 @@ function createGenerationExecutionKernel(services = {}) {
     if (mode === "edits") {
       const initialEditConfig = imageConfig.apiKey
         ? imageConfig
-        : imageBackupConfig;
+        : imageBackupUsable
+          ? imageBackupConfig
+          : imageConfig;
       const editEndpoint = resolveEditEndpoint(initialEditConfig);
       assertEditFlow(initialEditConfig, editEndpoint.url);
     }

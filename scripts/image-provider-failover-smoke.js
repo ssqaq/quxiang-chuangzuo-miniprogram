@@ -65,7 +65,7 @@ async function main() {
   const primaryDefaults = test.resolveImageConfig({
     provider: "xingju",
     baseUrl: "https://newapi.akiyo.fun/v1",
-    model: "jw-gpt-image-2",
+    model: "jw-wy-gpt-image-2",
     mode: "edits",
     timeoutMs: 150000,
     maxRetries: 1,
@@ -80,7 +80,7 @@ async function main() {
     timeoutMs: 150000
   });
   assert.strictEqual(primaryDefaults.provider, "xingju");
-  assert.strictEqual(primaryDefaults.model, "jw-gpt-image-2");
+  assert.strictEqual(primaryDefaults.model, "jw-wy-gpt-image-2");
   assert.strictEqual(primaryDefaults.timeoutMs, 150000);
   assert.strictEqual(primaryDefaults.maxRetries, 1);
   assert.strictEqual(backupDefaults.provider, "lingyun");
@@ -146,7 +146,7 @@ async function main() {
   );
   assert.strictEqual(migrated.migrated, true);
   assert.strictEqual(migrated.value.image.provider, "xingju");
-  assert.strictEqual(migrated.value.image.model, "jw-gpt-image-2");
+  assert.strictEqual(migrated.value.image.model, "jw-wy-gpt-image-2");
   assert.strictEqual(migrated.value.imageBackup.provider, "lingyun");
   assert.strictEqual(migrated.value.imageBackup.model, "gpt-image-2");
   assert.strictEqual(
@@ -190,7 +190,7 @@ async function main() {
       baseUrl: `${url}/v1`,
       endpoint: `${url}/v1/images/edits`,
       apiKey: "test-token",
-      model: "jw-gpt-image-2",
+      model: "jw-wy-gpt-image-2",
       mode: "edits",
       timeoutMs: 5000,
       maxRetries: 1,
@@ -262,7 +262,7 @@ async function main() {
     (request) => JSON.parse(request.body.toString("utf8"))
   );
   primaryBodies.forEach((body) => {
-    assert.strictEqual(body.model, "jw-gpt-image-2");
+    assert.strictEqual(body.model, "jw-wy-gpt-image-2");
     assert.strictEqual(body.images.length, 1);
     assert.ok(body.images[0].image_url.startsWith("data:image/png;base64,"));
     assert.ok(body.mask.image_url.startsWith("data:image/png;base64,"));

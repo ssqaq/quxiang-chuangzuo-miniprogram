@@ -17,7 +17,7 @@ const baseConfig = {
     analysis: { provider: "analysis", model: "analysis", apiKey: "analysis-key", apiKeyConfigured: true },
     image: {
       provider: "xingju",
-      model: "jw-gpt-image-2",
+      model: "jw-wy-gpt-image-2",
       apiKey: "image-key",
       apiKeyConfigured: true,
       mode: "images"

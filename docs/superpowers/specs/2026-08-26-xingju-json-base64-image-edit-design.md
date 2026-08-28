@@ -2,11 +2,11 @@
 
 ## 目标
 
-让星炬 `jw-gpt-image-2` 稳定接入现有图片编辑主备流程，并继续保证普通版红圈外像素不变、腾讯版第一阶段脸部保护区不被图片模型重画。
+让星炬 `jw-wy-gpt-image-2` 稳定接入现有图片编辑主备流程，并继续保证普通版红圈外像素不变、腾讯版第一阶段脸部保护区不被图片模型重画。
 
 ## 请求协议
 
-- 星炬 `jw-gpt-image-2` 固定走 `application/json`。
+- 星炬 `jw-wy-gpt-image-2` 固定走 `application/json`。
 - 主图和参考图放入 `images[].image_url`，内容为 Data URL。
 - mask 放入 `mask.image_url`，内容为 Data URL。
 - 星炬固定发送 `response_format: "b64_json"` 和 `output_format: "png"`。

@@ -273,7 +273,7 @@
           <view class="config-editor-focus-help">下面的修改只作用于这一项</view>
         </view>
         <view class="config-editor-body">
-          <view class="config-helper">API Key 只在服务端保存，页面不会回显真实内容；输入框留空并保存，会继续使用原来的密钥。</view>
+          <view class="config-helper">管理员页面会显示所选服务商实际保存的完整 API Key；输入框留空并保存，会继续使用原来的密钥。</view>
           <view class="config-helper">切换服务商只修改当前页面草稿，点击“保存全部配置”后才写入云端。</view>
           <view class="config-helper">测试使用当前已保存的服务商配置；修改参数后请先保存。</view>
           <view class="config-model-actions">
@@ -310,6 +310,7 @@
             </view>
             <view class="admin-field"><text>使用的模型</text><input value="{{form.face.model}}" data-section="face" data-key="model" bindinput="onInput" /></view>
             <view class="admin-field admin-field-wide"><text>接口地址</text><input value="{{form.face.baseUrl}}" data-section="face" data-key="baseUrl" bindinput="onInput" /></view>
+            <view class="admin-field admin-field-wide"><text>请求路径（可留空）</text><input value="{{form.face.endpoint}}" data-section="face" data-key="endpoint" placeholder="留空使用服务商默认路径" bindinput="onInput" /></view>
             <view class="admin-field admin-field-wide admin-api-key-field">
               <view class="admin-field-label-row">
                 <text>API Key</text>
@@ -380,7 +381,7 @@
           <view class="config-editor-focus-help">下面的修改只作用于这一项</view>
         </view>
         <view class="config-editor-body">
-          <view class="config-helper">图片分析模型独立保存服务商、接口地址、API Key、使用的模型和超时；真实 Key 不会回显，留空保存会继续使用原来的密钥。</view>
+          <view class="config-helper">图片分析模型独立保存服务商、接口地址、请求路径、API Key、使用的模型和超时；管理员页面显示所选服务商实际保存的完整 Key。</view>
           <view class="config-helper">切换服务商只修改当前页面草稿，点击“保存全部配置”后才写入云端。</view>
           <view class="config-helper">测试使用当前已保存的服务商配置；修改参数后请先保存。</view>
           <view class="config-editor-tools config-model-actions">
@@ -424,6 +425,7 @@
             </view>
             <view class="admin-field"><text>使用的模型</text><input value="{{form.analysis.model}}" data-section="analysis" data-key="model" bindinput="onInput" /></view>
             <view class="admin-field admin-field-wide"><text>接口地址</text><input value="{{form.analysis.baseUrl}}" data-section="analysis" data-key="baseUrl" bindinput="onInput" /></view>
+            <view class="admin-field admin-field-wide"><text>请求路径（可留空）</text><input value="{{form.analysis.endpoint}}" data-section="analysis" data-key="endpoint" placeholder="留空使用服务商默认路径" bindinput="onInput" /></view>
             <view class="admin-field admin-field-wide admin-api-key-field">
               <view class="admin-field-label-row">
                 <text>API Key</text>
@@ -511,6 +513,110 @@
             >腾讯融合</view>
           </view>
           <view wx:if="{{tencentImageTab === 'image'}}" class="tencent-image-tab-panel">
+          <view class="image-wizard-intro">
+            <view class="image-wizard-kicker">图片服务商设置</view>
+            <view class="image-wizard-title">按 4 步完成主备配置</view>
+            <view class="image-wizard-subtitle">先配主模型；备用模型可选。保存前会保留已有 Key 和参数。</view>
+          </view>
+          <view class="image-wizard-progress">
+            <view class="image-wizard-progress-item {{imageWizardStep >= 1 ? 'is-active' : ''}}"><text>1</text><label>主模型</label></view>
+            <view class="image-wizard-progress-line {{imageWizardStep >= 2 ? 'is-active' : ''}}"></view>
+            <view class="image-wizard-progress-item {{imageWizardStep >= 2 ? 'is-active' : ''}}"><text>2</text><label>备用模型</label></view>
+            <view class="image-wizard-progress-line {{imageWizardStep >= 3 ? 'is-active' : ''}}"></view>
+            <view class="image-wizard-progress-item {{imageWizardStep >= 3 ? 'is-active' : ''}}"><text>3</text><label>图片参数</label></view>
+            <view class="image-wizard-progress-line {{imageWizardStep >= 4 ? 'is-active' : ''}}"></view>
+            <view class="image-wizard-progress-item {{imageWizardStep >= 4 ? 'is-active' : ''}}"><text>4</text><label>测试保存</label></view>
+          </view>
+
+          <view wx:if="{{imageWizardStep === 1}}" class="image-wizard-step">
+            <view class="image-wizard-step-head">
+              <view><view class="image-wizard-step-title">第 1 步：选择主模型</view><view class="image-wizard-step-desc">正常情况下优先使用主模型。</view></view>
+              <view class="image-provider-role-badge is-primary">主用</view>
+            </view>
+            <view class="image-wizard-status-card is-primary">
+              <view class="image-wizard-status-dot {{form.image.apiKey && form.image.model ? 'is-ready' : ''}}"></view>
+              <view><view class="image-wizard-status-title">{{form.image.provider || '还没有选择服务商'}}</view><view class="image-wizard-status-desc">{{form.image.model || '请选择模型'}} · {{form.image.apiKey ? 'API Key 已填写' : '需要填写 API Key'}}</view></view>
+            </view>
+            <view class="admin-field">
+              <text>主模型服务商</text>
+              <picker mode="selector" range="{{imageProviderProfileOptions}}" range-key="label" value="{{imageProviderProfileIndex}}" data-section="image" bindchange="onProviderProfileChange">
+                <view class="admin-picker">{{imageProviderProfileOptions[imageProviderProfileIndex].label}}</view>
+              </picker>
+            </view>
+            <view class="admin-field"><text>模型名称</text><input value="{{form.image.model}}" data-section="image" data-key="model" placeholder="例如 jw-wy-gpt-image-2" bindinput="onInput" /></view>
+            <view class="admin-field"><text>接口地址</text><input value="{{form.image.baseUrl}}" data-section="image" placeholder="例如 https://api.example.com/v1" data-key="baseUrl" bindinput="onInput" /></view>
+            <view class="admin-field admin-api-key-field">
+              <view class="admin-field-label-row"><text>API Key</text><text class="api-key-config-state {{form.image.apiKey ? 'is-ready' : 'is-off'}}">{{form.image.apiKey ? '已填写' : '未配置'}}</text></view>
+              <input value="{{form.image.apiKey}}" data-section="image" data-key="apiKey" placeholder="请输入主模型 API Key" bindinput="onInput" />
+            </view>
+          </view>
+
+          <view wx:if="{{imageWizardStep === 2}}" class="image-wizard-step">
+            <view class="image-wizard-step-head">
+              <view><view class="image-wizard-step-title">第 2 步：要不要启用备用？</view><view class="image-wizard-step-desc">主模型暂时失败时，系统才会切换到备用。不开启不会调用备用。</view></view>
+            </view>
+            <label class="image-wizard-switch-row">
+              <view><view class="image-wizard-switch-title">启用备用图片模型</view><view class="image-wizard-switch-desc">建议备用服务商和主模型使用不同线路。</view></view>
+              <switch checked="{{form.imageBackup.enabled}}" color="#2376d8" bindchange="onImageBackupEnabledChange"></switch>
+            </label>
+            <view wx:if="{{form.imageBackup.enabled}}" class="image-wizard-backup-box">
+              <view class="image-wizard-status-card is-backup">
+                <view class="image-wizard-status-dot {{form.imageBackup.apiKey && form.imageBackup.model ? 'is-ready' : ''}}"></view>
+                <view><view class="image-wizard-status-title">备用：{{form.imageBackup.provider || '还没有选择服务商'}}</view><view class="image-wizard-status-desc">{{form.imageBackup.model || '请选择模型'}} · {{form.imageBackup.apiKey ? 'API Key 已填写' : '需要填写 API Key'}}</view></view>
+              </view>
+              <view class="admin-field">
+                <text>备用服务商</text>
+                <picker mode="selector" range="{{imageBackupProviderProfileOptions}}" range-key="label" value="{{imageBackupProviderProfileIndex}}" data-section="imageBackup" bindchange="onProviderProfileChange">
+                  <view class="admin-picker">{{imageBackupProviderProfileOptions[imageBackupProviderProfileIndex].label}}</view>
+                </picker>
+              </view>
+              <view class="admin-field"><text>备用模型</text><input value="{{form.imageBackup.model}}" data-section="imageBackup" data-key="model" placeholder="例如 gpt-image-2" bindinput="onInput" /></view>
+              <view class="admin-field"><text>备用接口地址</text><input value="{{form.imageBackup.baseUrl}}" data-section="imageBackup" data-key="baseUrl" placeholder="例如 https://api.example.com/v1" bindinput="onInput" /></view>
+              <view class="admin-field admin-api-key-field">
+                <view class="admin-field-label-row"><text>备用 API Key</text><text class="api-key-config-state {{form.imageBackup.apiKey ? 'is-ready' : 'is-off'}}">{{form.imageBackup.apiKey ? '已填写' : '未配置'}}</text></view>
+                <input value="{{form.imageBackup.apiKey}}" data-section="imageBackup" data-key="apiKey" placeholder="请输入备用模型 API Key" bindinput="onInput" />
+              </view>
+            </view>
+            <view wx:else class="image-wizard-disabled-note">当前只使用主模型。以后需要备用时，重新打开这里即可，不会丢掉已保存的备用参数。</view>
+          </view>
+
+          <view wx:if="{{imageWizardStep === 3}}" class="image-wizard-step">
+            <view class="image-wizard-step-head"><view><view class="image-wizard-step-title">第 3 步：设置图片参数</view><view class="image-wizard-step-desc">这些是最常用的参数，其他接口细节放在下方高级设置。</view></view></view>
+            <view class="image-wizard-param-grid">
+              <view class="admin-field"><text>清晰度</text><picker mode="selector" range="{{imageQualityOptions}}" range-key="label" value="{{imageQualityIndex}}" bindchange="onImageQualityChange"><view class="admin-picker">{{imageQualityOptions[imageQualityIndex].label}}</view></picker></view>
+              <view class="admin-field"><text>尺寸比例</text><picker mode="selector" range="{{imageSizeOptions}}" range-key="label" value="{{imageSizeIndex}}" bindchange="onImageSizeChange"><view class="admin-picker">{{imageSizeOptions[imageSizeIndex].label}}</view></picker></view>
+            </view>
+            <view class="image-wizard-summary-row"><text>主模型</text><text>{{form.image.provider}} · {{form.image.model}}</text></view>
+            <view wx:if="{{form.imageBackup.enabled}}" class="image-wizard-summary-row is-backup"><text>备用模型</text><text>{{form.imageBackup.provider}} · {{form.imageBackup.model}}</text></view>
+            <view class="image-wizard-tip">当前清晰度：{{form.image.resolution}}；尺寸：{{form.image.size}}。主备会分别保存各自参数。</view>
+          </view>
+
+          <view wx:if="{{imageWizardStep === 4}}" class="image-wizard-step">
+            <view class="image-wizard-step-head"><view><view class="image-wizard-step-title">第 4 步：测试并保存</view><view class="image-wizard-step-desc">主模型失败后自动再试几次？范围 0～5 次。0 表示不重试。</view></view></view>
+            <view class="image-wizard-retry-card">
+              <view class="image-wizard-retry-copy"><text>主模型重试次数</text><text>每次失败最多再请求一次主模型</text></view>
+              <input class="image-wizard-retry-input" type="number" min="0" max="5" value="{{form.image.maxRetries}}" data-section="image" data-key="maxRetries" bindinput="onInput" />
+              <text class="image-wizard-retry-unit">次</text>
+            </view>
+            <view class="image-wizard-run-summary">
+              <view><text>主模型</text><text>{{form.image.provider || '未选择'}} · {{form.image.model || '未填写'}}</text></view>
+              <view><text>备用模型</text><text>{{form.imageBackup.enabled ? form.imageBackup.provider + ' · ' + form.imageBackup.model : '未启用'}}</text></view>
+              <view><text>执行顺序</text><text>主模型失败 → 重试 {{form.image.maxRetries || 0 }} 次 → {{form.imageBackup.enabled ? '切换备用一次' : '结束'}}</text></view>
+            </view>
+            <view class="config-model-actions image-wizard-actions">
+              <view class="config-model-button config-model-test" data-model-type="image" data-model-config="image" bindtap="testModelConnection" role="button">{{modelActionType === 'image' && modelActionTarget === 'image' && modelActionKind === 'test' ? '测试中...' : '测试主模型'}}</view>
+              <view wx:if="{{form.imageBackup.enabled}}" class="config-model-button config-model-test" data-model-type="image" data-model-config="imageBackup" bindtap="testModelConnection" role="button">{{modelActionType === 'image' && modelActionTarget === 'imageBackup' && modelActionKind === 'test' ? '测试中...' : '测试备用'}}</view>
+              <view class="config-model-button config-model-list" bindtap="saveConfig" role="button">{{saving ? '保存中...' : '保存全部配置'}}</view>
+            </view>
+          </view>
+
+          <view class="image-wizard-nav">
+            <view wx:if="{{imageWizardStep > 1}}" class="image-wizard-nav-button is-ghost" bindtap="onImageWizardPrev" role="button">上一步</view>
+            <view wx:if="{{imageWizardStep < 4}}" class="image-wizard-nav-button is-primary" bindtap="onImageWizardNext" role="button">下一步</view>
+            <view class="image-wizard-advanced-toggle" bindtap="toggleImageAdvancedSettings" role="button">{{imageWizardAdvancedOpen ? '收起高级设置' : '查看高级设置'}}</view>
+          </view>
+
+          <view wx:if="{{imageWizardAdvancedOpen}}" class="image-advanced-settings">
           <view class="config-helper">管理员页面会显示所选服务商的完整 API Key；修改后点击“保存全部配置”才会生效。</view>
           <view class="config-helper">切换服务商只修改当前页面草稿，点击“保存全部配置”后才写入云端。</view>
           <view class="config-helper">测试使用当前已保存的服务商配置；修改参数后请先保存。</view>
@@ -575,7 +681,7 @@
           <view class="image-provider-section-head">
             <view>
               <view class="image-provider-section-title">主模型：{{form.image.provider || '未配置'}} {{form.image.model || '未配置'}}</view>
-              <view class="image-provider-section-desc">{{imagePricingNotice}} 单次最多等 150 秒；临时失败后自动再试 1 次。</view>
+              <view class="image-provider-section-desc">{{imagePricingNotice}} 单次最多等 150 秒；临时失败后按上面的重试次数处理。</view>
             </view>
             <view class="image-provider-role-badge is-primary">主用</view>
           </view>
@@ -604,7 +710,7 @@
               <input value="{{form.image.apiKey}}" data-section="image" data-key="apiKey" placeholder="请填写星炬 API Key" bindinput="onInput" />
               <view class="api-key-field-tip">当前显示云端实际生效的完整 Key；修改后点击“保存全部配置”才会生效。</view>
             </view>
-            <view class="admin-field"><text>模式</text><input disabled value="图片编辑模式" /></view>
+            <view class="admin-field"><text>模式</text><input value="{{form.image.mode}}" data-section="image" data-key="mode" placeholder="例如 edits" bindinput="onInput" /></view>
           <view class="admin-field">
             <text>清晰度（价格/张）</text>
             <picker
@@ -640,13 +746,13 @@
           <view class="config-helper admin-quality-compat-help">默认发送 quality=auto；如果上游报“参数不支持”，打开这个模式后再保存。</view>
           <label class="admin-checkbox-row">
             <checkbox disabled value="enabled" checked="{{true}}" color="#245fd4"></checkbox>
-            <text>主模型失败后自动重试 1 次</text>
+            <text>主模型失败后自动重试 {{form.image.maxRetries || 0}} 次</text>
           </label>
           <view class="image-provider-divider"></view>
           <view class="image-provider-section-head">
             <view>
               <view class="image-provider-section-title">备用模型：{{form.imageBackup.provider || '未配置'}} {{form.imageBackup.model || '未配置'}}</view>
-              <view class="image-provider-section-desc">{{imageBackupPricingNotice}} 主模型两次都没成功后才调用 1 次，不在底层重复重试。</view>
+              <view class="image-provider-section-desc">{{imageBackupPricingNotice}} 只有主模型失败后才调用一次。</view>
             </view>
             <view class="image-provider-role-badge is-backup">备用</view>
           </view>
@@ -762,7 +868,8 @@
             <view class="admin-field"><text>超时毫秒</text><input type="number" value="{{form.imageBackup.timeoutMs}}" data-section="imageBackup" data-key="timeoutMs" bindinput="onInput" /></view>
             <view class="admin-field"><text>备用调用次数</text><input disabled type="number" value="1" /></view>
           </view>
-          <view class="config-helper">固定顺序：{{form.image.provider || '主模型'}}第 1 次 → {{form.image.provider || '主模型'}}第 2 次 → {{form.imageBackup.provider || '备用模型'}}第 1 次。主模型和备用模型的模式、尺寸比例、清晰度、超时分别保存；普通版仍是一次请求同时改脸、衣服、背景和光影；腾讯版第一步一次改衣服、背景和光影，第二步腾讯换脸。</view>
+          <view class="config-helper">执行顺序：主模型先尝试，失败后按重试次数继续；仍失败且备用已启用时才切换备用一次。主备的模式、尺寸比例、清晰度和超时分别保存。</view>
+          </view>
           </view>
 
           <view wx:if="{{tencentImageTab === 'fusion'}}" class="tencent-fusion-tab-panel">
@@ -913,6 +1020,8 @@
             </view>
             <view class="admin-field"><text>使用的模型</text><input value="{{form.video.model}}" data-section="video" data-key="model" bindinput="onInput" /></view>
             <view class="admin-field admin-field-wide"><text>接口地址</text><input value="{{form.video.baseUrl}}" data-section="video" data-key="baseUrl" bindinput="onInput" /></view>
+            <view class="admin-field admin-field-wide"><text>请求接口（可留空）</text><input value="{{form.video.endpoint}}" data-section="video" data-key="endpoint" placeholder="留空使用创建路径" bindinput="onInput" /></view>
+            <view class="admin-field admin-field-wide"><text>查询接口（可留空）</text><input value="{{form.video.queryEndpoint}}" data-section="video" data-key="queryEndpoint" placeholder="留空使用查询路径" bindinput="onInput" /></view>
             <view class="admin-field admin-field-wide admin-api-key-field">
               <view class="admin-field-label-row">
                 <text>API Key</text>
@@ -985,6 +1094,8 @@
             </view>
             <view wx:if="{{form.videoBackup.provider}}" class="admin-field"><text>使用的模型</text><input value="{{form.videoBackup.model}}" data-section="videoBackup" data-key="model" bindinput="onInput" /></view>
             <view wx:if="{{form.videoBackup.provider}}" class="admin-field admin-field-wide"><text>接口地址</text><input value="{{form.videoBackup.baseUrl}}" data-section="videoBackup" data-key="baseUrl" bindinput="onInput" /></view>
+            <view wx:if="{{form.videoBackup.provider}}" class="admin-field admin-field-wide"><text>请求接口（可留空）</text><input value="{{form.videoBackup.endpoint}}" data-section="videoBackup" data-key="endpoint" placeholder="留空使用创建路径" bindinput="onInput" /></view>
+            <view wx:if="{{form.videoBackup.provider}}" class="admin-field admin-field-wide"><text>查询接口（可留空）</text><input value="{{form.videoBackup.queryEndpoint}}" data-section="videoBackup" data-key="queryEndpoint" placeholder="留空使用查询路径" bindinput="onInput" /></view>
             <view wx:if="{{form.videoBackup.provider}}" class="admin-field admin-field-wide admin-api-key-field">
               <view class="admin-field-label-row">
                 <text>API Key</text>

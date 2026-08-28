@@ -37,7 +37,7 @@ const baseConfig = {
     },
     image: {
       provider: "xingju",
-      model: "jw-gpt-image-2",
+      model: "jw-wy-gpt-image-2",
       apiKey: "image-key",
       apiKeyConfigured: true,
       size: "1024x1024"

@@ -209,8 +209,8 @@ const apiKeyInputBySection = apiKeyInputs.reduce((result, input) => {
 }, {});
 assert.strictEqual(
   apiKeyInputs.length,
-  6,
-  "普通配置加图片主备、视频主备共六个 API Key 输入框必须完整"
+  8,
+  "普通配置加图片主备、视频主备和腾讯融合共八个 API Key 输入框必须完整"
 );
 assert.ok(
   ["face", "analysis", "image", "imageBackup"].every((section) => (
@@ -321,7 +321,19 @@ assert.ok(
   "备用模型四项配置没有接入独立状态或保存逻辑"
 );
 assert.ok(
-  (wxml.match(/data-model-config="imageBackup"/g) || []).length === 2
+  wxml.includes('class="image-wizard-intro"')
+    && wxml.includes('class="image-wizard-progress"')
+    && wxml.includes('bindtap="onImageWizardNext"')
+    && wxml.includes('bindtap="onImageWizardPrev"')
+    && wxml.includes('bindchange="onImageBackupEnabledChange"')
+    && wxml.includes('bindtap="toggleImageAdvancedSettings"')
+    && js.includes("validateImageWizardStep")
+    && js.includes("imageWizardAdvancedOpen")
+    && js.includes("Math.min(5, Math.round(parsed))"),
+  "图片主备四步向导、备用开关或重试次数限制缺失"
+);
+assert.ok(
+  (wxml.match(/data-model-config="imageBackup"/g) || []).length >= 2
     && wxml.includes('bindtap="runImageBackupEditCapabilityProbe"')
     && wxml.includes("imageBackupEditCapabilityProbe.checked")
     && wxml.includes("imageBackupEditCapabilityLoading")

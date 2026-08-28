@@ -384,18 +384,18 @@ function testModelFlowGuards() {
   assert.deepStrictEqual(
     flow.assertSupportedImageEditFlow({
       provider: "星炬",
-      model: "jw-gpt-image-2"
+      model: "jw-wy-gpt-image-2"
     }, "https://newapi.akiyo.fun/v1/images/edits/"),
     {
       provider: "星炬",
-      model: "jw-gpt-image-2",
+      model: "jw-wy-gpt-image-2",
       pathname: "/v1/images/edits"
     }
   );
   assert.strictEqual(
     flow.assertSupportedImageEditFlow({
       provider: "XING_JU",
-      model: "jw-gpt-image-2"
+      model: "jw-wy-gpt-image-2"
     }, "https://example.com/v1/images/edits").provider,
     "xingju"
   );

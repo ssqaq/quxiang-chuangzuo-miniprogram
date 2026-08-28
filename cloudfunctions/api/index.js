@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.56.0";
-const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0560";
+const API_BUILD_VERSION = "0.56.1";
+const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0561";
 const DEFAULT_IMAGE_MODE = "edits";
 // 图片和视频默认成本只在云函数入口维护；管理员页读取云端有效配置，
 // 避免前后端各写一份价格。入口保持单文件可启动，兼容 CloudBase 部署。
@@ -1692,7 +1692,7 @@ function resolveImageConfig(overrides = {}) {
     model: overrideString(
       image,
       "model",
-      firstEnv(["AI_IMAGE_PRIMARY_MODEL"], "jw-gpt-image-2")
+      firstEnv(["AI_IMAGE_PRIMARY_MODEL"], "jw-wy-gpt-image-2")
     ),
     size,
     resolution,
@@ -1713,7 +1713,7 @@ function resolveImageConfig(overrides = {}) {
         : firstEnv(["AI_IMAGE_PRIMARY_MAX_RETRIES"], "1"),
       1,
       0,
-      1
+      5
     ),
     retryEnabled: resolveImageRetryEnabled(image),
     retryPreferenceVersion: imageRetryPreferenceVersion(image)
@@ -1735,32 +1735,41 @@ function resolveImageBackupConfig(overrides = {}) {
   const resolution = hasOwn(image, "resolution")
     ? normalizeImageResolution(image.resolution, normalizeImageResolution(size, "1K"))
     : normalizeImageResolution(size, "1K");
+  const provider = overrideString(
+    image,
+    "provider",
+    firstEnv(
+      ["AI_IMAGE_BACKUP_PROVIDER", "AI_IMAGE_PROVIDER", "AI_PROVIDER"],
+      "lingyun"
+    )
+  );
+  const baseUrl = overrideString(image, "baseUrl", firstEnv(
+    ["AI_IMAGE_BACKUP_BASE_URL", "AI_IMAGE_BASE_URL", "AI_BASE_URL"],
+    "https://api.lingyunapi.xyz/v1"
+  ));
+  const endpoint = overrideString(image, "endpoint", firstEnv([
+    "AI_IMAGE_BACKUP_ENDPOINT",
+    "AI_IMAGE_EDIT_ENDPOINT",
+    "AI_IMAGE_ENDPOINT"
+  ]));
+  const apiKey = normalizeApiKey(
+    overrideString(image, "apiKey", firstEnv(["AI_IMAGE_BACKUP_API_KEY"]))
+  );
+  const model = overrideString(
+    image,
+    "model",
+    firstEnv(["AI_IMAGE_BACKUP_MODEL", "AI_IMAGE_MODEL"], "gpt-image-2")
+  );
+  const enabled = hasOwn(image, "enabled")
+    ? overrideBoolean(image, "enabled", false)
+    : Boolean(apiKey && provider && model && (baseUrl || endpoint));
   return {
-    provider: overrideString(
-      image,
-      "provider",
-      firstEnv(
-        ["AI_IMAGE_BACKUP_PROVIDER", "AI_IMAGE_PROVIDER", "AI_PROVIDER"],
-        "lingyun"
-      )
-    ),
-    baseUrl: overrideString(image, "baseUrl", firstEnv(
-      ["AI_IMAGE_BACKUP_BASE_URL", "AI_IMAGE_BASE_URL", "AI_BASE_URL"],
-      "https://api.lingyunapi.xyz/v1"
-    )),
-    endpoint: overrideString(image, "endpoint", firstEnv([
-      "AI_IMAGE_BACKUP_ENDPOINT",
-      "AI_IMAGE_EDIT_ENDPOINT",
-      "AI_IMAGE_ENDPOINT"
-    ])),
-    apiKey: normalizeApiKey(
-      overrideString(image, "apiKey", firstEnv(["AI_IMAGE_BACKUP_API_KEY"]))
-    ),
-    model: overrideString(
-      image,
-      "model",
-      firstEnv(["AI_IMAGE_BACKUP_MODEL", "AI_IMAGE_MODEL"], "gpt-image-2")
-    ),
+    enabled,
+    provider,
+    baseUrl,
+    endpoint,
+    apiKey,
+    model,
     size,
     resolution,
     legacySizeOnly: !hasOwn(image, "resolution"),
@@ -6488,6 +6497,7 @@ const ADMIN_PROVIDER_PROFILE_KEYS = Object.freeze({
     "retryPreferenceVersion"
   ]),
   imageBackup: Object.freeze([
+    "enabled",
     "provider",
     "baseUrl",
     "endpoint",
@@ -6563,7 +6573,7 @@ function normalizeAdminProviderProfileValue(section, value, providerId) {
       result.apiKey = normalizeApiKey(source.apiKey);
       return;
     }
-    if (key === "compatibilityMode" || key === "retryEnabled") {
+    if (key === "compatibilityMode" || key === "retryEnabled" || key === "enabled") {
       result[key] = overrideBoolean(source, key, false);
       return;
     }
@@ -6809,6 +6819,7 @@ function normalizeRuntimePatch(input = {}) {
     "timeoutMs"
   ];
   const imageKeys = [
+    "enabled",
     "provider",
     "baseUrl",
     "endpoint",
@@ -6911,7 +6922,7 @@ function normalizeRuntimePatch(input = {}) {
     if (hasOwn(imageSource, key)) {
       image[key] = key === "apiKey"
         ? normalizeApiKey(imageSource[key])
-        : key === "compatibilityMode"
+        : key === "compatibilityMode" || key === "enabled"
           ? overrideBoolean(imageSource, key, false)
         : imageSource[key];
     }
@@ -6920,7 +6931,7 @@ function normalizeRuntimePatch(input = {}) {
     if (hasOwn(imageBackupSource, key)) {
       imageBackup[key] = key === "apiKey"
         ? normalizeApiKey(imageBackupSource[key])
-        : key === "compatibilityMode"
+        : key === "compatibilityMode" || key === "enabled"
           ? overrideBoolean(imageBackupSource, key, false)
         : imageBackupSource[key];
     }
@@ -7308,6 +7319,12 @@ function validateRuntimePatch(patch, options = {}) {
     && !["1K", "2K", "4K"].includes(normalizeImageResolution(imageBackup.resolution, ""))
   ) {
     errors.push("imageBackup.resolution 只能是 1K、2K 或 4K");
+  }
+  if (
+    imageBackup.enabled !== undefined
+    && typeof imageBackup.enabled !== "boolean"
+  ) {
+    errors.push("imageBackup.enabled 必须是布尔值");
   }
   [
     ["points.dailyFreeLimit", points.dailyFreeLimit, 0, 100],
@@ -7944,6 +7961,14 @@ function migrateLegacyImageProviderConfig(runtime, rawConfig) {
   ) {
     legacyBackup.apiKey = legacyApiKey;
   }
+  if (!hasOwn(legacyBackup, "enabled")) {
+    legacyBackup.enabled = Boolean(
+      normalizeApiKey(legacyBackup.apiKey)
+      && legacyBackup.provider
+      && legacyBackup.model
+      && (legacyBackup.baseUrl || legacyBackup.endpoint)
+    );
+  }
   legacyBackup.timeoutMs = 150000;
   legacyBackup.maxRetries = 0;
   legacyBackup.retryEnabled = false;
@@ -7962,7 +7987,7 @@ function migrateLegacyImageProviderConfig(runtime, rawConfig) {
   });
   const primary = Object.assign({}, primaryDefaults, {
     provider: "xingju",
-    model: "jw-gpt-image-2",
+    model: "jw-wy-gpt-image-2",
     timeoutMs: 150000,
     maxRetries: 1,
     retryEnabled: true,
@@ -8137,6 +8162,7 @@ function redactConfig(config, defaults) {
       )
     },
     imageBackup: {
+      enabled: Boolean(imageBackup.enabled),
       provider: imageBackup.provider || "",
       baseUrl: imageBackup.baseUrl || "",
       endpoint: imageBackup.endpoint || "",
@@ -9611,6 +9637,8 @@ async function checkDeployment(event, context) {
     configs.image.model
   );
   const imageBackupReady = Boolean(
+    configs.imageBackup.enabled
+    &&
     configs.imageBackup.apiKey
     && (configs.imageBackup.baseUrl || configs.imageBackup.endpoint)
     && configs.imageBackup.model
@@ -9654,6 +9682,7 @@ async function checkDeployment(event, context) {
       apiKeyConfigured: Boolean(configs.image.apiKey)
     },
     imageBackup: {
+      enabled: Boolean(configs.imageBackup.enabled),
       ready: imageBackupReady,
       provider: configs.imageBackup.provider || "",
       model: configs.imageBackup.model || "",
@@ -15628,7 +15657,13 @@ async function tencentFaceFusionPipeline(event, context) {
   });
   const tencent = configs.tencentFaceFusion;
   pixelProtectionFlow.assertTencentFaceFusionFlow(tencent);
-  if (!retryTencentOnly && !imageConfig.apiKey && !imageBackupConfig.apiKey) {
+  const imageBackupUsable = Boolean(
+    imageBackupConfig.enabled
+    && imageBackupConfig.apiKey
+    && (imageBackupConfig.baseUrl || imageBackupConfig.endpoint)
+    && imageBackupConfig.model
+  );
+  if (!retryTencentOnly && !imageConfig.apiKey && !imageBackupUsable) {
     return fail(
       "图片主模型和备用模型都还没有配置密钥，暂时不能执行第一阶段。",
       "TENCENT_PIPELINE_IMAGE_PROVIDER_NOT_CONFIGURED"
@@ -16453,9 +16488,15 @@ async function executeImageGeneration(operation, context = {}) {
     () => crypto.randomBytes(4).toString("hex")
   );
   const mode = resolveGenerationMode(payload, imageConfig);
+  const imageBackupUsable = Boolean(
+    imageBackupConfig.enabled
+    && imageBackupConfig.apiKey
+    && (imageBackupConfig.baseUrl || imageBackupConfig.endpoint)
+    && imageBackupConfig.model
+  );
   if (
     mode === "edits"
-      ? !imageConfig.apiKey && !imageBackupConfig.apiKey
+      ? !imageConfig.apiKey && !imageBackupUsable
       : !imageConfig.apiKey
   ) {
     const error = new Error("云函数还没有配置图片服务密钥。");

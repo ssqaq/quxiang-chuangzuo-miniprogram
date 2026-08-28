@@ -12,7 +12,9 @@ function providerConfig(provider, model) {
     model,
     baseUrl: `https://${provider}.example/v1`,
     apiKey: `${provider}-test-key`,
-    timeoutMs: 150000
+    timeoutMs: 150000,
+    retryEnabled: true,
+    maxRetries: 1
   };
 }
 
@@ -25,7 +27,7 @@ function upstreamError(code, options = {}) {
 }
 
 async function testAttemptPlan() {
-  const primary = providerConfig("xingju", "jw-gpt-image-2");
+  const primary = providerConfig("xingju", "jw-wy-gpt-image-2");
   const backup = providerConfig("lingyun", "gpt-image-2");
   const plan = buildImageProviderAttemptPlan(primary, backup);
   assert.deepStrictEqual(
@@ -41,14 +43,14 @@ async function testAttemptPlan() {
         role: "primary",
         attempt: 1,
         provider: "xingju",
-        model: "jw-gpt-image-2",
+        model: "jw-wy-gpt-image-2",
         timeoutMs: 150000
       },
       {
         role: "primary",
         attempt: 2,
         provider: "xingju",
-        model: "jw-gpt-image-2",
+        model: "jw-wy-gpt-image-2",
         timeoutMs: 150000
       },
       {
@@ -66,7 +68,7 @@ async function testPrimaryFirstAttemptSuccess() {
   const calls = [];
   const result = await runImageProviderFailover({
     requestId: "failover-primary-success",
-    primaryConfig: providerConfig("xingju", "jw-gpt-image-2"),
+    primaryConfig: providerConfig("xingju", "jw-wy-gpt-image-2"),
     backupConfig: providerConfig("lingyun", "gpt-image-2"),
     executeAttempt: async (attempt) => {
       calls.push(attempt);
@@ -77,7 +79,7 @@ async function testPrimaryFirstAttemptSuccess() {
   assert.strictEqual(result.providerRole, "primary");
   assert.strictEqual(result.providerAttempt, 1);
   assert.strictEqual(result.provider, "xingju");
-  assert.strictEqual(result.model, "jw-gpt-image-2");
+  assert.strictEqual(result.model, "jw-wy-gpt-image-2");
   assert.deepStrictEqual(
     calls.map((item) => `${item.role}:${item.attempt}`),
     ["primary:1"]
@@ -94,7 +96,7 @@ async function testPrimaryRetrySuccess() {
   const calls = [];
   const result = await runImageProviderFailover({
     requestId: "failover-primary-retry",
-    primaryConfig: providerConfig("xingju", "jw-gpt-image-2"),
+    primaryConfig: providerConfig("xingju", "jw-wy-gpt-image-2"),
     backupConfig: providerConfig("lingyun", "gpt-image-2"),
     executeAttempt: async (attempt) => {
       calls.push(attempt);
@@ -117,11 +119,102 @@ async function testPrimaryRetrySuccess() {
   assert.strictEqual(result.attempts[1].success, true);
 }
 
+async function testRetryDisabledSkipsPrimaryRetry() {
+  const calls = [];
+  await assert.rejects(
+    () => runImageProviderFailover({
+      requestId: "failover-retry-disabled",
+      primaryConfig: Object.assign(providerConfig("xingju", "jw-gpt-image-2"), {
+        retryEnabled: false,
+        maxRetries: 5
+      }),
+      backupConfig: Object.assign(providerConfig("lingyun", "gpt-image-2"), {
+        enabled: false
+      }),
+      executeAttempt: async (attempt) => {
+        calls.push(attempt);
+        throw upstreamError("timeout", { retryable: true });
+      }
+    }),
+    (error) => (
+      error
+      && error.code === "IMAGE_PROVIDER_FAILOVER_EXHAUSTED"
+      && error.providerAttempts.length === 1
+    )
+  );
+  assert.deepStrictEqual(
+    calls.map((item) => `${item.role}:${item.attempt}`),
+    ["primary:1"]
+  );
+}
+
+async function testConfiguredPrimaryRetryCount() {
+  const calls = [];
+  await assert.rejects(
+    () => runImageProviderFailover({
+      requestId: "failover-retry-count",
+      primaryConfig: Object.assign(providerConfig("xingju", "jw-gpt-image-2"), {
+        maxRetries: 3,
+        retryEnabled: true
+      }),
+      backupConfig: Object.assign(providerConfig("lingyun", "gpt-image-2"), {
+        enabled: false
+      }),
+      executeAttempt: async (attempt) => {
+        calls.push(attempt);
+        throw upstreamError("timeout", { retryable: true });
+      }
+    }),
+    (error) => error && error.providerAttempts.length === 4
+  );
+  assert.deepStrictEqual(
+    calls.map((item) => `${item.role}:${item.attempt}`),
+    ["primary:1", "primary:2", "primary:3", "primary:4"]
+  );
+}
+
+async function testExplicitBackupDisabled() {
+  const calls = [];
+  await assert.rejects(
+    () => runImageProviderFailover({
+      requestId: "failover-backup-disabled",
+      primaryConfig: Object.assign(providerConfig("xingju", "jw-gpt-image-2"), {
+        maxRetries: 0
+      }),
+      backupConfig: Object.assign(providerConfig("lingyun", "gpt-image-2"), {
+        enabled: false
+      }),
+      executeAttempt: async (attempt) => {
+        calls.push(attempt);
+        throw upstreamError("authentication-failed", { status: 403 });
+      }
+    }),
+    (error) => error && error.code === "IMAGE_PROVIDER_FAILOVER_EXHAUSTED"
+  );
+  assert.deepStrictEqual(
+    calls.map((item) => `${item.role}:${item.attempt}`),
+    ["primary:1"]
+  );
+}
+
+function testBackupPlanRequiresCredentials() {
+  const primary = providerConfig("xingju", "jw-gpt-image-2");
+  const incompleteBackup = Object.assign(providerConfig("lingyun", "gpt-image-2"), {
+    apiKey: "",
+    enabled: true
+  });
+  assert.deepStrictEqual(
+    buildImageProviderAttemptPlan(primary, incompleteBackup)
+      .map((item) => `${item.role}:${item.attempt}`),
+    ["primary:1", "primary:2"]
+  );
+}
+
 async function testFallbackSuccess() {
   const calls = [];
   const result = await runImageProviderFailover({
     requestId: "failover-backup-success",
-    primaryConfig: providerConfig("xingju", "jw-gpt-image-2"),
+    primaryConfig: providerConfig("xingju", "jw-wy-gpt-image-2"),
     backupConfig: providerConfig("lingyun", "gpt-image-2"),
     executeAttempt: async (attempt) => {
       calls.push(attempt);
@@ -149,7 +242,7 @@ async function testAuthenticationSkipsPrimaryRetry() {
   const calls = [];
   const result = await runImageProviderFailover({
     requestId: "failover-auth-backup",
-    primaryConfig: providerConfig("xingju", "jw-gpt-image-2"),
+    primaryConfig: providerConfig("xingju", "jw-wy-gpt-image-2"),
     backupConfig: providerConfig("lingyun", "gpt-image-2"),
     executeAttempt: async (attempt) => {
       calls.push(attempt);
@@ -174,7 +267,7 @@ async function testFatalPixelErrorStopsImmediately() {
   await assert.rejects(
     () => runImageProviderFailover({
       requestId: "failover-pixel-fatal",
-      primaryConfig: providerConfig("xingju", "jw-gpt-image-2"),
+      primaryConfig: providerConfig("xingju", "jw-wy-gpt-image-2"),
       backupConfig: providerConfig("lingyun", "gpt-image-2"),
       executeAttempt: async (attempt) => {
         calls.push(attempt);
@@ -201,7 +294,7 @@ async function testAllAttemptsFail() {
   await assert.rejects(
     () => runImageProviderFailover({
       requestId: "failover-exhausted",
-      primaryConfig: providerConfig("xingju", "jw-gpt-image-2"),
+      primaryConfig: providerConfig("xingju", "jw-wy-gpt-image-2"),
       backupConfig: providerConfig("lingyun", "gpt-image-2"),
       executeAttempt: async (attempt) => {
         calls.push(attempt);
@@ -228,7 +321,7 @@ async function testCallbacks() {
   const finishes = [];
   await runImageProviderFailover({
     requestId: "failover-callbacks",
-    primaryConfig: providerConfig("xingju", "jw-gpt-image-2"),
+    primaryConfig: providerConfig("xingju", "jw-wy-gpt-image-2"),
     backupConfig: providerConfig("lingyun", "gpt-image-2"),
     onAttemptStart: async (attempt) => starts.push({
       role: attempt.role,
@@ -292,6 +385,10 @@ async function main() {
   await testAttemptPlan();
   await testPrimaryFirstAttemptSuccess();
   await testPrimaryRetrySuccess();
+  await testRetryDisabledSkipsPrimaryRetry();
+  await testConfiguredPrimaryRetryCount();
+  await testExplicitBackupDisabled();
+  testBackupPlanRequiresCredentials();
   await testFallbackSuccess();
   await testAuthenticationSkipsPrimaryRetry();
   await testFatalPixelErrorStopsImmediately();

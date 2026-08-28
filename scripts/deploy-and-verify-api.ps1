@@ -545,12 +545,12 @@ function Assert-DeploymentImageConfiguration {
   }
   if (
     [string]$primary.provider -ne "xingju" -or
-    [string]$primary.model -ne "jw-gpt-image-2" -or
+    [string]$primary.model -ne "jw-wy-gpt-image-2" -or
     ([string]$primary.mode).ToLowerInvariant() -ne $ExpectedImageMode.ToLowerInvariant() -or
     [int]$primary.timeoutMs -ne 150000 -or
     [int]$primary.maxRetries -ne 1
   ) {
-    throw "线上核验失败：主模型必须是星炬 jw-gpt-image-2、150 秒超时、失败重试 1 次。"
+    throw "线上核验失败：主模型必须是星炬 jw-wy-gpt-image-2、150 秒超时、失败重试 1 次。"
   }
   if (-not [bool]$primary.apiKeyConfigured) {
     throw "线上核验失败：星炬主模型 API Key 尚未配置。"

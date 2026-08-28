@@ -363,7 +363,7 @@ const events = [
     usageType: "image",
     action: "generate",
     provider: "xingju",
-    model: "jw-gpt-image-2",
+    model: "jw-wy-gpt-image-2",
     userHash: "user-a",
     dateKey: "2026-08-23",
     success: true,

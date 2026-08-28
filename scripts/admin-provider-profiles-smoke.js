@@ -657,6 +657,123 @@ async function verifyPageSwitchAndReload() {
   );
 }
 
+async function verifyBuiltInProviderPresets() {
+  let runtime = initialRuntime();
+  runtime.providerLabels = {};
+  runtime.providerProfiles = {};
+  runtime.face = Object.assign({}, runtime.face, {
+    provider: "dashscope",
+    baseUrl: "",
+    endpoint: "",
+    apiKey: "",
+    model: "",
+    timeoutMs: "30000"
+  });
+  runtime.analysis = Object.assign({}, runtime.analysis, runtime.face);
+  runtime.image = Object.assign({}, runtime.image, {
+    provider: "xingju",
+    baseUrl: "",
+    endpoint: "",
+    apiKey: "",
+    model: "",
+    mode: "",
+    size: "",
+    resolution: "",
+    timeoutMs: "150000"
+  });
+  runtime.imageBackup = Object.assign({}, runtime.imageBackup, {
+    provider: "lingyun",
+    baseUrl: "",
+    endpoint: "",
+    apiKey: "",
+    model: "",
+    mode: "",
+    size: "",
+    resolution: "",
+    timeoutMs: "150000"
+  });
+  runtime.video = Object.assign({}, runtime.video, {
+    provider: "xingju",
+    baseUrl: "",
+    endpoint: "",
+    queryEndpoint: "",
+    apiKey: "",
+    model: "",
+    createPath: "",
+    queryPath: "",
+    resolution: "",
+    aspectRatio: "",
+    timeoutMs: "90000"
+  });
+  const cloudMock = {
+    isCloudReady: () => true,
+    getAdminStatus: async () => ({ isAdmin: true }),
+    getAdminConfig: async () => configView(runtime),
+    getAdminImageApiKeys: async () => fullApiKeys(runtime)
+  };
+  const page = createPageHarness(loadAdminPageDefinition(cloudMock));
+  await page.loadAdminPage();
+
+  ["dashscope", "xingju", "lingyun", "laoli", "panda"].forEach((providerId) => {
+    ["face", "analysis", "image", "imageBackup", "video"].forEach((section) => {
+      assert.ok(
+        (page.data[PICKER_STATE[section]] || []).some((item) => item.value === providerId),
+        `${section} 下拉框缺少内置服务商 ${providerId}`
+      );
+    });
+  });
+  const faceOptions = page.data.faceProviderProfileOptions;
+  assert.ok(
+    faceOptions.find((item) => item.value === "dashscope").label.includes("已有参数"),
+    "阿里云百炼视觉预设没有显示已有参数"
+  );
+  ["xingju", "lingyun", "laoli", "panda"].forEach((providerId) => {
+    assert.ok(
+      page.data.imageProviderProfileOptions.find((item) => item.value === providerId).label.includes("已有参数"),
+      `图片服务商 ${providerId} 没有显示已有参数`
+    );
+  });
+  assert.ok(
+    page.data.videoProviderProfileOptions.find((item) => item.value === "xingju").label.includes("已有参数"),
+    "星炬视频预设没有显示已有参数"
+  );
+
+  switchProvider(page, "face", "dashscope");
+  assert.strictEqual(page.data.form.face.model, "qwen3-vl-flash");
+  assert.strictEqual(page.data.form.face.baseUrl, "https://dashscope.aliyuncs.com/compatible-mode/v1");
+  assert.strictEqual(String(page.data.form.face.timeoutMs), "30000");
+  assert.strictEqual(page.data.form.face.endpoint, "");
+  switchProvider(page, "analysis", "dashscope");
+  assert.strictEqual(page.data.form.analysis.model, "qwen3-vl-flash");
+  assert.strictEqual(String(page.data.form.analysis.timeoutMs), "30000");
+
+  switchProvider(page, "image", "xingju");
+  assert.strictEqual(page.data.form.image.model, "jw-wy-gpt-image-2");
+  assert.strictEqual(page.data.form.image.mode, "edits");
+  assert.strictEqual(page.data.form.image.size, "1080x1440");
+  assert.strictEqual(page.data.form.image.resolution, "1K");
+  assert.strictEqual(String(page.data.form.image.timeoutMs), "150000");
+  switchProvider(page, "image", "lingyun");
+  assert.strictEqual(page.data.form.image.endpoint, "https://api.lingyunapi.xyz/v1/images/edits");
+  switchProvider(page, "image", "laoli");
+  assert.strictEqual(page.data.form.image.endpoint, "https://api.laoliimage2.win/v1/images/edits");
+  switchProvider(page, "image", "panda");
+  assert.strictEqual(page.data.form.image.baseUrl, "https://api.pandatk.com");
+  assert.strictEqual(page.data.form.image.model, "gpt-image-2");
+  switchProvider(page, "imageBackup", "xingju");
+  assert.strictEqual(page.data.form.imageBackup.model, "jw-wy-gpt-image-2");
+
+  switchProvider(page, "video", "xingju");
+  assert.strictEqual(page.data.form.video.model, "grok-imagine-video-1.5");
+  assert.strictEqual(page.data.form.video.createPath, "/v1/videos/generations");
+  assert.strictEqual(page.data.form.video.queryPath, "/v1/videos/{taskId}");
+  assert.strictEqual(page.data.form.video.resolution, "720p");
+  assert.strictEqual(String(page.data.form.video.timeoutMs), "90000");
+  switchProvider(page, "videoBackup", "xingju");
+  assert.strictEqual(page.data.form.videoBackup.model, "grok-imagine-video-1.5");
+  assert.strictEqual(page.data.form.videoBackup.queryPath, "/v1/videos/{taskId}");
+}
+
 function verifyMarkup() {
   const root = path.resolve(__dirname, "..");
   const wxml = fs.readFileSync(
@@ -669,8 +786,8 @@ function verifyMarkup() {
   );
   assert.strictEqual(
     (wxml.match(/bindchange="onProviderProfileChange"/g) || []).length,
-    6,
-    "六组主备配置都必须使用服务商档案下拉框"
+    8,
+    "四个功能区的主备配置和图片向导都必须使用服务商档案下拉框"
   );
   Object.keys(PICKER_STATE).forEach((section) => {
     assert.ok(
@@ -700,6 +817,17 @@ function verifyMarkup() {
     "页面没有说明切换服务商与保存云端的区别"
   );
   [
+    'data-section="face" data-key="endpoint"',
+    'data-section="analysis" data-key="endpoint"',
+    'data-section="image" data-key="mode"',
+    'data-section="video" data-key="endpoint"',
+    'data-section="video" data-key="queryEndpoint"',
+    'data-section="videoBackup" data-key="endpoint"',
+    'data-section="videoBackup" data-key="queryEndpoint"'
+  ].forEach((field) => {
+    assert.ok(wxml.includes(field), `管理员页面缺少可编辑字段 ${field}`);
+  });
+  [
     "buildAdminProviderProfileOptions",
     "buildAdminProviderProfilePickerState",
     "captureAdminProviderProfile",
@@ -713,6 +841,7 @@ function verifyMarkup() {
 async function main() {
   verifyBackendProfiles();
   await verifyPageSwitchAndReload();
+  await verifyBuiltInProviderPresets();
   verifyMarkup();
   console.log("admin provider profiles smoke: OK");
 }

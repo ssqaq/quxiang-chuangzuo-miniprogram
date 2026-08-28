@@ -58,7 +58,7 @@ assert.strictEqual(
   "即使已经存在备用配置，旧凌云主配置也必须被纠正"
 );
 assert.strictEqual(migrated.value.image.provider, "xingju");
-assert.strictEqual(migrated.value.image.model, "jw-gpt-image-2");
+assert.strictEqual(migrated.value.image.model, "jw-wy-gpt-image-2");
 assert.strictEqual(
   Object.prototype.hasOwnProperty.call(migrated.value.image, "apiKey"),
   false,
@@ -86,7 +86,7 @@ const currentXingjuConfig = {
   image: {
     provider: "xingju",
     baseUrl: "https://newapi.akiyo.fun/v1",
-    model: "jw-gpt-image-2",
+    model: "jw-wy-gpt-image-2",
     apiKey: existingXingjuKey,
     mode: "edits",
     timeoutMs: 150000,
@@ -125,7 +125,7 @@ const blankKeyRollbackGuard = test.guardAdminImageProviderConfig(
 );
 assert.strictEqual(blankKeyRollbackGuard.corrected, true);
 assert.strictEqual(blankKeyRollbackGuard.value.image.provider, "xingju");
-assert.strictEqual(blankKeyRollbackGuard.value.image.model, "jw-gpt-image-2");
+assert.strictEqual(blankKeyRollbackGuard.value.image.model, "jw-wy-gpt-image-2");
 assert.strictEqual(
   blankKeyRollbackGuard.value.image.apiKey,
   existingXingjuKey,

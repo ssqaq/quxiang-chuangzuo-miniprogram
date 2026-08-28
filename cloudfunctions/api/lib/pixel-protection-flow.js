@@ -29,7 +29,7 @@ function imageEditFlowDefinition(provider) {
   if (provider === "xingju" || provider === "星炬") {
     return {
       provider: provider === "星炬" ? "星炬" : "xingju",
-      model: "jw-gpt-image-2"
+      model: "jw-wy-gpt-image-2"
     };
   }
   if (provider === "lingyun" || provider === "凌云") {

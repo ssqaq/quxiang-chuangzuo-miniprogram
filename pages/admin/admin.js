@@ -662,6 +662,27 @@ function normalizeAdminBoolean(value, fallback = false) {
   return Boolean(value);
 }
 
+function hasAdminImageProviderDetails(config) {
+  const source = config && typeof config === "object" ? config : {};
+  return Boolean(
+    String(source.provider || "").trim()
+    && String(source.model || "").trim()
+    && String(source.apiKey || "").trim()
+    && (
+      String(source.baseUrl || "").trim()
+      || String(source.endpoint || "").trim()
+    )
+  );
+}
+
+function adminImageBackupEnabled(config) {
+  const source = config && typeof config === "object" ? config : {};
+  if (Object.prototype.hasOwnProperty.call(source, "enabled")) {
+    return normalizeAdminBoolean(source.enabled, false);
+  }
+  return hasAdminImageProviderDetails(source);
+}
+
 function normalizeAdminCapabilityValues(type, values) {
   const source = Array.isArray(values) ? values : [values];
   const output = [];
@@ -882,6 +903,7 @@ const ADMIN_PROVIDER_PROFILE_FORM_KEYS = Object.freeze({
     "retryPreferenceVersion"
   ]),
   imageBackup: Object.freeze([
+    "enabled",
     "provider",
     "baseUrl",
     "endpoint",
@@ -975,6 +997,7 @@ function formSectionToProviderConfig(section, source = {}) {
   }
   if (section === "imageBackup") {
     return {
+      enabled: Boolean(value.enabled),
       provider: normalizeAdminImageProviderInput(value.provider),
       baseUrl: String(value.baseUrl || "").trim(),
       endpoint: String(value.endpoint || "").trim(),
@@ -1250,7 +1273,7 @@ function profileFormForProvider(form, section, providerId) {
     (ADMIN_PROVIDER_PROFILE_FORM_KEYS[profileSection] || []).forEach((key) => {
       if (!Object.prototype.hasOwnProperty.call(profile, key)) return;
       const value = profile[key];
-      if (key === "compatibilityMode" || key === "retryEnabled") {
+      if (key === "compatibilityMode" || key === "retryEnabled" || key === "enabled") {
         merged[key] = Boolean(value);
         return;
       }
@@ -1318,6 +1341,11 @@ function switchAdminProviderProfile(form, section, providerId) {
       && source.videoBackup.apiKeyConfigured
       || selected.apiKey
     );
+  } else if (section === "imageBackup") {
+    selected.enabled = Boolean(
+      source.imageBackup
+      && source.imageBackup.enabled
+    );
   } else if (section === "video") {
     selected.apiKey = String(
       source.video
@@ -1360,7 +1388,7 @@ function emptyForm() {
       baseUrl: "https://newapi.akiyo.fun/v1",
       endpoint: "",
       apiKey: "",
-      model: "jw-gpt-image-2",
+      model: "jw-wy-gpt-image-2",
       mode: "edits",
       size: "1080x1440",
       resolution: "1K",
@@ -1371,6 +1399,7 @@ function emptyForm() {
       retryPreferenceVersion: 1
     },
     imageBackup: {
+      enabled: false,
       provider: "凌云",
       baseUrl: "https://api.lingyunapi.xyz/v1",
       endpoint: "",
@@ -1789,7 +1818,7 @@ function emptyImageProviderStats() {
     todayKey: "",
     totalRequests: 0,
     totalAttempts: 0,
-    primary: emptyImageProviderAttemptCounter("xingju", "jw-gpt-image-2"),
+    primary: emptyImageProviderAttemptCounter("xingju", "jw-wy-gpt-image-2"),
     backup: emptyImageProviderAttemptCounter("lingyun", "gpt-image-2"),
     switchCount: 0,
     switchRate: 0,
@@ -1864,7 +1893,7 @@ function formatImageProviderStats(result) {
     primary: formatImageProviderAttemptCounter(
       source.primary,
       "xingju",
-      "jw-gpt-image-2"
+      "jw-wy-gpt-image-2"
     ),
     backup: formatImageProviderAttemptCounter(
       source.backup,
@@ -2965,7 +2994,7 @@ function formatImageEditCapabilityProbe(result) {
     maskField: String(fields.mask || ""),
     referenceField: String(fields.references || ""),
     maskInvertText: source.maskInvert ? "已开启" : "关闭",
-    apiKeyStatusText: source.apiKeyConfigured ? "已配置（不显示内容）" : "未配置",
+    apiKeyStatusText: source.apiKeyConfigured ? "已配置" : "未配置",
     liveVerified: Boolean(source.liveVerified),
     liveVerifiedText: source.liveVerified ? "已真实验证" : "未真实生图",
     billingRiskText: source.billingRisk ? "可能扣费" : "不扣费",
@@ -3990,6 +4019,7 @@ function formFromConfig(result) {
       retryPreferenceVersion: 1
     },
     imageBackup: {
+      enabled: adminImageBackupEnabled(imageBackup),
       provider: displayAdminImageProvider(imageBackup.provider, "凌云"),
       baseUrl: imageBackup.baseUrl || "https://api.lingyunapi.xyz/v1",
       endpoint: imageBackup.endpoint || "",
@@ -4217,6 +4247,7 @@ function formToConfig(form) {
       retryPreferenceVersion: 1
     },
     imageBackup: {
+      enabled: Boolean(form.imageBackup.enabled),
       provider: normalizeAdminImageProviderInput(form.imageBackup.provider),
       baseUrl: String(form.imageBackup.baseUrl || "").trim(),
       endpoint: String(form.imageBackup.endpoint || "").trim(),
@@ -5076,6 +5107,8 @@ Page({
     imageEditCapabilityProbe: emptyImageEditCapabilityProbe(),
     imageBackupEditCapabilityLoading: false,
     imageBackupEditCapabilityProbe: emptyImageEditCapabilityProbe(),
+    imageWizardStep: 1,
+    imageWizardAdvancedOpen: false,
     entryHealth: buildEntryHealth(),
     activeConfigSection: "",
     activeConfigTitle: "",
@@ -6668,7 +6701,13 @@ Page({
     const key = event.currentTarget.dataset.key
       || event.currentTarget.dataset.fieldKey;
     if (!section || !key) return;
-    const inputValue = event.detail.value;
+    let inputValue = event.detail.value;
+    if (section === "image" && key === "maxRetries") {
+      const parsed = Number(inputValue);
+      inputValue = Number.isFinite(parsed)
+        ? String(Math.max(0, Math.min(5, Math.round(parsed))))
+        : "0";
+    }
     const value = (
       ADMIN_PROVIDER_FORM_SECTIONS.includes(section)
       && key === "provider"
@@ -6710,6 +6749,13 @@ Page({
     }
     if (section === "video" || section === "videoBackup") {
       nextForm = applyAdminVideoProviderDefaults(nextForm, section);
+    }
+    if (section === "image" && key === "maxRetries") {
+      nextForm = updateAdminProviderProfileForm(
+        nextForm,
+        "image",
+        { retryEnabled: true }
+      );
     }
     const patch = { form: nextForm };
     if (section === "tencentFaceFusion") {
@@ -7069,6 +7115,63 @@ Page({
     }, buildAdminProviderProfilePickerState(nextForm), buildQualityPickerState(nextForm)));
   },
 
+  onImageBackupEnabledChange(event) {
+    const enabled = Boolean(event && event.detail && event.detail.value);
+    const nextForm = updateAdminProviderProfileForm(
+      this.data.form,
+      "imageBackup",
+      { enabled }
+    );
+    this.setData(Object.assign({
+      form: nextForm,
+      message: enabled
+        ? "已开启备用图片模型；填写完整后，主模型失败时才会切换。"
+        : "已关闭备用图片模型；已填写的备用参数会保留。"
+    }, buildAdminProviderProfilePickerState(nextForm), buildQualityPickerState(nextForm)));
+  },
+
+  validateImageWizardStep(step = this.data.imageWizardStep) {
+    const image = this.data.form && this.data.form.image || {};
+    const backup = this.data.form && this.data.form.imageBackup || {};
+    if (step === 1) {
+      if (!String(image.provider || "").trim()) return "请选择主模型服务商。";
+      if (!String(image.model || "").trim()) return "请填写主模型名称。";
+      if (!String(image.apiKey || "").trim() && !image.apiKeyConfigured) return "请填写主模型 API Key。";
+      if (!String(image.baseUrl || image.endpoint || "").trim()) return "请填写主模型接口地址。";
+    }
+    if (step === 2 && backup.enabled) {
+      if (!String(backup.provider || "").trim()) return "请选择备用服务商。";
+      if (!String(backup.model || "").trim()) return "请填写备用模型名称。";
+      if (!String(backup.apiKey || "").trim() && !backup.apiKeyConfigured) return "请填写备用模型 API Key，或先关闭备用。";
+      if (!String(backup.baseUrl || backup.endpoint || "").trim()) return "请填写备用模型接口地址。";
+    }
+    if (step === 4) {
+      const retries = Number(image.maxRetries);
+      if (!Number.isFinite(retries) || retries < 0 || retries > 5) return "主模型重试次数只能填 0～5。";
+    }
+    return "";
+  },
+
+  onImageWizardNext() {
+    const step = Math.max(1, Number(this.data.imageWizardStep) || 1);
+    const message = this.validateImageWizardStep(step);
+    if (message) {
+      this.setData({ message });
+      wx.showToast({ title: message, icon: "none" });
+      return;
+    }
+    this.setData({ imageWizardStep: Math.min(4, step + 1), message: "" });
+  },
+
+  onImageWizardPrev() {
+    const step = Math.max(1, Number(this.data.imageWizardStep) || 1);
+    this.setData({ imageWizardStep: Math.max(1, step - 1), message: "" });
+  },
+
+  toggleImageAdvancedSettings() {
+    this.setData({ imageWizardAdvancedOpen: !this.data.imageWizardAdvancedOpen });
+  },
+
   onVideoQualityChange(event) {
     const index = Math.max(0, Number(event && event.detail && event.detail.value) || 1);
     const option = this.data.videoQualityOptions[index] || VIDEO_QUALITY_OPTIONS[1];
@@ -7232,6 +7335,8 @@ Page({
     if (section === "image") {
       patch.tencentImageTab = rawSection === "tencentImage" ? "fusion" : "image";
       patch.tencentFaceFusionFieldErrors = {};
+      patch.imageWizardStep = 1;
+      patch.imageWizardAdvancedOpen = false;
     }
     this.setData(patch, () => {
       this.persistMonitorLayout();
@@ -7254,6 +7359,8 @@ Page({
     };
     patch.tencentImageTab = "image";
     patch.tencentFaceFusionFieldErrors = {};
+    patch.imageWizardStep = 1;
+    patch.imageWizardAdvancedOpen = false;
     this.setData(patch, () => this.persistMonitorLayout());
   },
 
@@ -7548,6 +7655,18 @@ Page({
 
   async saveConfig() {
     if (this.data.saving) return;
+    if (this.data.activeConfigSection === "image" && this.data.tencentImageTab === "image") {
+      const wizardError = this.validateImageWizardStep(1)
+        || (this.data.form.imageBackup && this.data.form.imageBackup.enabled
+          ? this.validateImageWizardStep(2)
+          : "")
+        || this.validateImageWizardStep(4);
+      if (wizardError) {
+        this.setData({ message: wizardError });
+        wx.showToast({ title: wizardError, icon: "none" });
+        return;
+      }
+    }
     const providerLabelRows = buildAdminProviderLabelRows(this.data.form);
     const providerLabelErrors = validateAdminProviderLabelRows(providerLabelRows);
     const invalidProviderIds = Object.keys(providerLabelErrors);

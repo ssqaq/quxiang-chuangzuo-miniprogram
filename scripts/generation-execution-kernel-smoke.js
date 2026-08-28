@@ -31,8 +31,10 @@ function createHarness() {
         compatibilityMode: false
       },
       imageBackup: {
+        enabled: true,
         apiKey: "",
         provider: "backup-test",
+        baseUrl: "https://backup.example/v1",
         model: "backup-image-model",
         resolution: "1K",
         compatibilityMode: false
@@ -201,6 +203,7 @@ async function main() {
   {
     const harness = createHarness();
     harness.state.configs.image.apiKey = "";
+    harness.state.configs.imageBackup.enabled = true;
     harness.state.configs.imageBackup.apiKey = "backup-test-key";
     harness.services.image.resolveMode = () => "edits";
     harness.services.image.hasEditAssets = () => true;

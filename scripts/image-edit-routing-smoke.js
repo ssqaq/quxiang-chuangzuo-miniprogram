@@ -184,7 +184,7 @@ assert.ok(safeCapabilityProbe.message.includes("不代表上游"));
 const xingjuCapabilityProbe = test.buildImageEditCapabilityProbe({
   provider: "xingju",
   baseUrl: "https://newapi.akiyo.fun/v1",
-  model: "jw-gpt-image-2",
+  model: "jw-wy-gpt-image-2",
   apiKey: "must-not-be-returned"
 });
 assert.strictEqual(xingjuCapabilityProbe.configured, true);
@@ -254,7 +254,7 @@ async function main() {
           provider: "xingju",
           baseUrl: `${url}/v1`,
           endpoint: `${url}/v1/images/edits`,
-          model: "jw-gpt-image-2",
+          model: "jw-wy-gpt-image-2",
           compatibilityMode: true,
           timeoutMs: 5000,
           retryEnabled: false,
@@ -308,13 +308,13 @@ async function main() {
     "星炬编辑请求必须是 application/json"
   );
   const firstEditBody = JSON.parse(requests[0].body);
-  assert.strictEqual(firstEditBody.model, "jw-gpt-image-2");
+  assert.strictEqual(firstEditBody.model, "jw-wy-gpt-image-2");
   assert.strictEqual(firstEditBody.images.length, 2);
   assert.ok(firstEditBody.mask && firstEditBody.mask.image_url);
   assert.strictEqual(firstEditBody.response_format, "b64_json");
   assert.strictEqual(firstEditBody.output_format, "png");
   const firstTencentEditBody = JSON.parse(requests[1].body);
-  assert.strictEqual(firstTencentEditBody.model, "jw-gpt-image-2");
+  assert.strictEqual(firstTencentEditBody.model, "jw-wy-gpt-image-2");
   assert.strictEqual(firstTencentEditBody.images.length, 1);
   assert.ok(firstTencentEditBody.mask && firstTencentEditBody.mask.image_url);
   assert.strictEqual(firstTencentEditBody.response_format, "b64_json");
@@ -349,7 +349,7 @@ async function main() {
   assert.strictEqual(
     test.imageEditJsonRequestFormat({
       provider: "xingju",
-      model: "jw-gpt-image-2"
+      model: "jw-wy-gpt-image-2"
     }),
     "xingju-json"
   );

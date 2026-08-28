@@ -742,8 +742,8 @@ if (
   || !indexJs.includes("resolveImageGenerationMode(promptProject)")
   || !adminJs.includes('mode: "edits"')
   || !adminJs.includes('mode: image.mode || "edits"')
-  || !adminWxml.includes('<text>模式</text><input disabled value="图片编辑模式"')
-  || adminWxml.includes('<text>模式</text><input disabled value="{{form.image.mode}}"')
+  || !adminWxml.includes('class="image-wizard-intro"')
+  || !adminWxml.includes('data-section="image" data-key="mode"')
 ) {
   throw new Error("人脸替换的 edits 默认模式、中文显示、素材强制分流或管理员默认配置不完整。");
 }
@@ -1042,7 +1042,7 @@ const adminApiKeyInputBySection = adminApiKeyInputs.reduce((result, input) => {
   return result;
 }, {});
 if (
-  adminApiKeyInputs.length !== 6
+  adminApiKeyInputs.length < 6
   || !["face", "analysis", "image", "imageBackup", "video", "videoBackup"].every((section) => (
     adminApiKeyInputBySection[section]
     && !/\bpassword\b/.test(adminApiKeyInputBySection[section])

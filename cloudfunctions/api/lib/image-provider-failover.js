@@ -122,14 +122,44 @@ function normalizedConfig(config = {}) {
   });
 }
 
+function hasUsableProviderConfig(config) {
+  const source = config && typeof config === "object" ? config : {};
+  return Boolean(
+    compactText(source.provider, 80)
+    && compactText(source.model, 120)
+    && compactText(source.apiKey, 4000)
+    && (compactText(source.baseUrl, 2000) || compactText(source.endpoint, 2000))
+  );
+}
+
+function primaryAttemptCount(config) {
+  const source = config && typeof config === "object" ? config : {};
+  if (source.retryEnabled === false) return 1;
+  const hasConfiguredRetries = Object.prototype.hasOwnProperty.call(source, "maxRetries");
+  const retries = Math.max(
+    0,
+    Math.min(
+      5,
+      Math.round(Number(hasConfiguredRetries ? source.maxRetries : 1) || 0)
+    )
+  );
+  return retries + 1;
+}
+
 function buildImageProviderAttemptPlan(primaryConfig, backupConfig) {
   const primary = normalizedConfig(primaryConfig);
   const backup = normalizedConfig(backupConfig);
-  return [
-    { role: "primary", attempt: 1, config: primary },
-    { role: "primary", attempt: 2, config: primary },
-    { role: "backup", attempt: 1, config: backup }
-  ];
+  const plan = [];
+  for (let attempt = 1; attempt <= primaryAttemptCount(primary); attempt += 1) {
+    plan.push({ role: "primary", attempt, config: primary });
+  }
+  const backupEnabled = backup.enabled === undefined
+    ? hasUsableProviderConfig(backup)
+    : Boolean(backup.enabled);
+  if (backupEnabled && hasUsableProviderConfig(backup)) {
+    plan.push({ role: "backup", attempt: 1, config: backup });
+  }
+  return plan;
 }
 
 function safeAttemptSummary(attempt, patch = {}) {
@@ -180,11 +210,8 @@ async function runImageProviderFailover(options = {}) {
   );
   const summaries = [];
   let lastError = null;
-  let skipRemainingPrimary = false;
-
   for (const planItem of plan) {
-    if (planItem.role === "primary" && skipRemainingPrimary) continue;
-
+    if (planItem.skip) continue;
     const startedAt = Date.now();
     const attemptContext = {
       role: planItem.role,
@@ -239,11 +266,21 @@ async function runImageProviderFailover(options = {}) {
       }
 
       if (planItem.role === "primary") {
-        const canRetryPrimary = (
-          classification.retryPrimary
-          && planItem.attempt < 2
-        );
-        if (!canRetryPrimary) skipRemainingPrimary = true;
+        const hasMorePrimaryAttempts = plan.some((candidate) => (
+          candidate.role === "primary"
+          && candidate.attempt > planItem.attempt
+        ));
+        if (!classification.retryPrimary || !hasMorePrimaryAttempts) {
+          // 非临时错误不浪费剩余主模型尝试，直接进入备用（如已配置）。
+          for (const candidate of plan) {
+            if (
+              candidate.role === "primary"
+              && candidate.attempt > planItem.attempt
+            ) {
+              candidate.skip = true;
+            }
+          }
+        }
         continue;
       }
     }
@@ -255,6 +292,8 @@ async function runImageProviderFailover(options = {}) {
 module.exports = {
   buildImageProviderAttemptPlan,
   classifyImageProviderError,
+  hasUsableProviderConfig,
+  primaryAttemptCount,
   runImageProviderFailover,
   safeAttemptSummary
 };

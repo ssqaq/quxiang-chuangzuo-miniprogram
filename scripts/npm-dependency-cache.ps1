@@ -168,8 +168,16 @@ function Invoke-NpmCiCached {
   try {
     Push-Location -LiteralPath $ApiPath
     $locationPushed = $true
-    & $Npm.Source @arguments
-    return $LASTEXITCODE
+    # npm writes normal progress lines to PowerShell's success stream.  If we
+    # let those lines escape, the caller receives an array of strings plus the
+    # exit code instead of one scalar integer and may report a false failure.
+    # Capture/print the output explicitly, then return only the numeric code.
+    $npmOutput = @(& $Npm.Source @arguments 2>&1)
+    $exitCode = [int]$LASTEXITCODE
+    foreach ($line in $npmOutput) {
+      Write-Host ([string]$line)
+    }
+    return $exitCode
   }
   finally {
     if ($locationPushed) {

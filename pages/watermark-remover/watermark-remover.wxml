@@ -66,7 +66,9 @@
       <text class="button-label">{{parsing ? '正在解析并提取...' : '一键解析并提取'}}</text>
       <text wx:if="{{!parsing}}" class="button-arrow">→</text>
     </button>
-    <button class="secondary-btn action-button back-button" bindtap="backToWorkbench">返回工作台</button>
+    <button class="secondary-btn action-button back-button" bindtap="backToWorkbench">
+      <text class="media-button-label">返回工作台</text>
+    </button>
   </view>
 
   <view wx:if="{{status === 'idle'}}" class="page-note">
@@ -172,7 +174,9 @@
           <button
             class="copy-button{{copiedTarget === 'all' ? ' copy-feedback-active' : ''}}"
             bindtap="copyCopywriting"
-          >{{copiedTarget === 'all' ? '已复制' : '复制文案'}}</button>
+          >
+            <text class="media-button-label">{{copiedTarget === 'all' ? '已复制' : '复制文案'}}</text>
+          </button>
         </view>
       </view>
       <view class="copywriting-section">
@@ -182,7 +186,9 @@
             <button
               class="copywriting-action copywriting-title-action{{copiedTarget === 'title' ? ' copy-feedback-active' : ''}}"
               bindtap="copyCopywritingTitle"
-            >{{copiedTarget === 'title' ? '已复制' : '复制标题'}}</button>
+            >
+              <text class="media-button-label">{{copiedTarget === 'title' ? '已复制' : '复制标题'}}</text>
+            </button>
           </view>
         </view>
         <view wx:if="{{result.copywritingTitle}}" class="copywriting-body copywriting-title-body">{{result.copywritingTitle}}</view>
@@ -195,12 +201,16 @@
             <button
               class="copywriting-action{{copiedTarget === 'body' ? ' copy-feedback-active' : ''}}"
               bindtap="copyCopywritingBody"
-            >{{copiedTarget === 'body' ? '已复制' : '复制正文'}}</button>
+            >
+              <text class="media-button-label">{{copiedTarget === 'body' ? '已复制' : '复制正文'}}</text>
+            </button>
             <button
               wx:if="{{result.copywritingBodyCollapsible}}"
               class="copywriting-action copywriting-toggle"
               bindtap="toggleCopywritingExpanded"
-            >{{copywritingExpanded ? '收起' : '展开'}}</button>
+            >
+              <text class="media-button-label">{{copywritingExpanded ? '收起' : '展开'}}</text>
+            </button>
           </view>
         </view>
         <view wx:if="{{result.copywritingBody}}" class="copywriting-body-shell">
@@ -224,7 +234,9 @@
             wx:if="{{result.copywritingTags.length}}"
             class="copywriting-action{{copiedTarget === 'tags' ? ' copy-feedback-active' : ''}}"
             bindtap="copyCopywritingTags"
-          >{{copiedTarget === 'tags' ? '已复制' : '复制标签'}}</button>
+          >
+            <text class="media-button-label">{{copiedTarget === 'tags' ? '已复制' : '复制标签'}}</text>
+          </button>
         </view>
         <view wx:if="{{result.copywritingTags.length}}" class="copywriting-tag-box">
           <text wx:for="{{result.copywritingTags}}" wx:key="*this" class="copywriting-tag-chip">#{{item}}</text>
@@ -243,9 +255,11 @@
       loading="{{saving}}"
       disabled="{{saving}}"
     >
-      {{saving ? '保存中...' : (saveFeedback || (result.contentType === 'live_photo' ? '保存图片和动态视频' : (result.contentType === 'image' && result.mediaCount > 1 ? '保存全部媒体' : '保存媒体')))}}
+      <text class="media-button-label">{{saving ? '保存中...' : (saveFeedback || (result.contentType === 'live_photo' ? '保存图片和动态视频' : (result.contentType === 'image' && result.mediaCount > 1 ? '保存全部媒体' : '保存媒体')))}}</text>
     </button>
-    <button class="secondary-btn reset-button" bindtap="resetResult" disabled="{{saving}}">重新解析</button>
+    <button class="secondary-btn reset-button" bindtap="resetResult" disabled="{{saving}}">
+      <text class="media-button-label">重新解析</text>
+    </button>
   </view>
 
 </view>

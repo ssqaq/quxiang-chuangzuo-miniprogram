@@ -1,4 +1,36 @@
-Set-StrictMode -Version Latest
+﻿Set-StrictMode -Version Latest
+
+function ConvertTo-ReleaseUtcDateTime {
+    param([Parameter(Mandatory = $true)][object]$Value)
+
+    if ($Value -is [DateTimeOffset]) {
+        return $Value.UtcDateTime
+    }
+    if ($Value -is [DateTime]) {
+        if ($Value.Kind -eq [DateTimeKind]::Utc) {
+            return $Value
+        }
+        if ($Value.Kind -eq [DateTimeKind]::Local) {
+            return $Value.ToUniversalTime()
+        }
+        return [DateTime]::SpecifyKind($Value, [DateTimeKind]::Utc)
+    }
+
+    $text = ([string]$Value).Trim()
+    if ([string]::IsNullOrWhiteSpace($text)) {
+        throw "时间值为空。"
+    }
+    try {
+        return ([DateTimeOffset]::Parse(
+            $text,
+            [Globalization.CultureInfo]::InvariantCulture,
+            [Globalization.DateTimeStyles]::RoundtripKind
+        )).UtcDateTime
+    }
+    catch {
+        throw "时间值无效：$text。$($_.Exception.Message)"
+    }
+}
 
 function Get-ReleaseLockPaths {
     param(
@@ -77,7 +109,10 @@ function Enter-ReleaseLock {
         [Parameter(Mandatory = $true)][string]$ProjectPath,
         [Parameter(Mandatory = $true)][string]$TargetVersion,
         [Parameter(Mandatory = $true)][string]$TargetType,
-        [ValidateRange(1, 300)][int]$WaitSeconds = 60,
+        # Release gate callers queue for up to 30 minutes by default.  Keep a
+        # generous upper bound so a long-running package/deploy can share the
+        # same lock without silently falling back to a bypass.
+        [ValidateRange(1, 7200)][int]$WaitSeconds = 60,
         [string]$LockPath = "",
         [string]$ProjectId = ""
     )

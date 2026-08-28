@@ -1,4 +1,4 @@
-param(
+﻿param(
   [string]$ProjectPath = (Split-Path -Parent $PSScriptRoot),
   [string]$WechatIde = "",
   [string]$ClientName = "default",
@@ -9,9 +9,11 @@ param(
   [switch]$ResumePendingDeploy,
   [ValidateSet("auto", "wechat", "cloudbase")]
   [string]$DeployTransport = "auto",
-  [ValidateRange(1, 300)]
+  [ValidateRange(1, 7200)]
   [int]$LockWaitSeconds = 60,
-  [string]$DeployLockPath = ""
+  [string]$DeployLockPath = "",
+  [string]$ReleaseContext = "",
+  [switch]$ReleaseGateLockHeld
 )
 
 # Keep this file ASCII-only so Windows PowerShell 5.1 can parse it without BOM.
@@ -97,7 +99,7 @@ function Invoke-WechatIde {
     [string[]]$Arguments
   )
 
-  if (-not $AllowOpenProjectWindow) {
+  if (-not $AllowOpenProjectWindow -and $Arguments -contains "open_project_window") {
     throw "为防止微信开发者工具自动弹出，默认禁止调用 WechatIDE。若需手动执行，请显式加 -AllowOpenProjectWindow。"
   }
 
@@ -115,22 +117,14 @@ function Invoke-WechatIde {
   if ($exitCode -ne 0) {
     throw "wechatide failed with exit code ${exitCode}: $text"
   }
-  $jsonStarts = @()
-  for ($cursor = 0; $cursor -lt $text.Length; $cursor++) {
-    if ($text[$cursor] -eq "{") { $jsonStarts += $cursor }
-  }
-  if ($jsonStarts.Count -eq 0) {
+  $jsonStart = $text.IndexOf("{")
+  if ($jsonStart -lt 0) {
     throw "wechatide did not return JSON: $text"
   }
-  $response = $null
-  foreach ($jsonStart in ($jsonStarts | Sort-Object -Descending)) {
-    try {
-      $response = $text.Substring($jsonStart) | ConvertFrom-Json
-      break
-    } catch {
-    }
+  try {
+    $response = $text.Substring($jsonStart) | ConvertFrom-Json
   }
-  if ($null -eq $response) {
+  catch {
     throw "wechatide returned invalid JSON: $text"
   }
   if (-not $response.ok) {
@@ -244,6 +238,46 @@ function Repair-CloudFunctionTimeout {
     throw "自动修正云函数超时失败（exit code ${exitCode}）：$text"
   }
   Write-Host "已通过 CloudBase CLI 请求把云函数超时修正为 $TimeoutSeconds 秒。"
+}
+
+function Ensure-LocalCloudFunctionDependencies {
+  param([Parameter(Mandatory = $true)][string]$ApiPath)
+
+  $packageJson = Join-Path $ApiPath "package.json"
+  $packageLock = Join-Path $ApiPath "package-lock.json"
+  if ((-not (Test-Path -LiteralPath $packageJson -PathType Leaf)) -or (-not (Test-Path -LiteralPath $packageLock -PathType Leaf))) {
+    throw "云函数缺少 package.json 或 package-lock.json，不能执行可复现依赖安装。"
+  }
+  $nodeModules = Join-Path $ApiPath "node_modules"
+  if (Test-Path -LiteralPath $nodeModules -PathType Container) {
+    return
+  }
+  $npm = Get-Command "npm.cmd" -ErrorAction SilentlyContinue
+  if (-not $npm) {
+    $npm = Get-Command "npm" -ErrorAction SilentlyContinue
+  }
+  if (-not $npm) {
+    throw "找不到 npm，无法为隔离发布工作树安装云函数依赖。"
+  }
+  Write-Host "隔离发布工作树缺少 node_modules，按 package-lock.json 执行 npm ci。"
+  $previousErrorActionPreference = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  $locationPushed = $false
+  try {
+    Push-Location -LiteralPath $ApiPath
+    $locationPushed = $true
+    & $npm.Source "ci" "--ignore-scripts" "--no-audit" "--no-fund"
+    $exitCode = $LASTEXITCODE
+  }
+  finally {
+    if ($locationPushed) {
+      Pop-Location
+    }
+    $ErrorActionPreference = $previousErrorActionPreference
+  }
+  if ($exitCode -ne 0 -or -not (Test-Path -LiteralPath $nodeModules -PathType Container)) {
+    throw "隔离发布工作树 npm ci 失败，未生成 node_modules。"
+  }
 }
 
 function Invoke-CloudBaseCliJson {
@@ -545,12 +579,12 @@ function Assert-DeploymentImageConfiguration {
   }
   if (
     [string]$primary.provider -ne "xingju" -or
-    [string]$primary.model -ne "jw-wy-gpt-image-2" -or
+    [string]$primary.model -ne "jw-gpt-image-2" -or
     ([string]$primary.mode).ToLowerInvariant() -ne $ExpectedImageMode.ToLowerInvariant() -or
     [int]$primary.timeoutMs -ne 150000 -or
     [int]$primary.maxRetries -ne 1
   ) {
-    throw "线上核验失败：主模型必须是星炬 jw-wy-gpt-image-2、150 秒超时、失败重试 1 次。"
+    throw "线上核验失败：主模型必须是星炬 jw-gpt-image-2、150 秒超时、失败重试 1 次。"
   }
   if (-not [bool]$primary.apiKeyConfigured) {
     throw "线上核验失败：星炬主模型 API Key 尚未配置。"
@@ -664,6 +698,23 @@ if (-not (Test-Path -LiteralPath $apiConfigPath)) {
 
 $configText = Get-Content -LiteralPath $configPath -Raw -Encoding UTF8
 $appVersion = Get-ConfigValue -Text $configText -Name "appVersion"
+$releaseContextPath = if ([string]::IsNullOrWhiteSpace($ReleaseContext)) { $env:RELEASE_GATE_CONTEXT } else { $ReleaseContext }
+if (-not $VerifyOnly -and -not $DryRun -and [string]::IsNullOrWhiteSpace($releaseContextPath)) {
+  throw "云部署必须通过统一发布闸门并携带 -ReleaseContext；直接部署已拦截。"
+}
+if ($ReleaseGateLockHeld -and [string]::IsNullOrWhiteSpace($DeployLockPath)) {
+  throw "-ReleaseGateLockHeld 必须同时提供统一发布锁 -DeployLockPath。"
+}
+$releaseContext = $null
+if (-not [string]::IsNullOrWhiteSpace($releaseContextPath)) {
+  $expectedRemote = (& git -C $project remote get-url origin 2>$null | Out-String).Trim()
+  $releaseContext = Assert-CloudDeployReleaseContext `
+    -ContextPath ([IO.Path]::GetFullPath($releaseContextPath)) `
+    -ProjectPath $project `
+    -ExpectedVersion $appVersion `
+    -ExpectedRemoteUrl $expectedRemote
+  Write-Host "Release context: $releaseContextPath"
+}
 $imageMode = Get-ConfigValue -Text $configText -Name "imageMode"
 $cloudEnvId = Get-ConfigValue -Text $configText -Name "cloudEnvId"
 $functionName = Get-ConfigValue -Text $configText -Name "cloudFunctionName"
@@ -725,21 +776,30 @@ if ($DryRun) {
 
 $deployLock = $null
 $sourceSnapshot = $null
+$pendingPath = ""
 $locationPushed = $false
 try {
   if (-not $VerifyOnly) {
-    Write-Host "Acquire exclusive cloud deployment lock"
-    $deployLock = Enter-CloudDeployLock `
-      -ProjectPath $project `
-      -TargetVersion $appVersion `
-      -FunctionName $functionName `
-      -WaitSeconds $LockWaitSeconds `
-      -LockPath $DeployLockPath
+    $lockPaths = Get-CloudDeployLockPaths -ProjectPath $project -LockPath $DeployLockPath
+    if ($ReleaseGateLockHeld) {
+      Write-Host "Use release gate's exclusive cloud deployment lock"
+      $pendingPath = $lockPaths.PendingPath
+    }
+    else {
+      Write-Host "Acquire exclusive cloud deployment lock"
+      $deployLock = Enter-CloudDeployLock `
+        -ProjectPath $project `
+        -TargetVersion $appVersion `
+        -FunctionName $functionName `
+        -WaitSeconds $LockWaitSeconds `
+        -LockPath $DeployLockPath
+      $pendingPath = $deployLock.PendingPath
+    }
     $sourceSnapshot = Get-CloudDeploySourceSnapshot `
       -ProjectPath $project `
       -ApiPath $apiPath
     $pendingDeployment = Read-CloudDeployPending `
-      -PendingPath $deployLock.PendingPath
+      -PendingPath $pendingPath
     if ($ResumePendingDeploy) {
       if ($null -eq $pendingDeployment) {
         throw "No pending cloud deployment record was found to resume."
@@ -886,6 +946,7 @@ try {
   if ($LASTEXITCODE -ne 0) {
     throw "Strict deployment check failed."
   }
+  Ensure-LocalCloudFunctionDependencies -ApiPath $apiPath
   & node (Join-Path $project "scripts\check-cloudfunction-dependencies.js")
   if ($LASTEXITCODE -ne 0) {
     throw "Cloud function dependency check failed."
@@ -967,7 +1028,7 @@ try {
         throw "DEPLOY_CONFIRMATION_REQUIRED: Open WeChat Developer Tools and confirm the existing cloud deployment task, then run with -ResumePendingDeploy again."
       }
       if ($pendingStatus -in @("failed", "cancelled", "expired")) {
-        Remove-CloudDeployPending -PendingPath $deployLock.PendingPath
+        Remove-CloudDeployPending -PendingPath $pendingPath
         throw "Pending cloud deployment ended with status: $pendingStatus"
       }
     }
@@ -989,7 +1050,7 @@ try {
       )
       if (-not [string]::IsNullOrWhiteSpace($taskId)) {
         Write-CloudDeployPending `
-          -PendingPath $deployLock.PendingPath `
+          -PendingPath $pendingPath `
           -Record ([ordered]@{
             taskId = $taskId
             toolName = "cloud_fn_deploy"
@@ -1007,7 +1068,7 @@ try {
       -Payload $deployPayload `
       -FunctionName $functionName
     if ($ResumePendingDeploy) {
-      Remove-CloudDeployPending -PendingPath $deployLock.PendingPath
+      Remove-CloudDeployPending -PendingPath $pendingPath
     }
   }
   if ($resolvedDeployTransport -eq "cloudbase") {

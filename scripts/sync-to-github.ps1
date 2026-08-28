@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory = $true)]
     [ValidateNotNullOrEmpty()]
     [string[]]$IncludePath,
@@ -17,6 +17,45 @@ param(
 $ErrorActionPreference = "Stop"
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+$releaseGateScript = Join-Path $PSScriptRoot "release.ps1"
+$policyPath = Join-Path (Split-Path $repoRoot -Parent) "wechat-miniapp-release-policy.json"
+if (-not (Test-Path -LiteralPath $releaseGateScript -PathType Leaf)) {
+    $branchProbe = (& git -C $repoRoot branch --show-current 2>$null | Out-String).Trim()
+    if ($branchProbe -ne "main") {
+        throw "发布同步只允许在 main 执行，当前分支：$branchProbe"
+    }
+    throw "缺少统一发布闸门：$releaseGateScript"
+}
+if (-not (Test-Path -LiteralPath $policyPath -PathType Leaf)) {
+    throw "当前路径没有发布策略，疑似旧 clone/worktree，已拒绝发布：$repoRoot"
+}
+$policyProbe = Get-Content -LiteralPath $policyPath -Raw -Encoding UTF8 | ConvertFrom-Json
+$canonicalProbe = [IO.Path]::GetFullPath([string]$policyProbe.canonicalRepo)
+if (-not [string]::Equals(
+        ([IO.Path]::GetFullPath($repoRoot)).TrimEnd('\', '/'),
+        $canonicalProbe.TrimEnd('\', '/'),
+        [StringComparison]::OrdinalIgnoreCase
+    )) {
+    throw "旧 clone/worktree 不允许发布，请使用 canonical 仓库：$canonicalProbe；当前：$repoRoot"
+}
+if (-not [string]::IsNullOrWhiteSpace($LockPath)) {
+    throw "统一发布闸门不接受自定义锁路径；请使用策略中的共享锁。"
+}
+
+# 兼容旧调用：把 IncludePath 原样交给统一闸门，由它处理一次逗号兼容和空项拒绝。
+# 使用参数表 splatting，避免数组参数吞掉后续的 -TargetVersion 等命名参数。
+$gateArguments = @{
+    SourcePath = $repoRoot
+    IncludePath = @($IncludePath)
+    LockWaitSeconds = [Math]::Max($LockWaitSeconds, 1800)
+    Publish = $true
+}
+if (-not [string]::IsNullOrWhiteSpace($TargetVersion)) {
+    $gateArguments.TargetVersion = $TargetVersion
+}
+& $releaseGateScript @gateArguments
+exit $LASTEXITCODE
+
 $repoName = Split-Path $repoRoot -Leaf
 $branch = "main"
 $parentRoot = Split-Path $repoRoot -Parent

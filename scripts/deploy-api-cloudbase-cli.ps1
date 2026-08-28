@@ -1,8 +1,9 @@
-param(
+﻿param(
   [string]$ProjectPath = (Split-Path -Parent $PSScriptRoot),
-  [ValidateRange(1, 300)]
+  [ValidateRange(1, 7200)]
   [int]$LockWaitSeconds = 60,
-  [string]$LockPath = ""
+  [string]$LockPath = "",
+  [string]$ReleaseContext = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -18,9 +19,20 @@ if (-not $envMatch.Success -or -not $versionMatch.Success) {
 }
 $environmentId = $envMatch.Groups[1].Value
 $version = $versionMatch.Groups[1].Value
+$releaseContextPath = if ([string]::IsNullOrWhiteSpace($ReleaseContext)) { $env:RELEASE_GATE_CONTEXT } else { $ReleaseContext }
+if ([string]::IsNullOrWhiteSpace($releaseContextPath)) {
+  throw "CloudBase 部署必须通过统一发布闸门并携带 -ReleaseContext；直接部署已拦截。"
+}
 
 $safetyScript = Join-Path $PSScriptRoot "cloud-deploy-safety.ps1"
 . $safetyScript
+$expectedRemote = (& git -C $project remote get-url origin 2>$null | Out-String).Trim()
+$releaseContext = Assert-CloudDeployReleaseContext `
+  -ContextPath ([IO.Path]::GetFullPath($releaseContextPath)) `
+  -ProjectPath $project `
+  -ExpectedVersion $version `
+  -ExpectedRemoteUrl $expectedRemote
+Write-Host "Release context: $releaseContextPath"
 
 $lock = $null
 try {

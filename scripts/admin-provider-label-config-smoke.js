@@ -22,7 +22,9 @@ const defaults = test.normalizeAdminProviderLabels({}, { includeDefaults: true }
 assert.deepStrictEqual(defaults, {
   dashscope: "阿里云百炼",
   lingyun: "凌云",
-  xingju: "星炬"
+  xingju: "星炬",
+  laoli: "老李",
+  panda: "熊猫"
 });
 
 assert.deepStrictEqual(

@@ -66,6 +66,7 @@ const jsFiles = [
   "scripts/admin-video-xingju-defaults-smoke.js",
   "scripts/admin-provider-management-smoke.js",
   "scripts/admin-config-audit-smoke.js",
+  "scripts/admin-provider-connection-test-smoke.js",
   "scripts/image-quality-smoke.js",
   "scripts/image-edit-routing-smoke.js",
   "scripts/image-provider-failover-smoke.js",
@@ -286,6 +287,7 @@ const required = [
   "scripts/admin-video-xingju-defaults-smoke.js",
   "scripts/admin-provider-management-smoke.js",
   "scripts/admin-config-audit-smoke.js",
+  "scripts/admin-provider-connection-test-smoke.js",
   "scripts/image-quality-smoke.js",
   "scripts/image-edit-routing-smoke.js",
   "scripts/image-provider-failover-smoke.js",
@@ -990,7 +992,10 @@ if (
   || !adminJs.includes("filterModelOptions")
   || !adminJs.includes("formatModelConnectionFailure")
   || !adminJs.includes("modelProbeRepairAdvice")
-  || !adminJs.includes("await this.runModelProbe(\"\")")
+  || !(
+    adminJs.includes("await this.runModelProbe(\"\")")
+    || adminJs.includes("void this.runModelProbe(\"\")")
+  )
   || !adminJs.includes("compareModelNames")
   || !adminJs.includes("modelConfigKeyForAction")
   || !adminJs.includes("configTarget: key")
@@ -1108,9 +1113,18 @@ if (
   || !cloudJs.includes('action === "probeModels"')
   || !cloudJs.includes('action === "listModels"')
   || !clientCloudJs.includes('action: "probeModels"')
+  || !cloudJs.includes("async function testAdminProviderConnection")
+  || !cloudJs.includes('action === "testAdminProviderConnection"')
+  || !clientCloudJs.includes('action: "testAdminProviderConnection"')
+  || !adminJs.includes("cloud.testAdminProviderConnection")
+  || !adminJs.includes("配置保存成功")
+  || !adminJs.includes("当前配置已生效")
+  || !adminJs.includes("自动探测只是保存后的附加检查")
+  || !adminWxml.includes("测试使用当前已保存的服务商配置")
+  || !fs.existsSync(path.join(root, "scripts/admin-provider-connection-test-smoke.js"))
   || !fs.existsSync(path.join(root, "scripts/analysis-cost-probe-smoke.js"))
 ) {
-  throw new Error("模型成本、按用户/模型、月度统计或 Excel 导出功能不完整。");
+  throw new Error("模型成本、管理员保存提示或服务商真实连接测试功能不完整。");
 }
 if (
   /function\s+\w+\s*\([^)]*\.\.\./.test(adminJs)

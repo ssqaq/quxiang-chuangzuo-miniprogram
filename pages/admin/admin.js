@@ -7371,7 +7371,7 @@ Page({
         tencentFaceFusionFieldErrors: {},
         effective,
         saving: false,
-        message: `配置已保存，第 ${result.version || 0} 版；正在自动测试四套模型和生图三档清晰度...`
+        message: `配置保存成功，第 ${result.version || 0} 版；当前配置已生效，正在自动检查四套模型和生图三档清晰度...`
       }, buildQualityPickerState(form), buildAdminProviderProfilePickerState(form),
       buildAdminProviderManagementState(
         form,
@@ -7384,8 +7384,9 @@ Page({
       diagnosticLog.info("admin", "config-saved", "管理员配置保存完成", {
         version: result.version || 0
       });
-      wx.showToast({ title: "已保存，正在测试", icon: "loading", duration: 1200 });
-      await this.runModelProbe("");
+      wx.showToast({ title: "配置保存成功", icon: "success", duration: 1600 });
+      // 自动探测只是保存后的附加检查，失败时不能把已经成功保存的配置判成保存失败。
+      void this.runModelProbe("");
     } catch (error) {
       this.setData({ saving: false });
       diagnosticLog.error("admin", "config-save-failed", "管理员配置保存失败", { error });
@@ -7498,6 +7499,23 @@ Page({
     const targetLabel = modelConfigKey === "imageBackup"
       ? "备用生图"
       : typeLabel;
+    const providerId = normalizeAdminProviderInput(
+      this.data.form
+      && this.data.form[modelConfigKey]
+      && this.data.form[modelConfigKey].provider
+    );
+    if (!providerId) {
+      this.setData({
+        message: `${targetLabel}没有选中的服务商，请先选择服务商。`
+      });
+      wx.showModal({
+        title: "无法测试",
+        content: "请先选择服务商，再点击测试连接。",
+        showCancel: false
+      });
+      return;
+    }
+    const requestId = `admin-provider-test-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
     this.setData({
       modelActionType: modelType,
       modelActionKind: "test",
@@ -7505,13 +7523,14 @@ Page({
       message: `正在测试${targetLabel}连接...`
     });
     try {
-      const result = await cloud.probeModels(
-        modelType,
-        modelConfigForAction(this.data.form, modelType, modelConfigKey)
+      const result = await cloud.testAdminProviderConnection(
+        modelConfigKey,
+        providerId,
+        { requestId }
       );
       const target = result && Array.isArray(result.results)
         ? result.results[0]
-        : null;
+        : result;
       const ok = Boolean(target && target.status === "ok" && target.ready);
       const message = ok
         ? target && target.message

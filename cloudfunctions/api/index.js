@@ -9973,6 +9973,118 @@ async function probeModels(event, context) {
   });
 }
 
+function adminProviderConnectionConfig(section, profile) {
+  const value = profile && typeof profile === "object" ? profile : {};
+  if (section === "face") return resolveFaceConfig({ face: value });
+  if (section === "analysis") return resolveAnalysisConfig({ analysis: value });
+  if (section === "image") return resolveImageConfig({ image: value });
+  if (section === "imageBackup") {
+    return resolveImageBackupConfig({ imageBackup: value });
+  }
+  return resolveVideoConfig({ video: value });
+}
+
+function adminProviderConnectionErrorCode(status) {
+  const suffix = String(status || "failed")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "") || "FAILED";
+  return `ADMIN_PROVIDER_CONNECTION_${suffix}`;
+}
+
+async function testAdminProviderConnection(event, context) {
+  if (!isAdminContext(context)) return adminForbidden();
+  const section = String(event && event.section || "").trim();
+  if (!ADMIN_PROVIDER_CONFIG_SECTIONS.includes(section)) {
+    return fail(
+      `不支持测试的配置区域：${section || "未指定"}`,
+      "ADMIN_PROVIDER_SECTION_INVALID"
+    );
+  }
+  const rawProviderId = String(event && event.providerId || "").trim();
+  const providerId = normalizeAdminProviderId(rawProviderId);
+  if (
+    !providerId
+    || providerId.length > 120
+    || isDangerousAdminProviderId(providerId)
+  ) {
+    return fail("服务商编号无效，请重新选择服务商。", "ADMIN_PROVIDER_ID_INVALID");
+  }
+
+  const configs = await resolveEffectiveConfigs({ force: true });
+  const runtime = configs && configs.runtime && typeof configs.runtime === "object"
+    ? configs.runtime
+    : {};
+  const providerProfiles = syncAdminTopLevelProviderProfiles(
+    runtime,
+    runtime.providerProfiles
+  );
+  const profile = providerProfiles[section]
+    && providerProfiles[section][providerId]
+    || null;
+  const activeConfig = configs && configs[section] && typeof configs[section] === "object"
+    ? configs[section]
+    : {};
+  const activeProviderId = normalizeAdminProviderId(activeConfig.provider);
+  const selectedProfile = profile
+    || (activeProviderId === providerId ? activeConfig : null);
+  if (!selectedProfile) {
+    return fail(
+      `没有找到“${providerId}”在${section}区域的已保存配置，请先保存后再测试。`,
+      "ADMIN_PROVIDER_PROFILE_NOT_FOUND",
+      {
+        section,
+        providerId
+      }
+    );
+  }
+
+  const probeType = section === "imageBackup" ? "image" : section;
+  const config = adminProviderConnectionConfig(section, selectedProfile);
+  const result = await probeOneModel(probeType, config);
+  const response = {
+    section,
+    providerId,
+    provider: String(result.provider || providerId).trim(),
+    model: String(result.model || "").trim(),
+    ready: Boolean(result.ready),
+    reachable: Boolean(result.reachable),
+    status: String(result.status || "network-error"),
+    statusText: String(result.statusText || modelProbeStatusText(result.status)),
+    httpStatus: Number(result.httpStatus) || 0,
+    durationMs: Number(result.durationMs) || 0,
+    checkedAt: result.checkedAt || new Date().toISOString(),
+    message: sanitizeFailureMessage(
+      result.message || "连接测试未通过，请检查已保存的服务商配置。",
+      200
+    )
+  };
+  log(
+    response.ready ? "info" : "warn",
+    "admin.provider-connection-tested",
+    {
+      requestId: String(event && event.requestId || ""),
+      section,
+      providerId,
+      provider: response.provider,
+      model: response.model,
+      status: response.status,
+      httpStatus: response.httpStatus,
+      durationMs: response.durationMs,
+      ready: response.ready
+    }
+  );
+  if (!response.ready) {
+    return fail(
+      response.message,
+      adminProviderConnectionErrorCode(response.status),
+      response
+    );
+  }
+  return jsonResponse(true, response);
+}
+
 async function listModels(event, context) {
   if (!isAdminContext(context)) return adminForbidden();
   const requestedValue = String(event && event.modelType || "").trim();
@@ -18860,6 +18972,9 @@ exports.main = async (event = {}, context) => {
     else if (action === "probeImageEditCapability") {
       result = await probeImageEditCapability(requestEvent, context);
     }
+    else if (action === "testAdminProviderConnection") {
+      result = await testAdminProviderConnection(requestEvent, context);
+    }
     else if (action === "probeModels") result = await probeModels(requestEvent, context);
     else if (action === "listModels") result = await listModels(requestEvent, context);
     else if (action === "listDeploymentLogs") result = await listDeploymentLogs(context);
@@ -19210,6 +19325,9 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     probeOneModel,
     normalizeModelProbeType,
     temporaryModelConfig,
+    adminProviderConnectionConfig,
+    adminProviderConnectionErrorCode,
+    testAdminProviderConnection,
     probeModels,
     listModels,
     listDeploymentLogs

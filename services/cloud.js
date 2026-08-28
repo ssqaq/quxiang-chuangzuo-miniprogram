@@ -836,6 +836,15 @@ module.exports = {
     if (modelConfig && typeof modelConfig === "object") data.config = modelConfig;
     return callApi(data);
   },
+  testAdminProviderConnection(section, providerId, options = {}) {
+    return callApi({
+      action: "testAdminProviderConnection",
+      section: String(section || "").trim(),
+      providerId: String(providerId || "").trim(),
+      requestId: String(options.requestId || "").trim(),
+      retryLimit: 0
+    });
+  },
   listModels(modelType, modelConfig = null) {
     const data = {
       action: "listModels",

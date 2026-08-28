@@ -275,6 +275,7 @@
         <view class="config-editor-body">
           <view class="config-helper">API Key 只在服务端保存，页面不会回显真实内容；输入框留空并保存，会继续使用原来的密钥。</view>
           <view class="config-helper">切换服务商只修改当前页面草稿，点击“保存全部配置”后才写入云端。</view>
+          <view class="config-helper">测试使用当前已保存的服务商配置；修改参数后请先保存。</view>
           <view class="config-model-actions">
             <view
               class="config-model-button config-model-test"
@@ -381,6 +382,7 @@
         <view class="config-editor-body">
           <view class="config-helper">图片分析模型独立保存服务商、接口地址、API Key、使用的模型和超时；真实 Key 不会回显，留空保存会继续使用原来的密钥。</view>
           <view class="config-helper">切换服务商只修改当前页面草稿，点击“保存全部配置”后才写入云端。</view>
+          <view class="config-helper">测试使用当前已保存的服务商配置；修改参数后请先保存。</view>
           <view class="config-editor-tools config-model-actions">
             <view
               class="config-tool-button"
@@ -511,6 +513,7 @@
           <view wx:if="{{tencentImageTab === 'image'}}" class="tencent-image-tab-panel">
           <view class="config-helper">管理员页面会显示所选服务商的完整 API Key；修改后点击“保存全部配置”才会生效。</view>
           <view class="config-helper">切换服务商只修改当前页面草稿，点击“保存全部配置”后才写入云端。</view>
+          <view class="config-helper">测试使用当前已保存的服务商配置；修改参数后请先保存。</view>
           <view class="config-model-actions">
             <view
               class="config-model-button config-model-test"
@@ -674,6 +677,7 @@
               aria-label="不扣费检查备用图片编辑配置"
             >{{imageBackupEditCapabilityLoading ? '检查中...' : '检查图片编辑配置'}}</view>
           </view>
+          <view class="config-helper">测试使用当前已保存的备用服务商配置；修改参数后请先保存。</view>
           <view
             wx:if="{{imageBackupEditCapabilityProbe.checked}}"
             class="image-edit-probe-card is-{{imageBackupEditCapabilityProbe.tone}}"
@@ -866,6 +870,7 @@
         </view>
         <view class="config-editor-body">
           <view class="config-helper">选择“星炬”后，会自动填入星炬接口地址、模型、创建路径、查询路径、清晰度和超时，并显示云函数当前使用的完整 API Key。</view>
+          <view class="config-helper">测试使用当前已保存的视频服务商配置；修改参数后请先保存。</view>
           <view class="config-model-actions">
             <view
               class="config-model-button config-model-test"

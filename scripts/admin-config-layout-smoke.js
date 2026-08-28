@@ -333,6 +333,19 @@ assert.ok(
   "图片主备四步向导、备用开关或重试次数限制缺失"
 );
 assert.ok(
+  wxml.includes("视频服务商设置")
+    && wxml.includes("videoWizardStep")
+    && wxml.includes('bindchange="onVideoBackupEnabledChange"')
+    && wxml.includes("启用备用视频模型")
+    && wxml.includes("onVideoWizardNext")
+    && wxml.includes("onVideoWizardPrev")
+    && wxml.includes("toggleVideoAdvancedSettings")
+    && js.includes("validateVideoWizardStep")
+    && js.includes("videoWizardAdvancedOpen")
+    && js.includes("videoBackup.enabled"),
+  "视频主备四步向导、备用开关或保存链路缺失"
+);
+assert.ok(
   (wxml.match(/data-model-config="imageBackup"/g) || []).length >= 2
     && wxml.includes('bindtap="runImageBackupEditCapabilityProbe"')
     && wxml.includes("imageBackupEditCapabilityProbe.checked")

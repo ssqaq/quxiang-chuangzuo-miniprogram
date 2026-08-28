@@ -764,14 +764,20 @@ async function verifyBuiltInProviderPresets() {
   assert.strictEqual(page.data.form.imageBackup.model, "jw-wy-gpt-image-2");
 
   switchProvider(page, "video", "xingju");
+  assert.strictEqual(page.data.form.video.enabled, true);
   assert.strictEqual(page.data.form.video.model, "grok-imagine-video-1.5");
   assert.strictEqual(page.data.form.video.createPath, "/v1/videos/generations");
   assert.strictEqual(page.data.form.video.queryPath, "/v1/videos/{taskId}");
   assert.strictEqual(page.data.form.video.resolution, "720p");
   assert.strictEqual(String(page.data.form.video.timeoutMs), "90000");
   switchProvider(page, "videoBackup", "xingju");
+  assert.strictEqual(page.data.form.videoBackup.enabled, true);
   assert.strictEqual(page.data.form.videoBackup.model, "grok-imagine-video-1.5");
   assert.strictEqual(page.data.form.videoBackup.queryPath, "/v1/videos/{taskId}");
+  page.onVideoBackupEnabledChange({ detail: { value: false } });
+  assert.strictEqual(page.data.form.videoBackup.enabled, false);
+  page.onVideoBackupEnabledChange({ detail: { value: true } });
+  assert.strictEqual(page.data.form.videoBackup.enabled, true);
 }
 
 function verifyMarkup() {
@@ -786,8 +792,8 @@ function verifyMarkup() {
   );
   assert.strictEqual(
     (wxml.match(/bindchange="onProviderProfileChange"/g) || []).length,
-    8,
-    "四个功能区的主备配置和图片向导都必须使用服务商档案下拉框"
+    10,
+    "四个功能区的主备配置、图片向导和视频向导都必须使用服务商档案下拉框"
   );
   Object.keys(PICKER_STATE).forEach((section) => {
     assert.ok(
@@ -836,6 +842,18 @@ function verifyMarkup() {
   ].forEach((name) => {
     assert.ok(pageJs.includes(name), `管理员页面缺少 ${name}`);
   });
+  assert.ok(
+    wxml.includes("视频服务商设置")
+      && wxml.includes("videoWizardStep")
+      && wxml.includes('bindchange="onVideoBackupEnabledChange"')
+      && wxml.includes("启用备用视频模型")
+      && wxml.includes("onVideoWizardNext")
+      && wxml.includes("onVideoWizardPrev")
+      && wxml.includes("toggleVideoAdvancedSettings")
+      && pageJs.includes("validateVideoWizardStep")
+      && pageJs.includes("videoWizardAdvancedOpen"),
+    "视频主备四步向导或备用开关缺失"
+  );
 }
 
 async function main() {

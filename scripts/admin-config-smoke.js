@@ -263,6 +263,21 @@ assert.ok(
     .some((item) => item.includes("imageBackup.enabled")),
   "运行时配置必须拒绝未归一化的备用开关"
 );
+assert.strictEqual(
+  test.normalizeRuntimePatch({ videoBackup: { enabled: "true" } }).videoBackup.enabled,
+  true,
+  "备用视频开关保存前必须归一化为布尔值"
+);
+assert.strictEqual(
+  test.normalizeRuntimePatch({ videoBackup: { enabled: "false" } }).videoBackup.enabled,
+  false,
+  "备用视频关闭状态必须保留"
+);
+assert.ok(
+  test.validateRuntimePatch({ videoBackup: { enabled: "true" } })
+    .some((item) => item.includes("videoBackup.enabled")),
+  "运行时配置必须拒绝未归一化的备用视频开关"
+);
 assert.ok(test.validateRuntimePatch({
   video: { baseUrl: "javascript:alert(1)" }
 }).length > 0);

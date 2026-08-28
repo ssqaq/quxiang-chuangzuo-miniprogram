@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.57.4";
-const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0574";
+const API_BUILD_VERSION = "0.57.5";
+const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0575";
 const DEFAULT_IMAGE_MODE = "edits";
 // 图片和视频默认成本只在云函数入口维护；管理员页读取云端有效配置，
 // 避免前后端各写一份价格。入口保持单文件可启动，兼容 CloudBase 部署。
@@ -6456,7 +6456,7 @@ function mergeAdminProviderLabels(current, patch) {
   ));
 }
 
-// 主视频和备用视频共用同一套服务商档案，备用项只保存“选中了谁”。
+// 主视频和备用视频共用同一套服务商档案，备用项额外保存显式开关。
 const ADMIN_PROVIDER_PROFILE_SECTIONS = Object.freeze([
   "face",
   "analysis",
@@ -6513,6 +6513,7 @@ const ADMIN_PROVIDER_PROFILE_KEYS = Object.freeze({
     "retryPreferenceVersion"
   ]),
   video: Object.freeze([
+    "enabled",
     "provider",
     "baseUrl",
     "endpoint",
@@ -7325,6 +7326,12 @@ function validateRuntimePatch(patch, options = {}) {
     && typeof imageBackup.enabled !== "boolean"
   ) {
     errors.push("imageBackup.enabled 必须是布尔值");
+  }
+  if (
+    videoBackup.enabled !== undefined
+    && typeof videoBackup.enabled !== "boolean"
+  ) {
+    errors.push("videoBackup.enabled 必须是布尔值");
   }
   [
     ["points.dailyFreeLimit", points.dailyFreeLimit, 0, 100],

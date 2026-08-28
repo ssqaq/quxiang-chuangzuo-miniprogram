@@ -976,6 +976,111 @@
           <view class="config-editor-focus-help">下面的修改只作用于这一项</view>
         </view>
         <view class="config-editor-body">
+          <view class="image-wizard-intro video-wizard-intro">
+            <view class="image-wizard-kicker">视频服务商设置</view>
+            <view class="image-wizard-title">按 4 步完成主备配置</view>
+            <view class="image-wizard-subtitle">先选主视频模型，再决定是否启用备用；测试通过后一次保存。</view>
+          </view>
+          <view class="image-wizard-progress video-wizard-progress">
+            <view class="image-wizard-progress-item {{videoWizardStep >= 1 ? 'is-active' : ''}}"><text>1</text><label>主模型</label></view>
+            <view class="image-wizard-progress-line {{videoWizardStep >= 2 ? 'is-active' : ''}}"></view>
+            <view class="image-wizard-progress-item {{videoWizardStep >= 2 ? 'is-active' : ''}}"><text>2</text><label>备用模型</label></view>
+            <view class="image-wizard-progress-line {{videoWizardStep >= 3 ? 'is-active' : ''}}"></view>
+            <view class="image-wizard-progress-item {{videoWizardStep >= 3 ? 'is-active' : ''}}"><text>3</text><label>视频参数</label></view>
+            <view class="image-wizard-progress-line {{videoWizardStep >= 4 ? 'is-active' : ''}}"></view>
+            <view class="image-wizard-progress-item {{videoWizardStep >= 4 ? 'is-active' : ''}}"><text>4</text><label>测试保存</label></view>
+          </view>
+
+          <view wx:if="{{videoWizardStep === 1}}" class="image-wizard-step video-wizard-step">
+            <view class="image-wizard-step-head">
+              <view><view class="image-wizard-step-title">第 1 步：选择主视频模型</view><view class="image-wizard-step-desc">正常情况下优先调用主模型。</view></view>
+              <view class="image-provider-role-badge is-primary">主用</view>
+            </view>
+            <view class="image-wizard-status-card is-primary">
+              <view class="image-wizard-status-dot {{form.video.model && (form.video.apiKey || form.video.apiKeyConfigured) ? 'is-ready' : ''}}"></view>
+              <view><view class="image-wizard-status-title">{{form.video.provider || '还没有选择服务商'}}</view><view class="image-wizard-status-desc">{{form.video.model || '请选择模型'}} · {{form.video.apiKey || form.video.apiKeyConfigured ? 'API Key 已配置' : '需要配置 API Key'}}</view></view>
+            </view>
+            <view class="admin-field">
+              <text>主模型服务商</text>
+              <picker mode="selector" range="{{videoProviderProfileOptions}}" range-key="label" value="{{videoProviderProfileIndex}}" data-section="video" bindchange="onProviderProfileChange">
+                <view class="admin-picker">{{videoProviderProfileOptions[videoProviderProfileIndex].label}}</view>
+              </picker>
+            </view>
+            <view class="admin-field"><text>模型名称</text><input value="{{form.video.model}}" data-section="video" data-key="model" placeholder="例如 grok-imagine-video-1.5" bindinput="onInput" /></view>
+            <view class="admin-field"><text>接口地址</text><input value="{{form.video.baseUrl}}" data-section="video" data-key="baseUrl" placeholder="例如 https://api.example.com" bindinput="onInput" /></view>
+            <view class="admin-field admin-api-key-field">
+              <view class="admin-field-label-row"><text>API Key</text><text class="api-key-config-state {{form.video.apiKey || form.video.apiKeyConfigured ? 'is-ready' : 'is-off'}}">{{form.video.apiKey || form.video.apiKeyConfigured ? '已配置' : '未配置'}}</text></view>
+              <view class="api-key-readonly-value">{{form.video.apiKey || (form.video.apiKeyConfigured ? '云函数环境变量已配置' : '请在云函数环境变量配置')}}</view>
+              <view class="api-key-field-tip">视频 Key 只从云函数环境变量读取，修改环境变量后重新部署云函数。</view>
+            </view>
+          </view>
+
+          <view wx:if="{{videoWizardStep === 2}}" class="image-wizard-step video-wizard-step">
+            <view class="image-wizard-step-head">
+              <view><view class="image-wizard-step-title">第 2 步：要不要启用备用？</view><view class="image-wizard-step-desc">主模型创建失败时才切换；主模型已经返回任务编号后不会中途换服务商。</view></view>
+            </view>
+            <label class="image-wizard-switch-row">
+              <view><view class="image-wizard-switch-title">启用备用视频模型</view><view class="image-wizard-switch-desc">备用服务商建议使用另一条线路，关闭后不会调用备用。</view></view>
+              <switch checked="{{form.videoBackup.enabled}}" color="#2376d8" bindchange="onVideoBackupEnabledChange"></switch>
+            </label>
+            <view wx:if="{{form.videoBackup.enabled}}" class="image-wizard-backup-box">
+              <view class="image-wizard-status-card is-backup">
+                <view class="image-wizard-status-dot {{form.videoBackup.model && (form.videoBackup.apiKey || form.videoBackup.apiKeyConfigured) ? 'is-ready' : ''}}"></view>
+                <view><view class="image-wizard-status-title">备用：{{form.videoBackup.provider || '还没有选择服务商'}}</view><view class="image-wizard-status-desc">{{form.videoBackup.model || '请选择模型'}} · {{form.videoBackup.apiKey || form.videoBackup.apiKeyConfigured ? 'API Key 已配置' : '需要配置 API Key'}}</view></view>
+              </view>
+              <view class="admin-field">
+                <text>备用服务商</text>
+                <picker mode="selector" range="{{videoBackupProviderProfileOptions}}" range-key="label" value="{{videoBackupProviderProfileIndex}}" data-section="videoBackup" bindchange="onProviderProfileChange">
+                  <view class="admin-picker">{{videoBackupProviderProfileOptions[videoBackupProviderProfileIndex].label}}</view>
+                </picker>
+              </view>
+              <view class="admin-field"><text>备用模型</text><input value="{{form.videoBackup.model}}" data-section="videoBackup" data-key="model" placeholder="例如备用视频模型" bindinput="onInput" /></view>
+              <view class="admin-field"><text>备用接口地址</text><input value="{{form.videoBackup.baseUrl}}" data-section="videoBackup" data-key="baseUrl" placeholder="例如 https://backup.example.com" bindinput="onInput" /></view>
+              <view class="admin-field admin-api-key-field">
+                <view class="admin-field-label-row"><text>备用 API Key</text><text class="api-key-config-state {{form.videoBackup.apiKey || form.videoBackup.apiKeyConfigured ? 'is-ready' : 'is-off'}}">{{form.videoBackup.apiKey || form.videoBackup.apiKeyConfigured ? '已配置' : '未配置'}}</text></view>
+                <view class="api-key-readonly-value">{{form.videoBackup.apiKey || (form.videoBackup.apiKeyConfigured ? '云函数环境变量已配置' : '请配置 AI_VIDEO_BACKUP_API_KEY')}}</view>
+                <view class="api-key-field-tip">备用 Key 与主视频 Key 分开保存，只读取云函数环境变量。</view>
+              </view>
+            </view>
+            <view wx:else class="image-wizard-disabled-note">当前只使用主视频模型。以后重新打开备用开关即可，已填写的备用参数不会丢失。</view>
+          </view>
+
+          <view wx:if="{{videoWizardStep === 3}}" class="image-wizard-step video-wizard-step">
+            <view class="image-wizard-step-head"><view><view class="image-wizard-step-title">第 3 步：设置视频参数</view><view class="image-wizard-step-desc">清晰度、宽高比和超时分别保存到主备模型。</view></view></view>
+            <view class="image-wizard-param-grid">
+              <view class="admin-field"><text>主视频清晰度</text><picker mode="selector" range="{{videoQualityOptions}}" range-key="label" value="{{videoQualityIndex}}" bindchange="onVideoQualityChange"><view class="admin-picker">{{videoQualityOptions[videoQualityIndex].label}}</view></picker></view>
+              <view class="admin-field"><text>主视频宽高比</text><input value="{{form.video.aspectRatio}}" data-section="video" data-key="aspectRatio" placeholder="可留空" bindinput="onInput" /></view>
+              <view class="admin-field"><text>主视频超时（毫秒）</text><input type="number" value="{{form.video.timeoutMs}}" data-section="video" data-key="timeoutMs" bindinput="onInput" /></view>
+              <view wx:if="{{form.videoBackup.enabled}}" class="admin-field"><text>备用清晰度</text><picker mode="selector" range="{{videoBackupQualityOptions}}" range-key="label" value="{{videoBackupQualityIndex}}" bindchange="onVideoBackupQualityChange"><view class="admin-picker">{{videoBackupQualityOptions[videoBackupQualityIndex].label}}</view></picker></view>
+              <view wx:if="{{form.videoBackup.enabled}}" class="admin-field"><text>备用宽高比</text><input value="{{form.videoBackup.aspectRatio}}" data-section="videoBackup" data-key="aspectRatio" placeholder="可留空" bindinput="onInput" /></view>
+              <view wx:if="{{form.videoBackup.enabled}}" class="admin-field"><text>备用超时（毫秒）</text><input type="number" value="{{form.videoBackup.timeoutMs}}" data-section="videoBackup" data-key="timeoutMs" bindinput="onInput" /></view>
+            </view>
+            <view class="image-wizard-summary-row"><text>主模型</text><text>{{form.video.provider || '未选择'}} · {{form.video.model || '未填写'}}</text></view>
+            <view wx:if="{{form.videoBackup.enabled}}" class="image-wizard-summary-row is-backup"><text>备用模型</text><text>{{form.videoBackup.provider || '未选择'}} · {{form.videoBackup.model || '未填写'}}</text></view>
+            <view class="image-wizard-tip">视频任务只在创建阶段按主 → 备用切换；查询阶段始终跟随已经拿到任务编号的服务商。</view>
+          </view>
+
+          <view wx:if="{{videoWizardStep === 4}}" class="image-wizard-step video-wizard-step">
+            <view class="image-wizard-step-head"><view><view class="image-wizard-step-title">第 4 步：测试并保存</view><view class="image-wizard-step-desc">先测试能否连通，再保存全部视频配置。</view></view></view>
+            <view class="image-wizard-run-summary">
+              <view><text>主模型</text><text>{{form.video.provider || '未选择'}} · {{form.video.model || '未填写'}}</text></view>
+              <view><text>备用模型</text><text wx:if="{{form.videoBackup.enabled}}">{{form.videoBackup.provider || '未选择'}} · {{form.videoBackup.model || '未填写'}}</text><text wx:else>未启用</text></view>
+              <view><text>执行顺序</text><text>主模型创建失败 → {{form.videoBackup.enabled ? '切换备用一次' : '直接结束'}}</text></view>
+            </view>
+            <view class="config-model-actions image-wizard-actions">
+              <view class="config-model-button config-model-test" data-model-type="video" data-model-config="video" bindtap="testModelConnection" role="button">{{modelActionType === 'video' && modelActionTarget === 'video' && modelActionKind === 'test' ? '测试中...' : '测试主模型'}}</view>
+              <view wx:if="{{form.videoBackup.enabled}}" class="config-model-button config-model-test" data-model-type="video" data-model-config="videoBackup" bindtap="testModelConnection" role="button">{{modelActionType === 'video' && modelActionTarget === 'videoBackup' && modelActionKind === 'test' ? '测试中...' : '测试备用'}}</view>
+              <view class="config-model-button config-model-list" bindtap="saveConfig" role="button">{{saving ? '保存中...' : '保存全部配置'}}</view>
+            </view>
+          </view>
+
+          <view class="image-wizard-nav video-wizard-nav">
+            <view wx:if="{{videoWizardStep > 1}}" class="image-wizard-nav-button is-ghost" bindtap="onVideoWizardPrev" role="button">上一步</view>
+            <view wx:if="{{videoWizardStep < 4}}" class="image-wizard-nav-button is-primary" bindtap="onVideoWizardNext" role="button">下一步</view>
+            <view class="image-wizard-advanced-toggle" bindtap="toggleVideoAdvancedSettings" role="button">{{videoWizardAdvancedOpen ? '收起高级设置' : '查看高级设置'}}</view>
+          </view>
+
+          <view wx:if="{{videoWizardAdvancedOpen}}" class="image-advanced-settings video-advanced-settings">
           <view class="config-helper">主服务商创建任务失败时，会按下面的备用服务商再尝试一次。主服务商已经返回任务编号后，不会中途换服务商。</view>
           <view class="image-provider-section-head">
             <view>
@@ -1058,7 +1163,7 @@
             </view>
             <view class="image-provider-role-badge is-backup">备用</view>
           </view>
-          <view wx:if="{{form.videoBackup.provider}}" class="config-model-actions image-backup-model-actions">
+          <view wx:if="{{form.videoBackup.enabled && form.videoBackup.provider}}" class="config-model-actions image-backup-model-actions">
             <view
               class="config-model-button config-model-test"
               data-model-type="video"
@@ -1092,11 +1197,11 @@
                 <view class="admin-picker">{{videoBackupProviderProfileOptions[videoBackupProviderProfileIndex].label}}</view>
               </picker>
             </view>
-            <view wx:if="{{form.videoBackup.provider}}" class="admin-field"><text>使用的模型</text><input value="{{form.videoBackup.model}}" data-section="videoBackup" data-key="model" bindinput="onInput" /></view>
-            <view wx:if="{{form.videoBackup.provider}}" class="admin-field admin-field-wide"><text>接口地址</text><input value="{{form.videoBackup.baseUrl}}" data-section="videoBackup" data-key="baseUrl" bindinput="onInput" /></view>
-            <view wx:if="{{form.videoBackup.provider}}" class="admin-field admin-field-wide"><text>请求接口（可留空）</text><input value="{{form.videoBackup.endpoint}}" data-section="videoBackup" data-key="endpoint" placeholder="留空使用创建路径" bindinput="onInput" /></view>
-            <view wx:if="{{form.videoBackup.provider}}" class="admin-field admin-field-wide"><text>查询接口（可留空）</text><input value="{{form.videoBackup.queryEndpoint}}" data-section="videoBackup" data-key="queryEndpoint" placeholder="留空使用查询路径" bindinput="onInput" /></view>
-            <view wx:if="{{form.videoBackup.provider}}" class="admin-field admin-field-wide admin-api-key-field">
+            <view wx:if="{{form.videoBackup.enabled && form.videoBackup.provider}}" class="admin-field"><text>使用的模型</text><input value="{{form.videoBackup.model}}" data-section="videoBackup" data-key="model" bindinput="onInput" /></view>
+            <view wx:if="{{form.videoBackup.enabled && form.videoBackup.provider}}" class="admin-field admin-field-wide"><text>接口地址</text><input value="{{form.videoBackup.baseUrl}}" data-section="videoBackup" data-key="baseUrl" bindinput="onInput" /></view>
+            <view wx:if="{{form.videoBackup.enabled && form.videoBackup.provider}}" class="admin-field admin-field-wide"><text>请求接口（可留空）</text><input value="{{form.videoBackup.endpoint}}" data-section="videoBackup" data-key="endpoint" placeholder="留空使用创建路径" bindinput="onInput" /></view>
+            <view wx:if="{{form.videoBackup.enabled && form.videoBackup.provider}}" class="admin-field admin-field-wide"><text>查询接口（可留空）</text><input value="{{form.videoBackup.queryEndpoint}}" data-section="videoBackup" data-key="queryEndpoint" placeholder="留空使用查询路径" bindinput="onInput" /></view>
+            <view wx:if="{{form.videoBackup.enabled && form.videoBackup.provider}}" class="admin-field admin-field-wide admin-api-key-field">
               <view class="admin-field-label-row">
                 <text>API Key</text>
                 <text class="api-key-config-state {{form.videoBackup.apiKey ? 'is-ready' : 'is-off'}}">{{form.videoBackup.apiKey ? '已显示完整 Key' : (form.videoBackup.apiKeyConfigured ? '完整 Key 读取失败' : '未配置')}}</text>
@@ -1104,9 +1209,9 @@
               <input disabled value="{{form.videoBackup.apiKey}}" data-section="videoBackup" data-key="apiKey" placeholder="{{form.videoBackup.apiKeyConfigured ? '云函数环境变量已配置' : '请配置 AI_VIDEO_BACKUP_API_KEY'}}" />
               <view class="api-key-field-tip">当前显示备用视频环境变量实际生效的完整 Key；它和主视频 Key 分开保存。</view>
             </view>
-            <view wx:if="{{form.videoBackup.provider}}" class="admin-field admin-field-wide"><text>创建路径</text><input value="{{form.videoBackup.createPath}}" data-section="videoBackup" data-key="createPath" bindinput="onInput" /></view>
-            <view wx:if="{{form.videoBackup.provider}}" class="admin-field admin-field-wide"><text>查询路径</text><input value="{{form.videoBackup.queryPath}}" data-section="videoBackup" data-key="queryPath" bindinput="onInput" /></view>
-            <view wx:if="{{form.videoBackup.provider}}" class="admin-field">
+            <view wx:if="{{form.videoBackup.enabled && form.videoBackup.provider}}" class="admin-field admin-field-wide"><text>创建路径</text><input value="{{form.videoBackup.createPath}}" data-section="videoBackup" data-key="createPath" bindinput="onInput" /></view>
+            <view wx:if="{{form.videoBackup.enabled && form.videoBackup.provider}}" class="admin-field admin-field-wide"><text>查询路径</text><input value="{{form.videoBackup.queryPath}}" data-section="videoBackup" data-key="queryPath" bindinput="onInput" /></view>
+            <view wx:if="{{form.videoBackup.enabled && form.videoBackup.provider}}" class="admin-field">
               <text>清晰度（价格/秒）</text>
               <picker
                 mode="selector"
@@ -1118,10 +1223,11 @@
                 <view class="admin-picker">{{videoBackupQualityOptions[videoBackupQualityIndex].label}}</view>
               </picker>
             </view>
-            <view wx:if="{{form.videoBackup.provider}}" class="admin-field"><text>宽高比（可空）</text><input value="{{form.videoBackup.aspectRatio}}" data-section="videoBackup" data-key="aspectRatio" bindinput="onInput" /></view>
-            <view wx:if="{{form.videoBackup.provider}}" class="admin-field"><text>超时毫秒</text><input type="number" value="{{form.videoBackup.timeoutMs}}" data-section="videoBackup" data-key="timeoutMs" bindinput="onInput" /></view>
+            <view wx:if="{{form.videoBackup.enabled && form.videoBackup.provider}}" class="admin-field"><text>宽高比（可空）</text><input value="{{form.videoBackup.aspectRatio}}" data-section="videoBackup" data-key="aspectRatio" bindinput="onInput" /></view>
+            <view wx:if="{{form.videoBackup.enabled && form.videoBackup.provider}}" class="admin-field"><text>超时毫秒</text><input type="number" value="{{form.videoBackup.timeoutMs}}" data-section="videoBackup" data-key="timeoutMs" bindinput="onInput" /></view>
           </view>
-          <view wx:if="{{!form.videoBackup.provider}}" class="config-helper">当前未启用备用服务商。主服务商创建失败时会直接退款，不会再请求其他视频接口。</view>
+          <view wx:if="{{!form.videoBackup.enabled || !form.videoBackup.provider}}" class="config-helper">当前未启用备用服务商。主服务商创建失败时会直接退款，不会再请求其他视频接口。</view>
+          </view>
         </view>
         <view wx:if="{{activeConfigSection !== 'users'}}" class="admin-actions">
           <view

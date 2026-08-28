@@ -919,6 +919,7 @@ const ADMIN_PROVIDER_PROFILE_FORM_KEYS = Object.freeze({
     "retryPreferenceVersion"
   ]),
   video: Object.freeze([
+    "enabled",
     "provider",
     "baseUrl",
     "endpoint",
@@ -1018,6 +1019,9 @@ function formSectionToProviderConfig(section, source = {}) {
   }
   if (section === "video" || section === "videoBackup") {
     return {
+      enabled: section === "videoBackup"
+        ? Boolean(value.enabled)
+        : value.enabled === undefined ? true : Boolean(value.enabled),
       provider: normalizeAdminProviderInput(value.provider),
       baseUrl: String(value.baseUrl || "").trim(),
       endpoint: String(value.endpoint || "").trim(),
@@ -1254,6 +1258,9 @@ function providerProfileDefaultForm(section, providerId) {
     result.aspectRatio = "";
     result.timeoutMs = String(source.timeoutMs || "90000");
   }
+  result.enabled = section === "videoBackup"
+    ? Boolean(source.enabled)
+    : true;
   return result;
 }
 
@@ -1416,6 +1423,7 @@ function emptyForm() {
     },
     tencentFaceFusion: emptyTencentFaceFusionForm(),
     video: {
+      enabled: true,
       provider: "",
       baseUrl: "",
       endpoint: "",
@@ -3881,6 +3889,10 @@ function buildEntryHealth(
     const value = configs[section] || {};
     return Boolean(value.apiKeyConfigured && value.provider && value.model);
   };
+  const videoBackupEnabled = Boolean(
+    configs.videoBackup
+    && configs.videoBackup.enabled
+  );
   const failureFor = (section) => Number(today[section] && today[section].failure) || 0;
   const stateLabel = (key, normalLabel = "正常") => {
     const state = states[key] || createModuleState("ready", true);
@@ -3914,8 +3926,16 @@ function buildEntryHealth(
       ) ? "异常" : "正常"
     },
     video: {
-      abnormal: !configReady("video") || failureFor("video") > 0,
-      label: !configReady("video") || failureFor("video") > 0 ? "异常" : "正常"
+      abnormal: (
+        !configReady("video")
+        || (videoBackupEnabled && !configReady("videoBackup"))
+        || failureFor("video") > 0
+      ),
+      label: (
+        !configReady("video")
+        || (videoBackupEnabled && !configReady("videoBackup"))
+        || failureFor("video") > 0
+      ) ? "异常" : "正常"
     },
     points: { abnormal: false, label: "正常" },
     costs: {
@@ -4058,6 +4078,7 @@ function formFromConfig(result) {
       maxImageBytes: String(tencentFaceFusion.maxImageBytes || 5 * 1024 * 1024)
     },
     video: {
+      enabled: video.enabled === undefined ? true : Boolean(video.enabled),
       provider: displayAdminProvider(video.provider),
       baseUrl: video.baseUrl || "",
       endpoint: video.endpoint || "",
@@ -5109,6 +5130,8 @@ Page({
     imageBackupEditCapabilityProbe: emptyImageEditCapabilityProbe(),
     imageWizardStep: 1,
     imageWizardAdvancedOpen: false,
+    videoWizardStep: 1,
+    videoWizardAdvancedOpen: false,
     entryHealth: buildEntryHealth(),
     activeConfigSection: "",
     activeConfigTitle: "",
@@ -7130,6 +7153,21 @@ Page({
     }, buildAdminProviderProfilePickerState(nextForm), buildQualityPickerState(nextForm)));
   },
 
+  onVideoBackupEnabledChange(event) {
+    const enabled = Boolean(event && event.detail && event.detail.value);
+    const nextForm = updateAdminProviderProfileForm(
+      this.data.form,
+      "videoBackup",
+      { enabled }
+    );
+    this.setData(Object.assign({
+      form: nextForm,
+      message: enabled
+        ? "已开启备用视频模型；参数完整后，主模型创建失败时才会切换。"
+        : "已关闭备用视频模型；已填写的备用参数会保留。"
+    }, buildAdminProviderProfilePickerState(nextForm), buildQualityPickerState(nextForm)));
+  },
+
   validateImageWizardStep(step = this.data.imageWizardStep) {
     const image = this.data.form && this.data.form.image || {};
     const backup = this.data.form && this.data.form.imageBackup || {};
@@ -7170,6 +7208,56 @@ Page({
 
   toggleImageAdvancedSettings() {
     this.setData({ imageWizardAdvancedOpen: !this.data.imageWizardAdvancedOpen });
+  },
+
+  validateVideoWizardStep(step = this.data.videoWizardStep) {
+    const video = this.data.form && this.data.form.video || {};
+    const backup = this.data.form && this.data.form.videoBackup || {};
+    if (step === 1) {
+      if (!String(video.provider || "").trim()) return "请选择主视频服务商。";
+      if (!String(video.model || "").trim()) return "请填写主视频模型名称。";
+      if (!String(video.apiKey || "").trim() && !video.apiKeyConfigured) return "主视频 API Key 尚未配置，请先配置云函数环境变量。";
+      if (!String(video.baseUrl || video.endpoint || "").trim()) return "请填写主视频接口地址。";
+    }
+    if (step === 2 && backup.enabled) {
+      if (!String(backup.provider || "").trim()) return "请选择备用视频服务商。";
+      if (
+        providerIdFromDisplay(video.provider)
+        && providerIdFromDisplay(video.provider) === providerIdFromDisplay(backup.provider)
+      ) return "备用视频服务商要和主服务商不同。";
+      if (!String(backup.model || "").trim()) return "请填写备用视频模型名称。";
+      if (!String(backup.apiKey || "").trim() && !backup.apiKeyConfigured) return "备用视频 API Key 尚未配置，请先配置环境变量，或关闭备用。";
+      if (!String(backup.baseUrl || backup.endpoint || "").trim()) return "请填写备用视频接口地址。";
+    }
+    if (step === 3) {
+      const timeout = Number(video.timeoutMs);
+      if (!Number.isFinite(timeout) || timeout < 10000 || timeout > 900000) return "主视频超时必须在 10000～900000 毫秒之间。";
+      if (backup.enabled) {
+        const backupTimeout = Number(backup.timeoutMs);
+        if (!Number.isFinite(backupTimeout) || backupTimeout < 10000 || backupTimeout > 900000) return "备用视频超时必须在 10000～900000 毫秒之间。";
+      }
+    }
+    return "";
+  },
+
+  onVideoWizardNext() {
+    const step = Math.max(1, Number(this.data.videoWizardStep) || 1);
+    const message = this.validateVideoWizardStep(step);
+    if (message) {
+      this.setData({ message });
+      wx.showToast({ title: message, icon: "none" });
+      return;
+    }
+    this.setData({ videoWizardStep: Math.min(4, step + 1), message: "" });
+  },
+
+  onVideoWizardPrev() {
+    const step = Math.max(1, Number(this.data.videoWizardStep) || 1);
+    this.setData({ videoWizardStep: Math.max(1, step - 1), message: "" });
+  },
+
+  toggleVideoAdvancedSettings() {
+    this.setData({ videoWizardAdvancedOpen: !this.data.videoWizardAdvancedOpen });
   },
 
   onVideoQualityChange(event) {
@@ -7338,6 +7426,10 @@ Page({
       patch.imageWizardStep = 1;
       patch.imageWizardAdvancedOpen = false;
     }
+    if (section === "video") {
+      patch.videoWizardStep = 1;
+      patch.videoWizardAdvancedOpen = false;
+    }
     this.setData(patch, () => {
       this.persistMonitorLayout();
       if (nextSection === "users" && this.data.userStats.unavailable) {
@@ -7361,6 +7453,8 @@ Page({
     patch.tencentFaceFusionFieldErrors = {};
     patch.imageWizardStep = 1;
     patch.imageWizardAdvancedOpen = false;
+    patch.videoWizardStep = 1;
+    patch.videoWizardAdvancedOpen = false;
     this.setData(patch, () => this.persistMonitorLayout());
   },
 
@@ -7661,6 +7755,18 @@ Page({
           ? this.validateImageWizardStep(2)
           : "")
         || this.validateImageWizardStep(4);
+      if (wizardError) {
+        this.setData({ message: wizardError });
+        wx.showToast({ title: wizardError, icon: "none" });
+        return;
+      }
+    }
+    if (this.data.activeConfigSection === "video") {
+      const wizardError = this.validateVideoWizardStep(1)
+        || (this.data.form.videoBackup && this.data.form.videoBackup.enabled
+          ? this.validateVideoWizardStep(2)
+          : "")
+        || this.validateVideoWizardStep(3);
       if (wizardError) {
         this.setData({ message: wizardError });
         wx.showToast({ title: wizardError, icon: "none" });

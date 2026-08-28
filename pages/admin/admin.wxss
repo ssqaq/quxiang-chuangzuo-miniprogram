@@ -4556,6 +4556,24 @@ page {
   line-height: 28rpx;
 }
 
+.api-key-readonly-value {
+  box-sizing: border-box;
+  display: flex;
+  width: 100%;
+  min-height: 70rpx;
+  padding: 0 16rpx;
+  align-items: center;
+  overflow: hidden;
+  border: 1rpx solid #dfe6ef;
+  border-radius: 14rpx;
+  color: #526178;
+  background: #f1f4f8;
+  font-size: 21rpx;
+  line-height: 30rpx;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .admin-field input {
   box-sizing: border-box;
   width: 100%;

@@ -756,6 +756,14 @@ module.exports = {
       silent: true
     });
   },
+  getAdminProviderSecrets(providerKey, options = {}) {
+    return callApi({
+      action: "getAdminProviderSecrets",
+      providerKey: String(providerKey || "").trim(),
+      retryLimit: options.retryLimit === undefined ? 0 : options.retryLimit,
+      silent: true
+    });
+  },
   getAdminGenerationQueue(limit = 20) {
     return callApi({
       action: "getAdminGenerationQueue",
@@ -806,6 +814,17 @@ module.exports = {
     return callApi({
       action: "saveAdminConfig",
       config
+    });
+  },
+  saveAdminProvider(payload = {}) {
+    const source = payload && typeof payload === "object" ? payload : {};
+    return callApi({
+      action: "saveAdminProvider",
+      operation: source.operation || "upsert",
+      expectedVersion: source.expectedVersion,
+      providerKey: source.providerKey,
+      provider: source.provider,
+      retryLimit: 0
     });
   },
   getAdminConfigAuditLogs(limit = 20) {

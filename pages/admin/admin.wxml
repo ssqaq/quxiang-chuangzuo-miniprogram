@@ -74,25 +74,8 @@
       </view>
     </view>
 
-    <view class="provider-filter-panel">
-      <view class="provider-filter-copy">
-        <view class="provider-filter-title">按服务商筛选</view>
-        <view class="provider-filter-help">只切换页面显示，不会修改模型配置；下次打开会保留这次选择。</view>
-      </view>
-      <picker
-        mode="selector"
-        range="{{providerFilterOptions}}"
-        range-key="label"
-        value="{{providerFilterIndex}}"
-        bindchange="onProviderFilterChange"
-      >
-        <view class="provider-filter-picker">{{providerFilterLabel}}</view>
-      </picker>
-    </view>
-
     <view class="quick-launch-grid">
       <view
-        wx:if="{{providerSectionVisibility.face}}"
         class="quick-launch quick-face {{activeConfigSection === 'face' ? 'is-active' : ''}} {{entryHealth.face.abnormal ? 'is-abnormal' : ''}}"
         data-section="face"
         bindtap="toggleConfigSection"
@@ -105,7 +88,6 @@
         <view class="quick-launch-state">{{entryHealth.face.label}}</view>
       </view>
       <view
-        wx:if="{{providerSectionVisibility.analysis}}"
         class="quick-launch quick-analysis {{activeConfigSection === 'analysis' ? 'is-active' : ''}} {{entryHealth.analysis.abnormal ? 'is-abnormal' : ''}}"
         data-section="analysis"
         bindtap="toggleConfigSection"
@@ -118,7 +100,6 @@
         <view class="quick-launch-state">{{entryHealth.analysis.label}}</view>
       </view>
       <view
-        wx:if="{{providerSectionVisibility.image}}"
         class="quick-launch quick-image {{activeConfigSection === 'image' ? 'is-active' : ''}} {{entryHealth.image.abnormal ? 'is-abnormal' : ''}}"
         data-section="image"
         bindtap="toggleConfigSection"
@@ -131,7 +112,6 @@
         <view class="quick-launch-state">{{entryHealth.image.label}}</view>
       </view>
       <view
-        wx:if="{{providerSectionVisibility.video}}"
         class="quick-launch quick-video {{activeConfigSection === 'video' ? 'is-active' : ''}} {{entryHealth.video.abnormal ? 'is-abnormal' : ''}}"
         data-section="video"
         bindtap="toggleConfigSection"
@@ -149,11 +129,11 @@
         bindtap="toggleConfigSection"
         hover-class="control-tap"
         role="button"
-        aria-label="打开服务商中文名称配置"
+        aria-label="打开服务商目录"
       >
-        <view class="quick-launch-icon">名</view>
+        <view class="quick-launch-icon">商</view>
         <view class="quick-launch-name">服务商</view>
-        <view class="quick-launch-state">{{providerLabelRows.length}} 个名称</view>
+        <view class="quick-launch-state">{{providerRows.length}} 个</view>
       </view>
       <view
         class="quick-launch quick-usage {{usageExpanded ? 'is-active' : ''}} {{entryHealth.usage.abnormal ? 'is-abnormal' : ''}}"
@@ -224,8 +204,132 @@
 
     <view class="overview-section">
       <view class="overview-heading">当前配置</view>
+      <view wx:if="{{activeConfigSection === 'providers'}}" id="config-editor-providers" class="card config-editor config-editor-inline provider-manager-editor">
+        <view class="config-editor-head">
+          <view>
+            <view class="config-editor-kicker">目录管理</view>
+            <view class="config-editor-title">服务商</view>
+          </view>
+          <view class="config-close-button" bindtap="closeConfigSection" hover-class="control-tap" role="button" aria-label="收起服务商目录">收起</view>
+        </view>
+        <view class="config-helper">新增服务商只加入四项功能的选择器，不会自动替换当前线上绑定。API Key 只在这里的管理员编辑状态下读取，留空保存会保留原 Key。</view>
+        <view wx:if="{{providerAutoRebound.length}}" class="provider-rebound-notice">
+          删除后的自动切换：<block wx:for="{{providerAutoRebound}}" wx:key="*this"><text wx:if="{{index}}">、</text><text>{{item}}</text></block>
+        </view>
+        <view class="provider-manager-layout">
+          <view class="provider-manager-list">
+            <view class="provider-list-head">
+              <view>
+                <view class="provider-list-kicker">服务商目录</view>
+                <view class="provider-list-count">{{providerRows.length}} 个档案</view>
+              </view>
+              <view class="provider-add-button" bindtap="startAddProvider" hover-class="control-tap" role="button" aria-label="新增服务商">＋ 新增</view>
+            </view>
+            <view wx:if="{{!providerRows.length}}" class="provider-list-empty">还没有服务商档案，先新增一个。</view>
+            <view
+              wx:for="{{providerRows}}"
+              wx:key="providerKey"
+              class="provider-list-row {{providerEditingKey === item.providerKey ? 'is-selected' : ''}}"
+              data-provider-key="{{item.providerKey}}"
+              bindtap="selectProviderRow"
+              hover-class="control-tap"
+            >
+              <view class="provider-list-row-main">
+                <view class="provider-list-row-title">{{item.name}}</view>
+                <view class="provider-list-row-id">{{item.id}}</view>
+                <view class="provider-list-row-meta">{{item.capabilityText}} · {{item.usedText}}</view>
+              </view>
+              <view class="provider-list-row-state {{item.statusClass}}">{{item.status}}</view>
+            </view>
+          </view>
+          <view class="provider-manager-form">
+            <view wx:if="{{providerDraft.id || providerEditingKey === ''}}">
+              <view class="provider-form-title">{{providerEditingKey ? '编辑' : '新增'}}服务商{{providerDraft.name ? ' · ' + providerDraft.name : ''}}</view>
+              <view class="provider-form-subtitle">公共地址和 Key 会被四项能力继承；页签里只填专属参数。</view>
+              <view class="provider-form-grid">
+                <view class="admin-field">
+                  <text>服务商 ID</text>
+                  <input value="{{providerDraft.id}}" maxlength="64" placeholder="例如 a-provider" data-path="id" bindinput="onProviderDraftInput" />
+                </view>
+                <view class="admin-field">
+                  <text>中文名</text>
+                  <input value="{{providerDraft.name}}" maxlength="20" placeholder="例如 A 服务商" data-path="name" bindinput="onProviderDraftInput" />
+                </view>
+                <view class="admin-field admin-field-wide">
+                  <text>历史 ID（可空，多个用逗号分隔）</text>
+                  <input value="{{providerDraft.aliasesText}}" maxlength="256" placeholder="改 ID 后保留旧名称用于兼容" data-path="aliasesText" bindinput="onProviderDraftInput" />
+                </view>
+                <view class="admin-field admin-field-wide">
+                  <text>公共 Base URL</text>
+                  <input value="{{providerDraft.common.baseUrl}}" placeholder="https://api.example.com/v1" data-path="common.baseUrl" bindinput="onProviderDraftInput" />
+                </view>
+                <view class="admin-field admin-field-wide admin-api-key-field">
+                  <view class="admin-field-label-row"><text>公共 API Key</text><text class="api-key-config-state {{providerDraft.common.apiKeyConfigured ? 'is-ready' : 'is-off'}}">{{providerDraft.common.apiKeyConfigured ? '已配置完整 Key' : '未配置'}}</text></view>
+                  <input password="{{false}}" value="{{providerDraft.common.apiKey}}" placeholder="留空保留原 Key" data-path="common.apiKey" bindinput="onProviderDraftInput" />
+                  <view class="provider-key-clear-row"><switch checked="{{providerDraft.common.clearApiKey}}" data-target="common" bindchange="onProviderClearKeyToggle" /><text>明确清除公共 Key</text></view>
+                </view>
+              </view>
+              <view class="provider-tabs" role="tablist">
+                <view wx:for="{{providerEditorTabs}}" wx:key="value" class="provider-tab {{providerActiveTab === item.value ? 'is-active' : ''}}" data-tab="{{item.value}}" bindtap="onProviderTabChange" role="tab" aria-label="{{item.label}}配置">{{item.label}}</view>
+              </view>
+
+              <view wx:if="{{providerActiveTab === 'face'}}" class="provider-capability-panel">
+                <view class="provider-capability-head"><view><view class="provider-capability-title">人脸识别</view><view class="provider-capability-desc">启用后可被人脸功能 picker 选择。</view></view><switch checked="{{providerDraft.capabilities.face.enabled}}" data-path="capabilities.face.enabled" bindchange="onProviderCapabilityToggle" /></view>
+                <view class="provider-inherit-row"><text>本页覆盖公共地址和 Key</text><switch checked="{{providerDraft.capabilities.face.overrideEnabled}}" data-slot="face" bindchange="onProviderOverrideToggle" /></view>
+                <view wx:if="{{providerDraft.capabilities.face.overrideEnabled}}" class="provider-override-grid"><view class="admin-field admin-field-wide"><text>覆盖 Base URL</text><input value="{{providerDraft.capabilities.face.baseUrl}}" data-path="capabilities.face.baseUrl" bindinput="onProviderDraftInput" /></view><view class="admin-field admin-field-wide"><text>覆盖 API Key</text><input value="{{providerDraft.capabilities.face.apiKey}}" placeholder="留空保留原值" data-path="capabilities.face.apiKey" bindinput="onProviderDraftInput" /><view class="provider-key-clear-row"><switch checked="{{providerDraft.capabilities.face.clearApiKey}}" data-target="face" bindchange="onProviderClearKeyToggle" /><text>明确清除独立 Key</text></view></view></view>
+                <view class="provider-form-grid"><view class="admin-field"><text>模型</text><input value="{{providerDraft.capabilities.face.model}}" data-path="capabilities.face.model" bindinput="onProviderDraftInput" /></view><view class="admin-field"><text>超时毫秒</text><input type="number" value="{{providerDraft.capabilities.face.timeoutMs}}" data-path="capabilities.face.timeoutMs" bindinput="onProviderDraftInput" /></view><view class="admin-field admin-field-wide"><text>路径（可空）</text><input value="{{providerDraft.capabilities.face.endpoint}}" data-path="capabilities.face.endpoint" bindinput="onProviderDraftInput" /></view></view>
+                <view class="provider-config-state {{providerDraft.capabilities.face.model && (providerDraft.capabilities.face.apiKeyConfigured || providerDraft.common.apiKeyConfigured) ? 'is-ready' : 'is-off'}}">{{providerDraft.capabilities.face.model && (providerDraft.capabilities.face.apiKeyConfigured || providerDraft.common.apiKeyConfigured) ? '已配置' : '未配置'}}</view>
+              </view>
+
+              <view wx:if="{{providerActiveTab === 'analysis'}}" class="provider-capability-panel">
+                <view class="provider-capability-head"><view><view class="provider-capability-title">图片分析</view><view class="provider-capability-desc">独立保存分析模型和路径，默认继承公共地址与 Key。</view></view><switch checked="{{providerDraft.capabilities.analysis.enabled}}" data-path="capabilities.analysis.enabled" bindchange="onProviderCapabilityToggle" /></view>
+                <view class="provider-inherit-row"><text>本页覆盖公共地址和 Key</text><switch checked="{{providerDraft.capabilities.analysis.overrideEnabled}}" data-slot="analysis" bindchange="onProviderOverrideToggle" /></view>
+                <view wx:if="{{providerDraft.capabilities.analysis.overrideEnabled}}" class="provider-override-grid"><view class="admin-field admin-field-wide"><text>覆盖 Base URL</text><input value="{{providerDraft.capabilities.analysis.baseUrl}}" data-path="capabilities.analysis.baseUrl" bindinput="onProviderDraftInput" /></view><view class="admin-field admin-field-wide"><text>覆盖 API Key</text><input value="{{providerDraft.capabilities.analysis.apiKey}}" placeholder="留空保留原值" data-path="capabilities.analysis.apiKey" bindinput="onProviderDraftInput" /><view class="provider-key-clear-row"><switch checked="{{providerDraft.capabilities.analysis.clearApiKey}}" data-target="analysis" bindchange="onProviderClearKeyToggle" /><text>明确清除独立 Key</text></view></view></view>
+                <view class="provider-form-grid"><view class="admin-field"><text>模型</text><input value="{{providerDraft.capabilities.analysis.model}}" data-path="capabilities.analysis.model" bindinput="onProviderDraftInput" /></view><view class="admin-field"><text>超时毫秒</text><input type="number" value="{{providerDraft.capabilities.analysis.timeoutMs}}" data-path="capabilities.analysis.timeoutMs" bindinput="onProviderDraftInput" /></view><view class="admin-field admin-field-wide"><text>路径（可空）</text><input value="{{providerDraft.capabilities.analysis.endpoint}}" data-path="capabilities.analysis.endpoint" bindinput="onProviderDraftInput" /></view></view>
+                <view class="provider-config-state {{providerDraft.capabilities.analysis.model && (providerDraft.capabilities.analysis.apiKeyConfigured || providerDraft.common.apiKeyConfigured) ? 'is-ready' : 'is-off'}}">{{providerDraft.capabilities.analysis.model && (providerDraft.capabilities.analysis.apiKeyConfigured || providerDraft.common.apiKeyConfigured) ? '已配置' : '未配置'}}</view>
+              </view>
+
+              <view wx:if="{{providerActiveTab === 'image'}}" class="provider-capability-panel provider-image-capability-panel">
+                <view class="provider-capability-head">
+                  <view>
+                    <view class="provider-capability-title">生图</view>
+                    <view class="provider-capability-desc">主模型和备用模型在同一页分别配置；新增服务商不会自动占用备用槽位。</view>
+                  </view>
+                </view>
+                <view class="provider-image-slot">
+                  <view class="provider-image-slot-title"><text>主模型</text><switch checked="{{providerDraft.capabilities.image.enabled}}" data-path="capabilities.image.enabled" bindchange="onProviderCapabilityToggle" /></view>
+                  <view class="provider-inherit-row"><text>覆盖公共地址和 Key</text><switch checked="{{providerDraft.capabilities.image.overrideEnabled}}" data-slot="image" bindchange="onProviderOverrideToggle" /></view>
+                  <view wx:if="{{providerDraft.capabilities.image.overrideEnabled}}" class="provider-override-grid"><view class="admin-field admin-field-wide"><text>覆盖 Base URL</text><input value="{{providerDraft.capabilities.image.baseUrl}}" data-path="capabilities.image.baseUrl" bindinput="onProviderDraftInput" /></view><view class="admin-field admin-field-wide"><text>覆盖 API Key</text><input value="{{providerDraft.capabilities.image.apiKey}}" placeholder="留空保留原值" data-path="capabilities.image.apiKey" bindinput="onProviderDraftInput" /><view class="provider-key-clear-row"><switch checked="{{providerDraft.capabilities.image.clearApiKey}}" data-target="image" bindchange="onProviderClearKeyToggle" /><text>明确清除独立 Key</text></view></view></view>
+                  <view class="provider-form-grid"><view class="admin-field"><text>模型</text><input value="{{providerDraft.capabilities.image.model}}" data-path="capabilities.image.model" bindinput="onProviderDraftInput" /></view><view class="admin-field"><text>模式</text><input value="{{providerDraft.capabilities.image.mode}}" data-path="capabilities.image.mode" bindinput="onProviderDraftInput" /></view><view class="admin-field"><text>分辨率</text><input value="{{providerDraft.capabilities.image.resolution}}" data-path="capabilities.image.resolution" bindinput="onProviderDraftInput" /></view><view class="admin-field"><text>尺寸</text><input value="{{providerDraft.capabilities.image.size}}" data-path="capabilities.image.size" bindinput="onProviderDraftInput" /></view><view class="admin-field"><text>超时毫秒</text><input type="number" value="{{providerDraft.capabilities.image.timeoutMs}}" data-path="capabilities.image.timeoutMs" bindinput="onProviderDraftInput" /></view><view class="admin-field"><text>最大重试</text><input type="number" value="{{providerDraft.capabilities.image.maxRetries}}" data-path="capabilities.image.maxRetries" bindinput="onProviderDraftInput" /></view></view>
+                  <view class="provider-config-state {{providerDraft.capabilities.image.model && (providerDraft.capabilities.image.apiKeyConfigured || providerDraft.common.apiKeyConfigured) ? 'is-ready' : 'is-off'}}">{{providerDraft.capabilities.image.model && (providerDraft.capabilities.image.apiKeyConfigured || providerDraft.common.apiKeyConfigured) ? '主模型已配置' : '主模型未配置'}}</view>
+                </view>
+                <view class="provider-image-slot provider-image-backup-slot">
+                  <view class="provider-image-slot-title"><text>备用模型</text><switch checked="{{providerDraft.capabilities.imageBackup.enabled}}" data-path="capabilities.imageBackup.enabled" bindchange="onProviderCapabilityToggle" /></view>
+                  <view class="provider-inherit-row"><text>覆盖公共地址和 Key</text><switch checked="{{providerDraft.capabilities.imageBackup.overrideEnabled}}" data-slot="imageBackup" bindchange="onProviderOverrideToggle" /></view>
+                  <view wx:if="{{providerDraft.capabilities.imageBackup.overrideEnabled}}" class="provider-override-grid"><view class="admin-field admin-field-wide"><text>覆盖 Base URL</text><input value="{{providerDraft.capabilities.imageBackup.baseUrl}}" data-path="capabilities.imageBackup.baseUrl" bindinput="onProviderDraftInput" /></view><view class="admin-field admin-field-wide"><text>覆盖 API Key</text><input value="{{providerDraft.capabilities.imageBackup.apiKey}}" placeholder="留空保留原值" data-path="capabilities.imageBackup.apiKey" bindinput="onProviderDraftInput" /><view class="provider-key-clear-row"><switch checked="{{providerDraft.capabilities.imageBackup.clearApiKey}}" data-target="imageBackup" bindchange="onProviderClearKeyToggle" /><text>明确清除独立 Key</text></view></view></view>
+                  <view class="provider-form-grid"><view class="admin-field"><text>模型</text><input value="{{providerDraft.capabilities.imageBackup.model}}" data-path="capabilities.imageBackup.model" bindinput="onProviderDraftInput" /></view><view class="admin-field"><text>模式</text><input value="{{providerDraft.capabilities.imageBackup.mode}}" data-path="capabilities.imageBackup.mode" bindinput="onProviderDraftInput" /></view><view class="admin-field"><text>分辨率</text><input value="{{providerDraft.capabilities.imageBackup.resolution}}" data-path="capabilities.imageBackup.resolution" bindinput="onProviderDraftInput" /></view><view class="admin-field"><text>尺寸</text><input value="{{providerDraft.capabilities.imageBackup.size}}" data-path="capabilities.imageBackup.size" bindinput="onProviderDraftInput" /></view><view class="admin-field"><text>超时毫秒</text><input type="number" value="{{providerDraft.capabilities.imageBackup.timeoutMs}}" data-path="capabilities.imageBackup.timeoutMs" bindinput="onProviderDraftInput" /></view><view class="admin-field"><text>最大重试</text><input type="number" value="{{providerDraft.capabilities.imageBackup.maxRetries}}" data-path="capabilities.imageBackup.maxRetries" bindinput="onProviderDraftInput" /></view></view>
+                  <view class="provider-config-state {{providerDraft.capabilities.imageBackup.model && (providerDraft.capabilities.imageBackup.apiKeyConfigured || providerDraft.common.apiKeyConfigured) ? 'is-ready' : 'is-off'}}">{{providerDraft.capabilities.imageBackup.model && (providerDraft.capabilities.imageBackup.apiKeyConfigured || providerDraft.common.apiKeyConfigured) ? '备用模型已配置' : '备用模型未配置'}}</view>
+                </view>
+              </view>
+
+              <view wx:if="{{providerActiveTab === 'video'}}" class="provider-capability-panel">
+                <view class="provider-capability-head"><view><view class="provider-capability-title">视频</view><view class="provider-capability-desc">视频优先使用目录 Key，同时兼容云函数环境变量。</view></view><switch checked="{{providerDraft.capabilities.video.enabled}}" data-path="capabilities.video.enabled" bindchange="onProviderCapabilityToggle" /></view>
+                <view class="provider-inherit-row"><text>本页覆盖公共地址和 Key</text><switch checked="{{providerDraft.capabilities.video.overrideEnabled}}" data-slot="video" bindchange="onProviderOverrideToggle" /></view>
+                <view wx:if="{{providerDraft.capabilities.video.overrideEnabled}}" class="provider-override-grid"><view class="admin-field admin-field-wide"><text>覆盖 Base URL</text><input value="{{providerDraft.capabilities.video.baseUrl}}" data-path="capabilities.video.baseUrl" bindinput="onProviderDraftInput" /></view><view class="admin-field admin-field-wide"><text>覆盖 API Key</text><input value="{{providerDraft.capabilities.video.apiKey}}" placeholder="留空保留原值" data-path="capabilities.video.apiKey" bindinput="onProviderDraftInput" /><view class="provider-key-clear-row"><switch checked="{{providerDraft.capabilities.video.clearApiKey}}" data-target="video" bindchange="onProviderClearKeyToggle" /><text>明确清除独立 Key</text></view></view></view>
+                <view class="provider-form-grid"><view class="admin-field"><text>模型</text><input value="{{providerDraft.capabilities.video.model}}" data-path="capabilities.video.model" bindinput="onProviderDraftInput" /></view><view class="admin-field"><text>分辨率</text><input value="{{providerDraft.capabilities.video.resolution}}" data-path="capabilities.video.resolution" bindinput="onProviderDraftInput" /></view><view class="admin-field"><text>宽高比</text><input value="{{providerDraft.capabilities.video.aspectRatio}}" data-path="capabilities.video.aspectRatio" bindinput="onProviderDraftInput" /></view><view class="admin-field"><text>超时毫秒</text><input type="number" value="{{providerDraft.capabilities.video.timeoutMs}}" data-path="capabilities.video.timeoutMs" bindinput="onProviderDraftInput" /></view><view class="admin-field admin-field-wide"><text>创建路径</text><input value="{{providerDraft.capabilities.video.createPath}}" data-path="capabilities.video.createPath" bindinput="onProviderDraftInput" /></view><view class="admin-field admin-field-wide"><text>查询路径</text><input value="{{providerDraft.capabilities.video.queryPath}}" data-path="capabilities.video.queryPath" bindinput="onProviderDraftInput" /></view></view>
+                <view class="provider-config-state {{providerDraft.capabilities.video.model && (providerDraft.capabilities.video.apiKeyConfigured || providerDraft.common.apiKeyConfigured) ? 'is-ready' : 'is-off'}}">{{providerDraft.capabilities.video.model && (providerDraft.capabilities.video.apiKeyConfigured || providerDraft.common.apiKeyConfigured) ? '已配置（也可用环境变量）' : '未配置'}}</view>
+              </view>
+
+              <view class="provider-form-actions">
+                <view wx:if="{{providerEditingKey && !providerDraft.protected}}" class="admin-action-button danger-btn {{providerDeleting ? 'is-disabled' : ''}}" bindtap="deleteProviderDraft" hover-class="control-tap" role="button" aria-label="删除当前服务商">{{providerDeleting ? '删除中...' : '删除'}}</view>
+                <view class="admin-action-button primary-btn {{providerSaving ? 'is-disabled' : ''}}" bindtap="saveProviderDraft" hover-class="control-tap" role="button" aria-label="保存服务商">{{providerSaving ? '保存中...' : '保存服务商'}}</view>
+              </view>
+            </view>
+            <view wx:else class="provider-list-empty">从左侧选择服务商，或点击新增。</view>
+          </view>
+        </view>
+      </view>
       <view
-        wx:if="{{providerSectionVisibility.face}}"
         class="current-config-row {{entryHealth.face.abnormal ? 'is-abnormal' : ''}}"
         data-section="face"
         bindtap="toggleConfigSection"
@@ -283,10 +387,17 @@
             >{{modelActionType === 'face' && modelActionKind === 'list' ? '读取中...' : '获取模型'}}</view>
           </view>
           <view class="admin-grid">
-            <view class="admin-field"><text>服务商</text><input value="{{form.face.provider}}" data-section="face" data-key="provider" bindinput="onInput" /></view>
+            <view class="admin-field"><text>服务商</text><picker mode="selector" range="{{providerPickerOptionsFace}}" range-key="label" value="{{providerPickerIndexFace}}" data-section="face" bindchange="onProviderPickerChange"><view class="admin-picker">{{providerPickerOptionsFace[providerPickerIndexFace].label}}</view></picker></view>
             <view class="admin-field"><text>使用的模型</text><input value="{{form.face.model}}" data-section="face" data-key="model" bindinput="onInput" /></view>
             <view class="admin-field admin-field-wide"><text>接口地址</text><input value="{{form.face.baseUrl}}" data-section="face" data-key="baseUrl" bindinput="onInput" /></view>
-            <view class="admin-field admin-field-wide"><text>API Key</text><input password value="{{form.face.apiKey}}" data-section="face" data-key="apiKey" placeholder="{{effective.face.apiKeyConfigured ? '已配置，留空继续使用' : '填写后可测试并保存'}}" bindinput="onInput" /></view>
+            <view class="admin-field admin-field-wide admin-api-key-field">
+              <view class="admin-field-label-row">
+                <text>API Key</text>
+                <text class="api-key-config-state {{form.face.apiKey || form.face.apiKeyConfigured || effective.face.apiKeyConfigured ? 'is-ready' : 'is-off'}}">{{form.face.apiKey ? '已显示完整 Key' : (form.face.apiKeyConfigured || effective.face.apiKeyConfigured ? '已配置 Key' : '未配置')}}</text>
+              </view>
+              <input type="password" value="{{form.face.apiKey}}" data-section="face" data-key="apiKey" placeholder="填写后可测试并保存" bindinput="onInput" />
+              <view class="api-key-field-tip">当前显示云函数实际生效的完整 Key；修改后点击“保存全部配置”才会生效。</view>
+            </view>
             <view class="admin-field"><text>超时毫秒</text><input type="number" value="{{form.face.timeoutMs}}" data-section="face" data-key="timeoutMs" bindinput="onInput" /></view>
           </view>
         </view>
@@ -311,7 +422,6 @@
       </view>
 
       <view
-        wx:if="{{providerSectionVisibility.analysis}}"
         class="current-config-row {{entryHealth.analysis.abnormal ? 'is-abnormal' : ''}}"
         data-section="analysis"
         bindtap="toggleConfigSection"
@@ -376,10 +486,17 @@
             >{{modelActionType === 'analysis' && modelActionKind === 'list' ? '读取中...' : '获取模型'}}</view>
           </view>
           <view class="admin-grid">
-            <view class="admin-field"><text>服务商</text><input value="{{form.analysis.provider}}" data-section="analysis" data-key="provider" bindinput="onInput" /></view>
+            <view class="admin-field"><text>服务商</text><picker mode="selector" range="{{providerPickerOptionsAnalysis}}" range-key="label" value="{{providerPickerIndexAnalysis}}" data-section="analysis" bindchange="onProviderPickerChange"><view class="admin-picker">{{providerPickerOptionsAnalysis[providerPickerIndexAnalysis].label}}</view></picker></view>
             <view class="admin-field"><text>使用的模型</text><input value="{{form.analysis.model}}" data-section="analysis" data-key="model" bindinput="onInput" /></view>
             <view class="admin-field admin-field-wide"><text>接口地址</text><input value="{{form.analysis.baseUrl}}" data-section="analysis" data-key="baseUrl" bindinput="onInput" /></view>
-            <view class="admin-field admin-field-wide"><text>API Key</text><input password value="{{form.analysis.apiKey}}" data-section="analysis" data-key="apiKey" placeholder="{{effective.analysis.apiKeyConfigured ? '已配置，留空继续使用' : '填写后可测试并保存'}}" bindinput="onInput" /></view>
+            <view class="admin-field admin-field-wide admin-api-key-field">
+              <view class="admin-field-label-row">
+                <text>API Key</text>
+                <text class="api-key-config-state {{form.analysis.apiKey || form.analysis.apiKeyConfigured || effective.analysis.apiKeyConfigured ? 'is-ready' : 'is-off'}}">{{form.analysis.apiKey ? '已显示完整 Key' : (form.analysis.apiKeyConfigured || effective.analysis.apiKeyConfigured ? '已配置 Key' : '未配置')}}</text>
+              </view>
+              <input type="password" value="{{form.analysis.apiKey}}" data-section="analysis" data-key="apiKey" placeholder="填写后可测试并保存" bindinput="onInput" />
+              <view class="api-key-field-tip">当前显示云函数实际生效的完整 Key；修改后点击“保存全部配置”才会生效。</view>
+            </view>
             <view class="admin-field"><text>超时毫秒</text><input type="number" value="{{form.analysis.timeoutMs}}" data-section="analysis" data-key="timeoutMs" bindinput="onInput" /></view>
           </view>
         </view>
@@ -404,7 +521,6 @@
       </view>
 
       <view
-        wx:if="{{providerSectionVisibility.image}}"
         class="current-config-row {{entryHealth.image.abnormal ? 'is-abnormal' : ''}}"
         data-section="image"
         bindtap="toggleConfigSection"
@@ -509,14 +625,14 @@
             <view class="image-provider-role-badge is-primary">主用</view>
           </view>
           <view class="admin-grid">
-            <view class="admin-field"><text>服务商</text><input value="{{form.image.provider}}" data-section="image" data-key="provider" bindinput="onInput" /></view>
+            <view class="admin-field"><text>服务商</text><picker mode="selector" range="{{providerPickerOptionsImage}}" range-key="label" value="{{providerPickerIndexImage}}" data-section="image" bindchange="onProviderPickerChange"><view class="admin-picker">{{providerPickerOptionsImage[providerPickerIndexImage].label}}</view></picker></view>
             <view class="admin-field"><text>使用的模型</text><input value="{{form.image.model}}" data-section="image" data-key="model" bindinput="onInput" /></view>
             <view class="admin-field admin-field-wide"><text>接口地址</text><input value="{{form.image.baseUrl}}" data-section="image" data-key="baseUrl" bindinput="onInput" /></view>
             <view class="admin-field admin-field-wide"><text>编辑接口（可留空）</text><input value="{{form.image.endpoint}}" data-section="image" data-key="endpoint" placeholder="留空自动使用 /v1/images/edits" bindinput="onInput" /></view>
             <view class="admin-field admin-field-wide admin-api-key-field">
               <view class="admin-field-label-row">
                 <text>API Key</text>
-                <text class="api-key-config-state {{form.image.apiKey ? 'is-ready' : 'is-off'}}">{{form.image.apiKey ? '已显示完整 Key' : (effective.image.apiKeyConfigured ? '完整 Key 读取失败' : '未配置')}}</text>
+                <text class="api-key-config-state {{form.image.apiKey || form.image.apiKeyConfigured || effective.image.apiKeyConfigured ? 'is-ready' : 'is-off'}}">{{form.image.apiKey ? '已显示完整 Key' : (form.image.apiKeyConfigured || effective.image.apiKeyConfigured ? '已配置 Key' : '未配置')}}</text>
               </view>
               <input value="{{form.image.apiKey}}" data-section="image" data-key="apiKey" placeholder="请填写星炬 API Key" bindinput="onInput" />
               <view class="api-key-field-tip">当前显示云端实际生效的完整 Key；修改后点击“保存全部配置”才会生效。</view>
@@ -626,14 +742,14 @@
             </view>
           </view>
           <view class="admin-grid">
-            <view class="admin-field"><text>服务商</text><input value="{{form.imageBackup.provider}}" data-section="imageBackup" data-key="provider" bindinput="onInput" /></view>
+            <view class="admin-field"><text>服务商</text><picker mode="selector" range="{{providerPickerOptionsImageBackup}}" range-key="label" value="{{providerPickerIndexImageBackup}}" data-section="imageBackup" bindchange="onProviderPickerChange"><view class="admin-picker">{{providerPickerOptionsImageBackup[providerPickerIndexImageBackup].label}}</view></picker></view>
             <view class="admin-field"><text>使用的模型</text><input value="{{form.imageBackup.model}}" data-section="imageBackup" data-key="model" bindinput="onInput" /></view>
             <view class="admin-field admin-field-wide"><text>接口地址</text><input value="{{form.imageBackup.baseUrl}}" data-section="imageBackup" data-key="baseUrl" bindinput="onInput" /></view>
             <view class="admin-field admin-field-wide"><text>编辑接口（可留空）</text><input value="{{form.imageBackup.endpoint}}" data-section="imageBackup" data-key="endpoint" placeholder="留空自动使用 /v1/images/edits" bindinput="onInput" /></view>
             <view class="admin-field admin-field-wide admin-api-key-field">
               <view class="admin-field-label-row">
                 <text>API Key</text>
-                <text class="api-key-config-state {{form.imageBackup.apiKey ? 'is-ready' : 'is-off'}}">{{form.imageBackup.apiKey ? '已显示完整 Key' : (effective.imageBackup.apiKeyConfigured ? '完整 Key 读取失败' : '未配置')}}</text>
+                <text class="api-key-config-state {{form.imageBackup.apiKey || form.imageBackup.apiKeyConfigured || effective.imageBackup.apiKeyConfigured ? 'is-ready' : 'is-off'}}">{{form.imageBackup.apiKey ? '已显示完整 Key' : (form.imageBackup.apiKeyConfigured || effective.imageBackup.apiKeyConfigured ? '已配置 Key' : '未配置')}}</text>
               </view>
               <input value="{{form.imageBackup.apiKey}}" data-section="imageBackup" data-key="apiKey" placeholder="请填写凌云 API Key" bindinput="onInput" />
               <view class="api-key-field-tip">当前显示云端实际生效的完整 Key；备用模型仍只在服务端使用。</view>
@@ -789,7 +905,6 @@
       </view>
 
       <view
-        wx:if="{{providerSectionVisibility.video}}"
         class="current-config-row {{entryHealth.video.abnormal ? 'is-abnormal' : ''}}"
         data-section="video"
         bindtap="toggleConfigSection"
@@ -827,7 +942,7 @@
           <view class="config-editor-focus-help">下面的修改只作用于这一项</view>
         </view>
         <view class="config-editor-body">
-          <view class="config-helper">创建任务只发一次，查询任务按配置轮询；API Key 只在服务端保存，页面不会回显真实内容。</view>
+          <view class="config-helper">选择“星炬”后，模型、创建路径、查询路径、清晰度和超时会自动补齐空白项；接口地址只显示云端已配置的地址，没有就提示你填写，不乱猜地址。</view>
           <view class="config-model-actions">
             <view
               class="config-model-button config-model-test"
@@ -847,10 +962,17 @@
             >{{modelActionType === 'video' && modelActionKind === 'list' ? '读取中...' : '获取模型'}}</view>
           </view>
           <view class="admin-grid">
-            <view class="admin-field"><text>服务商</text><input value="{{form.video.provider}}" data-section="video" data-key="provider" bindinput="onInput" /></view>
+            <view class="admin-field"><text>服务商</text><picker mode="selector" range="{{providerPickerOptionsVideo}}" range-key="label" value="{{providerPickerIndexVideo}}" data-section="video" bindchange="onProviderPickerChange"><view class="admin-picker">{{providerPickerOptionsVideo[providerPickerIndexVideo].label}}</view></picker></view>
             <view class="admin-field"><text>使用的模型</text><input value="{{form.video.model}}" data-section="video" data-key="model" bindinput="onInput" /></view>
             <view class="admin-field admin-field-wide"><text>接口地址</text><input value="{{form.video.baseUrl}}" data-section="video" data-key="baseUrl" bindinput="onInput" /></view>
-            <view class="admin-field admin-field-wide"><text>API Key</text><input password value="{{form.video.apiKey}}" data-section="video" data-key="apiKey" placeholder="{{effective.video.apiKeyConfigured ? '已配置，留空继续使用' : '填写后可测试并保存'}}" bindinput="onInput" /></view>
+            <view class="admin-field admin-field-wide admin-api-key-field">
+              <view class="admin-field-label-row">
+                <text>API Key</text>
+                <text class="api-key-config-state {{form.video.apiKey || form.video.apiKeyConfigured || effective.video.apiKeyConfigured ? 'is-ready' : 'is-off'}}">{{form.video.apiKey ? '已显示完整 Key' : (form.video.apiKeyConfigured || effective.video.apiKeyConfigured ? '已配置 Key' : '未配置')}}</text>
+              </view>
+              <input disabled value="{{form.video.apiKey}}" data-section="video" data-key="apiKey" placeholder="{{effective.video.apiKeyConfigured ? '云函数环境变量已配置' : '请在云函数环境变量配置'}}" />
+              <view class="api-key-field-tip">当前显示云函数实际生效的完整视频 Key；视频 Key 不写入动态配置，修改环境变量后重新部署云函数。</view>
+            </view>
             <view class="admin-field admin-field-wide"><text>创建路径</text><input value="{{form.video.createPath}}" data-section="video" data-key="createPath" bindinput="onInput" /></view>
             <view class="admin-field admin-field-wide"><text>查询路径</text><input value="{{form.video.queryPath}}" data-section="video" data-key="queryPath" bindinput="onInput" /></view>
           <view class="admin-field">
@@ -894,7 +1016,7 @@
     </view>
 
 
-    <view wx:if="{{activeConfigSection === 'providers' || activeConfigSection === 'points' || activeConfigSection === 'costs' || activeConfigSection === 'users'}}" id="config-editor" class="card config-editor">
+    <view wx:if="{{activeConfigSection === 'points' || activeConfigSection === 'costs' || activeConfigSection === 'users'}}" id="config-editor" class="card config-editor">
       <view class="config-editor-head">
         <view>
           <view class="config-editor-kicker">正在配置</view>
@@ -918,30 +1040,6 @@
           <view class="config-editor-focus-name">{{activeConfigTitle}}</view>
         </view>
         <view class="config-editor-focus-help">下面的修改只作用于这一项</view>
-      </view>
-
-      <view wx:if="{{activeConfigSection === 'providers'}}" class="config-editor-body">
-        <view class="config-helper">英文标识是接口真正使用的名称，只能查看；中文名称可以修改，保存后页面统一显示中文。</view>
-        <view class="provider-label-list">
-          <view wx:for="{{providerLabelRows}}" wx:key="providerId" class="provider-label-row">
-            <view class="provider-label-meta">
-              <text class="provider-label-caption">英文标识（只读）</text>
-              <text class="provider-label-id" user-select="true">{{item.providerId}}</text>
-            </view>
-            <view class="provider-label-field">
-              <text class="provider-label-caption">中文名称</text>
-              <input
-                class="provider-label-input {{item.error ? 'has-error' : ''}}"
-                value="{{item.label}}"
-                maxlength="20"
-                data-provider-id="{{item.providerId}}"
-                placeholder="例如：自定义服务商"
-                bindinput="onProviderLabelInput"
-              />
-              <view wx:if="{{item.error}}" class="admin-field-error">{{item.error}}</view>
-            </view>
-          </view>
-        </view>
       </view>
 
       <view wx:if="{{activeConfigSection === 'points'}}" class="config-editor-body">
@@ -2360,7 +2458,7 @@
           <view><text>检查时间</text><text>{{modelProbes.checkedAtText}}</text></view>
         </view>
         <view class="model-probe-list">
-          <view wx:for="{{modelProbes.filteredResults}}" wx:key="type" class="model-probe-row">
+          <view wx:for="{{modelProbes.results}}" wx:key="type" class="model-probe-row">
             <view class="model-probe-main">
               <view class="model-probe-title">{{item.typeLabel}}</view>
               <view class="model-probe-meta">{{item.model}}</view>

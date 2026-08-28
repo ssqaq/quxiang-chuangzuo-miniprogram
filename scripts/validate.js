@@ -26,10 +26,16 @@ const jsonFiles = [
   "scripts/cloud-database-index-manager/package.json"
 ];
 const optionalJsonFiles = ["project.private.config.json"];
+// 新增的 smoke 单独列出，既做语法检查，也纳入必要文件检查。
+const smokeFiles = [
+  "scripts/admin-provider-management-smoke.js"
+];
 const jsFiles = [
   "app.js",
   "config.js",
   "services/cloud.js",
+  "services/admin-video-config.js",
+  "services/admin-provider-registry.js",
   "utils/storage.js",
   "utils/prompt.js",
   "utils/web-pose.js",
@@ -63,8 +69,8 @@ const jsFiles = [
   "scripts/admin-usage-entry-smoke.js",
   "scripts/admin-responsive-smoke.js",
   "scripts/admin-config-layout-smoke.js",
-  "scripts/admin-provider-management-smoke.js",
   "scripts/admin-config-audit-smoke.js",
+  "scripts/admin-provider-management-smoke.js",
   "scripts/image-quality-smoke.js",
   "scripts/image-edit-routing-smoke.js",
   "scripts/image-provider-failover-smoke.js",
@@ -76,6 +82,7 @@ const jsFiles = [
   "scripts/cloudfunction-dependency-smoke.js",
   "scripts/cloud-deploy-safety-smoke.js",
   "scripts/runtime-dependency-health-smoke.js",
+  "scripts/npm-dependency-cache-smoke.js",
   "pages/index/index.js",
   "pages/records/records.js",
   "pages/repair/repair.js",
@@ -130,6 +137,7 @@ const jsFiles = [
   "scripts/photo-to-video-smoke.js",
   "scripts/video-provider-smoke.js",
   "scripts/admin-config-smoke.js",
+  "scripts/admin-video-xingju-defaults-smoke.js",
   "scripts/analysis-model-smoke.js",
   "scripts/analysis-cost-probe-smoke.js",
   "scripts/user-profile-smoke.js",
@@ -159,6 +167,7 @@ const pythonFiles = ["scripts/package-release.py"];
 const powerShellFiles = [
   "scripts/check-devtools.ps1",
   "scripts/deploy-and-verify-api.ps1",
+  "scripts/npm-dependency-cache.ps1",
   "scripts/cloud-deploy-safety.ps1",
   "scripts/deploy-api-cloudbase-cli.ps1",
   "scripts/verify-online-api.ps1",
@@ -252,6 +261,7 @@ const required = [
   "scripts/install-git-hooks.cmd",
   "scripts/write-release-record.ps1",
   "scripts/admin-image-api-key-display-smoke.js",
+  ...smokeFiles,
   "一键刷新预览.cmd",
   "pages/publish-export/publish-export.js",
   "pages/publish-export/publish-export.json",
@@ -281,7 +291,6 @@ const required = [
   "scripts/admin-usage-entry-smoke.js",
   "scripts/admin-responsive-smoke.js",
   "scripts/admin-config-layout-smoke.js",
-  "scripts/admin-provider-management-smoke.js",
   "scripts/admin-config-audit-smoke.js",
   "scripts/image-quality-smoke.js",
   "scripts/image-edit-routing-smoke.js",
@@ -366,6 +375,7 @@ const required = [
   "scripts/cloud-deploy-safety.ps1",
   "scripts/deploy-api-cloudbase-cli.ps1",
   "scripts/deployment-script-smoke.js",
+  "scripts/npm-dependency-cache-smoke.js",
   "docs/superpowers/specs/2026-08-26-cloud-dependency-and-deploy-lock-design.md",
   "scripts/check-cloud-database-indexes.ps1",
   "scripts/cloud-database-index-manager/package.json",
@@ -1035,7 +1045,11 @@ if (
   adminApiKeyInputs.length !== 5
   || !["face", "analysis", "video"].every((section) => (
     adminApiKeyInputBySection[section]
-    && /\bpassword\b/.test(adminApiKeyInputBySection[section])
+    && (
+      section === "video"
+        ? /\bdisabled\b/.test(adminApiKeyInputBySection[section])
+        : /\bpassword\b/.test(adminApiKeyInputBySection[section])
+    )
   ))
   || !["image", "imageBackup"].every((section) => (
     adminApiKeyInputBySection[section]
@@ -1043,7 +1057,8 @@ if (
   ))
   || !adminWxml.includes("effective.image.apiKeyConfigured")
   || !adminWxml.includes("effective.imageBackup.apiKeyConfigured")
-  || (adminWxml.match(/已显示完整 Key/g) || []).length < 2
+  || (adminWxml.match(/已显示完整 Key/g) || []).length < 3
+  || !adminWxml.includes("当前显示云函数实际生效的完整视频 Key")
   || !clientCloudJs.includes('action: "getAdminImageApiKeys"')
   || !cloudJs.includes("async function getAdminImageApiKeys")
   || !adminJs.includes("fetchAdminConfigBundle")
@@ -1285,10 +1300,12 @@ if (
   || !configJs.includes("pointsPromo")
   || !configJs.includes("ledgerDefaultDescription")
   || !configJs.includes("checkInFailedFallback")
-  || !refreshPreviewPs1.includes("wechat-miniapp-preview-latest-qr.png")
-  || !refreshPreviewPs1.includes("wechat-miniapp-preview-latest-info.json")
+  || !refreshPreviewPs1.includes("release.ps1")
+  || !refreshPreviewPs1.includes("IncludePath")
+  || !refreshPreviewPs1.includes("Preview = $true")
+  || refreshPreviewPs1.includes("package-release.py")
 ) {
-  throw new Error("积分签到入口、明细页或云函数路由不完整。");
+  throw new Error("积分签到入口、明细页或统一预览发布入口不完整。");
 }
 if (
   !initCloudDatabasePs1.includes("initializeDatabase")

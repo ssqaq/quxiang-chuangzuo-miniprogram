@@ -82,6 +82,9 @@ function testStaticContracts() {
     "--fail-fast",
     "status = \"merged\"",
     "mainCommit",
+    "checkDeadline",
+    "no checks reported",
+    "Start-Sleep -Seconds 5",
   ]) {
     assert.ok(gate.includes(marker) || entry.includes(marker), `发布闸门缺少 ${marker}`);
   }

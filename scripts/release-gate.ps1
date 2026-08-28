@@ -677,6 +677,22 @@ function Invoke-ReleasePullRequest {
     }
 
     Write-Host "GitHub 自动合并不可用，改为等待 release-gate 通过后执行 PR 合并。" -ForegroundColor Yellow
+    $checkDeadline = [DateTime]::UtcNow.AddMinutes(30)
+    $checksReady = $false
+    $lastCheckOutput = @()
+    while ([DateTime]::UtcNow -lt $checkDeadline) {
+        $lastCheckOutput = @(& $gh.Source pr checks $prUrl 2>&1)
+        $probeExitCode = $LASTEXITCODE
+        $probeText = ($lastCheckOutput -join "`n")
+        if ($probeExitCode -eq 0 -or ($lastCheckOutput.Count -gt 0 -and $probeText -notmatch "no checks reported")) {
+            $checksReady = $true
+            break
+        }
+        Start-Sleep -Seconds 5
+    }
+    if (-not $checksReady) {
+        throw "PR 在等待窗口内没有创建必需检查：$($lastCheckOutput -join "`n")"
+    }
     $checkOutput = @(& $gh.Source pr checks $prUrl --watch --fail-fast 2>&1)
     if ($checkOutput.Count -gt 0) { $checkOutput | ForEach-Object { Write-Host $_ } }
     if ($LASTEXITCODE -ne 0) {

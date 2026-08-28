@@ -34,6 +34,8 @@ class PackageReleaseSmoke(unittest.TestCase):
             cwd=ROOT,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("--release-context", result.stderr + result.stdout)
@@ -44,6 +46,8 @@ class PackageReleaseSmoke(unittest.TestCase):
             cwd=ROOT,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("未写入 ZIP", result.stdout)

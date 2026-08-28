@@ -642,7 +642,7 @@ function Invoke-ReleasePullRequest {
     if ($LASTEXITCODE -ne 0) {
         throw "GitHub CLI 未认证；未推送 release 分支。请先执行 gh auth login。"
     }
-    $push = & git -C $RepositoryRoot push origin "$CommitSha`:$Branch" 2>&1
+    $push = & git -C $RepositoryRoot push origin "$CommitSha`:refs/heads/$Branch" 2>&1
     if ($LASTEXITCODE -ne 0) { throw "PR 发布分支推送失败：$($push -join "`n")" }
     $title = "release: v$Version ($OperationId)"
     $body = "由统一发布闸门生成。operationId=$OperationId`nreleaseCommit=$CommitSha`n目标：main（PR-only）"

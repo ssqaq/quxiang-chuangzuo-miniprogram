@@ -67,12 +67,13 @@ $releaseToolPaths = @(
     "scripts/release-safety-smoke.js",
     "scripts/release-gate-smoke.js",
     "scripts/deploy-and-verify-api.ps1",
+    "scripts/npm-dependency-cache.ps1",
+    "scripts/npm-dependency-cache-smoke.js",
     "scripts/cloud-deploy-safety.ps1",
     "scripts/deploy-api-cloudbase-cli.ps1",
     "scripts/refresh-preview.ps1",
     "scripts/configure-github-protection.ps1",
     "scripts/sync-to-github.ps1",
-    ".github/workflows/release-gate.yml",
     "docs/superpowers/specs/2026-08-28-release-gate-design.md"
 )
 

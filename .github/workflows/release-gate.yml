@@ -8,6 +8,12 @@ on:
       - "**"
   workflow_dispatch:
 
+# Keep release checks FIFO.  A newer check must wait for the older one so a
+# slow package/deploy verification can never be silently cancelled midway.
+concurrency:
+  group: release-gate-${{ github.repository }}-${{ github.event.pull_request.base.ref || github.ref_name }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
@@ -23,6 +29,32 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
+      - name: Release workflow concurrency and protection preflight
+        shell: pwsh
+        env:
+          RELEASE_WORKFLOW_EVENT_NAME: ${{ github.event_name }}
+          RELEASE_WORKFLOW_REF: ${{ github.ref }}
+          RELEASE_WORKFLOW_REF_NAME: ${{ github.ref_name }}
+          RELEASE_WORKFLOW_BASE_REF: ${{ github.base_ref }}
+          RELEASE_WORKFLOW_HEAD_REF: ${{ github.head_ref }}
+        run: node scripts/release-workflow-smoke.js --runtime
+      - name: Cache API npm download cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/wechat-miniapp-npm-cache
+          key: npm-api-${{ hashFiles('cloudfunctions/api/package-lock.json') }}
+          restore-keys: |
+            npm-api-
+      - name: Prepare API dependency cache
+        shell: pwsh
+        env:
+          WECHAT_MINIPROGRAM_NPM_CACHE_PATH: ${{ runner.temp }}/wechat-miniapp-npm-cache
+        run: |
+          . "$env:GITHUB_WORKSPACE\scripts\npm-dependency-cache.ps1"
+          $info = Ensure-LocalCloudFunctionDependencies `
+            -ApiPath "$env:GITHUB_WORKSPACE\cloudfunctions\api" `
+            -DependencyCheckScript "$env:GITHUB_WORKSPACE\scripts\check-cloudfunction-dependencies.js"
+          Write-Host "API npm cache key: $($info.Key)"
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"

@@ -1760,6 +1760,31 @@ button.recent-more-c.small-btn {
   margin-left: 14rpx !important;
 }
 
+/* 有最近作品时，记录卡片让出列表高度，避免缩略图覆盖下一张功能卡。 */
+.common-feature-panel .recent-card-filled {
+  height: auto !important;
+  min-height: 148rpx !important;
+  max-height: none !important;
+  overflow: hidden;
+  align-items: center !important;
+}
+
+.common-feature-panel .recent-card-filled .recent-list {
+  display: flex;
+  flex: 0 0 100%;
+  width: 100%;
+  min-width: 0;
+  margin-top: 2rpx;
+  flex-direction: column;
+}
+
+.common-feature-panel .recent-card-filled .recent-item {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 112rpx;
+  padding-right: 0;
+}
+
 /* 其他服务的文字规格与“常用功能”完全一致。 */
 .service-feature-heading .feature-group-title {
   color: #2b3a52;

@@ -146,11 +146,6 @@
               mode="aspectFill"
             ></image>
             <view wx:else class="recent-image recent-image-empty">无图</view>
-            <view class="recent-info">
-              <view class="recent-name">{{item.projectName}}</view>
-              <view class="recent-time">{{item.createdAt}}</view>
-            </view>
-            <view class="recent-arrow">›</view>
           </view>
         </view>
       </view>

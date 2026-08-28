@@ -42,10 +42,11 @@ assert.ok(wxml.includes('class="recent-time"'));
 assert.ok(wxml.includes('class="recent-arrow"'));
 assert.ok(wxml.includes('binderror="onRecordImageError"'));
 assert.ok(wxml.includes('data-id="{{item.id}}"'));
-assert.ok(workbenchJs.includes("fileID: item.fileID || item.fileId || \"\""));
+assert.match(workbenchJs, /fileID:\s*String\(item\.fileID\s*\|\|\s*item\.fileId\s*\|\|\s*\"\"\)/);
 assert.ok(workbenchJs.includes("cloud.listRecords()"));
-assert.ok(workbenchJs.includes("storage.saveRecords(remoteRecords)"));
-assert.ok(workbenchJs.includes("cloud.getTempUrl(record.fileID)"));
+assert.ok(workbenchJs.includes("storage.saveRecords(mergedRemoteRecords)"));
+assert.ok(workbenchJs.includes("resolveRecordTempUrl(record.fileID)"));
+assert.ok(workbenchJs.includes("cloud.getTempUrl(normalizedFileID)"));
 
 const recentCardRules = [
   ...wxss.matchAll(/\.common-feature-panel \.recent-card-filled\s*\{([^}]*)\}/g),

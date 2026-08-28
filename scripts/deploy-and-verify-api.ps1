@@ -13,6 +13,7 @@
   [int]$LockWaitSeconds = 60,
   [string]$DeployLockPath = "",
   [string]$ReleaseContext = "",
+  [string]$NpmCachePath = "",
   [switch]$ReleaseGateLockHeld
 )
 
@@ -34,6 +35,12 @@ if (-not (Test-Path -LiteralPath $deploySafetyScript -PathType Leaf)) {
   throw "Cloud deployment safety helper was not found: $deploySafetyScript"
 }
 . $deploySafetyScript
+
+$npmDependencyCacheScript = Join-Path $PSScriptRoot "npm-dependency-cache.ps1"
+if (-not (Test-Path -LiteralPath $npmDependencyCacheScript -PathType Leaf)) {
+  throw "npm dependency cache helper was not found: $npmDependencyCacheScript"
+}
+. $npmDependencyCacheScript
 
 function Find-WechatIde {
   param([string]$Preferred)
@@ -238,46 +245,6 @@ function Repair-CloudFunctionTimeout {
     throw "自动修正云函数超时失败（exit code ${exitCode}）：$text"
   }
   Write-Host "已通过 CloudBase CLI 请求把云函数超时修正为 $TimeoutSeconds 秒。"
-}
-
-function Ensure-LocalCloudFunctionDependencies {
-  param([Parameter(Mandatory = $true)][string]$ApiPath)
-
-  $packageJson = Join-Path $ApiPath "package.json"
-  $packageLock = Join-Path $ApiPath "package-lock.json"
-  if ((-not (Test-Path -LiteralPath $packageJson -PathType Leaf)) -or (-not (Test-Path -LiteralPath $packageLock -PathType Leaf))) {
-    throw "云函数缺少 package.json 或 package-lock.json，不能执行可复现依赖安装。"
-  }
-  $nodeModules = Join-Path $ApiPath "node_modules"
-  if (Test-Path -LiteralPath $nodeModules -PathType Container) {
-    return
-  }
-  $npm = Get-Command "npm.cmd" -ErrorAction SilentlyContinue
-  if (-not $npm) {
-    $npm = Get-Command "npm" -ErrorAction SilentlyContinue
-  }
-  if (-not $npm) {
-    throw "找不到 npm，无法为隔离发布工作树安装云函数依赖。"
-  }
-  Write-Host "隔离发布工作树缺少 node_modules，按 package-lock.json 执行 npm ci。"
-  $previousErrorActionPreference = $ErrorActionPreference
-  $ErrorActionPreference = "Continue"
-  $locationPushed = $false
-  try {
-    Push-Location -LiteralPath $ApiPath
-    $locationPushed = $true
-    & $npm.Source "ci" "--ignore-scripts" "--no-audit" "--no-fund"
-    $exitCode = $LASTEXITCODE
-  }
-  finally {
-    if ($locationPushed) {
-      Pop-Location
-    }
-    $ErrorActionPreference = $previousErrorActionPreference
-  }
-  if ($exitCode -ne 0 -or -not (Test-Path -LiteralPath $nodeModules -PathType Container)) {
-    throw "隔离发布工作树 npm ci 失败，未生成 node_modules。"
-  }
 }
 
 function Invoke-CloudBaseCliJson {
@@ -946,7 +913,11 @@ try {
   if ($LASTEXITCODE -ne 0) {
     throw "Strict deployment check failed."
   }
-  Ensure-LocalCloudFunctionDependencies -ApiPath $apiPath
+  $npmCacheInfo = Ensure-LocalCloudFunctionDependencies `
+    -ApiPath $apiPath `
+    -CacheRoot $NpmCachePath `
+    -DependencyCheckScript (Join-Path $project "scripts\check-cloudfunction-dependencies.js")
+  Write-Host "本地 npm 缓存键：$($npmCacheInfo.Key)"
   & node (Join-Path $project "scripts\check-cloudfunction-dependencies.js")
   if ($LASTEXITCODE -ne 0) {
     throw "Cloud function dependency check failed."

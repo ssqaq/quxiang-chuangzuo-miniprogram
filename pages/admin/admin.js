@@ -143,7 +143,7 @@ const ADMIN_IMAGE_PROVIDER_DEFAULTS = Object.freeze({
   xingju: Object.freeze({
     baseUrl: "https://newapi.akiyo.fun/v1",
     endpoint: "",
-    model: "jw-gpt-image-2",
+    model: "jw-wy-gpt-image-2",
     mode: "edits",
     size: "1080x1440",
     resolution: "1K",
@@ -152,7 +152,7 @@ const ADMIN_IMAGE_PROVIDER_DEFAULTS = Object.freeze({
   }),
   lingyun: Object.freeze({
     baseUrl: "https://api.lingyunapi.xyz/v1",
-    endpoint: "",
+    endpoint: "https://api.lingyunapi.xyz/v1/images/edits",
     model: "gpt-image-2",
     mode: "edits",
     size: "1080x1440",
@@ -1110,12 +1110,35 @@ function buildAdminProviderProfileOptions(form, section) {
   const options = ids.map((providerId) => ({
     value: providerId,
     label: `${displayAdminProvider(providerId, providerId)}${
-      profileSection[providerId] ? "（已有参数）" : "（未配置）"
+      profileSection[providerId]
+        || hasKnownAdminProviderDefaults(section, providerId)
+        ? "（已有参数）"
+        : "（未配置）"
     }`
   }));
   return section === "videoBackup"
     ? [{ value: "", label: "未启用" }].concat(options)
     : options;
+}
+
+function hasKnownAdminProviderDefaults(section, providerId) {
+  const normalizedProviderId = providerIdFromDisplay(providerId);
+  if (section === "videoBackup") {
+    return Boolean(
+      normalizedProviderId
+      && normalizedProviderId === "xingju"
+    );
+  }
+  if (section === "face" || section === "analysis") {
+    return Boolean(ADMIN_VISUAL_PROVIDER_DEFAULTS[normalizedProviderId]);
+  }
+  if (section === "image" || section === "imageBackup") {
+    return Boolean(ADMIN_IMAGE_PROVIDER_DEFAULTS[normalizedProviderId]);
+  }
+  if (section === "video") {
+    return normalizedProviderId === "xingju";
+  }
+  return false;
 }
 
 function buildAdminProviderProfilePickerState(form) {
@@ -1221,13 +1244,30 @@ function profileFormForProvider(form, section, providerId) {
     && typeof source.providerProfiles[profileSection][normalizedProviderId] === "object"
     ? source.providerProfiles[profileSection][normalizedProviderId]
     : null;
+  const defaults = providerProfileDefaultForm(section, normalizedProviderId);
   if (profile) {
-    return Object.assign({}, profile, {
+    const merged = Object.assign({}, defaults);
+    (ADMIN_PROVIDER_PROFILE_FORM_KEYS[profileSection] || []).forEach((key) => {
+      if (!Object.prototype.hasOwnProperty.call(profile, key)) return;
+      const value = profile[key];
+      if (key === "compatibilityMode" || key === "retryEnabled") {
+        merged[key] = Boolean(value);
+        return;
+      }
+      if (key === "apiKeyConfigured") {
+        merged[key] = Boolean(value || profile.apiKey);
+        return;
+      }
+      if (String(value === undefined || value === null ? "" : value).trim()) {
+        merged[key] = value;
+      }
+    });
+    return Object.assign({}, merged, {
       provider: displayAdminProvider(normalizedProviderId, normalizedProviderId),
       apiKeyConfigured: Boolean(profile.apiKeyConfigured || profile.apiKey)
     });
   }
-  return providerProfileDefaultForm(section, normalizedProviderId);
+  return defaults;
 }
 
 function updateAdminProviderProfileForm(form, section, patch) {

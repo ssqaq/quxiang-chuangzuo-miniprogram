@@ -38,7 +38,7 @@ function normalizeRecord(record) {
   const item = record && typeof record === "object" ? record : {};
   return {
     id: item.id || item._id || `record-${Date.now()}`,
-    fileID: item.fileID || item.fileId || "",
+    fileID: String(item.fileID || item.fileId || "").trim(),
     projectName: item.projectName || "未命名项目",
     createdAt: item.createdAt || "刚刚生成",
     tempFileURL: item.tempFileURL || "",
@@ -203,6 +203,8 @@ Page({
   },
 
   refreshWorkbench() {
+    const refreshToken = (this._recordsRefreshToken || 0) + 1;
+    this._recordsRefreshToken = refreshToken;
     const project = storage.loadProject();
     const draftExists = hasDraft(project);
     const cloudReady = cloud.isCloudReady();
@@ -215,29 +217,184 @@ Page({
       hasDraft: draftExists,
       records: localRecords
     });
-    if (cloudReady) this.refreshRemoteRecords();
+    if (cloudReady) {
+      void this.refreshRemoteRecords(refreshToken, localRecords);
+    }
     return draftExists;
   },
 
-  async refreshRemoteRecords() {
+  resolveRecordTempUrl(fileID) {
+    const normalizedFileID = String(fileID || "").trim();
+    if (
+      !normalizedFileID
+      || !cloud.isCloudReady()
+      || typeof cloud.getTempUrl !== "function"
+    ) {
+      return Promise.resolve("");
+    }
+    if (!this._recordTempUrlInflight) this._recordTempUrlInflight = new Map();
+    const existing = this._recordTempUrlInflight.get(normalizedFileID);
+    if (existing) return existing;
+
+    let request;
+    try {
+      request = Promise.resolve(cloud.getTempUrl(normalizedFileID));
+    } catch (error) {
+      request = Promise.reject(error);
+    }
+    const tracked = request.then((url) => String(url || "").trim());
+    this._recordTempUrlInflight.set(normalizedFileID, tracked);
+    tracked.then(
+      () => {
+        if (this._recordTempUrlInflight.get(normalizedFileID) === tracked) {
+          this._recordTempUrlInflight.delete(normalizedFileID);
+        }
+      },
+      () => {
+        if (this._recordTempUrlInflight.get(normalizedFileID) === tracked) {
+          this._recordTempUrlInflight.delete(normalizedFileID);
+        }
+      }
+    );
+    return tracked;
+  },
+
+  async hydrateRecordImages(records = [], refreshToken) {
+    if (
+      !Array.isArray(records)
+      || !records.length
+      || !cloud.isCloudReady()
+      || typeof cloud.getTempUrl !== "function"
+    ) return;
+    const token = refreshToken === undefined
+      ? this._recordsRefreshToken
+      : refreshToken;
+    const candidateFileIDs = new Set();
+    const candidates = records.filter((item) => {
+      const fileID = String(item && (item.fileID || item.fileId) || "").trim();
+      if (!item || !fileID || item.imagePath) return false;
+      if (candidateFileIDs.has(fileID)) return false;
+      candidateFileIDs.add(fileID);
+      return true;
+    });
+    if (!candidates.length) return;
+
+    const resolved = await Promise.all(candidates.map(async (item) => {
+      try {
+        return {
+          fileID: String(item.fileID || item.fileId).trim(),
+          tempFileURL: await this.resolveRecordTempUrl(item.fileID || item.fileId)
+        };
+      } catch (error) {
+        diagnosticLog.warn("records", "workbench-temp-url-failed", "工作台记录临时地址获取失败", {
+          fileID: item.fileID,
+          error
+        });
+        return { fileID: String(item.fileID), tempFileURL: "" };
+      }
+    }));
+    if (
+      this._pageUnloaded
+      || token !== this._recordsRefreshToken
+    ) return;
+
+    const urls = new Map();
+    resolved.forEach((item) => {
+      if (item.tempFileURL) urls.set(item.fileID, item.tempFileURL);
+    });
+    if (!urls.size) return;
+
+    const currentRecords = Array.isArray(this.data.records) ? this.data.records : [];
+    const nextRecords = currentRecords.map((item) => {
+      const fileID = String(item && (item.fileID || item.fileId) || "");
+      const tempFileURL = urls.get(fileID);
+      const hasCurrentImage = Boolean(
+        item && (item.tempFileURL || item.imagePath || item.path)
+      );
+      return tempFileURL && !hasCurrentImage
+        ? Object.assign({}, item, { tempFileURL, imagePath: tempFileURL })
+        : item;
+    });
+    if (nextRecords.some((item, index) => item !== currentRecords[index])) {
+      this.setData({ records: nextRecords });
+    }
+
+    const cachedRecords = storage.loadRecords() || [];
+    const nextCachedRecords = cachedRecords.map((item) => {
+      const fileID = String(item && (item.fileID || item.fileId) || "");
+      const tempFileURL = urls.get(fileID);
+      const hasCachedImage = Boolean(
+        item && (item.tempFileURL || item.imagePath || item.path)
+      );
+      return tempFileURL && !hasCachedImage
+        ? Object.assign({}, item, { tempFileURL })
+        : item;
+    });
+    storage.saveRecords(nextCachedRecords);
+  },
+
+  async refreshRemoteRecords(refreshToken, fallbackRecords = []) {
     if (!cloud.isCloudReady() || typeof cloud.listRecords !== "function") return;
-    const token = (this._recordsRefreshToken || 0) + 1;
-    this._recordsRefreshToken = token;
+    const token = refreshToken === undefined
+      ? (this._recordsRefreshToken || 0) + 1
+      : refreshToken;
+    if (refreshToken === undefined) {
+      this._recordsRefreshToken = token;
+    } else if (token !== this._recordsRefreshToken) {
+      return;
+    }
     try {
       const result = await cloud.listRecords();
       if (token !== this._recordsRefreshToken) return;
       const remoteRecords = Array.isArray(result && result.records)
         ? result.records
         : [];
-      if (!remoteRecords.length) return;
-      storage.saveRecords(remoteRecords);
-      this.setData({
-        records: remoteRecords.slice(0, 1).map(normalizeRecord)
+      const localRecords = Array.isArray(fallbackRecords) && fallbackRecords.length
+        ? fallbackRecords
+        : (Array.isArray(this.data.records) ? this.data.records : []);
+      if (!remoteRecords.length) {
+        await this.hydrateRecordImages(localRecords, token);
+        return;
+      }
+      const cachedRecords = storage.loadRecords() || [];
+      const sameRecord = (left, right) => (
+        String(left && (left.id || left._id) || "")
+          && String(left && (left.id || left._id) || "")
+            === String(right && (right.id || right._id) || "")
+        || (
+          String(left && (left.fileID || left.fileId) || "")
+          && String(left && (left.fileID || left.fileId) || "")
+            === String(right && (right.fileID || right.fileId) || "")
+        )
+      );
+      const mergedRemoteRecords = remoteRecords.map((record) => {
+        const hasImage = Boolean(
+          record && (record.tempFileURL || record.path || record.imagePath)
+        );
+        if (hasImage) return record;
+        const cached = cachedRecords.find((item) => sameRecord(item, record));
+        return cached && (cached.tempFileURL || cached.path || cached.imagePath)
+          ? Object.assign({}, record, {
+            tempFileURL: cached.tempFileURL || "",
+            path: cached.path || "",
+            imagePath: cached.imagePath || ""
+          })
+          : record;
       });
+      storage.saveRecords(mergedRemoteRecords);
+      const normalizedRecords = mergedRemoteRecords.slice(0, 1).map(normalizeRecord);
+      this.setData({
+        records: normalizedRecords
+      });
+      await this.hydrateRecordImages(normalizedRecords, token);
     } catch (error) {
       diagnosticLog.warn("records", "workbench-refresh-failed", "工作台记录缩略图刷新失败", {
         error
       });
+      const localRecords = Array.isArray(fallbackRecords) && fallbackRecords.length
+        ? fallbackRecords
+        : (Array.isArray(this.data.records) ? this.data.records : []);
+      await this.hydrateRecordImages(localRecords, token);
     }
   },
 
@@ -255,18 +412,34 @@ Page({
     if (!this._recordImageRetryIds) this._recordImageRetryIds = new Set();
     if (this._recordImageRetryIds.has(id)) return;
     this._recordImageRetryIds.add(id);
+    const refreshToken = this._recordsRefreshToken;
     try {
-      const tempFileURL = await cloud.getTempUrl(record.fileID);
-      if (!tempFileURL || this._pageUnloaded) return;
+      const tempFileURL = await this.resolveRecordTempUrl(record.fileID);
+      if (
+        !tempFileURL
+        || this._pageUnloaded
+        || refreshToken !== this._recordsRefreshToken
+      ) return;
+      const matchesRecord = (item) => (
+        String(item && (item.id || item._id) || "") === id
+        || (
+          record.fileID
+          && String(item && (item.fileID || item.fileId) || "") === String(record.fileID)
+        )
+      );
       const records = (this.data.records || []).map((item) => (
-        String(item && item.id) === id
+        matchesRecord(item)
           ? Object.assign({}, item, { tempFileURL, imagePath: tempFileURL })
           : item
       ));
       this.setData({ records });
       const cachedRecords = storage.loadRecords() || [];
       storage.saveRecords(cachedRecords.map((item) => (
-        String(item && (item.id || item._id)) === id
+        String(item && (item.id || item._id) || "") === id
+          || (
+            record.fileID
+            && String(item && (item.fileID || item.fileId) || "") === String(record.fileID)
+          )
           ? Object.assign({}, item, { tempFileURL })
           : item
       )));

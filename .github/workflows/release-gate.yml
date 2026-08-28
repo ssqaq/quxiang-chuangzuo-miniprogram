@@ -1,0 +1,74 @@
+name: release-gate
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release-gate:
+    name: release-gate
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Prepare external release policy
+        shell: pwsh
+        run: |
+          $repo = (Resolve-Path $env:GITHUB_WORKSPACE).Path
+          $parent = Split-Path $repo -Parent
+          $policy = [ordered]@{
+            schemaVersion = 1
+            canonicalRepo = $repo
+            remote = "https://github.com/ssqaq/quxiang-chuangzuo-miniprogram.git"
+            branch = "main"
+            lockPath = Join-Path $parent "wechat-miniapp-release.lock"
+            artifactRoot = $parent
+            reservationRoot = Join-Path $parent "wechat-miniapp-release-reservations"
+            worktreeRoot = Join-Path $parent "wechat-miniapp-release-worktrees"
+            recordRoot = Join-Path $parent "wechat-miniapp-release-records"
+            contextRoot = Join-Path $parent "wechat-miniapp-release-contexts"
+            logRoot = Join-Path $parent "wechat-miniapp-release-logs"
+            archiveManifestPath = Join-Path $parent "wechat-miniapp-release-archive.json"
+            mainProtection = [ordered]@{ mode = "pr-only"; requiredWorkflow = "release-gate.yml"; applyToAdmins = $true }
+            queue = [ordered]@{ waitSeconds = 1800; pollMilliseconds = 500 }
+            immutableArtifacts = $true
+            allowSourceWorktrees = $true
+          }
+          $policyPath = Join-Path $parent "wechat-miniapp-release-policy.json"
+          $policy | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $policyPath -Encoding utf8
+      - name: Validate source
+        shell: pwsh
+        run: node scripts/validate.js
+      - name: Release safety smoke
+        shell: pwsh
+        run: node scripts/release-safety-smoke.js
+      - name: Release gate smoke
+        shell: pwsh
+        run: node scripts/release-gate-smoke.js
+      - name: Cloud deploy safety smoke
+        shell: pwsh
+        run: node scripts/cloud-deploy-safety-smoke.js
+      - name: Cloud deploy entry smoke
+        shell: pwsh
+        run: node scripts/deployment-script-smoke.js
+      - name: Package smoke
+        shell: pwsh
+        run: python scripts/package-release-smoke.py
+      - name: Package read-only check
+        shell: pwsh
+        run: python scripts/package-release.py --check-only --source-tree HEAD

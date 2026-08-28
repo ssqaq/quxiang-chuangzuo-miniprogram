@@ -1,4 +1,4 @@
-Set-StrictMode -Version Latest
+﻿Set-StrictMode -Version Latest
 
 $releaseLockScript = Join-Path $PSScriptRoot "release-lock.ps1"
 if (-not (Test-Path -LiteralPath $releaseLockScript -PathType Leaf)) {
@@ -42,7 +42,7 @@ function Enter-CloudDeployLock {
         [Parameter(Mandatory = $true)][string]$ProjectPath,
         [Parameter(Mandatory = $true)][string]$TargetVersion,
         [Parameter(Mandatory = $true)][string]$FunctionName,
-        [ValidateRange(1, 300)][int]$WaitSeconds = 60,
+        [ValidateRange(1, 7200)][int]$WaitSeconds = 60,
         [string]$LockPath = ""
     )
     return Enter-ReleaseLock `
@@ -57,6 +57,64 @@ function Enter-CloudDeployLock {
 function Exit-CloudDeployLock {
     param([object]$LockHandle)
     Exit-ReleaseLock -LockHandle $LockHandle
+}
+
+function Assert-CloudDeployReleaseContext {
+    param(
+        [Parameter(Mandatory = $true)][string]$ContextPath,
+        [Parameter(Mandatory = $true)][string]$ProjectPath,
+        [Parameter(Mandatory = $true)][string]$ExpectedVersion,
+        [string]$ExpectedRemoteUrl = ""
+    )
+    if (-not (Test-Path -LiteralPath $ContextPath -PathType Leaf)) {
+        throw "缺少 release context：$ContextPath"
+    }
+    try {
+        $context = Get-Content -LiteralPath $ContextPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    }
+    catch {
+        throw "release context 不是有效 JSON：$ContextPath。$($_.Exception.Message)"
+    }
+    foreach ($name in @("schemaVersion", "operationId", "canonicalRepo", "remote", "version", "releaseCommit", "treeSha", "sourceSha256", "artifactPath", "expiresAt")) {
+        if ($null -eq $context.PSObject.Properties[$name] -or [string]::IsNullOrWhiteSpace([string]$context.$name)) {
+            throw "release context 缺少字段：$name"
+        }
+    }
+    if ([int]$context.schemaVersion -ne 1) { throw "不支持的 release context schemaVersion：$($context.schemaVersion)" }
+    if ([string]$context.version -ne $ExpectedVersion) {
+        throw "release context 版本与部署源码不一致：context=$($context.version)，源码=$ExpectedVersion"
+    }
+    if (-not [string]::IsNullOrWhiteSpace($ExpectedRemoteUrl) -and
+        -not [string]::Equals([string]$context.remote, $ExpectedRemoteUrl, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "release context 远端与部署源码策略不一致：context=$($context.remote)，期望=$ExpectedRemoteUrl"
+    }
+    if ($context.PSObject.Properties["branch"] -and [string]$context.branch -ne "main") {
+        throw "release context 目标分支必须是 main：$($context.branch)"
+    }
+    if ([string]$context.releaseCommit -notmatch '^[0-9a-fA-F]{7,64}$') { throw "release context releaseCommit 无效。" }
+    if ([string]$context.treeSha -notmatch '^[0-9a-fA-F]{7,64}$') { throw "release context treeSha 无效。" }
+    if ([string]$context.sourceSha256 -notmatch '^[0-9a-fA-F]{64}$') { throw "release context sourceSha256 无效。" }
+    try { $expires = ConvertTo-ReleaseUtcDateTime -Value $context.expiresAt } catch { throw "release context expiresAt 无效。" }
+    if ($expires -le [DateTime]::UtcNow) { throw "release context 已过期：$ContextPath" }
+
+    $project = [IO.Path]::GetFullPath($ProjectPath)
+    $head = (& git -C $project rev-parse HEAD 2>$null | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($head)) { throw "无法读取部署源码 Git HEAD。" }
+    $tree = (& git -C $project rev-parse "$head^{tree}" 2>$null | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($tree)) { throw "无法读取部署源码 Git tree。" }
+    if (-not [string]::Equals($head, [string]$context.releaseCommit, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "部署源码 HEAD 与 release context 不一致：context=$($context.releaseCommit)，源码=$head"
+    }
+    if (-not [string]::Equals($tree, [string]$context.treeSha, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "部署源码 tree 与 release context 不一致：context=$($context.treeSha)，源码=$tree"
+    }
+    if (-not [string]::IsNullOrWhiteSpace($ExpectedRemoteUrl)) {
+        $remote = (& git -C $project remote get-url origin 2>$null | Out-String).Trim()
+        if (-not [string]::Equals($remote, $ExpectedRemoteUrl, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "部署源码远端与 release context 不一致：context=$ExpectedRemoteUrl，源码=$remote"
+        }
+    }
+    return $context
 }
 
 function Get-CloudDeployVersion {
@@ -641,18 +699,23 @@ function Get-CloudBaseFunctionInvokePayload {
         if ($null -eq $current) {
             return $null
         }
-        if ($current -is [string]) {
-            $text = ([string]$current).Trim()
-            if ($text.StartsWith("{") -or $text.StartsWith("[")) {
+        $retMsgProperty = $current.PSObject.Properties["RetMsg"]
+        if ($null -eq $retMsgProperty) {
+            $retMsgProperty = $current.PSObject.Properties["retMsg"]
+        }
+        if (
+            $null -ne $retMsgProperty `
+            -and $retMsgProperty.Value -is [string]
+        ) {
+            $retMsg = ([string]$retMsgProperty.Value).Trim()
+            if ($retMsg.StartsWith("{") -or $retMsg.StartsWith("[")) {
                 try {
-                    $current = $text | ConvertFrom-Json
-                    continue
+                    return $retMsg | ConvertFrom-Json
                 }
                 catch {
-                    return $current
+                    # 保留原对象，让上层断言给出统一的结构错误。
                 }
             }
-            return $current
         }
         if (
             $null -ne $current.PSObject.Properties["buildVersion"] `
@@ -662,16 +725,7 @@ function Get-CloudBaseFunctionInvokePayload {
             return $current
         }
         $next = $null
-        foreach ($name in @(
-            "result",
-            "Result",
-            "data",
-            "Data",
-            "response",
-            "Response",
-            "RetMsg",
-            "retMsg"
-        )) {
+        foreach ($name in @("result", "Result", "data", "Data", "response", "Response")) {
             $property = $current.PSObject.Properties[$name]
             if ($null -ne $property -and $null -ne $property.Value) {
                 $next = $property.Value
@@ -715,43 +769,25 @@ function Assert-CloudBaseRuntimeHealth {
     if ($null -eq $Health) {
         throw "CloudBase 运行健康返回结构为空。[CLOUDBASE_RUNTIME_RESPONSE_INVALID]"
     }
-    $requiredProperties = @("ok", "active", "readOnly", "buildVersion", "checkedAt")
-    if ($ExpectedMarker) {
-        $requiredProperties += "buildMarker"
-    }
-    $missingProperties = @(
-        $requiredProperties |
-            Where-Object { $null -eq $Health.PSObject.Properties[$_] }
-    )
-    if ($missingProperties.Count -gt 0) {
-        throw "CloudBase 运行健康返回结构不完整。[CLOUDBASE_RUNTIME_RESPONSE_INVALID]"
-    }
-    $ok = $Health.PSObject.Properties["ok"].Value
-    if ([bool]$ok -eq $false) {
-        $errorCodeProperty = $Health.PSObject.Properties["errorCode"]
-        $errorCode = if ($null -eq $errorCodeProperty) {
-            ""
-        }
-        else {
-            [string]$errorCodeProperty.Value
-        }
+    if ([bool]$Health.ok -eq $false) {
+        $errorCode = [string]$Health.errorCode
         if ([string]::IsNullOrWhiteSpace($errorCode)) {
             $errorCode = "CLOUDBASE_RUNTIME_REPORTED_FAILURE"
         }
         throw "CloudBase 运行健康失败：$errorCode"
     }
-    if (-not [bool]$Health.PSObject.Properties["active"].Value) {
+    if (-not [bool]$Health.active) {
         throw "CloudBase 运行健康失败：实例未确认 Active。[CLOUDBASE_RUNTIME_INACTIVE]"
     }
-    if (-not [bool]$Health.PSObject.Properties["readOnly"].Value) {
+    if (-not [bool]$Health.readOnly) {
         throw "CloudBase 运行健康失败：返回结果未标记为只读。[CLOUDBASE_RUNTIME_NOT_READONLY]"
     }
-    if ([string]$Health.PSObject.Properties["buildVersion"].Value -ne $ExpectedVersion) {
+    if ([string]$Health.buildVersion -ne $ExpectedVersion) {
         throw "CloudBase 运行健康版本不一致。[CLOUDBASE_RUNTIME_VERSION_MISMATCH]"
     }
     if (
         $ExpectedMarker `
-        -and [string]$Health.PSObject.Properties["buildMarker"].Value -ne $ExpectedMarker
+        -and [string]$Health.buildMarker -ne $ExpectedMarker
     ) {
         throw "CloudBase 运行健康构建标记不一致。[CLOUDBASE_RUNTIME_MARKER_MISMATCH]"
     }
@@ -759,18 +795,10 @@ function Assert-CloudBaseRuntimeHealth {
     if ($null -eq $dependencies -or $null -eq $dependencies.Value) {
         throw "CloudBase 运行健康缺少依赖结果。[CLOUDBASE_RUNTIME_RESPONSE_INVALID]"
     }
-    $healthy = $dependencies.Value.PSObject.Properties["healthy"]
-    if ($null -eq $healthy) {
-        throw "CloudBase 运行健康缺少依赖状态。[CLOUDBASE_RUNTIME_RESPONSE_INVALID]"
-    }
-    if (-not [bool]$healthy.Value) {
+    if (-not [bool]$dependencies.Value.healthy) {
         throw "CloudBase 运行依赖异常。[CLOUDBASE_RUNTIME_DEPENDENCY_UNHEALTHY]"
     }
-    if (
-        [string]::IsNullOrWhiteSpace(
-            [string]$Health.PSObject.Properties["checkedAt"].Value
-        )
-    ) {
+    if ([string]::IsNullOrWhiteSpace([string]$Health.checkedAt)) {
         throw "CloudBase 运行健康缺少检查时间。[CLOUDBASE_RUNTIME_RESPONSE_INVALID]"
     }
 }

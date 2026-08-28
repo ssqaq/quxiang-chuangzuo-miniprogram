@@ -7114,6 +7114,11 @@ page {
   padding-right: 0;
 }
 
+/* 收起时与用户端日志保留同等的视觉呼吸空间。 */
+.monitor-deployment-group.is-collapsed > .monitor-section-head {
+  min-height: 192rpx;
+}
+
 .usage-collapsed-statistics-card {
   padding-right: 0;
 }

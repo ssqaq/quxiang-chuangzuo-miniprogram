@@ -16,6 +16,7 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parent.parent
+SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+$")
 
 
 def read_version(source_root: Path) -> str:
@@ -24,6 +25,167 @@ def read_version(source_root: Path) -> str:
     if not match:
         raise RuntimeError("config.js 没有找到 appVersion。")
     return match.group(1)
+
+
+def read_json_file(path: Path) -> dict:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise RuntimeError(f"无法读取 JSON：{path}") from error
+    if not isinstance(value, dict):
+        raise RuntimeError(f"JSON 根节点不是对象：{path}")
+    return value
+
+
+def version_entries(source_root: Path) -> dict[str, str]:
+    """读取所有发布组件的版本字段，集中做一次严格比对。"""
+    config_version = read_version(source_root)
+    entries = {"config.js appVersion": config_version}
+
+    api_source = (source_root / "cloudfunctions" / "api" / "index.js").read_text(
+        encoding="utf-8"
+    )
+    api_version_match = re.search(
+        r'const API_BUILD_VERSION = "([^\"]+)"', api_source
+    )
+    api_marker_match = re.search(
+        r'const API_BUILD_MARKER = "([^\"]+)"', api_source
+    )
+    entries["cloudfunctions/api/index.js API_BUILD_VERSION"] = (
+        api_version_match.group(1) if api_version_match else "<missing>"
+    )
+    expected_marker = f"API_BUILD_TAG_AUTO_VERSION_V{config_version.replace('.', '')}"
+    entries["cloudfunctions/api/index.js API_BUILD_MARKER"] = (
+        api_marker_match.group(1) if api_marker_match else "<missing>"
+    )
+
+    package_paths = {
+        "cloudfunctions/api/package.json": "cloudfunctions/api/package.json",
+        "cloudfunctions/watermark-gateway/package.json": "cloudfunctions/watermark-gateway/package.json",
+        "media-worker/package.json": "media-worker/package.json",
+    }
+    for label, relative in package_paths.items():
+        entries[f"{label} version"] = str(
+            read_json_file(source_root / relative).get("version", "<missing>")
+        )
+
+    lock_paths = {
+        "cloudfunctions/api/package-lock.json": "cloudfunctions/api/package-lock.json",
+        "media-worker/package-lock.json": "media-worker/package-lock.json",
+    }
+    for label, relative in lock_paths.items():
+        lock = read_json_file(source_root / relative)
+        entries[f"{label} version"] = str(lock.get("version", "<missing>"))
+        packages = lock.get("packages")
+        root_package = packages.get("") if isinstance(packages, dict) else None
+        entries[f"{label} packages[\"\"] version"] = str(
+            root_package.get("version", "<missing>")
+            if isinstance(root_package, dict)
+            else "<missing>"
+        )
+
+    marker_label = "cloudfunctions/api/index.js API_BUILD_MARKER"
+    mismatches = {
+        label: value
+        for label, value in entries.items()
+        if label != marker_label and value != config_version
+    }
+    if not SEMVER_RE.fullmatch(config_version):
+        mismatches["config.js appVersion"] = config_version
+    if entries[marker_label] != expected_marker:
+        mismatches[marker_label] = entries[marker_label]
+    if mismatches:
+        details = "; ".join(
+            f"{label}={value}（期望 {config_version}）"
+            for label, value in mismatches.items()
+        )
+        raise RuntimeError(f"发布包版本自动比对失败：{details}")
+    return entries
+
+
+def zip_text(archive: ZipFile, name: str) -> str:
+    try:
+        return archive.read(name).decode("utf-8")
+    except (KeyError, UnicodeDecodeError) as error:
+        raise RuntimeError(f"发布包缺少或无法读取文件：{name}") from error
+
+
+def zip_json(archive: ZipFile, name: str) -> dict:
+    try:
+        value = json.loads(zip_text(archive, name))
+    except json.JSONDecodeError as error:
+        raise RuntimeError(f"发布包中的 JSON 无法解析：{name}") from error
+    if not isinstance(value, dict):
+        raise RuntimeError(f"发布包中的 JSON 根节点不是对象：{name}")
+    return value
+
+
+def assert_zip_version_consistency(output: Path, expected_version: str) -> None:
+    with ZipFile(output) as archive:
+        manifest = zip_text(archive, "RELEASE-MANIFEST.txt")
+        manifest_match = re.search(r"^版本：([^\r\n]+)$", manifest, re.MULTILINE)
+        if not manifest_match or manifest_match.group(1).strip() != expected_version:
+            raise RuntimeError(
+                "发布包版本自动比对失败：RELEASE-MANIFEST.txt 版本与源码不一致。"
+            )
+
+        entries = {"config.js appVersion": ""}
+        config_match = re.search(
+            r'appVersion:\s*"([^\"]+)"', zip_text(archive, "config.js")
+        )
+        entries["config.js appVersion"] = (
+            config_match.group(1) if config_match else "<missing>"
+        )
+        api_source = zip_text(archive, "cloudfunctions/api/index.js")
+        api_version_match = re.search(
+            r'const API_BUILD_VERSION = "([^\"]+)"', api_source
+        )
+        api_marker_match = re.search(
+            r'const API_BUILD_MARKER = "([^\"]+)"', api_source
+        )
+        entries["cloudfunctions/api/index.js API_BUILD_VERSION"] = (
+            api_version_match.group(1) if api_version_match else "<missing>"
+        )
+        entries["cloudfunctions/api/index.js API_BUILD_MARKER"] = (
+            api_marker_match.group(1) if api_marker_match else "<missing>"
+        )
+        for relative in (
+            "cloudfunctions/api/package.json",
+            "cloudfunctions/watermark-gateway/package.json",
+            "media-worker/package.json",
+        ):
+            entries[f"{relative} version"] = str(
+                zip_json(archive, relative).get("version", "<missing>")
+            )
+        for relative in (
+            "cloudfunctions/api/package-lock.json",
+            "media-worker/package-lock.json",
+        ):
+            lock = zip_json(archive, relative)
+            entries[f"{relative} version"] = str(lock.get("version", "<missing>"))
+            packages = lock.get("packages")
+            root_package = packages.get("") if isinstance(packages, dict) else None
+            entries[f"{relative} packages[\"\"] version"] = str(
+                root_package.get("version", "<missing>")
+                if isinstance(root_package, dict)
+                else "<missing>"
+            )
+
+        marker_label = "cloudfunctions/api/index.js API_BUILD_MARKER"
+        expected_marker = f"API_BUILD_TAG_AUTO_VERSION_V{expected_version.replace('.', '')}"
+        mismatches = {
+            label: value
+            for label, value in entries.items()
+            if label != marker_label and value != expected_version
+        }
+        if entries[marker_label] != expected_marker:
+            mismatches[marker_label] = entries[marker_label]
+        if mismatches:
+            details = "; ".join(
+                f"{label}={value}（期望 {expected_version}）"
+                for label, value in mismatches.items()
+            )
+            raise RuntimeError(f"发布包版本自动比对失败：{details}")
 
 
 def parse_args() -> argparse.Namespace:
@@ -136,6 +298,7 @@ def main() -> None:
         source_label = args.source_label or f"工作区：{ROOT}"
 
     version = read_version(source_root)
+    version_entries(source_root)
     output = (
         args.output.resolve()
         if args.output
@@ -218,6 +381,7 @@ def main() -> None:
             f"Git tree SHA：{tree_sha}",
             f"源码内容 SHA256：{source_sha256}",
             f"构建时间：{datetime.now(timezone.utc).astimezone().isoformat()}",
+            "版本一致性：源码版本组、锁文件和发布清单已自动比对",
             "静态检查：请在发布前执行 node scripts/validate.js",
             "上传前置检查：代码包禁止包含 .wasm",
             "云函数依赖：部署时可选择云端安装依赖",
@@ -307,6 +471,8 @@ def main() -> None:
         "docs/superpowers/specs/2026-08-25-zhuceka-watermark-provider-design.md",
         "scripts/watermark-m0-smoke.js",
         "scripts/watermark-transfer-smoke.js",
+        "scripts/watermark-save-feedback-smoke.js",
+        "scripts/watermark-copywriting-layout-smoke.js",
         "pages/publish-export/publish-export.js",
         "pages/publish-export/publish-export.wxml",
         "pages/publish-export/publish-export.wxss",
@@ -378,6 +544,7 @@ def main() -> None:
         raise RuntimeError(f"发布包缺少文件：{', '.join(missing)}")
     if forbidden:
         raise RuntimeError("发布包包含 node_modules。")
+    assert_zip_version_consistency(output, version)
 
     print(f"打包完成：{output}")
     print(f"版本：{version}")

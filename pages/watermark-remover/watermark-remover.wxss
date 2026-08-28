@@ -64,11 +64,10 @@
 }
 
 .input-card-heading .section-label {
+  width: 100%;
   min-width: 0;
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .section-label,
@@ -81,7 +80,6 @@
   line-height: 38rpx;
 }
 
-.paste-button,
 .copy-button {
   flex: none;
   width: auto;
@@ -99,7 +97,6 @@
   white-space: nowrap;
 }
 
-.paste-button::after,
 .copy-button::after,
 .text-button::after,
 .secondary-btn::after {
@@ -642,6 +639,10 @@
   min-height: 48rpx;
 }
 
+.copywriting-title-head {
+  min-height: 60rpx;
+}
+
 .copywriting-label {
   color: #6b85a7;
   font-size: 20rpx;
@@ -654,7 +655,19 @@
   align-items: center;
 }
 
+.copywriting-head-action {
+  display: flex;
+  flex: 0 0 58%;
+  align-items: center;
+  justify-content: flex-end;
+  width: 58%;
+  min-width: 0;
+}
+
 .copywriting-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: auto;
   min-width: 98rpx;
   height: 44rpx;
@@ -664,9 +677,9 @@
   border-radius: 999rpx;
   color: #3976c8;
   background: #e9f3ff;
-  font-size: 18rpx;
+  font-size: 20rpx;
   font-weight: 700;
-  line-height: 44rpx;
+  line-height: normal;
 }
 
 .copywriting-action + .copywriting-action {
@@ -684,9 +697,26 @@
 }
 
 .copy-button {
-  min-width: 120rpx;
+  min-width: 0;
   height: 60rpx;
-  line-height: 60rpx;
+  line-height: normal;
+}
+
+.copy-button,
+.copywriting-title-action {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-width: 0;
+  height: 60rpx;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-size: 20rpx;
+  line-height: normal;
+  text-align: center;
 }
 
 .copy-feedback-active {
@@ -798,6 +828,18 @@
   margin-top: 18rpx;
 }
 
+.save-button,
+.reset-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  box-sizing: border-box;
+  font-size: 26rpx;
+  line-height: normal;
+  text-align: center;
+}
+
 .secondary-btn {
   height: 80rpx;
   margin: 12rpx 0 0;
@@ -805,6 +847,30 @@
   background: #f2f6fb;
   font-size: 23rpx;
   line-height: 80rpx;
+}
+
+.media-parser-page .save-button,
+.media-parser-page .reset-button {
+  font-size: 26rpx;
+  line-height: normal;
+}
+
+.save-button.save-feedback-active {
+  color: #ffffff;
+  background: #16835a;
+  box-shadow: 0 14rpx 24rpx rgba(22, 131, 90, 0.2);
+}
+
+.save-button.save-feedback-partial {
+  color: #ffffff;
+  background: #c27a16;
+  box-shadow: 0 14rpx 24rpx rgba(194, 122, 22, 0.2);
+}
+
+.save-button.save-feedback-error {
+  color: #ffffff;
+  background: #b34c5b;
+  box-shadow: 0 14rpx 24rpx rgba(179, 76, 91, 0.2);
 }
 
 .action-button.secondary-btn {
@@ -817,7 +883,6 @@
 
 .primary-btn:not([disabled]):active,
 .secondary-btn:not([disabled]):active,
-.paste-button:active,
 .copy-button:active,
   .copywriting-action:active,
   .copywriting-fade:active,

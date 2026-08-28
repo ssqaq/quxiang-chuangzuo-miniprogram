@@ -320,10 +320,6 @@ function createPageHarness(handler) {
       events.push({ type: "save-image", options });
       options.success();
     },
-    getClipboardData(options) {
-      events.push({ type: "get-clipboard", options });
-      options.success({ data: "https://example.com/from-clipboard" });
-    },
     setClipboardData(options) {
       events.push({ type: "set-clipboard", options });
       options.success();
@@ -428,6 +424,8 @@ async function testRealPageFlow() {
   );
   await harness.page.saveMedia();
   assert.ok(harness.events.some((item) => item.type === "save-video"));
+  assert.strictEqual(harness.page.data.saveFeedback, "已保存");
+  assert.strictEqual(harness.page.data.saveFeedbackTone, "success");
 
   resultType = "image";
   await harness.page.parseMedia();
@@ -436,6 +434,8 @@ async function testRealPageFlow() {
   assert.strictEqual(harness.page.data.result.platformLabel, "小红书");
   await harness.page.saveMedia();
   assert.ok(harness.events.some((item) => item.type === "save-image"));
+  assert.strictEqual(harness.page.data.saveFeedback, "已保存");
+  assert.strictEqual(harness.page.data.saveFeedbackTone, "success");
 
   harness.setHandler(() => Promise.reject(new Error("cloud unavailable")));
   parseCalls = 0;
@@ -558,6 +558,7 @@ function testPageMarkup() {
   );
   assert.ok(pageJs.includes('action: "health"'));
   assert.ok(pageJs.includes('action: "parse"'));
+  assert.ok(!pageJs.includes("pasteFromClipboard"));
   assert.ok(!pageJs.includes("localFallback"));
   assert.ok(!pageJs.includes("selectDemoType"));
   assert.ok(!pageJs.includes("response = buildLocalDemoResult"));
@@ -565,6 +566,8 @@ function testPageMarkup() {
   assert.ok(wxml.includes("真实结果"));
   assert.ok(wxml.includes("一键解析并提取"));
   assert.ok(wxml.includes("直接粘贴短视频分享链接"));
+  assert.ok(!wxml.includes("一键粘贴"));
+  assert.ok(!wxml.includes('class="paste-button"'));
   assert.strictEqual(
     (wxml.match(/直接粘贴短视频分享链接/g) || []).length,
     2,
@@ -582,6 +585,9 @@ function testPageMarkup() {
   assert.ok(!wxml.includes('feature-icon feature-icon-copy">文'));
   assert.ok(wxss.includes(".media-play-icon"));
   assert.ok(wxss.includes(".copy-lines-icon"));
+  assert.ok(!wxss.includes(".paste-button"));
+  assert.match(wxss, /\.input-card\s*\{[\s\S]*?padding:\s*22rpx\s*;/);
+  assert.ok(!wxss.includes("122rpx"));
   assert.ok(wxss.includes(".parse-button"));
   assert.ok(wxss.includes(".action-row"));
   assert.ok(wxss.includes(".action-button"));

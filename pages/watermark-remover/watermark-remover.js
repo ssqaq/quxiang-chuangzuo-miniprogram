@@ -372,6 +372,8 @@ Page({
     retryCount: 0,
     parseStage: 0,
     saving: false,
+    saveFeedback: "",
+    saveFeedbackTone: "",
     copywritingExpanded: false,
     copiedTarget: "",
     status: "idle",
@@ -388,7 +390,9 @@ Page({
   },
 
   onUnload() {
+    this.invalidateSaveOperation();
     this.clearCopyFeedbackTimer();
+    this.clearSaveFeedbackTimer();
   },
 
   async checkProviderHealth() {
@@ -427,25 +431,6 @@ Page({
     });
   },
 
-  pasteFromClipboard() {
-    if (typeof wx.getClipboardData !== "function") {
-      wx.showToast({ title: "当前环境不支持一键粘贴", icon: "none" });
-      return;
-    }
-    wx.getClipboardData({
-      success: (response) => {
-        const text = String(response && response.data || "").trim().slice(0, MAX_INPUT_LENGTH);
-        if (!text) {
-          wx.showToast({ title: "剪贴板里没有可用文本", icon: "none" });
-          return;
-        }
-        this.setData({ inputText: text });
-        wx.showToast({ title: "已粘贴", icon: "success" });
-      },
-      fail: () => wx.showToast({ title: "微信未允许读取剪贴板，请手动粘贴", icon: "none" })
-    });
-  },
-
   async parseMedia() {
     if (this.data.parsing) return;
     const text = String(this.data.inputText || "").trim();
@@ -454,12 +439,17 @@ Page({
       return;
     }
 
+    this.invalidateSaveOperation();
     this.clearCopyFeedbackTimer();
+    this.clearSaveFeedbackTimer();
     this.setData({
       parsing: true,
       retrying: false,
       retryCount: 0,
       parseStage: 0,
+      saving: false,
+      saveFeedback: "",
+      saveFeedbackTone: "",
       copywritingExpanded: false,
       copiedTarget: "",
       status: "parsing",
@@ -596,11 +586,16 @@ Page({
   },
 
   showError(title, message, errorCode = "PROVIDER_FAILED") {
+    this.invalidateSaveOperation();
+    this.clearCopyFeedbackTimer();
+    this.clearSaveFeedbackTimer();
     const configurationError = errorCode === "PROVIDER_NOT_CONFIGURED";
     this.setData({
       parsing: false,
       retrying: false,
       parseStage: 0,
+      saveFeedback: "",
+      saveFeedbackTone: "",
       copywritingExpanded: false,
       copiedTarget: "",
       status: "error",
@@ -621,11 +616,18 @@ Page({
     const contentType = result.contentType;
     const mediaUrl = String(result.mediaUrl || "").trim();
     if (!mediaUrl && !result.mediaItems.length && !result.livePhotoItems.length) {
+      this.showSaveFeedback("无可保存媒体", "error");
       wx.showToast({ title: "当前没有可保存的媒体", icon: "none" });
       return;
     }
 
-    this.setData({ saving: true });
+    const saveToken = this.beginSaveOperation();
+    this.clearSaveFeedbackTimer();
+    this.setData({
+      saving: true,
+      saveFeedback: "",
+      saveFeedbackTone: ""
+    });
     try {
       let saved = 0;
       let failed = 0;
@@ -635,10 +637,12 @@ Page({
           ? result.livePhotoItems
           : result.mediaItems;
         const imageBatch = await saveMediaBatch(liveItems, "image");
+        if (!this.isSaveOperationCurrent(saveToken)) return;
         saved += imageBatch.saved;
         failed += imageBatch.failed;
         firstError = firstError || imageBatch.firstError;
         const videoBatch = await saveMediaBatch(liveItems, "video");
+        if (!this.isSaveOperationCurrent(saveToken)) return;
         saved += videoBatch.saved;
         failed += videoBatch.failed;
         firstError = firstError || videoBatch.firstError;
@@ -647,26 +651,37 @@ Page({
           ? result.mediaItems
           : [{ url: mediaUrl }];
         const batch = await saveMediaBatch(items, contentType);
+        if (!this.isSaveOperationCurrent(saveToken)) return;
         saved = batch.saved;
         failed = batch.failed;
         firstError = batch.firstError;
       }
+      if (!this.isSaveOperationCurrent(saveToken)) return;
       if (firstError && saved === 0) {
         throw firstError;
       }
       if (failed > 0) {
+        this.showSaveFeedback("部分保存", "partial");
         wx.showModal({
           title: "部分保存成功",
           content: `已保存 ${saved} 个文件，还有 ${failed} 个文件保存失败。`,
-          showCancel: false
+          showCancel: false,
+          success: () => {
+            if (this.isSaveOperationCurrent(saveToken)) {
+              this.showSaveFeedback("部分保存", "partial");
+            }
+          }
         });
       } else {
+        this.showSaveFeedback("已保存");
         wx.showToast({
           title: contentType === "live_photo" ? "图片和动态视频已保存" : "已保存到相册",
           icon: "success"
         });
       }
     } catch (error) {
+      if (!this.isSaveOperationCurrent(saveToken)) return;
+      this.showSaveFeedback("保存失败", "error");
       const raw = [
         error && error.errMsg,
         error && error.message,
@@ -707,14 +722,56 @@ Page({
         wx.showToast({ title: safeMessage(raw, "保存失败，请稍后重试"), icon: "none" });
       }
     } finally {
-      this.setData({ saving: false });
+      if (this.isSaveOperationCurrent(saveToken)) {
+        this.setData({ saving: false });
+      }
     }
+  },
+
+  beginSaveOperation() {
+    this.saveOperationId = (this.saveOperationId || 0) + 1;
+    return this.saveOperationId;
+  },
+
+  invalidateSaveOperation() {
+    this.saveOperationId = (this.saveOperationId || 0) + 1;
+  },
+
+  isSaveOperationCurrent(token) {
+    return this.saveOperationId === token;
   },
 
   clearCopyFeedbackTimer() {
     if (!this.copyFeedbackTimer) return;
     clearTimeout(this.copyFeedbackTimer);
     this.copyFeedbackTimer = null;
+  },
+
+  clearSaveFeedbackTimer() {
+    if (!this.saveFeedbackTimer) return;
+    clearTimeout(this.saveFeedbackTimer);
+    this.saveFeedbackTimer = null;
+  },
+
+  showSaveFeedback(label, tone = "success") {
+    this.clearSaveFeedbackTimer();
+    this.setData({
+      saveFeedback: String(label || ""),
+      saveFeedbackTone: String(tone || "success")
+    });
+    this.saveFeedbackTimer = setTimeout(() => {
+      this.saveFeedbackTimer = null;
+      this.setData({
+        saveFeedback: "",
+        saveFeedbackTone: ""
+      });
+    }, COPY_FEEDBACK_DURATION_MS);
+    if (
+      this.saveFeedbackTimer
+      && typeof this.saveFeedbackTimer.unref === "function"
+    ) {
+      this.saveFeedbackTimer.unref();
+    }
   },
 
   showCopyFeedback(target) {
@@ -735,10 +792,14 @@ Page({
   copyText(text, successTitle, emptyTitle, target) {
     const normalized = String(text || "").trim();
     if (!normalized) {
+      this.clearCopyFeedbackTimer();
+      this.setData({ copiedTarget: "" });
       wx.showToast({ title: emptyTitle, icon: "none" });
       return;
     }
     if (typeof wx.setClipboardData !== "function") {
+      this.clearCopyFeedbackTimer();
+      this.setData({ copiedTarget: "" });
       wx.showToast({ title: "当前环境不支持复制", icon: "none" });
       return;
     }
@@ -748,13 +809,19 @@ Page({
         this.showCopyFeedback(target);
         wx.showToast({ title: successTitle, icon: "success" });
       },
-      fail: () => wx.showToast({ title: "复制失败，请重试", icon: "none" })
+      fail: () => {
+        this.clearCopyFeedbackTimer();
+        this.setData({ copiedTarget: "" });
+        wx.showToast({ title: "复制失败，请重试", icon: "none" });
+      }
     });
   },
 
   copyCopywriting() {
     const text = buildCompleteCopywriting(this.data.result || {});
     if (!text) {
+      this.clearCopyFeedbackTimer();
+      this.setData({ copiedTarget: "" });
       wx.showToast({ title: "当前没有可复制的文案", icon: "none" });
       return;
     }
@@ -794,12 +861,17 @@ Page({
   },
 
   resetResult() {
+    this.invalidateSaveOperation();
     this.clearCopyFeedbackTimer();
+    this.clearSaveFeedbackTimer();
     this.setData({
       status: "idle",
       retrying: false,
       retryCount: 0,
       parseStage: 0,
+      saving: false,
+      saveFeedback: "",
+      saveFeedbackTone: "",
       copywritingExpanded: false,
       copiedTarget: "",
       result: null,

@@ -65,6 +65,9 @@ function testStaticContracts() {
   assertFileIncludes(postCommitHook, "main 只能由受控同步脚本提交", "main 推送保护");
   assertFileIncludes(packageScript, "源码内容 SHA256", "发布清单源码指纹");
   assertFileIncludes(packageScript, "scripts/install-git-hooks.ps1", "发布包包含 hooks 安装器");
+  assertFileIncludes(packageScript, "version_entries", "发布包源码版本自动比对");
+  assertFileIncludes(packageScript, "assert_zip_version_consistency", "发布包 ZIP 版本自动比对");
+  assertFileIncludes(packageScript, "package-lock.json", "发布包锁文件版本比对");
 }
 
 function testInstallHooks() {
@@ -370,6 +373,108 @@ function testPackageManifest() {
   }
 }
 
+function testPackageVersionConsistencyGuard() {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "package-version-guard-smoke-"));
+  const fixtureRoot = path.join(tempRoot, "fixture");
+  const goodZip = path.join(tempRoot, "good.zip");
+  const badZip = path.join(tempRoot, "bad.zip");
+  const fixtureFiles = [
+    "config.js",
+    "cloudfunctions/api/index.js",
+    "cloudfunctions/api/package.json",
+    "cloudfunctions/api/package-lock.json",
+    "cloudfunctions/watermark-gateway/package.json",
+    "media-worker/package.json",
+    "media-worker/package-lock.json",
+  ];
+  const python = process.platform === "win32" ? "python" : "python3";
+  const importCode = [
+    "import importlib.util, pathlib, sys",
+    "spec=importlib.util.spec_from_file_location('package_release',sys.argv[1])",
+    "module=importlib.util.module_from_spec(spec)",
+    "spec.loader.exec_module(module)",
+    "module.version_entries(pathlib.Path(sys.argv[2]))",
+  ].join(";");
+  const zipCode = [
+    "from pathlib import Path",
+    "from zipfile import ZipFile, ZIP_DEFLATED",
+    "import sys",
+    "root=Path(sys.argv[1]); out=Path(sys.argv[2]); version=sys.argv[3]",
+    "with ZipFile(out,'w',ZIP_DEFLATED) as archive:",
+    "    [archive.write(item,item.relative_to(root).as_posix()) for item in root.rglob('*') if item.is_file()]",
+    "    archive.writestr('RELEASE-MANIFEST.txt','圈像创作微信小程序发布包\\n版本：'+version+'\\n')",
+  ].join("\n");
+  const zipAssertCode = [
+    "import importlib.util, pathlib, sys",
+    "spec=importlib.util.spec_from_file_location('package_release',sys.argv[1])",
+    "module=importlib.util.module_from_spec(spec)",
+    "spec.loader.exec_module(module)",
+    "module.assert_zip_version_consistency(pathlib.Path(sys.argv[2]),sys.argv[3])",
+  ].join(";");
+  const runPython = (args) => run(python, args, {
+    env: { PYTHONIOENCODING: "utf-8" },
+  });
+  try {
+    for (const relative of fixtureFiles) {
+      const source = path.join(root, relative);
+      const destination = path.join(fixtureRoot, relative);
+      fs.mkdirSync(path.dirname(destination), { recursive: true });
+      fs.copyFileSync(source, destination);
+    }
+
+    const version = JSON.parse(
+      fs.readFileSync(path.join(fixtureRoot, "cloudfunctions/api/package.json"), "utf8")
+    ).version;
+    let valid = runPython(["-c", importCode, packageScript, fixtureRoot]);
+    assertCommandOk(valid, "版本组一致时通过守卫");
+
+    const mediaLockPath = path.join(fixtureRoot, "media-worker/package-lock.json");
+    const mediaLock = JSON.parse(fs.readFileSync(mediaLockPath, "utf8"));
+    mediaLock.version = "0.0.0";
+    if (mediaLock.packages && mediaLock.packages[""]) {
+      mediaLock.packages[""].version = "0.0.0";
+    }
+    fs.writeFileSync(mediaLockPath, `${JSON.stringify(mediaLock, null, 2)}\n`);
+    const mismatchedLock = runPython(["-c", importCode, packageScript, fixtureRoot]);
+    assert.notStrictEqual(mismatchedLock.status, 0, "锁文件混版必须被拒绝");
+    assert.ok(
+      `${mismatchedLock.stdout}\n${mismatchedLock.stderr}`.includes("发布包版本自动比对失败"),
+      `锁文件混版错误信息不明确\nstdout:\n${mismatchedLock.stdout}\nstderr:\n${mismatchedLock.stderr}`
+    );
+
+    const restoredLock = JSON.parse(fs.readFileSync(mediaLockPath, "utf8"));
+    restoredLock.version = version;
+    if (restoredLock.packages && restoredLock.packages[""]) {
+      restoredLock.packages[""].version = version;
+    }
+    fs.writeFileSync(mediaLockPath, `${JSON.stringify(restoredLock, null, 2)}\n`);
+    valid = runPython(["-c", importCode, packageScript, fixtureRoot]);
+    assertCommandOk(valid, "恢复版本组后通过守卫");
+
+    assertCommandOk(
+      runPython(["-c", zipCode, fixtureRoot, goodZip, version]),
+      "生成一致版本 ZIP 测试夹具"
+    );
+    assertCommandOk(
+      runPython(["-c", zipAssertCode, packageScript, goodZip, version]),
+      "一致版本 ZIP 通过守卫"
+    );
+
+    assertCommandOk(
+      runPython(["-c", zipCode, fixtureRoot, badZip, "0.0.0"]),
+      "生成混版 ZIP 测试夹具"
+    );
+    const mismatchedZip = runPython(["-c", zipAssertCode, packageScript, badZip, version]);
+    assert.notStrictEqual(mismatchedZip.status, 0, "ZIP 清单混版必须被拒绝");
+    assert.ok(
+      `${mismatchedZip.stdout}\n${mismatchedZip.stderr}`.includes("发布包版本自动比对失败"),
+      "ZIP 混版错误信息不明确"
+    );
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+}
+
 function testSourceFingerprintAlgorithm() {
   const digest = crypto.createHash("sha256");
   digest.update("release-safety-smoke.js\0");
@@ -386,6 +491,7 @@ function main() {
   testExclusiveLockPrimitive();
   testWorktreeCannotPublishMain();
   testPackageManifest();
+  testPackageVersionConsistencyGuard();
   testSourceFingerprintAlgorithm();
   console.log("release safety smoke: OK");
 }

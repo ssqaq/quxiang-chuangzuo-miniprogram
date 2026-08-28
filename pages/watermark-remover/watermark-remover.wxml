@@ -10,7 +10,6 @@
   <view class="input-card">
     <view class="input-card-heading">
       <view class="section-label">直接粘贴短视频分享链接</view>
-      <button class="paste-button" bindtap="pasteFromClipboard">一键粘贴</button>
     </view>
     <textarea
       class="media-input"
@@ -169,19 +168,22 @@
           <view class="copywriting-kicker">作品文案</view>
           <view class="copywriting-title">已提取文本</view>
         </view>
-        <button
-          class="copy-button{{copiedTarget === 'all' ? ' copy-feedback-active' : ''}}"
-          bindtap="copyCopywriting"
-        >{{copiedTarget === 'all' ? '已复制' : '复制文案'}}</button>
+        <view class="copywriting-head-action">
+          <button
+            class="copy-button{{copiedTarget === 'all' ? ' copy-feedback-active' : ''}}"
+            bindtap="copyCopywriting"
+          >{{copiedTarget === 'all' ? '已复制' : '复制文案'}}</button>
+        </view>
       </view>
       <view class="copywriting-section">
-        <view class="copywriting-section-head">
+        <view class="copywriting-section-head copywriting-title-head">
           <view class="copywriting-label">标题</view>
-          <button
-            wx:if="{{result.copywritingTitle}}"
-            class="copywriting-action{{copiedTarget === 'title' ? ' copy-feedback-active' : ''}}"
-            bindtap="copyCopywritingTitle"
-          >{{copiedTarget === 'title' ? '已复制' : '复制标题'}}</button>
+          <view wx:if="{{result.copywritingTitle}}" class="copywriting-head-action">
+            <button
+              class="copywriting-action copywriting-title-action{{copiedTarget === 'title' ? ' copy-feedback-active' : ''}}"
+              bindtap="copyCopywritingTitle"
+            >{{copiedTarget === 'title' ? '已复制' : '复制标题'}}</button>
+          </view>
         </view>
         <view wx:if="{{result.copywritingTitle}}" class="copywriting-body copywriting-title-body">{{result.copywritingTitle}}</view>
         <view wx:else class="copywriting-empty">未提取到标题。</view>
@@ -236,14 +238,14 @@
     </view>
 
     <button
-      class="primary-btn save-button"
+      class="primary-btn save-button{{saveFeedbackTone === 'success' ? ' save-feedback-active' : ''}}{{saveFeedbackTone === 'partial' ? ' save-feedback-partial' : ''}}{{saveFeedbackTone === 'error' ? ' save-feedback-error' : ''}}"
       bindtap="saveMedia"
       loading="{{saving}}"
       disabled="{{saving}}"
     >
-      {{saving ? '保存中...' : (result.contentType === 'live_photo' ? '保存图片和动态视频' : (result.contentType === 'image' && result.mediaCount > 1 ? '保存全部媒体' : '保存媒体'))}}
+      {{saving ? '保存中...' : (saveFeedback || (result.contentType === 'live_photo' ? '保存图片和动态视频' : (result.contentType === 'image' && result.mediaCount > 1 ? '保存全部媒体' : '保存媒体')))}}
     </button>
-    <button class="secondary-btn reset-button" bindtap="resetResult">重新解析</button>
+    <button class="secondary-btn reset-button" bindtap="resetResult" disabled="{{saving}}">重新解析</button>
   </view>
 
 </view>

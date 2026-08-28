@@ -55,8 +55,14 @@ $protection = [ordered]@{
 $jsonPath = Join-Path ([IO.Path]::GetTempPath()) "wechat-miniapp-main-protection-$PID-$([guid]::NewGuid().ToString('N')).json"
 try {
   [IO.File]::WriteAllText($jsonPath, ($protection | ConvertTo-Json -Depth 10), [Text.UTF8Encoding]::new($false))
-  & $gh.Source api --method PUT "repos/$slug/branches/main/protection" --input $jsonPath *> $null
-  if ($LASTEXITCODE -ne 0) { throw "GitHub 主分支保护配置失败。" }
+  $response = @(& $gh.Source api --method PUT "repos/$slug/branches/main/protection" --input $jsonPath 2>&1)
+  if ($LASTEXITCODE -ne 0) {
+    $details = ($response -join "`n").Trim()
+    if ($details -match "Upgrade to GitHub Pro|make this repository public") {
+      throw "GitHub 主分支保护配置失败：当前仓库是私有仓库，当前 GitHub 套餐不提供分支保护；需要升级 GitHub Pro/团队套餐，或由管理员把仓库改为公开后重试。原始错误：$details"
+    }
+    throw "GitHub 主分支保护配置失败：$details"
+  }
   Write-Host "GitHub 主分支保护已配置：$slug/main（release-gate 必需检查，管理员也生效）。"
 }
 finally {

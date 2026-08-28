@@ -626,13 +626,13 @@ function Invoke-ReleasePullRequest {
     param(
         [Parameter(Mandatory = $true)][string]$RepositoryRoot,
         [Parameter(Mandatory = $true)][string]$Branch,
-        [Parameter(Mandatory = $true)][string]$Version,
-        [Parameter(Mandatory = $true)][string]$OperationId,
-        [Parameter(Mandatory = $true)][string]$CommitSha,
-        [switch]$NoPush
+    [Parameter(Mandatory = $true)][string]$Version,
+    [Parameter(Mandatory = $true)][string]$OperationId,
+    [Parameter(Mandatory = $true)][string]$CommitSha,
+    [switch]$NoPush
     )
     if ($NoPush) {
-        return [pscustomobject]@{ branch = $Branch; pushed = $false; pr = "" }
+        return [pscustomobject]@{ branch = $Branch; pushed = $false; pr = ""; status = "prepared" }
     }
     $gh = Get-Command gh -ErrorAction SilentlyContinue
     if ($null -eq $gh) {
@@ -652,8 +652,49 @@ function Invoke-ReleasePullRequest {
         --base main --head $Branch --title $title --body $body 2>&1
     if ($LASTEXITCODE -ne 0) { throw "GitHub PR 创建失败：$($prOutput -join "`n")" }
     $prUrl = (($prOutput | Where-Object { [string]$_ -match '^https?://' }) | Select-Object -First 1)
-    # Auto-merge is intentionally best-effort: branch protection remains the authority.
-    & gh pr merge $prUrl --auto --squash --delete-branch=false 2>&1 | Write-Host
-    if ($LASTEXITCODE -ne 0) { Write-Host "PR 已创建，但自动合并未启用；请检查必需检查项。" -ForegroundColor Yellow }
-    return [pscustomobject]@{ branch = $Branch; pushed = $true; pr = [string]$prUrl }
+    # Prefer GitHub's native auto-merge.  Some private repositories cannot enable
+    # that setting; in that case wait for the required check and merge the PR
+    # explicitly.  A successful publish must never be reported while the PR is
+    # still open.
+    $autoOutput = @(& $gh.Source pr merge $prUrl --auto --squash --delete-branch=false 2>&1)
+    $autoExitCode = $LASTEXITCODE
+    if ($autoOutput.Count -gt 0) { $autoOutput | ForEach-Object { Write-Host $_ } }
+    if ($autoExitCode -eq 0) {
+        $viewOutput = @(& $gh.Source pr view $prUrl --json state,mergeCommit,mergedAt 2>&1)
+        if ($LASTEXITCODE -eq 0) {
+            try {
+                $view = ($viewOutput -join "`n") | ConvertFrom-Json
+                if ([string]$view.state -eq "MERGED") {
+                    return [pscustomobject]@{
+                        branch = $Branch; pushed = $true; pr = [string]$prUrl; status = "merged"
+                        mainCommit = [string]$view.mergeCommit.oid; mergedAt = [string]$view.mergedAt
+                    }
+                }
+            }
+            catch { Write-Host "PR 状态暂时无法解析，保留为 pr-opened。" -ForegroundColor Yellow }
+        }
+        return [pscustomobject]@{ branch = $Branch; pushed = $true; pr = [string]$prUrl; status = "pr-opened" }
+    }
+
+    Write-Host "GitHub 自动合并不可用，改为等待 release-gate 通过后执行 PR 合并。" -ForegroundColor Yellow
+    $checkOutput = @(& $gh.Source pr checks $prUrl --watch --fail-fast 2>&1)
+    if ($checkOutput.Count -gt 0) { $checkOutput | ForEach-Object { Write-Host $_ } }
+    if ($LASTEXITCODE -ne 0) {
+        throw "PR 必需检查未通过，发布未合并：$($checkOutput -join "`n")"
+    }
+    $mergeOutput = @(& $gh.Source pr merge $prUrl --squash --delete-branch=false 2>&1)
+    if ($mergeOutput.Count -gt 0) { $mergeOutput | ForEach-Object { Write-Host $_ } }
+    if ($LASTEXITCODE -ne 0) {
+        throw "PR 检查已通过但合并失败：$($mergeOutput -join "`n")"
+    }
+    $mergedOutput = @(& $gh.Source pr view $prUrl --json state,mergeCommit,mergedAt 2>&1)
+    if ($LASTEXITCODE -ne 0) { throw "PR 已请求合并，但无法确认合并状态：$($mergedOutput -join "`n")" }
+    try { $merged = ($mergedOutput -join "`n") | ConvertFrom-Json } catch { throw "PR 合并状态 JSON 无法解析：$($mergedOutput -join "`n")" }
+    if ([string]$merged.state -ne "MERGED" -or [string]::IsNullOrWhiteSpace([string]$merged.mergeCommit.oid)) {
+        throw "PR 合并命令返回成功，但远端状态不是 MERGED。"
+    }
+    return [pscustomobject]@{
+        branch = $Branch; pushed = $true; pr = [string]$prUrl; status = "merged"
+        mainCommit = [string]$merged.mergeCommit.oid; mergedAt = [string]$merged.mergedAt
+    }
 }

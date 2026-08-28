@@ -342,11 +342,16 @@ try {
     }
 
     $pr = Invoke-ReleasePullRequest -RepositoryRoot $releaseWorktree -Branch "release/$target-$operationId" -Version $target -OperationId $operationId -CommitSha $finalCommit -NoPush:(-not $Publish)
-    $contextHash.status = if ($Publish) { "pr-opened" } else { "prepared" }
+    $contextHash.status = [string]$pr.status
     $contextHash.releaseBranch = $pr.branch
     $contextHash.pullRequest = $pr.pr
+    if ($pr.PSObject.Properties["mainCommit"] -and -not [string]::IsNullOrWhiteSpace([string]$pr.mainCommit)) { $contextHash.mainCommit = [string]$pr.mainCommit }
+    if ($pr.PSObject.Properties["mergedAt"] -and -not [string]::IsNullOrWhiteSpace([string]$pr.mergedAt)) { $contextHash.mergedAt = [string]$pr.mergedAt }
     Write-ReleaseGateJsonAtomic -Path $contextPath -Value $contextHash
-    Set-ReleaseReservationStatus -ReservationPath $reservation.Path -Status $contextHash.status -Extra @{ releaseCommit = $finalCommit; treeSha = $finalTree; contextPath = $contextPath; artifactPath = $artifactPath }
+    $reservationExtra = @{ releaseCommit = $finalCommit; treeSha = $finalTree; contextPath = $contextPath; artifactPath = $artifactPath }
+    if ($contextHash.Contains("mainCommit")) { $reservationExtra.mainCommit = [string]$contextHash.mainCommit }
+    if ($contextHash.Contains("mergedAt")) { $reservationExtra.mergedAt = [string]$contextHash.mergedAt }
+    Set-ReleaseReservationStatus -ReservationPath $reservation.Path -Status $contextHash.status -Extra $reservationExtra
 
     $recordPath = Join-Path ([string]$policy.recordRoot) "release-v$target-$finalCommit.json"
     $record = [ordered]@{
@@ -355,9 +360,11 @@ try {
         sourceSha256 = $preSha; packageSha256 = $packageSha; packagePath = $artifactPath; contextPath = $contextPath
         changedFiles = @($allowed); generatedAt = [DateTime]::UtcNow.ToString("o"); releaseBranch = $pr.branch; pullRequest = $pr.pr
     }
+    if ($contextHash.Contains("mainCommit")) { $record.mainCommit = [string]$contextHash.mainCommit }
+    if ($contextHash.Contains("mergedAt")) { $record.mergedAt = [string]$contextHash.mergedAt }
     Write-ReleaseGateJsonAtomic -Path $recordPath -Value $record
     $completed = $true
-    $doneMessage = if ($Publish) { "准备完成并已提交 PR 流程：$($pr.pr)" } else { "准备完成；默认未推送。需要发布时显式加 -Publish。" }
+    $doneMessage = if (-not $Publish) { "准备完成；默认未推送。需要发布时显式加 -Publish。" } elseif ($contextHash.status -eq "merged") { "发布完成，PR 已合并：$($pr.pr)" } else { "发布分支和 PR 已创建，等待 GitHub 必需检查：$($pr.pr)" }
     Write-GateHost "done" $doneMessage
     Write-Host "Context: $contextPath"
     Write-Host "Artifact: $artifactPath"

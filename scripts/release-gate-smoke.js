@@ -78,6 +78,10 @@ function testStaticContracts() {
     "FileSnapshotStable",
     "release/$target-$operationId",
     "refs/heads/$Branch",
+    "pr checks",
+    "--fail-fast",
+    "status = \"merged\"",
+    "mainCommit",
   ]) {
     assert.ok(gate.includes(marker) || entry.includes(marker), `发布闸门缺少 ${marker}`);
   }

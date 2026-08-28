@@ -602,6 +602,10 @@ function assertAdminPageWiring() {
   // 但不要求已经移除的 providerFilter UI/函数重新出现。
   assert.ok(!wxml.includes('class="provider-filter-panel"'), "旧筛选面板不应和目录 picker 并存");
   assert.ok(js.includes("aliasesText") || js.includes("providerRegistry"), "页面仍需保留历史名称兼容字段");
+  assert.ok(/backToWorkbench\(\)\s*\{[\s\S]*confirmDiscardProviderDraft/.test(js), "返回工作台前没有保护服务商草稿");
+  assert.ok(/onPullDownRefresh\(\)\s*\{[\s\S]*providerDraftHasChanges[\s\S]*confirmDiscardProviderDraft/.test(js), "下拉刷新没有保护服务商草稿");
+  assert.ok(/async refreshAll\(\)\s*\{[\s\S]*confirmDiscardProviderDraft[\s\S]*refreshAllNow/.test(js), "刷新全部没有保护服务商草稿");
+  assert.ok(js.includes("_providerDraftRequestSeq"), "服务商 Key 请求缺少乱序保护");
   assert.ok(wxss.includes(".provider-manager-layout") && wxss.includes(".provider-list-row"));
   assert.ok(/@media\s*\(max-width:\s*760px\)/.test(wxss));
   assert.ok(/\.provider-manager-layout\s*\{[\s\S]*?min-width:\s*0/.test(wxss));

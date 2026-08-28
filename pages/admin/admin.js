@@ -5421,6 +5421,7 @@ Page({
 
   onLoad() {
     this._adminLoadToken = 0;
+    this._providerDraftRequestSeq = 0;
     this._imageApiKeyBaseline = emptyAdminImageApiKeys();
     this.restoreMonitorLayout();
     this.loadAdminPage();
@@ -5430,13 +5431,20 @@ Page({
 
   onUnload() {
     this._adminLoadToken = (this._adminLoadToken || 0) + 1;
+    this._providerDraftRequestSeq = (this._providerDraftRequestSeq || 0) + 1;
     this._imageApiKeyBaseline = emptyAdminImageApiKeys();
     this.stopModelFailureAutoRefresh();
     this.stopAutoFaceFailureAutoRefresh();
   },
 
   onPullDownRefresh() {
-    this.loadAdminPage().finally(() => wx.stopPullDownRefresh());
+    const refresh = () => this.loadAdminPage().finally(() => wx.stopPullDownRefresh());
+    if (this.providerDraftHasChanges()) {
+      wx.stopPullDownRefresh();
+      this.confirmDiscardProviderDraft(refresh);
+      return;
+    }
+    refresh();
   },
 
   isCurrentAdminLoad(token) {
@@ -6591,6 +6599,15 @@ Page({
 
   async refreshAll() {
     if (this.data.refreshingAll) return;
+    if (this.providerDraftHasChanges()) {
+      const shouldRefresh = await this.confirmDiscardProviderDraft();
+      if (!shouldRefresh) return;
+    }
+    return this.refreshAllNow();
+  },
+
+  async refreshAllNow() {
+    if (this.data.refreshingAll) return;
     const token = (this._adminLoadToken || 0) + 1;
     this._adminLoadToken = token;
     const loadingStates = loadingAdminModuleStates(this.data.moduleStates);
@@ -7151,29 +7168,39 @@ Page({
 
   confirmDiscardProviderDraft(callback) {
     if (!this.providerDraftHasChanges()) {
-      callback();
-      return;
+      if (typeof callback === "function") callback();
+      return Promise.resolve(true);
     }
-    wx.showModal({
-      title: "丢弃未保存修改？",
-      content: "当前服务商编辑器还有未保存内容，继续切换会丢失这些修改。",
-      confirmText: "丢弃并继续",
-      cancelText: "继续编辑",
-      success: (result) => {
-        if (result && result.confirm) callback();
-      }
+    return new Promise((resolve) => {
+      wx.showModal({
+        title: "丢弃未保存修改？",
+        content: "当前服务商编辑器还有未保存内容，继续切换会丢失这些修改。",
+        confirmText: "丢弃并继续",
+        cancelText: "继续编辑",
+        success: (result) => {
+          const confirmed = Boolean(result && result.confirm);
+          if (confirmed && typeof callback === "function") callback();
+          resolve(confirmed);
+        },
+        fail: () => resolve(false)
+      });
     });
   },
 
   openProviderDraft(providerKey, options = {}) {
     const key = String(providerKey || "").trim();
     const open = async () => {
+      const requestSeq = (this._providerDraftRequestSeq || 0) + 1;
+      this._providerDraftRequestSeq = requestSeq;
+      this.setData({ providerSecretsLoading: Boolean(key) });
       let draft = emptyProviderDraft();
       let secretError = null;
       if (key) {
         const record = getAdminProviderRecord(this.data.providerRegistry, key);
-        if (!record) return;
-        this.setData({ providerSecretsLoading: true });
+        if (!record) {
+          this.setData({ providerSecretsLoading: false });
+          return;
+        }
         try {
           const secrets = await cloud.getAdminProviderSecrets(key, { retryLimit: 0 });
           draft = adminProviderDraftFromRecord(record, secrets || {});
@@ -7181,8 +7208,10 @@ Page({
           secretError = error;
           draft = adminProviderDraftFromRecord(record, {});
         }
+        if (requestSeq !== this._providerDraftRequestSeq) return;
         this.setData({ providerSecretsLoading: false });
       }
+      if (requestSeq !== this._providerDraftRequestSeq) return;
       const snapshot = providerDraftSnapshot(draft);
       this.setData({
         providerDraft: draft,
@@ -9154,7 +9183,9 @@ Page({
   },
 
   backToWorkbench() {
-    wx.reLaunch({ url: "/pages/workbench/workbench" });
+    this.confirmDiscardProviderDraft(() => {
+      wx.reLaunch({ url: "/pages/workbench/workbench" });
+    });
   },
 
   showError(title, error) {

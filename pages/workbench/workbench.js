@@ -635,6 +635,7 @@ Page({
   },
 
   openTencentFaceFusion() {
+    if (!this.data.adminVisible) return;
     this.openPage(
       TENCENT_FACE_FUSION_ROUTE,
       "腾讯版制作页打开失败",

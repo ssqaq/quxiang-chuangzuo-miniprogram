@@ -9,6 +9,32 @@ page {
   color: #2d3b54;
 }
 
+.admin-access-gate {
+  display: flex;
+  min-height: 72vh;
+  box-sizing: border-box;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 72rpx 40rpx;
+  text-align: center;
+}
+
+.admin-access-gate-title {
+  color: #202c42;
+  font-size: 34rpx;
+  font-weight: 900;
+  line-height: 48rpx;
+}
+
+.admin-access-gate-text {
+  max-width: 560rpx;
+  margin-top: 18rpx;
+  color: #8995a8;
+  font-size: 23rpx;
+  line-height: 36rpx;
+}
+
 .tencent-header {
   display: flex;
   align-items: flex-start;

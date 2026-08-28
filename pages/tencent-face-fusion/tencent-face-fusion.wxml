@@ -1,4 +1,12 @@
 <view class="tencent-page">
+  <view wx:if="{{!adminAccessGranted}}" class="admin-access-gate">
+    <view class="admin-access-gate-title">
+      {{adminAccessState === 'checking' ? '正在验证管理员身份' : '该功能正在测试中'}}
+    </view>
+    <view class="admin-access-gate-text">{{adminAccessMessage}}</view>
+  </view>
+
+  <view wx:if="{{adminAccessGranted}}" class="tencent-content">
   <view class="tencent-header">
     <view class="back-button" bindtap="backToWorkbench">‹</view>
     <view>
@@ -160,4 +168,5 @@
     title="最终图片"
     bindclose="closePreview"
   ></image-preview>
+  </view>
 </view>

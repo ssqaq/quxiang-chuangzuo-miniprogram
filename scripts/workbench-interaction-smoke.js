@@ -42,7 +42,10 @@ global.wx = {
     events.push({ type: "clipboard", options });
     if (options.success) options.success();
   },
-  navigateTo() {},
+  navigateTo(options) {
+    events.push({ type: "navigateTo", options });
+    if (options && options.success) options.success();
+  },
   previewImage(options) {
     events.push({ type: "previewImage", options });
     if (previewImageMode === "fail" && options.fail) {
@@ -108,6 +111,14 @@ function hasEvent(event) {
   return diagnosticEvents().some((item) => item.event === event);
 }
 
+function navigationEventCount() {
+  return events.filter((item) => (
+    item.type === "navigateTo"
+    || item.type === "redirectTo"
+    || item.type === "reLaunch"
+  )).length;
+}
+
 async function main() {
   assert.strictEqual(
     page.data.adminEntryVisible,
@@ -115,6 +126,14 @@ async function main() {
     "开发版和预览版必须稳定显示管理员入口"
   );
   page.onShow();
+  page.data.adminVisible = false;
+  const deniedNavigationCount = navigationEventCount();
+  page.openTencentFaceFusion();
+  assert.strictEqual(
+    navigationEventCount(),
+    deniedNavigationCount,
+    "普通用户不能从工作台跳转到腾讯版"
+  );
   assert.strictEqual(typeof page.copyDiagnosticReport, "undefined");
   assert.strictEqual(typeof page.clearDiagnosticLogs, "undefined");
   diagnosticLog.info("app", "smoke-ok", "启动成功", {
@@ -139,6 +158,13 @@ async function main() {
   await page.refreshAdminAccess();
   assert.strictEqual(page.data.adminVisible, true);
   assert.strictEqual(storage.workbench_admin_access.granted, true);
+  const allowedNavigationCount = navigationEventCount();
+  page.openTencentFaceFusion();
+  assert.ok(
+    navigationEventCount() > allowedNavigationCount,
+    "管理员可以从工作台打开腾讯版"
+  );
+  page._navigating = false;
   cloudService.getAdminStatus = originalGetAdminStatus;
 
   page.previewAuthorQr();

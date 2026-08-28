@@ -93,6 +93,7 @@
       </view>
 
       <view
+        wx:if="{{adminVisible}}"
         class="card tencent-face-entry common-feature-row home-feature-card workbench-link-card"
         bindtap="openTencentFaceFusion"
         hover-class="workbench-link-card-hover"

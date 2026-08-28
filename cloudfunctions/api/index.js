@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.57.0";
-const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0570";
+const API_BUILD_VERSION = "0.57.1";
+const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0571";
 const DEFAULT_IMAGE_MODE = "edits";
 // 图片和视频默认成本只在云函数入口维护；管理员页读取云端有效配置，
 // 避免前后端各写一份价格。入口保持单文件可启动，兼容 CloudBase 部署。
@@ -15366,6 +15366,7 @@ function tencentPipelineOperationResult(operation) {
 }
 
 async function getTencentFaceFusionPipelineStatus(event, context) {
+  if (!isAdminContext(context)) return adminForbidden();
   const openid = getOpenId(context);
   if (openid === "anonymous") return jsonResponse(true, { stage: "pending" });
   const requestId = String(event && event.requestId || "").trim();
@@ -15625,6 +15626,7 @@ async function detectTencentPipelineFaces(mainFileID, requestId, context) {
 }
 
 async function tencentFaceFusionPipeline(event, context) {
+  if (!isAdminContext(context)) return adminForbidden();
   const payload = event && event.payload && typeof event.payload === "object"
     ? event.payload
     : {};

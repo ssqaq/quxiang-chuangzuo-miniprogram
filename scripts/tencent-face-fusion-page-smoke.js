@@ -7,9 +7,11 @@ let pageDefinition = null;
 let pipelineCalls = 0;
 let statusCalls = 0;
 let savedRecords = [];
+const events = [];
 
 const cloudMock = {
   isCloudReady: () => true,
+  getAdminStatus: async () => ({ isAdmin: true }),
   uploadAsset: async (_path, kind) => ({
     fileID: `cloud://${kind}-file`
   }),
@@ -88,11 +90,22 @@ global.Page = (definition) => {
   pageDefinition = definition;
 };
 global.wx = {
-  showToast() {},
-  showModal() {},
-  navigateBack() {},
-  navigateTo() {},
-  reLaunch() {}
+  showToast(options) {
+    events.push({ type: "toast", options });
+  },
+  showModal(options) {
+    events.push({ type: "modal", options });
+    if (options && options.success) options.success();
+  },
+  navigateBack(options) {
+    events.push({ type: "navigateBack", options });
+  },
+  navigateTo(options) {
+    events.push({ type: "navigateTo", options });
+  },
+  reLaunch(options) {
+    events.push({ type: "reLaunch", options });
+  }
 };
 
 require("../pages/tencent-face-fusion/tencent-face-fusion.js");
@@ -125,7 +138,9 @@ function createPageInstance() {
 
 async function main() {
   const page = createPageInstance();
-  page.onLoad();
+  await page.onLoad();
+  assert.strictEqual(page.data.adminAccessState, "granted");
+  assert.strictEqual(page.data.adminAccessGranted, true);
   page.setData({
     mainImage: {
       path: "main.png",
@@ -163,12 +178,25 @@ async function main() {
   assert.strictEqual(page.data.requestId, originalRequestId);
 
   page.onUnload();
+
+  cloudMock.getAdminStatus = async () => ({ isAdmin: false });
+  const deniedPage = createPageInstance();
+  await deniedPage.onLoad();
+  assert.strictEqual(deniedPage.data.adminAccessState, "denied");
+  assert.strictEqual(deniedPage.data.adminAccessGranted, false);
+  assert.ok(events.some((item) => (
+    item.type === "modal"
+    && item.options.content === "该功能正在测试中，仅管理员可用。"
+  )));
+  cloudMock.getAdminStatus = async () => ({ isAdmin: true });
+
   console.log("tencent face fusion page smoke: OK");
   console.log(JSON.stringify({
     pipelineCalls,
     statusCalls,
     requestIdPreserved: page.data.requestId === originalRequestId,
-    recoveredFromStatusQuery: page.data.stage === "succeeded"
+    recoveredFromStatusQuery: page.data.stage === "succeeded",
+    ordinaryUserDenied: deniedPage.data.adminAccessGranted === false
   }));
 }
 

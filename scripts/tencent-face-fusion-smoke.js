@@ -17,6 +17,10 @@ const workbenchWxml = fs.readFileSync(
   path.join(root, "pages/workbench/workbench.wxml"),
   "utf8"
 );
+const workbenchJs = fs.readFileSync(
+  path.join(root, "pages/workbench/workbench.js"),
+  "utf8"
+);
 const tencentPageJs = fs.readFileSync(
   path.join(root, "pages/tencent-face-fusion/tencent-face-fusion.js"),
   "utf8"
@@ -44,6 +48,17 @@ assert.ok(
     < workbenchWxml.indexOf("制作记录"),
   "腾讯版入口必须位于制作记录上方"
 );
+const tencentEntryStart = workbenchWxml.lastIndexOf("<view", workbenchWxml.indexOf('class="card tencent-face-entry'));
+const tencentEntryEnd = workbenchWxml.indexOf('class="card recent-card', tencentEntryStart);
+assert.ok(tencentEntryStart >= 0 && tencentEntryEnd > tencentEntryStart);
+assert.ok(
+  workbenchWxml.slice(tencentEntryStart, tencentEntryEnd).includes('wx:if="{{adminVisible}}"'),
+  "腾讯版入口只能对管理员渲染"
+);
+assert.ok(
+  workbenchJs.includes("if (!this.data.adminVisible) return;"),
+  "腾讯版入口点击必须再次校验管理员身份"
+);
 assert.ok(tencentPageWxml.includes("原始主图"));
 assert.ok(tencentPageWxml.includes("参考脸"));
 assert.ok(tencentPageWxml.includes("检测主图人脸"));
@@ -58,6 +73,10 @@ assert.ok(tencentPageJs.includes("retryTencentOnly"));
 assert.ok(tencentPageJs.includes("PIPELINE_WAIT_TIMEOUT_MS = 150000"));
 assert.ok(tencentPageJs.includes("TENCENT_PIPELINE_CLIENT_TIMEOUT"));
 assert.ok(tencentPageJs.includes("continueStatusQuery()"));
+assert.ok(tencentPageJs.includes("checkAdminAccess()"));
+assert.ok(tencentPageJs.includes("adminAccessGranted"));
+assert.ok(tencentPageWxml.includes('wx:if="{{adminAccessGranted}}"'));
+assert.ok(tencentPageWxml.includes("该功能正在测试中"));
 assert.ok(serviceJs.includes('action: "tencentFaceFusionPipeline"'));
 assert.ok(serviceJs.includes('action: "getTencentFaceFusionPipelineStatus"'));
 assert.ok(serviceJs.includes('action: "testTencentFaceFusion"'));
@@ -76,6 +95,21 @@ assert.ok(
   "腾讯中间图必须配置定时清理触发器"
 );
 assert.ok(!tencentPageJs.includes("TENCENT_FACEFUSION_SECRET_KEY"));
+const statusHandlerStart = apiJs.indexOf("async function getTencentFaceFusionPipelineStatus");
+const pipelineHandlerStart = apiJs.indexOf("async function tencentFaceFusionPipeline");
+assert.ok(statusHandlerStart >= 0 && pipelineHandlerStart > statusHandlerStart);
+assert.ok(
+  apiJs.slice(statusHandlerStart, pipelineHandlerStart).includes(
+    "if (!isAdminContext(context)) return adminForbidden();"
+  ),
+  "腾讯版状态接口必须只允许管理员"
+);
+assert.ok(
+  apiJs.slice(pipelineHandlerStart, pipelineHandlerStart + 240).includes(
+    "if (!isAdminContext(context)) return adminForbidden();"
+  ),
+  "腾讯版制作接口必须只允许管理员"
+);
 
 const api = require("../cloudfunctions/api/index.js");
 const test = api.__test;
@@ -100,6 +134,25 @@ function withServer(handler, callback) {
 }
 
 async function main() {
+  const deniedPipeline = await api.main({
+    action: "tencentFaceFusionPipeline",
+    requestId: "tencent-pipeline-denied",
+    payload: {
+      mainFileID: "cloud://ordinary-main",
+      faceFileID: "cloud://ordinary-face",
+      prompt: "不应执行"
+    }
+  }, { OPENID: "ordinary-user" });
+  assert.strictEqual(deniedPipeline.ok, false);
+  assert.strictEqual(deniedPipeline.errorCode, "ADMIN_FORBIDDEN");
+
+  const deniedStatus = await api.main({
+    action: "getTencentFaceFusionPipelineStatus",
+    requestId: "tencent-status-denied"
+  }, { OPENID: "ordinary-user" });
+  assert.strictEqual(deniedStatus.ok, false);
+  assert.strictEqual(deniedStatus.errorCode, "ADMIN_FORBIDDEN");
+
   const denied = await api.main({
     action: "getTencentFaceFusionAdminStatus",
     requestId: "tencent-admin-status-denied"

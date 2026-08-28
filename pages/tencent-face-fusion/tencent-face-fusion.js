@@ -95,6 +95,9 @@ Page({
   data: {
     appVersion: config.appVersion,
     cloudReady: false,
+    adminAccessState: "checking",
+    adminAccessGranted: false,
+    adminAccessMessage: "正在检查管理员权限...",
     mainImage: null,
     faceImage: null,
     prompt: "换成白色西装，背景改成海边，整体光影自然，保持人物姿态和画面构图。",
@@ -120,11 +123,57 @@ Page({
     previewPath: ""
   },
 
-  onLoad() {
+  async onLoad() {
     this._statusOnlyMode = false;
     this._completedRequestId = "";
     this.setData({
-      cloudReady: cloud.isCloudReady()
+      cloudReady: cloud.isCloudReady(),
+      adminAccessState: "checking",
+      adminAccessGranted: false,
+      adminAccessMessage: "正在检查管理员权限..."
+    });
+    await this.checkAdminAccess();
+  },
+
+  async checkAdminAccess() {
+    if (!cloud.isCloudReady()) {
+      this.denyAdminAccess("当前无法确认管理员身份，请从工作台重新进入。");
+      return false;
+    }
+    try {
+      const result = await cloud.getAdminStatus();
+      if (!result || result.unavailable || !result.isAdmin) {
+        this.denyAdminAccess("该功能正在测试中，仅管理员可用。");
+        return false;
+      }
+      this.setData({
+        adminAccessState: "granted",
+        adminAccessGranted: true,
+        adminAccessMessage: ""
+      });
+      return true;
+    } catch (error) {
+      diagnosticLog.warn("admin", "tencent-access-check-failed", "腾讯版管理员权限检查失败", {
+        error
+      });
+      this.denyAdminAccess("当前无法确认管理员身份，请稍后从工作台重试。");
+      return false;
+    }
+  },
+
+  denyAdminAccess(message) {
+    this.stopStatusPolling();
+    this.setData({
+      adminAccessState: "denied",
+      adminAccessGranted: false,
+      adminAccessMessage: String(message || "该功能正在测试中，仅管理员可用。")
+    });
+    wx.showModal({
+      title: "暂未开放",
+      content: String(message || "该功能正在测试中，仅管理员可用。"),
+      showCancel: false,
+      success: () => this.backToWorkbench(),
+      fail: () => this.backToWorkbench()
     });
   },
 
@@ -437,6 +486,7 @@ Page({
   },
 
   async continueStatusQuery() {
+    if (!this.data.adminAccessGranted) return;
     const requestId = String(this.data.requestId || "");
     if (!requestId || this.data.statusQuerying) return;
     this._statusOnlyMode = true;
@@ -499,6 +549,7 @@ Page({
   },
 
   async startPipeline() {
+    if (!this.data.adminAccessGranted) return;
     if (this.data.loading) return;
     if (this.data.timedOut && this.data.requestId) {
       wx.showToast({ title: "请先继续查询原请求", icon: "none" });

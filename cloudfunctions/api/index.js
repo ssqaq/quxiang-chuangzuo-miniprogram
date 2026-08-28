@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.57.38";
-const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V05738";
+const API_BUILD_VERSION = "0.57.39";
+const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V05739";
 const DEFAULT_IMAGE_MODE = "edits";
 // 图片和视频默认成本只在云函数入口维护；管理员页读取云端有效配置，
 // 避免前后端各写一份价格。入口保持单文件可启动，兼容 CloudBase 部署。
@@ -1254,6 +1254,42 @@ const ADMIN_PROVIDER_CONFIG_SECTIONS = Object.freeze([
 ]);
 const ADMIN_CONFIG_AUDIT_LOG_COLLECTION = "admin_config_audit_logs";
 const ADMIN_CONFIG_AUDIT_MAX_READ = 200;
+// 服务商目录是管理员配置的唯一规范来源。旧版五个顶层 section、
+// providerLabels/providerProfiles 仍保留为兼容投影，业务调用链不直接依赖目录形状。
+const PROVIDER_REGISTRY_VERSION = 1;
+const PROVIDER_CAPABILITY_SLOTS = Object.freeze([
+  "face",
+  "analysis",
+  "image",
+  "imageBackup",
+  "video"
+]);
+const BUILTIN_PROVIDER_KEYS = Object.freeze(["dashscope", "xingju", "lingyun"]);
+const BUILTIN_PROVIDER_IDS = Object.freeze({
+  dashscope: "dashscope",
+  xingju: "xingju",
+  lingyun: "lingyun"
+});
+const PROVIDER_ID_FALLBACKS = Object.freeze({
+  face: "dashscope",
+  analysis: "dashscope",
+  image: "xingju",
+  imageBackup: "lingyun"
+});
+const PROVIDER_COMMON_KEYS = Object.freeze([
+  "baseUrl",
+  "apiKey",
+  "timeoutMs",
+  "enabled",
+  "metadata"
+]);
+const PROVIDER_SLOT_KEYS = Object.freeze({
+  face: ["provider", "providerKey", "enabled", "overrideEnabled", "baseUrl", "endpoint", "apiKey", "model", "faceModel", "timeoutMs", "maxImageBytes"],
+  analysis: ["provider", "providerKey", "enabled", "overrideEnabled", "baseUrl", "endpoint", "apiKey", "model", "timeoutMs", "maxImageBytes"],
+  image: ["provider", "providerKey", "enabled", "overrideEnabled", "baseUrl", "endpoint", "apiKey", "model", "mode", "size", "resolution", "compatibilityMode", "timeoutMs", "maxRetries", "retryEnabled", "retryPreferenceVersion"],
+  imageBackup: ["provider", "providerKey", "enabled", "overrideEnabled", "baseUrl", "endpoint", "apiKey", "model", "mode", "size", "resolution", "compatibilityMode", "timeoutMs", "maxRetries", "retryEnabled", "retryPreferenceVersion"],
+  video: ["provider", "providerKey", "enabled", "overrideEnabled", "baseUrl", "endpoint", "queryEndpoint", "apiKey", "model", "createPath", "queryPath", "resolution", "aspectRatio", "timeoutMs", "prompt"]
+});
 const IMAGE_QUALITY_LONG_EDGES = Object.freeze({
   "1K": 1024,
   "2K": 2048,
@@ -1488,6 +1524,10 @@ function resolveFaceConfig(overrides = {}) {
   );
   return {
     provider: overrideString(source, "provider", vision.provider),
+    providerKey: normalizeProviderKey(
+      overrideString(source, "providerKey", providerBuiltinKey(vision.provider) || providerStableKey(vision.provider)),
+      providerBuiltinKey(vision.provider) || providerStableKey(vision.provider)
+    ),
     baseUrl: overrideString(source, "baseUrl", vision.baseUrl),
     endpoint: overrideString(source, "endpoint", vision.endpoint),
     apiKey: normalizeApiKey(overrideString(source, "apiKey", vision.apiKey)),
@@ -1508,6 +1548,10 @@ function resolveAnalysisConfig(overrides = {}) {
   const vision = resolveVisionConfig();
   return {
     provider: overrideString(source, "provider", vision.provider),
+    providerKey: normalizeProviderKey(
+      overrideString(source, "providerKey", providerBuiltinKey(vision.provider) || providerStableKey(vision.provider)),
+      providerBuiltinKey(vision.provider) || providerStableKey(vision.provider)
+    ),
     baseUrl: overrideString(source, "baseUrl", vision.baseUrl),
     endpoint: overrideString(source, "endpoint", vision.endpoint),
     apiKey: normalizeApiKey(overrideString(source, "apiKey", vision.apiKey)),
@@ -1679,6 +1723,10 @@ function resolveImageConfig(overrides = {}) {
       "provider",
       firstEnv(["AI_IMAGE_PRIMARY_PROVIDER"], "xingju")
     ),
+    providerKey: normalizeProviderKey(
+      overrideString(image, "providerKey", providerBuiltinKey(image && image.provider) || providerStableKey(image && image.provider || "xingju")),
+      providerBuiltinKey(image && image.provider) || providerStableKey(image && image.provider || "xingju")
+    ),
     baseUrl: overrideString(image, "baseUrl", firstEnv(
       ["AI_IMAGE_PRIMARY_BASE_URL"],
       "https://newapi.akiyo.fun/v1"
@@ -1766,6 +1814,14 @@ function resolveImageBackupConfig(overrides = {}) {
   return {
     enabled,
     provider,
+    providerKey: normalizeProviderKey(
+      overrideString(
+        image,
+        "providerKey",
+        providerBuiltinKey(provider) || providerStableKey(provider || "lingyun")
+      ),
+      providerBuiltinKey(provider) || providerStableKey(provider || "lingyun")
+    ),
     baseUrl,
     endpoint,
     apiKey,
@@ -1891,6 +1947,10 @@ function resolveVideoConfig(overrides = {}) {
   const model = overrideString(video, "model", env("AI_VIDEO_MODEL", "grok-imagine-video-1.5"));
   return {
     provider,
+    providerKey: normalizeProviderKey(
+      overrideString(video, "providerKey", providerBuiltinKey(provider) || providerStableKey(provider)),
+      providerBuiltinKey(provider) || providerStableKey(provider)
+    ),
     baseUrl,
     endpoint: endpointValue,
     queryEndpoint: overrideString(video, "queryEndpoint", env("AI_VIDEO_QUERY_ENDPOINT")),
@@ -2118,8 +2178,13 @@ function imageProviderPriceTable(costs, provider) {
   const providers = image.providers && typeof image.providers === "object"
     ? image.providers
     : {};
-  const providerCosts = providers[providerKey] && typeof providers[providerKey] === "object"
-    ? providers[providerKey]
+  const matchedProviderKey = Object.keys(providers).find((key) => (
+    String(key).toLowerCase() === String(providerKey).toLowerCase()
+      || normalizeImageCostProvider(key) === providerKey
+  ));
+  const providerCosts = matchedProviderKey && providers[matchedProviderKey]
+    && typeof providers[matchedProviderKey] === "object"
+    ? providers[matchedProviderKey]
     : {};
   const providerPrices = providerCosts.perImage && typeof providerCosts.perImage === "object"
     ? providerCosts.perImage
@@ -2169,6 +2234,22 @@ function resolveCostConfig(overrides = {}, options = {}) {
     : primaryImageProvider === "xingju"
       ? xingjuPrices
       : resolveImagePriceTable(legacyImagePrices, xingjuPrices);
+  // 自定义服务商成本按外部 ID 原样保留；旧管理页只认识星炬/凌云，
+  // 但通用计费链需要能够按当前 provider 读取这些额外价格表。
+  const customImageProviders = {};
+  Object.keys(imageProviders).forEach((providerId) => {
+    const normalizedProviderId = normalizeImageCostProvider(providerId);
+    if (!normalizedProviderId || ["xingju", "lingyun"].includes(normalizedProviderId)) return;
+    const source = imageProviders[providerId] && typeof imageProviders[providerId] === "object"
+      ? imageProviders[providerId]
+      : {};
+    customImageProviders[providerId] = {
+      perImage: resolveImagePriceTable(
+        source.perImage,
+        primaryImagePrices
+      )
+    };
+  });
   const videoPrices = video.perSecond && typeof video.perSecond === "object"
     ? video.perSecond
     : {};
@@ -2219,7 +2300,8 @@ function resolveCostConfig(overrides = {}, options = {}) {
         },
         lingyun: {
           perImage: Object.assign({}, lingyunPrices)
-        }
+        },
+        ...customImageProviders
       }
     },
     video: {
@@ -6768,7 +6850,7 @@ function mergeAdminRuntimeProviderSection(
   );
 }
 
-function normalizeRuntimePatch(input = {}) {
+function normalizeLegacyRuntimePatch(input = {}) {
   const source = input && typeof input === "object" ? input : {};
   const providerLabels = hasOwn(source, "providerLabels")
     ? normalizeAdminProviderLabels(source.providerLabels)
@@ -6813,6 +6895,7 @@ function normalizeRuntimePatch(input = {}) {
     : {};
   const faceKeys = [
     "provider",
+    "providerKey",
     "baseUrl",
     "endpoint",
     "apiKey",
@@ -6822,6 +6905,7 @@ function normalizeRuntimePatch(input = {}) {
   const imageKeys = [
     "enabled",
     "provider",
+    "providerKey",
     "baseUrl",
     "endpoint",
     "apiKey",
@@ -6850,6 +6934,7 @@ function normalizeRuntimePatch(input = {}) {
   ];
   const videoKeys = [
     "provider",
+    "providerKey",
     "baseUrl",
     "endpoint",
     "queryEndpoint",
@@ -7008,7 +7093,9 @@ function normalizeRuntimePatch(input = {}) {
       });
     }
   });
-  ["xingju", "lingyun"].forEach((provider) => {
+  Object.keys(imageProviderCostSource).forEach((provider) => {
+    // 自定义服务商成本键使用外部 ID，保留旧版星炬/凌云结构并允许动态扩展。
+    if (!/^[A-Za-z0-9._-]{1,64}$/.test(String(provider))) return;
     const providerSource = imageProviderCostSource[provider]
       && typeof imageProviderCostSource[provider] === "object"
       ? imageProviderCostSource[provider]
@@ -7072,6 +7159,1386 @@ const result = {
   return result;
 }
 
+function isProviderObject(value) {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function providerText(value, maximum = 240) {
+  return String(value === undefined || value === null ? "" : value)
+    .trim()
+    .slice(0, maximum);
+}
+
+function providerBuiltinKey(value) {
+  const text = providerText(value, 160).toLowerCase();
+  if (!text) return "";
+  if (["dashscope", "aliyun", "ali", "阿里云", "阿里云百炼", "百炼"].includes(text)) {
+    return "dashscope";
+  }
+  if (["xingju", "星炬", "星炬官方"].includes(text)) return "xingju";
+  if (["lingyun", "凌云", "凌云官方"].includes(text)) return "lingyun";
+  return "";
+}
+
+function providerStableKey(value) {
+  const text = providerText(value, 240).toLowerCase();
+  if (!text) return "";
+  const builtin = providerBuiltinKey(text);
+  if (builtin) return builtin;
+  const hex = crypto.createHash("sha256").update(text).digest("hex").slice(0, 32).split("");
+  // 用稳定的 UUID v5 形态生成内部键；外部 ID 改名时该键不变。
+  hex[12] = "5";
+  hex[16] = ["8", "9", "a", "b"][parseInt(hex[16], 16) % 4];
+  return [
+    hex.slice(0, 8).join(""),
+    hex.slice(8, 12).join(""),
+    hex.slice(12, 16).join(""),
+    hex.slice(16, 20).join(""),
+    hex.slice(20, 32).join("")
+  ].join("-");
+}
+
+function isProviderUuidKey(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    providerText(value, 128)
+  );
+}
+
+function normalizeProviderKey(value, fallback = "") {
+  const raw = providerText(value, 128);
+  if (!raw) {
+    const fallbackText = providerText(fallback, 128);
+    if (!fallbackText) return "";
+    const fallbackBuiltin = providerBuiltinKey(fallbackText);
+    return fallbackBuiltin
+      || (isProviderUuidKey(fallbackText)
+        ? fallbackText.toLowerCase()
+        : providerStableKey(fallbackText));
+  }
+  const builtin = providerBuiltinKey(raw);
+  if (builtin) return builtin;
+  if (/^(?:__proto__|prototype|constructor)$/i.test(raw)) return "";
+  // 自定义服务商的内部键只能是稳定 UUID。旧版本可能把外部 ID 或
+  // provider-<hash> 当作键，这里按旧键重新计算 UUID，确保改名后仍可沿用。
+  return isProviderUuidKey(raw) ? raw.toLowerCase() : providerStableKey(raw);
+}
+
+function normalizeProviderId(value, fallback = "") {
+  const raw = providerText(value, 120);
+  if (!raw) return fallback || "";
+  return providerBuiltinKey(raw) || raw;
+}
+
+function providerDefaultName(id) {
+  const key = providerBuiltinKey(id) || providerText(id, 120).toLowerCase();
+  const known = {
+    dashscope: "阿里云百炼",
+    xingju: "星炬",
+    lingyun: "凌云"
+  }[key];
+  if (known) return known;
+  // 迁移时没有外部名称的档案可能只有内部 UUID；不要把 UUID 当成
+  // 超过目录约束的显示名称，管理员仍可在编辑器里改成真实中文名。
+  if (isProviderUuidKey(id)) return "未命名服务商";
+  return providerText(id, 20) || "未命名服务商";
+}
+
+function normalizeAdminProviderLabels(value, options = {}) {
+  const result = {};
+  if (options.includeDefaults === true) Object.assign(result, DEFAULT_ADMIN_PROVIDER_LABELS);
+  if (!isProviderObject(value)) return result;
+  Object.getOwnPropertyNames(value).forEach((rawKey) => {
+    // 内置别名统一为 canonical key；自定义 id 保留外部大小写，避免改名时 UI 标签被悄悄改写。
+    const key = providerBuiltinKey(rawKey) || providerText(rawKey, 120);
+    const label = providerText(value[rawKey], 80);
+    if (!key || FORBIDDEN_ADMIN_PROVIDER_LABEL_KEYS.has(key) || key.length > 120) return;
+    if (!label || label.length > 20) return;
+    result[key] = label;
+  });
+  return Object.keys(result).sort().reduce((out, key) => {
+    out[key] = result[key];
+    return out;
+  }, {});
+}
+
+function mergeAdminProviderLabels(current, patch) {
+  return normalizeAdminProviderLabels(
+    Object.assign({}, normalizeAdminProviderLabels(current, { includeDefaults: false }), normalizeAdminProviderLabels(patch, { includeDefaults: false })),
+    { includeDefaults: false }
+  );
+}
+
+function normalizeAdminProviderProfileValue(section, value, providerId) {
+  const normalized = normalizeProviderOverride(
+    section,
+    value,
+    normalizeProviderId(providerId || value && value.provider)
+  );
+  // 视频 Key 继续只由 video 顶层/环境变量和专用 secrets 接口管理；
+  // 兼容 profile 不能把历史顶层明文复制到可展示配置里。目录档案
+  // (providerRegistry) 仍保留自己的能力 Key，不受此旧投影限制。
+  if (section === "video") delete normalized.apiKey;
+  return normalized;
+}
+
+function normalizeAdminProviderProfiles(value) {
+  const source = isProviderObject(value) ? value : {};
+  const result = {};
+  PROVIDER_CAPABILITY_SLOTS.forEach((slot) => {
+    const rows = isProviderObject(source[slot]) ? source[slot] : {};
+    result[slot] = {};
+    Object.keys(rows).forEach((rawId) => {
+      if (!isProviderObject(rows[rawId])) return;
+      const id = normalizeProviderId(rawId);
+      if (!id || FORBIDDEN_ADMIN_PROVIDER_LABEL_KEYS.has(id.toLowerCase())) return;
+      result[slot][id] = normalizeAdminProviderProfileValue(slot, rows[rawId], id);
+    });
+  });
+  return result;
+}
+
+function mergeAdminProviderProfiles(current, patch) {
+  const left = normalizeAdminProviderProfiles(current);
+  const right = normalizeAdminProviderProfiles(patch);
+  const result = {};
+  PROVIDER_CAPABILITY_SLOTS.forEach((slot) => {
+    result[slot] = {};
+    const ids = new Set(Object.keys(left[slot] || {}).concat(Object.keys(right[slot] || {})));
+    ids.forEach((id) => {
+      const before = left[slot][id] || {};
+      const after = Object.assign({}, right[slot][id] || {});
+      if (hasOwn(after, "apiKey") && !normalizeApiKey(after.apiKey)) delete after.apiKey;
+      result[slot][id] = Object.assign({}, before, after, { provider: id });
+    });
+  });
+  return result;
+}
+
+function syncAdminTopLevelProviderProfiles(config, baseProfiles) {
+  const source = isProviderObject(config) ? config : {};
+  const result = mergeAdminProviderProfiles(baseProfiles || source.providerProfiles, {});
+  // canonical 目录内部使用稳定 providerKey，兼容 profile/标签仍应使用
+  // 可编辑的外部 id。旧实现直接把 providerKey 写进 profile，导致保存
+  // 仅 activeProviders 的 patch 时校验器误认为 UUID 是新的服务商且要求
+  // 中文名称。先建立 key -> id 映射，只有无法解析时才回退原值。
+  const registry = source.providerRegistry
+    ? normalizeProviderRegistry(source.providerRegistry, { includeDefaults: true })
+    : null;
+  const externalProviderId = (section) => {
+    if (!isAdminProviderObject(section)) return "";
+    const explicitId = normalizeProviderId(section.provider);
+    if (explicitId) return explicitId;
+    const reference = section.providerKey;
+    if (registry && reference) {
+      const key = providerRecordKeyFor(reference, registry);
+      const record = registry.providers[key];
+      if (record && record.id) return normalizeProviderId(record.id);
+    }
+    return normalizeProviderId(reference);
+  };
+  PROVIDER_CAPABILITY_SLOTS.forEach((slot) => {
+    const section = isProviderObject(source[slot]) ? source[slot] : {};
+    const id = externalProviderId(section);
+    if (!id) return;
+    result[slot][id] = Object.assign({}, result[slot][id] || {}, normalizeAdminProviderProfileValue(slot, section, id), { provider: id });
+  });
+  return result;
+}
+
+function configuredAdminProviderIds(config) {
+  const source = isProviderObject(config) ? config : {};
+  const registry = source.providerRegistry
+    ? normalizeProviderRegistry(source.providerRegistry, { includeDefaults: true })
+    : null;
+  const externalProviderId = (reference) => {
+    const raw = providerText(reference, 160);
+    if (!raw) return "";
+    if (registry) {
+      const key = providerRecordKeyFor(raw, registry);
+      const record = registry.providers[key];
+      if (record && record.id) return normalizeProviderId(record.id);
+    }
+    return normalizeProviderId(raw);
+  };
+  const ids = new Set();
+  PROVIDER_CAPABILITY_SLOTS.forEach((slot) => {
+    const section = source[slot];
+    const id = externalProviderId(
+      section && (section.provider || section.providerKey)
+    );
+    if (id) ids.add(id);
+  });
+  const profiles = normalizeAdminProviderProfiles(source.providerProfiles);
+  PROVIDER_CAPABILITY_SLOTS.forEach((slot) => Object.keys(profiles[slot] || {}).forEach((id) => {
+    ids.add(externalProviderId(id));
+  }));
+  return Array.from(ids).sort();
+}
+
+function validateAdminProviderLabels(labels, config) {
+  const errors = [];
+  if (labels !== undefined && !isProviderObject(labels)) return ["providerLabels 必须是对象"];
+  const normalized = normalizeAdminProviderLabels(labels, { includeDefaults: true });
+  const sourceConfig = isProviderObject(config) ? config : {};
+  const registry = sourceConfig.providerRegistry
+    ? normalizeProviderRegistry(sourceConfig.providerRegistry, { includeDefaults: true })
+    : null;
+  Object.keys(isProviderObject(labels) ? labels : {}).forEach((rawKey) => {
+    const rawKeyText = providerText(rawKey, 240);
+    const key = rawKeyText.slice(0, 120).toLowerCase();
+    const label = providerText(labels[rawKey], 80);
+    const record = registry && key
+      ? registry.providers[providerRecordKeyFor(rawKey, registry)]
+      : null;
+    // normalizeRuntimePatch 的兼容投影会为迁移占位档案生成外部 ID
+    // 截断名（例如 smoke-analysis-provi），这不是管理员新填的标签；
+    // 受保护/迁移档案允许暂时保留该值，避免普通旧配置保存被拦截。
+    if (
+      record
+      && (record.protected || record.migrated)
+      && key
+      && !FORBIDDEN_ADMIN_PROVIDER_LABEL_KEYS.has(key)
+      && label
+      && label.length <= 20
+    ) return;
+    if (rawKeyText.length > 120) {
+      errors.push(`服务商标识 ${rawKeyText.slice(0, 120)} 不合法`);
+      return;
+    }
+    if (FORBIDDEN_ADMIN_PROVIDER_LABEL_KEYS.has(key)) {
+      errors.push(`服务商标识 ${rawKeyText} 不允许使用`);
+      return;
+    }
+    if (!key || FORBIDDEN_ADMIN_PROVIDER_LABEL_KEYS.has(key) || key.length > 120 || !label || label.length > 20 || !/[\u3400-\u9fff]/.test(label)) {
+      errors.push(`服务商 ${rawKey || "未填写"} 还没有合格的中文名称`);
+    }
+  });
+  configuredAdminProviderIds(config).forEach((id) => {
+    const label = normalized[id];
+    // 旧顶层/providerProfiles 迁移出的受保护占位档案可能只有外部 ID，
+    // 没有中文展示名；它们用于兼容历史配置，不应阻断普通 partial save。
+    // 新建 canonical 档案（非 protected/migrated）仍必须提供合格名称。
+    if (registry) {
+      const key = providerRecordKeyFor(id, registry);
+      const record = registry.providers[key];
+      if (
+        record
+        && (record.protected || record.migrated)
+        && label
+        && label.length <= 20
+      ) return;
+    }
+    if (!label || !/[\u3400-\u9fff]/.test(label)) errors.push(`服务商 ${id} 还没有中文名称，请先填写`);
+  });
+  return Array.from(new Set(errors));
+}
+
+function providerClone(value) {
+  if (!value || typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.map((item) => providerClone(item));
+  const result = {};
+  Object.keys(value).forEach((key) => {
+    result[key] = providerClone(value[key]);
+  });
+  return result;
+}
+
+function redactProviderMetadata(value) {
+  if (Array.isArray(value)) return value.map((item) => redactProviderMetadata(item));
+  if (!isProviderObject(value)) return value;
+  const result = {};
+  Object.keys(value).forEach((key) => {
+    const normalizedKey = String(key).replace(/[-_]/g, "").toLowerCase();
+    if (/(?:apikey|secret|token|authorization|credential|password)/i.test(normalizedKey)) {
+      result[key] = "";
+    } else {
+      result[key] = redactProviderMetadata(value[key]);
+    }
+  });
+  return result;
+}
+
+function providerPresetConfig(value) {
+  const result = providerClone(value || {});
+  delete result.apiKey;
+  delete result.apiKeyConfigured;
+  delete result.providerKey;
+  return result;
+}
+
+function defaultProviderRecord(providerKey) {
+  const key = normalizeProviderKey(providerKey);
+  const record = {
+    providerKey: key,
+    id: key,
+    name: providerDefaultName(key),
+    builtIn: BUILTIN_PROVIDER_KEYS.includes(key),
+    protected: BUILTIN_PROVIDER_KEYS.includes(key),
+    aliases: [],
+    baseUrl: "",
+    apiKey: "",
+    overrides: {}
+  };
+  if (key === "dashscope") {
+    const face = providerPresetConfig(resolveFaceConfig({ provider: "dashscope" }));
+    const analysis = providerPresetConfig(resolveAnalysisConfig({ provider: "dashscope" }));
+    face.provider = "dashscope";
+    analysis.provider = "dashscope";
+    record.baseUrl = face.baseUrl || analysis.baseUrl || "https://dashscope.aliyuncs.com/compatible-mode/v1";
+    record.overrides.face = face;
+    record.overrides.analysis = analysis;
+  } else if (key === "xingju") {
+    const image = providerPresetConfig(resolveImageConfig({ provider: "xingju" }));
+    const video = providerPresetConfig(resolveVideoConfig({ provider: "xingju" }));
+    image.provider = "xingju";
+    video.provider = "xingju";
+    record.baseUrl = image.baseUrl || "https://newapi.akiyo.fun/v1";
+    record.overrides.image = image;
+    record.overrides.video = video;
+  } else if (key === "lingyun") {
+    const image = providerPresetConfig(resolveImageBackupConfig({ provider: "lingyun" }));
+    image.provider = "lingyun";
+    record.baseUrl = image.baseUrl || "https://api.lingyunapi.xyz/v1";
+    record.overrides.image = providerClone(image);
+    record.overrides.imageBackup = image;
+  }
+  return record;
+}
+
+function normalizeProviderOverride(slot, value, providerId) {
+  if (!isProviderObject(value)) return {};
+  // 编辑器提交的能力档案可能是 { enabled, overrideEnabled, overrides: {...} }。
+  // 把嵌套 overrides 展开后再按槽位白名单归一化，兼容旧的扁平写法。
+  const nested = isProviderObject(value.overrides) ? value.overrides : {};
+  const source = Object.assign({}, value, nested);
+  const allowed = PROVIDER_SLOT_KEYS[slot] || [];
+  const result = {};
+  allowed.forEach((key) => {
+    if (!hasOwn(source, key) || key === "provider" || key === "providerKey") return;
+    if (key === "apiKey") {
+      result[key] = normalizeApiKey(source[key]);
+    } else if (["compatibilityMode", "retryEnabled", "enabled", "overrideEnabled"].includes(key)) {
+      result[key] = overrideBoolean(source, key, false);
+    } else {
+      result[key] = source[key];
+    }
+  });
+  if (hasOwn(source, "clearApiKey")) {
+    result.clearApiKey = overrideBoolean(source, "clearApiKey", false);
+  }
+  if (providerId) result.provider = providerId;
+  return result;
+}
+
+function normalizeProviderRecord(value, keyHint = "", options = {}) {
+  const source = isProviderObject(value) ? value : {};
+  const common = isProviderObject(source.common) ? source.common : {};
+  const explicitKey = source.providerKey || source.key || source.internalKey
+    || (/^(?:provider-[a-f0-9]{16,64}|[a-f0-9]{8}-[a-f0-9-]{27,})$/i.test(String(keyHint || "")) ? keyHint : "");
+  const idHint = source.id || source.providerId || source.provider || source.slug || keyHint;
+  const builtin = providerBuiltinKey(explicitKey) || providerBuiltinKey(idHint);
+  const providerKey = normalizeProviderKey(
+    explicitKey,
+    builtin || providerStableKey(idHint || source.name)
+  );
+  if (!providerKey) return null;
+  const id = normalizeProviderId(
+    source.id || source.providerId || source.provider || (builtin || keyHint),
+    builtin || providerKey
+  );
+  const aliasesInput = []
+    .concat(source.aliases || [])
+    .concat(source.alias === undefined ? [] : [source.alias])
+    .concat(source.displayId === undefined ? [] : [source.displayId]);
+  const aliases = [];
+  aliasesInput.forEach((item) => {
+    const alias = providerText(item, 120);
+    if (!alias || alias.toLowerCase() === id.toLowerCase()) return;
+    if (!aliases.some((existing) => existing.toLowerCase() === alias.toLowerCase())) {
+      aliases.push(alias);
+    }
+  });
+  // 旧版本可能把外部 ID 或 provider-<hash> 直接当作目录键。归一化为
+  // UUID 后保留旧键别名，确保 activeProviders 和旧调用方仍能解析到同一记录。
+  const keyHintText = providerText(keyHint, 128);
+  const legacyKeyCandidates = [
+    keyHintText,
+    providerText(source.key, 128),
+    providerText(source.internalKey, 128),
+    providerText(source.providerKey, 128)
+  ];
+  legacyKeyCandidates.forEach((legacyKey) => {
+    // UUID 是规范内部键，不需要把它暴露成外部别名；旧的文本键要保留，
+    // 这样历史 activeProviders/编辑请求仍可定位到同一条记录。
+    if (
+      !legacyKey
+      || isProviderUuidKey(legacyKey)
+      || legacyKey.toLowerCase() === id.toLowerCase()
+      || legacyKey.toLowerCase() === providerKey.toLowerCase()
+      || aliases.some((item) => item.toLowerCase() === legacyKey.toLowerCase())
+    ) return;
+    aliases.push(legacyKey);
+  });
+  const rawOverrides = isProviderObject(source.overrides)
+    ? source.overrides
+    : isProviderObject(source.capabilities)
+      ? source.capabilities
+      : isProviderObject(source.slots)
+        ? source.slots
+        : {};
+  const overrides = {};
+  PROVIDER_CAPABILITY_SLOTS.forEach((slot) => {
+    const direct = isProviderObject(source[slot]) ? source[slot] : {};
+    const nested = isProviderObject(rawOverrides[slot]) ? rawOverrides[slot] : {};
+    const normalized = normalizeProviderOverride(
+      slot,
+      Object.assign({}, direct, nested),
+      id
+    );
+    if (Object.keys(normalized).length > 1 || hasOwn(normalized, "enabled")) {
+      overrides[slot] = normalized;
+    }
+  });
+  let baseUrl = providerText(
+    source.baseUrl || source.url || common.baseUrl,
+    500
+  );
+  let apiKey = normalizeApiKey(
+    source.apiKey || source.secret || common.apiKey || ""
+  );
+  const clearApiKey = Boolean(source.clearApiKey || common.clearApiKey);
+  // 能力专属覆盖不能反向提升为公共地址/Key；否则只给人脸配置的
+  // 独立 Key 会意外被分析、生图和视频继承。
+  if (options.includePreset !== false && BUILTIN_PROVIDER_KEYS.includes(providerKey)) {
+    const preset = defaultProviderRecord(providerKey);
+    baseUrl = baseUrl || preset.baseUrl;
+    const mergedOverrides = {};
+    PROVIDER_CAPABILITY_SLOTS.forEach((slot) => {
+      if (preset.overrides[slot] || overrides[slot]) {
+        mergedOverrides[slot] = Object.assign({}, preset.overrides[slot] || {}, overrides[slot] || {});
+      }
+    });
+    Object.assign(overrides, mergedOverrides);
+  }
+  const result = {
+    providerKey,
+    id,
+    name: providerText(
+      source.name || source.label || source.displayName || source.providerName,
+      20
+    ) || providerDefaultName(id),
+    builtIn: Boolean(source.builtIn) || BUILTIN_PROVIDER_KEYS.includes(providerKey),
+    protected: Boolean(source.protected || source.deleteProtected || source.migrated || source.legacy)
+      || Boolean(source.builtIn)
+      || BUILTIN_PROVIDER_KEYS.includes(providerKey),
+    aliases,
+    baseUrl,
+    apiKey,
+    clearApiKey,
+    overrides
+  };
+  if (hasOwn(source, "enabled")) result.enabled = overrideBoolean(source, "enabled", true);
+  if (isProviderObject(source.metadata)) result.metadata = providerClone(source.metadata);
+  result.apiKeyConfigured = Boolean(apiKey);
+  return result;
+}
+
+function mergeProviderRecord(current, patch) {
+  const existing = normalizeProviderRecord(current, current && current.providerKey, { includePreset: true }) || {};
+  const submitted = normalizeProviderRecord(
+    patch,
+    patch && patch.providerKey || existing.providerKey,
+    { includePreset: false }
+  ) || {};
+  // provider 编辑器也会只提交 providerKey 和某个能力的局部字段；
+  // 这类 patch 没有外部 id/name 时，normalizeProviderRecord 的 keyHint
+  // 只是内部 UUID，不能拿它覆盖已有的可编辑身份。
+  const patchObject = isProviderObject(patch) ? patch : {};
+  const hasExplicitId = ["id", "providerId", "provider", "slug"].some((field) => (
+    hasOwn(patchObject, field) && providerText(patchObject[field], 120)
+  ));
+  const hasExplicitName = ["name", "label", "displayName", "providerName"].some((field) => (
+    hasOwn(patchObject, field) && providerText(patchObject[field], 40)
+  ));
+  if (!hasExplicitId && existing.id) submitted.id = existing.id;
+  if (!hasExplicitName && existing.name) submitted.name = existing.name;
+  const result = Object.assign({}, existing, submitted, {
+    providerKey: existing.providerKey || submitted.providerKey,
+    builtIn: Boolean(existing.builtIn || submitted.builtIn),
+    protected: Boolean(
+      existing.protected
+      || submitted.protected
+      || existing.builtIn
+      || submitted.builtIn
+    ),
+    aliases: []
+  });
+  const aliases = [].concat(existing.aliases || [], submitted.aliases || []);
+  aliases.forEach((alias) => {
+    const value = providerText(alias, 120);
+    if (!value || value.toLowerCase() === String(result.id || "").toLowerCase()) return;
+    if (!result.aliases.some((item) => item.toLowerCase() === value.toLowerCase())) result.aliases.push(value);
+  });
+  if (submitted.clearApiKey) {
+    result.apiKey = "";
+  } else if (!normalizeApiKey(submitted.apiKey) && normalizeApiKey(existing.apiKey)) {
+    result.apiKey = existing.apiKey;
+  }
+  // provider 编辑器通常只提交改动字段；空的归一化 baseUrl 不能覆盖
+  // 已保存的公共地址，否则只改名称/能力开关就会让档案失去可用端点。
+  if (!providerText(submitted.baseUrl, 500) && providerText(existing.baseUrl, 500)) {
+    result.baseUrl = existing.baseUrl;
+  }
+  result.overrides = {};
+  PROVIDER_CAPABILITY_SLOTS.forEach((slot) => {
+    const before = existing.overrides && existing.overrides[slot] || {};
+    const after = submitted.overrides && submitted.overrides[slot] || {};
+    if (Object.keys(before).length || Object.keys(after).length) {
+      const overrideDisabled = after.overrideEnabled === false;
+      result.overrides[slot] = overrideDisabled
+        ? Object.assign({}, before, after, {
+          provider: result.id,
+          overrideEnabled: false
+        })
+        : Object.assign({}, before, after, {
+          provider: result.id
+        });
+      if (overrideDisabled) {
+        // 关闭能力覆盖时只删除公共地址/Key 的独立值；模型、路径、超时等
+        // 仍是该能力自己的参数，不能因为关闭继承开关而丢失。
+        ["baseUrl", "apiKey", "clearApiKey"].forEach((field) => {
+          delete result.overrides[slot][field];
+        });
+      }
+      if (!overrideDisabled && after.clearApiKey) {
+        result.overrides[slot].apiKey = "";
+        result.overrides[slot].clearApiKey = true;
+      } else if (!overrideDisabled && !normalizeApiKey(after.apiKey) && normalizeApiKey(before.apiKey)) {
+        result.overrides[slot].apiKey = before.apiKey;
+      }
+    }
+  });
+  result.clearApiKey = false;
+  result.apiKeyConfigured = Boolean(normalizeApiKey(result.apiKey));
+  return result;
+}
+
+function providerRegistryProviders(value) {
+  if (!value) return {};
+  if (isProviderObject(value.providers)) return value.providers;
+  if (Array.isArray(value)) {
+    return value.reduce((output, item) => {
+      const record = normalizeProviderRecord(item);
+      if (record) output[record.providerKey] = record;
+      return output;
+    }, {});
+  }
+  if (!isProviderObject(value)) return {};
+  const result = {};
+  Object.keys(value).forEach((key) => {
+    if (["version", "updatedAt", "updatedBy", "providerRegistry", "activeProviders"].includes(key)) return;
+    if (!isProviderObject(value[key])) return;
+    result[key] = value[key];
+  });
+  return result;
+}
+
+function normalizeProviderRegistry(value, options = {}) {
+  const source = value && value.providerRegistry ? value.providerRegistry : value;
+  const includeDefaults = options.includeDefaults !== false;
+  const result = {
+    version: Number(source && source.version) || PROVIDER_REGISTRY_VERSION,
+    providers: {}
+  };
+  if (includeDefaults) {
+    BUILTIN_PROVIDER_KEYS.forEach((key) => {
+      result.providers[key] = defaultProviderRecord(key);
+    });
+  }
+  const rawProviders = providerRegistryProviders(source);
+  Object.keys(rawProviders).forEach((keyHint) => {
+    const record = normalizeProviderRecord(rawProviders[keyHint], keyHint, {
+      includePreset: includeDefaults
+    });
+    if (!record) return;
+    const existingKey = result.providers[record.providerKey]
+      ? record.providerKey
+      : Object.keys(result.providers).find((key) => (
+        String(result.providers[key].id || "").toLowerCase() === String(record.id || "").toLowerCase()
+        || (result.providers[key].aliases || []).some((alias) => (
+          String(alias).toLowerCase() === String(record.id || "").toLowerCase()
+        ))
+      ));
+    const targetKey = existingKey || record.providerKey;
+    result.providers[targetKey] = result.providers[targetKey]
+      ? mergeProviderRecord(result.providers[targetKey], record)
+      : record;
+    result.providers[targetKey].providerKey = targetKey;
+  });
+  result.version = Number(source && source.version)
+    || result.version
+    || PROVIDER_REGISTRY_VERSION;
+  return result;
+}
+
+function providerRecordKeyFor(value, registry) {
+  const text = providerText(
+    isProviderObject(value) ? value.providerKey || value.id || value.provider || value.alias : value,
+    160
+  );
+  if (!text) return "";
+  const providers = providerRegistryProviders(registry);
+  if (hasOwn(providers, text)) return text;
+  const builtin = providerBuiltinKey(text);
+  if (builtin && hasOwn(providers, builtin)) return builtin;
+  const lower = text.toLowerCase();
+  const matched = Object.keys(providers).find((key) => {
+    const record = providers[key] || {};
+    return String(key).toLowerCase() === lower
+      || String(record.id || "").toLowerCase() === lower
+      || String(record.name || "").toLowerCase() === lower
+      || (record.aliases || []).some((alias) => String(alias).toLowerCase() === lower);
+  });
+  return matched || text;
+}
+
+function normalizeActiveProviders(value, registry, options = {}) {
+  const source = value && value.activeProviders ? value.activeProviders : value;
+  const result = {};
+  PROVIDER_CAPABILITY_SLOTS.forEach((slot) => {
+    if (!source || !hasOwn(source, slot)) {
+      if (options.includeEmpty !== false) result[slot] = "";
+      return;
+    }
+    result[slot] = providerRecordKeyFor(source[slot], registry);
+  });
+  return result;
+}
+
+function providerHasCapability(record, slot) {
+  const value = record && record.overrides && record.overrides[slot];
+  if (!isProviderObject(value) || value.enabled === false) return false;
+  const ownConnection = !(value.overrideEnabled === false);
+  const meaningfulKeys = new Set([
+    "baseUrl",
+    "endpoint",
+    "queryEndpoint",
+    "apiKey",
+    "model",
+    "faceModel",
+    "createPath",
+    "queryPath",
+    "resolution",
+    "aspectRatio",
+    "mode",
+    "size",
+    "timeoutMs",
+    "maxRetries",
+    "prompt"
+  ]);
+  return Object.keys(value).some((key) => {
+    if (!meaningfulKeys.has(key)) return false;
+    if (!ownConnection && ["baseUrl", "apiKey"].includes(key)) return false;
+    const item = value[key];
+    return item !== undefined
+      && item !== null
+      && (typeof item !== "string" || item.trim() !== "");
+  });
+}
+
+function providerEnvironmentApiKey(record, slot) {
+  const provider = providerBuiltinKey(
+    record && (record.providerKey || record.id || record.provider || record.name)
+  );
+  if ((slot === "face" || slot === "analysis") && provider === "dashscope") {
+    return normalizeApiKey(firstEnv(["AI_VISION_API_KEY", "AI_API_KEY"]));
+  }
+  if (slot === "image") {
+    if (provider === "xingju") {
+      return normalizeApiKey(firstEnv([
+        "AI_IMAGE_PRIMARY_API_KEY",
+        "AI_IMAGE_API_KEY",
+        "AI_API_KEY"
+      ]));
+    }
+    if (provider === "lingyun") {
+      return normalizeApiKey(firstEnv([
+        "AI_IMAGE_BACKUP_API_KEY",
+        "AI_IMAGE_API_KEY",
+        "AI_API_KEY"
+      ]));
+    }
+  }
+  if (slot === "imageBackup" && provider === "lingyun") {
+    return normalizeApiKey(firstEnv([
+      "AI_IMAGE_BACKUP_API_KEY",
+      "AI_IMAGE_API_KEY",
+      "AI_API_KEY"
+    ]));
+  }
+  if (slot === "video") {
+    return normalizeApiKey(firstEnv(["AI_VIDEO_API_KEY", "AI_VIDEO_KEY"]));
+  }
+  return "";
+}
+
+function providerConfigComplete(record, slot, options = {}) {
+  if (record && record.overrides && record.overrides[slot]
+    && record.overrides[slot].enabled === false) return false;
+  if (!providerHasCapability(record, slot)) return false;
+  const override = record.overrides[slot] || {};
+  const ownConnection = override.overrideEnabled !== false;
+  const baseUrl = (ownConnection && override.baseUrl) || record.baseUrl || override.endpoint || "";
+  const model = override.model || "";
+  const apiKey = ownConnection && override.clearApiKey
+    ? ""
+    : normalizeApiKey((ownConnection && override.apiKey) || record.apiKey)
+    || providerEnvironmentApiKey(record, slot);
+  // 目录 Key 之外，已知能力也兼容现有环境变量；没有目录 Key、也没有
+  // 环境 Key 时不能被当成“完整”档案参与自动回退。
+  const keyReady = Boolean(apiKey)
+    || (slot === "video" && options.allowMissingKey === true
+      && Boolean(normalizeApiKey(firstEnv(["AI_VIDEO_API_KEY", "AI_VIDEO_KEY"]))));
+  return Boolean((baseUrl || override.endpoint) && model && keyReady);
+}
+
+function providerEnsureRecord(registry, reference, options = {}) {
+  const normalized = normalizeProviderRegistry(registry, { includeDefaults: true });
+  const providers = normalized.providers;
+  const referenceObject = isProviderObject(reference) ? reference : { id: reference };
+  let key = providerRecordKeyFor(referenceObject, normalized);
+  if (!hasOwn(providers, key)) {
+    const candidate = normalizeProviderRecord(
+      referenceObject,
+      referenceObject.providerKey || referenceObject.id || key,
+      { includePreset: true }
+    );
+    if (!candidate) return { registry: normalized, providerKey: "", record: null };
+    key = candidate.providerKey || providerStableKey(candidate.id);
+    providers[key] = candidate;
+  }
+  if (options.patch) providers[key] = mergeProviderRecord(providers[key], options.patch);
+  providers[key].providerKey = key;
+  return { registry: normalized, providerKey: key, record: providers[key] };
+}
+
+function buildLegacyProjectionFromProviderRegistry(runtime = {}) {
+  const source = isProviderObject(runtime) ? providerClone(runtime) : {};
+  const registry = normalizeProviderRegistry(source.providerRegistry, { includeDefaults: true });
+  const active = normalizeActiveProviders(source.activeProviders, registry);
+  const providers = registry.providers;
+  const labels = normalizeAdminProviderLabels(source.providerLabels, { includeDefaults: true });
+  const profiles = normalizeAdminProviderProfiles(source.providerProfiles);
+  PROVIDER_CAPABILITY_SLOTS.forEach((slot) => {
+    const key = active[slot];
+    const record = key && providers[key];
+    if (!record) {
+      // 删除服务商后不能继续沿用旧顶层地址、模型或 Key。
+      source[slot] = Object.assign({}, source[slot] || {}, {
+        provider: "",
+        providerKey: "",
+        baseUrl: "",
+        endpoint: "",
+        queryEndpoint: "",
+        apiKey: "",
+        model: ""
+      });
+      return;
+    }
+    const override = record.overrides && record.overrides[slot] || {};
+    const previous = isProviderObject(source[slot]) ? source[slot] : {};
+    const previousKey = providerRecordKeyFor(
+      previous.providerKey || previous.provider,
+      registry
+    );
+    // 切换 active provider 时不能把旧服务商的 model/endpoint/Key 带过去；
+    // 同一 provider 的 partial patch 才允许继承旧顶层字段。
+    const inherited = previousKey && previousKey === key ? previous : {};
+    const ownConnection = override.overrideEnabled !== false;
+    const effectiveApiKey = ownConnection && override.clearApiKey
+      ? ""
+      : normalizeApiKey((ownConnection && override.apiKey) || record.apiKey || inherited.apiKey);
+    const section = Object.assign({}, inherited, override, {
+      provider: record.id,
+      providerKey: key,
+      baseUrl: (ownConnection && override.baseUrl) || record.baseUrl || inherited.baseUrl || "",
+      apiKey: effectiveApiKey
+    });
+    // 兼容顶层配置不保存空 Key；保留“无此字段”语义，避免空值被
+    // 误当成从旧主配置继承了凭据。存在真实 Key 时仍照常投影。
+    // 显式 clearApiKey 仍保留空字段，交给解析器阻断环境/旧值继承。
+    if (!effectiveApiKey && !override.clearApiKey && !record.clearApiKey) {
+      delete section.apiKey;
+    }
+    // 仅切换到一个尚未配置能力的历史/新档案时，不要凭空写入一堆空
+    // 字段；旧 mergeRuntimeConfig 约定这类 partial 结果的字段为 undefined，
+    // 也便于后续编辑器判断“尚未配置”而不是“显式清空”。
+    if (!providerHasCapability(record, slot)) {
+      [
+        "baseUrl", "endpoint", "queryEndpoint", "apiKey", "model", "faceModel",
+        "createPath", "queryPath", "resolution", "aspectRatio", "mode", "size"
+      ].forEach((field) => {
+        if (!section[field]) delete section[field];
+      });
+    }
+    source[slot] = section;
+  });
+  PROVIDER_CAPABILITY_SLOTS.forEach((slot) => {
+    profiles[slot] = isProviderObject(profiles[slot]) ? profiles[slot] : {};
+  });
+  Object.keys(providers).forEach((key) => {
+    const record = providers[key];
+    const id = record.id || key;
+    if (record.name) labels[id] = record.name;
+    PROVIDER_CAPABILITY_SLOTS.forEach((slot) => {
+      if (!providerHasCapability(record, slot)) return;
+      const override = record.overrides[slot] || {};
+      const ownConnection = override.overrideEnabled !== false;
+      profiles[slot][id] = Object.assign({}, profiles[slot][id] || {}, override, {
+        provider: id,
+        providerKey: key,
+        baseUrl: (ownConnection && override.baseUrl) || record.baseUrl || "",
+        apiKey: ownConnection && override.clearApiKey
+          ? ""
+          : normalizeApiKey((ownConnection && override.apiKey) || record.apiKey)
+      });
+    });
+  });
+  return Object.assign(source, {
+    providerRegistry: registry,
+    activeProviders: active,
+    providerLabels: normalizeAdminProviderLabels(labels, { includeDefaults: true }),
+    providerProfiles: normalizeAdminProviderProfiles(profiles)
+  });
+}
+
+function migrateLegacyProviderRegistry(runtime, rawConfig) {
+  const raw = isProviderObject(rawConfig) ? rawConfig : (isProviderObject(runtime) ? runtime : {});
+  const normalized = isProviderObject(runtime)
+    ? providerClone(runtime)
+    : normalizeLegacyRuntimePatch(raw);
+  // 只有原始配置明确带 providerRegistry 才算 canonical。旧版本偶尔会
+  // 先写 activeProviders，但它仍然依赖顶层 section/labels/profiles，必须
+  // 继续走完整迁移并把新建档案标记为 protected。
+  const hasCanonical = Boolean(raw && hasOwn(raw, "providerRegistry"));
+  const hasExplicitActive = Boolean(raw && hasOwn(raw, "activeProviders"));
+  // 一旦已有 canonical providerRegistry，目录就是唯一事实来源。旧的
+  // providerLabels/providerProfiles/顶层 section 只是兼容投影，不能在每次
+  // 读取时反向覆盖刚刚改过的档案（尤其是改 ID 后的别名档案）。
+  const hasCanonicalRegistry = Boolean(raw && hasOwn(raw, "providerRegistry"));
+  let registry = normalizeProviderRegistry(
+    normalized.providerRegistry || raw.providerRegistry,
+    { includeDefaults: true }
+  );
+  let active = normalizeActiveProviders(
+    normalized.activeProviders || raw.activeProviders,
+    registry
+  );
+  const providers = registry.providers;
+  // 迁移输入优先读取 rawConfig 中用户真正保存的 labels/profiles。一次
+  // 迁移后的兼容投影会自动补齐内置 labels；若反过来使用 normalized
+  // 的投影，就会把仅用于展示的 laoli/panda 等默认标签误建成空档案，
+  // 后续保存还会因“至少一项能力”校验失败。只有 raw 没有对应字段时，
+  // 才回退到 runtime 中的值（兼容直接传已归一化对象的调用方）。
+  const labelsSource = isProviderObject(raw && raw.providerLabels)
+    ? raw.providerLabels
+    : normalized.providerLabels;
+  const profilesSource = isProviderObject(raw && raw.providerProfiles)
+    ? raw.providerProfiles
+    : normalized.providerProfiles;
+  const labels = isProviderObject(labelsSource) ? labelsSource : {};
+  const profiles = isProviderObject(profilesSource) ? profilesSource : {};
+  // 旧顶层/providerLabels/providerProfiles 生成的记录要保留为受保护档案，
+  // 避免管理员误删后导致历史配置无法回溯；canonical 目录中的自定义项不套用该标记。
+  const markLegacyRecord = (record) => {
+    if (record) {
+      record.protected = true;
+      record.migrated = true;
+    }
+    return record;
+  };
+  const ensure = (reference, name) => {
+    const referenceValue = isProviderObject(reference)
+      ? reference
+      : { id: reference, name };
+    let key = providerRecordKeyFor(referenceValue, registry);
+    if (!hasOwn(providers, key)) {
+      const candidate = normalizeProviderRecord(
+        referenceValue,
+        referenceValue.providerKey || referenceValue.id || key,
+        { includePreset: true }
+      );
+      if (!candidate) return "";
+      key = candidate.providerKey;
+      providers[key] = markLegacyRecord(candidate);
+    }
+    // 只有通过 labels/profiles/旧顶层 section 新建的记录才会走到这里；
+    // 已存在的 canonical 记录保持原有 builtIn/protected 属性。
+    if (name && !providers[key].name) providers[key].name = providerText(name, 80);
+    return key;
+  };
+  if (!hasCanonicalRegistry) {
+    Object.keys(labels || {}).forEach((rawId) => {
+      const key = ensure(rawId, labels[rawId]);
+      if (key && labels[rawId]) providers[key].name = providerText(labels[rawId], 80);
+    });
+    PROVIDER_CAPABILITY_SLOTS.forEach((slot) => {
+      const sectionProfiles = isProviderObject(profiles[slot]) ? profiles[slot] : {};
+      Object.keys(sectionProfiles).forEach((rawId) => {
+        const profile = sectionProfiles[rawId];
+        if (!isProviderObject(profile)) return;
+        const key = ensure(profile.providerKey || rawId, labels[rawId]);
+        if (!key) return;
+        const current = providers[key];
+        // 旧版 providerProfiles 是按能力分开的配置，每个能力可能有
+        // 不同的地址/Key。迁移到目录时不能把某一能力的连接信息提升成
+        // 公共字段，否则后面遍历其它能力会互相覆盖（例如视频误用
+        // imageBackup 的 Key）。公共字段只来自 canonical providerRegistry；
+        // 旧 profile 的连接信息统一留在当前能力的 overrides 中。
+        const profileRecordInput = Object.assign({}, profile, {
+            providerKey: key,
+            id: profile.id || profile.provider || rawId,
+            name: labels[rawId] || profile.name
+        });
+        delete profileRecordInput.baseUrl;
+        delete profileRecordInput.url;
+        delete profileRecordInput.apiKey;
+        delete profileRecordInput.secret;
+        if (isProviderObject(profileRecordInput.common)) {
+          profileRecordInput.common = Object.assign({}, profileRecordInput.common);
+          delete profileRecordInput.common.baseUrl;
+          delete profileRecordInput.common.url;
+          delete profileRecordInput.common.apiKey;
+          delete profileRecordInput.common.secret;
+        }
+        const profileRecord = normalizeProviderRecord(
+          profileRecordInput,
+           key,
+           { includePreset: false }
+         );
+        if (profileRecord) providers[key] = mergeProviderRecord(current, profileRecord);
+        if (providers[key] && !hasCanonical) markLegacyRecord(providers[key]);
+        const profileOverride = normalizeProviderOverride(slot, profile, providers[key].id);
+        providers[key].overrides[slot] = Object.assign(
+          {},
+          providers[key].overrides[slot] || {},
+          profileOverride,
+          { provider: providers[key].id }
+        );
+        // profileOverride 已经保留当前能力自己的 baseUrl/apiKey；这里不再
+        // 写入 record.baseUrl/apiKey，避免后续能力继承到错误的连接信息。
+        providers[key].apiKeyConfigured = Boolean(
+          normalizeApiKey(providers[key].apiKey)
+          || Object.keys(providers[key].overrides || {}).some((overrideSlot) => (
+            providers[key].overrides[overrideSlot]
+            && providers[key].overrides[overrideSlot].overrideEnabled !== false
+            && normalizeApiKey(providers[key].overrides[overrideSlot].apiKey)
+          ))
+        );
+      });
+    });
+    PROVIDER_CAPABILITY_SLOTS.forEach((slot) => {
+      const section = isProviderObject(normalized[slot] || raw[slot])
+        ? (normalized[slot] || raw[slot])
+        : {};
+      const reference = section.providerKey || section.provider || "";
+      const hasProviderFields = [
+        "baseUrl", "endpoint", "queryEndpoint", "apiKey", "model", "createPath", "queryPath"
+      ].some((field) => providerText(section[field], 500));
+      if (!reference && !hasProviderFields) return;
+      const key = ensure(reference || providerStableKey(`${slot}:${section.model || section.baseUrl || ""}`), section.provider);
+      if (!key) return;
+      const current = providers[key];
+      const override = normalizeProviderOverride(slot, section, current.id);
+      if (!hasCanonical || !providerHasCapability(current, slot)) {
+        current.overrides[slot] = Object.assign({}, current.overrides[slot] || {}, override, {
+          provider: current.id
+        });
+      } else {
+        current.overrides[slot] = Object.assign({}, override, current.overrides[slot] || {}, {
+          provider: current.id
+        });
+      }
+      if (!hasCanonical) markLegacyRecord(current);
+      current.apiKeyConfigured = Boolean(
+        normalizeApiKey(current.apiKey)
+        || Object.keys(current.overrides || {}).some((overrideSlot) => (
+          current.overrides[overrideSlot]
+          && current.overrides[overrideSlot].overrideEnabled !== false
+          && normalizeApiKey(current.overrides[overrideSlot].apiKey)
+        ))
+      );
+      if (!hasCanonical || !active[slot]) active[slot] = key;
+    });
+  }
+  // 旧配置没有 activeProviders 时，根据原有 provider 或稳定默认值补齐；视频没有可用项时保持空。
+  PROVIDER_CAPABILITY_SLOTS.forEach((slot) => {
+    if (active[slot]) {
+      if (hasOwn(providers, active[slot])) return;
+      // activeProviders 是新目录的显式引用时，先保留未知 key。
+      // 事务合并会用当前目录解析它；这里提前换成默认服务商会把
+      // 管理页刚选的自定义 UUID 静默改回旧绑定。
+      if (hasCanonical || hasExplicitActive) return;
+    }
+    const fallbackId = slot === "video"
+      ? firstEnv(["AI_VIDEO_PROVIDER"])
+      : PROVIDER_ID_FALLBACKS[slot];
+    const fallbackKey = providerRecordKeyFor(fallbackId, registry);
+    if (fallbackKey && hasOwn(providers, fallbackKey)
+        && (slot !== "video" || providerHasCapability(providers[fallbackKey], slot))) {
+      active[slot] = fallbackKey;
+    } else if (!hasCanonical && slot === "video") {
+      active[slot] = "";
+    }
+  });
+  const value = buildLegacyProjectionFromProviderRegistry(Object.assign({}, normalized, {
+    providerRegistry: registry,
+    activeProviders: active,
+    providerLabels: labels,
+    providerProfiles: profiles
+  }));
+  const rawRegistry = raw && raw.providerRegistry;
+  const rawActive = raw && raw.activeProviders;
+  const migrated = JSON.stringify(rawRegistry || null) !== JSON.stringify(value.providerRegistry)
+    || JSON.stringify(rawActive || null) !== JSON.stringify(value.activeProviders)
+    || !hasOwn(raw, "providerRegistry")
+    || !hasOwn(raw, "activeProviders");
+  return { value, migrated };
+}
+
+function mergeProviderRegistry(current, patch) {
+  const existing = normalizeProviderRegistry(current, { includeDefaults: true });
+  const submitted = normalizeProviderRegistry(patch, { includeDefaults: false });
+  const providers = existing.providers;
+  Object.keys(submitted.providers).forEach((submittedKey) => {
+    const submittedRecord = submitted.providers[submittedKey];
+    const targetKey = hasOwn(providers, submittedKey)
+      ? submittedKey
+      : Object.keys(providers).find((key) => (
+        String(providers[key].id || "").toLowerCase() === String(submittedRecord.id || "").toLowerCase()
+        || (providers[key].aliases || []).some((alias) => String(alias).toLowerCase() === String(submittedRecord.id || "").toLowerCase())
+      )) || submittedKey;
+    providers[targetKey] = hasOwn(providers, targetKey)
+      ? mergeProviderRecord(providers[targetKey], submittedRecord)
+      : submittedRecord;
+    providers[targetKey].providerKey = targetKey;
+  });
+  const active = Object.assign(
+    {},
+    normalizeActiveProviders(current && current.activeProviders, existing, { includeEmpty: false }),
+    normalizeActiveProviders(patch && patch.activeProviders, existing, { includeEmpty: false })
+  );
+  return { providerRegistry: existing, activeProviders: active };
+}
+
+// 外部 ID 可编辑，但成本、展示标签和兼容 profile 仍可能以旧 ID 为键。
+// 改名时统一搬迁这些引用，内部 providerKey 不变；若新键已经存在，保留
+// 新键值并只补齐旧键中没有的字段，避免覆盖管理员刚填的新价格/名称。
+function migrateProviderExternalIdReferences(runtime, previousId, nextId) {
+  const source = isProviderObject(runtime) ? providerClone(runtime) : {};
+  const oldText = providerText(previousId, 120);
+  const newText = providerText(nextId, 120);
+  if (!oldText || !newText || oldText.toLowerCase() === newText.toLowerCase()) return source;
+  const renameMapKey = (map) => {
+    if (!isProviderObject(map)) return;
+    const oldKey = Object.keys(map).find((key) => String(key).toLowerCase() === oldText.toLowerCase());
+    if (!oldKey) return;
+    const oldValue = map[oldKey];
+    const newKey = Object.keys(map).find((key) => String(key).toLowerCase() === newText.toLowerCase()) || newText;
+    if (newKey === oldKey) return;
+    if (!hasOwn(map, newKey)) {
+      map[newKey] = oldValue;
+    } else if (isProviderObject(oldValue) && isProviderObject(map[newKey])) {
+      map[newKey] = Object.assign({}, oldValue, map[newKey]);
+      Object.keys(oldValue).forEach((key) => {
+        if (!hasOwn(map[newKey], key)) map[newKey][key] = oldValue[key];
+      });
+    }
+    delete map[oldKey];
+  };
+  const costs = isProviderObject(source.costs) ? source.costs : {};
+  const imageCosts = isProviderObject(costs.image) ? costs.image : {};
+  renameMapKey(imageCosts.providers);
+  if (isProviderObject(source.providerLabels)) renameMapKey(source.providerLabels);
+  if (isProviderObject(source.providerProfiles)) {
+    PROVIDER_CAPABILITY_SLOTS.forEach((slot) => {
+      if (isProviderObject(source.providerProfiles[slot])) renameMapKey(source.providerProfiles[slot]);
+    });
+  }
+  return source;
+}
+
+function mergeActiveProviderOverrides(registryValue, activeValue, overridesValue) {
+  const registry = normalizeProviderRegistry(registryValue, { includeDefaults: true });
+  const active = normalizeActiveProviders(activeValue, registry);
+  const overrides = isProviderObject(overridesValue) ? overridesValue : {};
+  PROVIDER_CAPABILITY_SLOTS.forEach((slot) => {
+    const key = active[slot];
+    if (!key || !hasOwn(registry.providers, key) || !isProviderObject(overrides[slot])) return;
+    const existing = registry.providers[key].overrides && registry.providers[key].overrides[slot] || {};
+    const incoming = normalizeProviderOverride(slot, overrides[slot], registry.providers[key].id);
+    const mergedSlot = Object.assign({}, existing, incoming);
+    // 兼容旧顶层 section 时，空地址/Key 表示“没有改这个字段”，不能
+    // 把已保存的连接信息误清掉；显式 clearApiKey 仍然优先。
+    if (
+      mergedSlot.overrideEnabled !== false
+      && !incoming.clearApiKey
+      && hasOwn(incoming, "apiKey")
+      && !normalizeApiKey(incoming.apiKey)
+      && normalizeApiKey(existing.apiKey)
+    ) {
+      mergedSlot.apiKey = existing.apiKey;
+    }
+    if (
+      mergedSlot.overrideEnabled !== false
+      && !providerText(incoming.baseUrl, 500)
+      && providerText(existing.baseUrl, 500)
+    ) {
+      mergedSlot.baseUrl = existing.baseUrl;
+    }
+    const merged = Object.assign(
+      {},
+      registry.providers[key].overrides || {},
+      { [slot]: mergedSlot }
+    );
+    // activeOverrides 是功能卡保存时的兼容入口。关闭覆盖必须和档案编辑器
+    // 采用同一语义：删除独立地址/Key，保留模型、路径、超时等能力参数，
+    // 让解析器回到公共连接配置。
+    if (merged[slot] && merged[slot].overrideEnabled === false) {
+      ["baseUrl", "apiKey", "clearApiKey"].forEach((field) => {
+        delete merged[slot][field];
+      });
+    }
+    registry.providers[key].overrides = merged;
+  });
+  return registry;
+}
+
+// 兼容旧 providerProfiles/顶层 section 向 canonical 目录补齐档案。管理页
+// 仍有一批调用方只保存 profile（例如切换到一个历史 provider-b），这时
+// submittedDirectory 可能只有空 Key；若不把已保存 profile 的连接参数带入
+// 目录，随后 buildLegacyProjection 会把旧 Key 丢掉。只填充目录中缺失的
+// 档案/字段，不让兼容投影覆盖管理员已经明确清空的 canonical 值；视频
+// profile 本身不携带 Key，由环境变量或专用 secrets 接口负责。
+function mergeLegacyProviderProfilesIntoRegistry(registryValue, profilesValue) {
+  const registry = normalizeProviderRegistry(registryValue, { includeDefaults: true });
+  const profiles = normalizeAdminProviderProfiles(profilesValue);
+  PROVIDER_CAPABILITY_SLOTS.forEach((slot) => {
+    const rows = isProviderObject(profiles[slot]) ? profiles[slot] : {};
+    Object.keys(rows).forEach((rawId) => {
+      const profile = rows[rawId];
+      if (!isProviderObject(profile)) return;
+      const reference = profile.providerKey || profile.provider || rawId;
+      let key = providerRecordKeyFor(reference, registry);
+      if (!hasOwn(registry.providers, key)) {
+        const candidate = normalizeProviderRecord({
+          providerKey: isProviderUuidKey(reference) ? reference : key,
+          id: profile.provider || rawId,
+          name: providerDefaultName(profile.provider || rawId),
+          baseUrl: profile.baseUrl || "",
+          overrides: { [slot]: profile }
+        }, key, { includePreset: false });
+        if (!candidate) return;
+        candidate.protected = true;
+        candidate.migrated = true;
+        key = candidate.providerKey;
+        registry.providers[key] = candidate;
+      } else {
+        const existing = registry.providers[key];
+        const existingOverride = existing.overrides && existing.overrides[slot] || {};
+        const incomingOverride = normalizeProviderOverride(slot, profile, existing.id);
+        // canonical 档案/activeOverrides 是新事实来源；legacy profile 只
+        // 用来补齐缺失连接参数，不能把刚提交的模型（例如 bound-face）
+        // 又覆盖回旧投影。空值也不参与补齐，避免误清除已有配置。
+        const missingOverride = {};
+        Object.keys(incomingOverride).forEach((field) => {
+          if (field === "provider" || field === "providerKey") return;
+          if (field === "apiKey" && !normalizeApiKey(incomingOverride[field])) return;
+          if (!hasOwn(existingOverride, field)
+              || (field === "apiKey" && !normalizeApiKey(existingOverride[field]))) {
+            missingOverride[field] = incomingOverride[field];
+          }
+        });
+        registry.providers[key] = mergeProviderRecord(existing, {
+          providerKey: key,
+          id: existing.id || profile.provider || rawId,
+          name: existing.name || providerDefaultName(existing.id || rawId),
+          baseUrl: existing.baseUrl || profile.baseUrl || "",
+          overrides: Object.keys(missingOverride).length
+            ? { [slot]: missingOverride }
+            : {}
+        });
+        registry.providers[key].providerKey = key;
+      }
+      if (slot === "video" && registry.providers[key].overrides
+          && registry.providers[key].overrides[slot]) {
+        delete registry.providers[key].overrides[slot].apiKey;
+      }
+    });
+  });
+  return registry;
+}
+
+function redactProviderRegistry(value) {
+  const registry = normalizeProviderRegistry(value, { includeDefaults: true });
+  const providers = {};
+  Object.keys(registry.providers).forEach((key) => {
+    const record = providerClone(registry.providers[key]);
+    if (record.metadata) record.metadata = redactProviderMetadata(record.metadata);
+    record.apiKey = "";
+    record.apiKeyConfigured = Boolean(
+      normalizeApiKey(registry.providers[key].apiKey)
+      || Object.keys(registry.providers[key].overrides || {}).some((slot) => (
+        registry.providers[key].overrides[slot]
+        && registry.providers[key].overrides[slot].overrideEnabled !== false
+        && normalizeApiKey(registry.providers[key].overrides[slot].apiKey)
+      ))
+      || PROVIDER_CAPABILITY_SLOTS.some((slot) => providerEnvironmentApiKey(registry.providers[key], slot))
+    );
+    Object.keys(record.overrides || {}).forEach((slot) => {
+      if (!record.overrides[slot]) return;
+      record.overrides[slot] = Object.assign({}, record.overrides[slot], { apiKey: "" });
+      delete record.overrides[slot].apiKeyConfigured;
+    });
+    providers[key] = record;
+  });
+  return {
+    version: Number(registry.version) || PROVIDER_REGISTRY_VERSION,
+    providers
+  };
+}
+
+function providerRegistryList(value, redact = false) {
+  const registry = redact ? redactProviderRegistry(value) : normalizeProviderRegistry(value, { includeDefaults: true });
+  return Object.keys(registry.providers).sort().map((key) => (
+    Object.assign({}, providerClone(registry.providers[key]), { providerKey: key })
+  ));
+}
+
+function validateProviderRegistry(registryValue, activeValue, options = {}) {
+  const errors = [];
+  if (registryValue !== undefined && !isProviderObject(registryValue) && !Array.isArray(registryValue)) {
+    return ["providerRegistry 必须是对象或数组"];
+  }
+  const registry = normalizeProviderRegistry(registryValue, { includeDefaults: false });
+  const providers = registry.providers;
+  const identities = {};
+  Object.keys(providers).forEach((key) => {
+    const record = providers[key] || {};
+    const providerKey = providerText(record.providerKey || key, 128);
+    const id = providerText(record.id, 64);
+    const name = providerText(record.name, 20);
+    if (!providerKey || /^(?:__proto__|prototype|constructor)$/i.test(providerKey)) {
+      errors.push(`服务商 ${key || "未填写"} 的 providerKey 不合法`);
+    }
+    if (!id || id.length > 64 || !/^[A-Za-z0-9._-]+$/.test(id)) errors.push(`服务商 ${providerKey || key} 的 id 不合法`);
+    if (!name || name.length > 20) errors.push(`服务商 ${id || providerKey || key} 的名称不合法`);
+    const values = [id].concat(record.aliases || []);
+    values.forEach((value) => {
+      const identity = providerText(value, 64).toLowerCase();
+      if (!identity) return;
+      if (identities[identity] && identities[identity] !== key) {
+        errors.push(`服务商标识 ${value} 与 ${identities[identity]} 重复`);
+      } else {
+        identities[identity] = key;
+      }
+    });
+    // 迁移自旧 labels/profile 的受保护占位档案可能暂时没有完整能力；
+    // 它们只用于兼容历史引用，不能按新建自定义档案的“至少一项能力”
+    // 规则拦截整个配置保存。新建/可删除自定义档案仍严格校验。
+    if (
+      !record.builtIn
+      && !record.protected
+      && !record.migrated
+      && !PROVIDER_CAPABILITY_SLOTS.some((slot) => providerHasCapability(record, slot))
+    ) {
+      errors.push(`服务商 ${id || providerKey || key} 至少要配置一项能力`);
+    }
+    if (record.baseUrl && !isValidHttpUrl(record.baseUrl)) {
+      errors.push(`服务商 ${id || providerKey || key} 的 baseUrl 必须是 http/https 地址`);
+    }
+    PROVIDER_CAPABILITY_SLOTS.forEach((slot) => {
+      const override = record.overrides && record.overrides[slot];
+      if (!override) return;
+      if (override.baseUrl && !isValidHttpUrl(override.baseUrl)) {
+        errors.push(`服务商 ${id || providerKey || key}.${slot}.baseUrl 必须是 http/https 地址`);
+      }
+      if (override.endpoint && !isValidEndpointOrPath(override.endpoint)) {
+        errors.push(`服务商 ${id || providerKey || key}.${slot}.endpoint 地址不合法`);
+      }
+    });
+  });
+  const active = activeValue === undefined
+    ? {}
+    : normalizeActiveProviders(activeValue, registry, { includeEmpty: false });
+  Object.keys(active).forEach((slot) => {
+    if (!PROVIDER_CAPABILITY_SLOTS.includes(slot)) return;
+    const key = active[slot];
+    if (key && !hasOwn(providers, key)) errors.push(`activeProviders.${slot} 指向不存在的服务商`);
+  });
+  if (options.requireBuiltIns) {
+    BUILTIN_PROVIDER_KEYS.forEach((key) => {
+      if (!hasOwn(providers, key)) errors.push(`内置服务商 ${key} 不可删除`);
+    });
+  }
+  return Array.from(new Set(errors));
+}
+
+// 兼容外部 smoke / 管理页命名。
+const validateProviderDirectory = validateProviderRegistry;
+const normalizeProviderDirectory = normalizeProviderRegistry;
+const mergeProviderDirectory = mergeProviderRegistry;
+
+function normalizeRuntimePatch(input = {}) {
+  const normalized = normalizeLegacyRuntimePatch(input);
+  const source = isProviderObject(input) ? input : {};
+  if (hasOwn(source, "providerRegistry")) {
+    normalized.providerRegistry = normalizeProviderRegistry(source.providerRegistry, { includeDefaults: false });
+  }
+  if (hasOwn(source, "activeProviders")) {
+    normalized.activeProviders = normalizeActiveProviders(
+      source.activeProviders,
+      normalized.providerRegistry || normalizeProviderRegistry({}, { includeDefaults: true }),
+      { includeEmpty: false }
+    );
+  }
+  if (hasOwn(source, "activeOverrides") && isProviderObject(source.activeOverrides)) {
+    normalized.activeOverrides = {};
+    PROVIDER_CAPABILITY_SLOTS.forEach((slot) => {
+      if (!isProviderObject(source.activeOverrides[slot])) return;
+      normalized.activeOverrides[slot] = normalizeProviderOverride(
+        slot,
+        source.activeOverrides[slot],
+        ""
+      );
+    });
+  }
+  if (hasOwn(source, "providerLabels") && isProviderObject(source.providerLabels)) {
+    normalized.providerLabels = normalizeAdminProviderLabels(source.providerLabels, {
+      includeDefaults: false
+    });
+  }
+  if (hasOwn(source, "providerProfiles") && isProviderObject(source.providerProfiles)) {
+    normalized.providerProfiles = normalizeAdminProviderProfiles(source.providerProfiles);
+  }
+  // 只有明确提交目录、active 绑定，或某个旧 section 的服务商身份时才做
+  // 目录迁移。普通的 partial section（例如只改 image.model）必须保持旧
+  // mergeRuntimeConfig 语义，不能凭空造一个空 Key 的 UUID 档案并切换 active。
+  const hasProviderSelectionPatch = PROVIDER_CAPABILITY_SLOTS.some((slot) => {
+    const section = source[slot];
+    return isProviderObject(section)
+      && (hasOwn(section, "provider") || hasOwn(section, "providerKey"));
+  });
+  if (hasOwn(source, "providerRegistry") || hasProviderSelectionPatch) {
+    const migrated = migrateLegacyProviderRegistry(normalized, source);
+    normalized.providerRegistry = migrated.value.providerRegistry;
+    normalized.activeProviders = migrated.value.activeProviders;
+    normalized.providerLabels = migrated.value.providerLabels;
+    normalized.providerProfiles = migrated.value.providerProfiles;
+  }
+  return normalized;
+}
+
 function isValidHttpUrl(value) {
   if (!value) return true;
   try {
@@ -7106,7 +8573,12 @@ function validateCostNumber(value, field) {
 
 function validateRuntimePatch(patch, options = {}) {
   const errors = [];
-  errors.push(...validateAdminProviderLabels(patch.providerLabels, {}));
+  if (patch && hasOwn(patch, "providerRegistry")) {
+    errors.push(...validateProviderRegistry(
+      patch.providerRegistry,
+      patch.activeProviders
+    ));
+  }
   const face = patch.face || {};
   const analysis = patch.analysis || {};
   const image = patch.image || {};
@@ -7365,7 +8837,7 @@ function validateRuntimePatch(patch, options = {}) {
   ) {
     errors.push("积分活动开始日期不能晚于结束日期");
   }
-  [
+  const costEntries = [
     ["costs.face.inputPerMillionTokens", faceCosts.inputPerMillionTokens],
     ["costs.face.outputPerMillionTokens", faceCosts.outputPerMillionTokens],
     ["costs.analysis.inputPerMillionTokens", analysisCosts.inputPerMillionTokens],
@@ -7413,7 +8885,25 @@ function validateRuntimePatch(patch, options = {}) {
     ["costs.video.perSecond.720p", videoCosts.perSecond && videoCosts.perSecond["720p"]],
     ["costs.video.perSecond.1080p", videoCosts.perSecond && videoCosts.perSecond["1080p"]],
     ["costs.video.defaultDurationSeconds", videoCosts.defaultDurationSeconds]
-  ].forEach(([field, value]) => {
+  ];
+  Object.keys(imageProviderCosts).forEach((provider) => {
+    if (!/^[A-Za-z0-9._-]{1,64}$/.test(String(provider))) return;
+    ["1K", "2K", "4K"].forEach((resolution) => {
+      costEntries.push([
+        `costs.image.providers.${provider}.perImage.${resolution}`,
+        imageProviderCosts[provider]
+          && imageProviderCosts[provider].perImage
+          && imageProviderCosts[provider].perImage[resolution]
+      ]);
+    });
+  });
+  costEntries.push(
+    ["costs.video.perSecond.480p", videoCosts.perSecond && videoCosts.perSecond["480p"]],
+    ["costs.video.perSecond.720p", videoCosts.perSecond && videoCosts.perSecond["720p"]],
+    ["costs.video.perSecond.1080p", videoCosts.perSecond && videoCosts.perSecond["1080p"]],
+    ["costs.video.defaultDurationSeconds", videoCosts.defaultDurationSeconds]
+  );
+  costEntries.forEach(([field, value]) => {
     if (value === undefined) return;
     const error = validateCostNumber(value, field);
     if (error) errors.push(error);
@@ -7486,7 +8976,7 @@ function validateRuntimePatch(patch, options = {}) {
   return errors;
 }
 
-function mergeRuntimeConfig(current, patch) {
+function mergeLegacyRuntimeConfig(current, patch) {
   const existing = current && typeof current === "object" ? current : {};
   const submitted = patch && typeof patch === "object" ? patch : {};
   const existingProfiles = syncAdminTopLevelProviderProfiles(
@@ -7549,7 +9039,8 @@ function mergeRuntimeConfig(current, patch) {
   const existingImageProviders = existingImageCosts.providers || {};
   const patchImageProviders = patchImageCosts.providers || {};
   const mergedImageProviders = {};
-  ["xingju", "lingyun"].forEach((provider) => {
+  Array.from(new Set(Object.keys(existingImageProviders).concat(Object.keys(patchImageProviders)))).forEach((provider) => {
+    if (!/^[A-Za-z0-9._-]{1,64}$/.test(String(provider))) return;
     const existingProvider = existingImageProviders[provider] || {};
     const patchProvider = patchImageProviders[provider] || {};
     if (!Object.keys(existingProvider).length && !Object.keys(patchProvider).length) return;
@@ -7613,6 +9104,101 @@ function mergeRuntimeConfig(current, patch) {
   };
 }
 
+function mergeRuntimeConfig(current, patch) {
+  const existing = current && typeof current === "object" ? current : {};
+  const submitted = patch && typeof patch === "object" ? patch : {};
+  const legacy = mergeLegacyRuntimeConfig(existing, submitted);
+  const hasDirectorySignal = (value) => {
+    if (!isProviderObject(value)) return false;
+    if (hasOwn(value, "providerRegistry") || hasOwn(value, "activeProviders")) return true;
+    if (hasOwn(value, "providerLabels") || hasOwn(value, "providerProfiles")) return true;
+    return PROVIDER_CAPABILITY_SLOTS.some((slot) => {
+      const section = value[slot];
+      return isProviderObject(section)
+        && (hasOwn(section, "provider") || hasOwn(section, "providerKey"));
+    });
+  };
+  const existingHasDirectory = hasDirectorySignal(existing);
+  const submittedHasDirectory = hasDirectorySignal(submitted);
+  // 两边都是普通旧顶层 partial patch 时，目录不参与合并，避免默认档案
+  // 抢走旧 section 的 model/Key。完整运行时在读写入口会先完成迁移。
+  if (!existingHasDirectory && !submittedHasDirectory) return legacy;
+  // mergeProviderRegistry 同时合并目录和 active 绑定；不能只传 registry
+  // 对象，否则函数看不到两侧的 activeProviders，明确切换会被旧绑定覆盖。
+  const existingDirectory = existing.providerRegistry
+    ? {
+        providerRegistry: existing.providerRegistry,
+        activeProviders: existing.activeProviders
+      }
+    : migrateLegacyProviderRegistry(existing, existing).value;
+  const submittedDirectory = submittedHasDirectory && submitted.providerRegistry
+    ? {
+        providerRegistry: submitted.providerRegistry,
+        activeProviders: submitted.activeProviders
+      }
+    : submittedHasDirectory
+      ? hasOwn(submitted, "activeProviders")
+        // 管理页保存功能卡时只提交 activeProviders/activeOverrides，
+        // 目录档案仍以事务中读取的 existingDirectory 为准；不能把未知的
+        // 自定义 UUID 交给“旧 section 迁移”后又被默认服务商覆盖。
+        ? { providerRegistry: {}, activeProviders: submitted.activeProviders }
+        : migrateLegacyProviderRegistry(submitted, submitted).value
+      : { providerRegistry: {}, activeProviders: {} };
+  const registryMerge = mergeProviderRegistry(
+    existingDirectory,
+    submittedDirectory
+  );
+  // 旧调用方可能只提交 image/face 等顶层 section。目录已经是规范来源时，
+  // 把这种没有显式 provider 的 partial patch 视为当前 active 档案的能力
+  // 覆盖，保留旧 mergeRuntimeConfig 的可编辑语义；显式目录/服务商 patch
+  // 仍由 providerRegistry + activeOverrides 处理，避免旧 section 抢写新绑定。
+  const compatibilityActiveOverrides = isProviderObject(submitted.activeOverrides)
+    ? providerClone(submitted.activeOverrides)
+    : {};
+  PROVIDER_CAPABILITY_SLOTS.forEach((slot) => {
+    const section = submitted[slot];
+    if (!isProviderObject(section)
+      || hasOwn(section, "provider")
+      || hasOwn(section, "providerKey")
+      || isProviderObject(compatibilityActiveOverrides[slot])) return;
+    compatibilityActiveOverrides[slot] = Object.assign({}, section);
+  });
+  const registryWithActiveOverrides = mergeActiveProviderOverrides(
+    registryMerge.providerRegistry,
+    registryMerge.activeProviders,
+    compatibilityActiveOverrides
+  );
+  const registryWithLegacyProfiles = mergeLegacyProviderProfilesIntoRegistry(
+    registryWithActiveOverrides,
+    legacy.providerProfiles
+  );
+  const activeFromLegacy = migrateLegacyProviderRegistry(
+    Object.assign({}, legacy, {
+      providerRegistry: registryWithLegacyProfiles,
+      activeProviders: Object.assign({}, registryMerge.activeProviders)
+    }),
+    Object.assign({}, existing, submitted)
+  ).value;
+  const result = Object.assign({}, legacy, activeFromLegacy, {
+    providerRegistry: registryWithLegacyProfiles,
+    activeProviders: Object.assign(
+      {},
+      activeFromLegacy.activeProviders || {},
+      registryMerge.activeProviders || {}
+    )
+  });
+  const projected = buildLegacyProjectionFromProviderRegistry(result);
+  // 兼容旧 helper：仅提交 providerLabels 时不凭空增加内置标签；
+  // canonical registry 本身仍保留内置记录，管理页读取时再显式补默认标签。
+  if (hasOwn(existing, "providerLabels") || hasOwn(submitted, "providerLabels")) {
+    projected.providerLabels = mergeAdminProviderLabels(
+      existing.providerLabels,
+      submitted.providerLabels
+    );
+  }
+  return projected;
+}
+
 function migrateLegacyImageRetryConfig(runtime, rawConfig) {
   const normalized = runtime && typeof runtime === "object"
     ? runtime
@@ -7657,6 +9243,8 @@ function isLegacyLingyunImageConfig(value) {
 const ADMIN_CONFIG_AUDIT_SECTIONS = Object.freeze([
   "providerLabels",
   "providerProfiles",
+  "providerRegistry",
+  "activeProviders",
   "face",
   "analysis",
   "image",
@@ -7870,8 +9458,8 @@ function normalizeAdminConfigAuditRow(value = {}) {
   return {
     _id: compactUsageText(source._id, 80),
     createdAt: Number.isNaN(createdAt.getTime()) ? new Date() : createdAt,
-    source: source.source === "system-auto-correct"
-      ? "system-auto-correct"
+    source: ["system-auto-correct", "admin-provider-save", "admin-provider-delete", "admin-save"].includes(source.source)
+      ? source.source
       : "admin-save",
     actorHash: compactUsageText(source.actorHash, 80) || "system",
     configVersion: Math.max(0, Number(source.configVersion) || 0),
@@ -8116,6 +9704,22 @@ function redactConfig(config, defaults) {
     defaults,
     defaults.providerProfiles
   );
+  const redactedImageProviders = {};
+  const imageProviderCosts = costs.image && costs.image.providers
+    && typeof costs.image.providers === "object"
+    ? costs.image.providers
+    : {};
+  Object.keys(imageProviderCosts).forEach((provider) => {
+    const source = imageProviderCosts[provider] || {};
+    redactedImageProviders[provider] = {
+      perImage: Object.assign({}, source.perImage || {})
+    };
+  });
+  ["xingju", "lingyun"].forEach((provider) => {
+    if (!hasOwn(redactedImageProviders, provider)) {
+      redactedImageProviders[provider] = { perImage: {} };
+    }
+  });
   return {
     providerLabels,
     providerProfiles: redactAdminProviderProfiles(
@@ -8124,6 +9728,7 @@ function redactConfig(config, defaults) {
     ),
     face: {
       provider: face.provider || "",
+      providerKey: face.providerKey || providerStableKey(face.provider),
       baseUrl: face.baseUrl || "",
       endpoint: face.endpoint || "",
       apiKey: "",
@@ -8136,6 +9741,7 @@ function redactConfig(config, defaults) {
     },
     analysis: {
       provider: analysis.provider || "",
+      providerKey: analysis.providerKey || providerStableKey(analysis.provider),
       baseUrl: analysis.baseUrl || "",
       endpoint: analysis.endpoint || "",
       apiKey: "",
@@ -8148,6 +9754,7 @@ function redactConfig(config, defaults) {
     },
     image: {
       provider: image.provider || "",
+      providerKey: image.providerKey || providerStableKey(image.provider),
       baseUrl: image.baseUrl || "",
       endpoint: image.endpoint || "",
       apiKey: "",
@@ -8171,6 +9778,7 @@ function redactConfig(config, defaults) {
     imageBackup: {
       enabled: Boolean(imageBackup.enabled),
       provider: imageBackup.provider || "",
+      providerKey: imageBackup.providerKey || providerStableKey(imageBackup.provider),
       baseUrl: imageBackup.baseUrl || "",
       endpoint: imageBackup.endpoint || "",
       apiKey: "",
@@ -8215,6 +9823,7 @@ function redactConfig(config, defaults) {
     },
     video: {
       provider: video.provider || "",
+      providerKey: video.providerKey || providerStableKey(video.provider),
       baseUrl: video.baseUrl || "",
       endpoint: video.endpoint || "",
       queryEndpoint: video.queryEndpoint || "",
@@ -8269,20 +9878,7 @@ function redactConfig(config, defaults) {
         defaultResolution: costs.image.defaultResolution,
         primaryProvider: costs.image.primaryProvider,
         perImage: Object.assign({}, costs.image.perImage),
-        providers: {
-          xingju: {
-            perImage: Object.assign(
-              {},
-              costs.image.providers.xingju.perImage
-            )
-          },
-          lingyun: {
-            perImage: Object.assign(
-              {},
-              costs.image.providers.lingyun.perImage
-            )
-          }
-        }
+        providers: redactedImageProviders
       },
       video: {
         defaultResolution: costs.video.defaultResolution,
@@ -8354,9 +9950,29 @@ function migrateLegacyModelCostConfig(runtime, rawConfig) {
   const primaryPrices = primaryProvider === "lingyun"
     ? lingyunPrices
     : xingjuPrices;
+  const customProviderSources = {};
+  const providerSourceKeys = Array.from(new Set(
+    Object.keys(rawProviders).concat(Object.keys(normalizedProviders))
+  ));
+  providerSourceKeys.forEach((providerId) => {
+    const normalizedProviderId = normalizeImageCostProvider(providerId);
+    if (!normalizedProviderId || ["xingju", "lingyun"].includes(normalizedProviderId)) return;
+    const source = normalizedProviders[providerId] || rawProviders[providerId] || {};
+    if (!source || typeof source !== "object") return;
+    customProviderSources[providerId] = Object.assign({}, source, {
+      perImage: resolveImagePriceTable(source.perImage, primaryPrices)
+    });
+  });
   const migrated = !modelPriceTableMatches(rawXingju.perImage, xingjuPrices)
     || !modelPriceTableMatches(rawLingyun.perImage, lingyunPrices)
-    || !modelPriceTableMatches(rawImageCosts.perImage, primaryPrices);
+    || !modelPriceTableMatches(rawImageCosts.perImage, primaryPrices)
+    || providerSourceKeys.some((providerId) => (
+      !["xingju", "lingyun"].includes(normalizeImageCostProvider(providerId))
+      && !modelPriceTableMatches(
+        (normalizedProviders[providerId] || rawProviders[providerId] || {}).perImage,
+        customProviderSources[providerId] && customProviderSources[providerId].perImage || primaryPrices
+      )
+    ));
   if (!migrated) {
     return {
       value: normalized,
@@ -8374,7 +9990,8 @@ function migrateLegacyModelCostConfig(runtime, rawConfig) {
             }),
             lingyun: Object.assign({}, normalizedLingyun, {
               perImage: Object.assign({}, lingyunPrices)
-            })
+            }),
+            ...customProviderSources
           }
         })
       })
@@ -8434,7 +10051,9 @@ async function loadAdminRuntimeConfig(force = false, options = {}) {
       .doc(ADMIN_RUNTIME_CONFIG_ID)
       .get();
     const rawConfig = result && result.data ? result.data : null;
-    const normalized = rawConfig ? normalizeRuntimePatch(rawConfig) : null;
+    const normalized = rawConfig
+      ? migrateLegacyProviderRegistry(normalizeRuntimePatch(rawConfig), rawConfig).value
+      : null;
     const retryMigration = migrateLegacyImageRetryConfig(normalized, rawConfig);
     const providerMigration = migrateLegacyImageProviderConfig(
       retryMigration.value,
@@ -8446,6 +10065,10 @@ async function loadAdminRuntimeConfig(force = false, options = {}) {
     );
     const profileMigration = migrateLegacyAdminProviderProfiles(
       costMigration.value,
+      rawConfig
+    );
+    const registryMigration = migrateLegacyProviderRegistry(
+      profileMigration.value,
       rawConfig
     );
     let migrationApplied = false;
@@ -8462,6 +10085,7 @@ async function loadAdminRuntimeConfig(force = false, options = {}) {
         || providerMigration.migrated
         || costMigration.migrated
         || profileMigration.migrated
+        || registryMigration.migrated
       )
       && allowMigrations
       && process.env.WECHAT_MINIAPP_TEST !== "1"
@@ -8480,6 +10104,15 @@ async function loadAdminRuntimeConfig(force = false, options = {}) {
         if (profileMigration.migrated) {
           migrationData.providerLabels = profileMigration.value.providerLabels;
           migrationData.providerProfiles = profileMigration.value.providerProfiles;
+        }
+        if (registryMigration.migrated) {
+          migrationData.providerRegistry = registryMigration.value.providerRegistry;
+          migrationData.activeProviders = registryMigration.value.activeProviders;
+          migrationData.providerLabels = registryMigration.value.providerLabels;
+          migrationData.providerProfiles = registryMigration.value.providerProfiles;
+          ["face", "analysis", "image", "imageBackup", "video"].forEach((slot) => {
+            if (registryMigration.value[slot]) migrationData[slot] = registryMigration.value[slot];
+          });
         }
         migrationVersion += 1;
         migrationUpdatedAt = new Date();
@@ -8509,6 +10142,7 @@ async function loadAdminRuntimeConfig(force = false, options = {}) {
           modelCostsMigrated: costMigration.migrated,
           providerProfilesMigrated: profileMigration.migrated,
           costConfigVersion: MODEL_COST_CONFIG_VERSION
+          ,providerRegistryMigrated: registryMigration.migrated
         });
       } catch (migrationError) {
         // 当前请求仍使用迁移后的值，写回失败时下一次冷启动还会幂等重试。
@@ -8518,7 +10152,7 @@ async function loadAdminRuntimeConfig(force = false, options = {}) {
       }
     }
     const value = rawConfig
-      ? Object.assign(profileMigration.value, {
+      ? Object.assign(registryMigration.value, {
           generationQueue: generationQueueMonitor.normalizeQueueSettings(
             profileMigration.value && profileMigration.value.generationQueue
           ),
@@ -8559,13 +10193,37 @@ async function loadAdminRuntimeConfig(force = false, options = {}) {
 }
 
 async function resolveEffectiveConfigs(options = {}) {
-  const runtime = await loadAdminRuntimeConfig(
+  const loadedRuntime = await loadAdminRuntimeConfig(
     Boolean(options.force),
     options
   );
-  const image = resolveImageConfig(runtime && runtime.image);
+  const runtime = loadedRuntime
+    ? migrateLegacyProviderRegistry(loadedRuntime, loadedRuntime).value
+    : null;
+  const projected = runtime
+    ? buildLegacyProjectionFromProviderRegistry(runtime)
+    : {
+        face: {},
+        analysis: {},
+        image: {},
+        imageBackup: {},
+        video: {},
+        points: {},
+        costs: {},
+        generationQueue: {}
+      };
+  const image = resolveImageConfig(projected.image);
+  const face = resolveFaceConfig(projected.face);
+  const analysis = resolveAnalysisConfig(projected.analysis);
+  const imageBackup = resolveImageBackupConfig(projected.imageBackup);
+  const video = resolveVideoConfig(projected.video);
   return {
     runtime: runtime || {
+      providerRegistry: normalizeProviderRegistry({}, { includeDefaults: true }),
+      activeProviders: normalizeActiveProviders(
+        {},
+        normalizeProviderRegistry({}, { includeDefaults: true })
+      ),
       providerLabels: normalizeAdminProviderLabels({}, { includeDefaults: true }),
       providerProfiles: normalizeAdminProviderProfiles({}),
       face: {},
@@ -8579,21 +10237,34 @@ async function resolveEffectiveConfigs(options = {}) {
       costs: {},
       generationQueue: generationQueueMonitor.normalizeQueueSettings()
     },
-    providerLabels: normalizeAdminProviderLabels(
-      runtime && runtime.providerLabels,
+    providerRegistry: normalizeProviderRegistry(
+      (runtime || projected).providerRegistry,
       { includeDefaults: true }
     ),
-    face: resolveFaceConfig(runtime && runtime.face),
-    analysis: resolveAnalysisConfig(runtime && runtime.analysis),
+    activeProviders: normalizeActiveProviders(
+      (runtime || projected).activeProviders,
+      (runtime || projected).providerRegistry
+    ),
+    providerLabels: normalizeAdminProviderLabels(
+      (runtime || projected).providerLabels,
+      { includeDefaults: true }
+    ),
+    providerProfiles: normalizeAdminProviderProfiles(
+      (runtime || projected).providerProfiles
+    ),
+    face,
+    analysis,
     image,
-    imageBackup: resolveImageBackupConfig(runtime && runtime.imageBackup),
+    imageBackup,
     tencentFaceFusion: resolveTencentFaceFusionConfig(
       runtime && runtime.tencentFaceFusion
     ),
-    video: resolveVideoConfig(runtime && runtime.video),
-    videoBackup: resolveVideoBackupConfig(runtime && runtime.videoBackup),
-    points: resolvePointsConfig(runtime && runtime.points),
-    costs: resolveCostConfig(runtime && runtime.costs, {
+    video,
+    videoBackup: resolveVideoBackupConfig(
+      runtime && runtime.videoBackup
+    ),
+    points: resolvePointsConfig(projected.points),
+    costs: resolveCostConfig(projected.costs, {
       imageProvider: image.provider
     }),
     generationQueue: generationQueueMonitor.normalizeQueueSettings(
@@ -8628,6 +10299,16 @@ function adminConfigView(configs, runtime, metadata = {}) {
     costs: {},
     generationQueue: generationQueueDefaults
   };
+  const providerRegistry = redactProviderRegistry(
+    configs && configs.providerRegistry
+      || runtime && runtime.providerRegistry
+      || {}
+  );
+  const activeProviders = normalizeActiveProviders(
+    configs && configs.activeProviders
+      || runtime && runtime.activeProviders,
+    providerRegistry
+  );
   return {
     defaults: redactConfig({
       providerLabels: DEFAULT_ADMIN_PROVIDER_LABELS,
@@ -8692,6 +10373,11 @@ function adminConfigView(configs, runtime, metadata = {}) {
       costs: configs.costs,
       generationQueue: configs.generationQueue
     }),
+    providerRegistry,
+    activeProviders,
+    // effective 是兼容旧顶层配置；目录消费者优先使用 providerRegistry。
+    effectiveProviderRegistry: providerRegistry,
+    effectiveActiveProviders: activeProviders,
     updatedAt: metadata.updatedAt || "",
     version: Number(metadata.version || 0),
     admin: true
@@ -8780,6 +10466,530 @@ async function getAdminImageApiKeys(context) {
       )
     },
     providerProfiles: providerProfileKeys
+  });
+}
+
+function providerMutationInput(event = {}) {
+  const source = event && typeof event === "object" ? event : {};
+  const payload = isProviderObject(source.payload) ? source.payload : {};
+  const raw = isProviderObject(source.provider)
+    ? source.provider
+    : isProviderObject(source.record)
+      ? source.record
+      : isProviderObject(source.providerConfig)
+        ? source.providerConfig
+        : isProviderObject(payload.provider)
+          ? payload.provider
+          : isProviderObject(source.config)
+            ? source.config
+            : source;
+  const common = isProviderObject(raw.common)
+    ? raw.common
+    : isProviderObject(raw.commonConfig)
+      ? raw.commonConfig
+      : isProviderObject(payload.common)
+        ? payload.common
+        : {};
+  const capabilitySource = isProviderObject(raw.capabilities)
+    ? raw.capabilities
+    : isProviderObject(raw.overrides)
+      ? raw.overrides
+      : {};
+  const record = Object.assign({}, raw, common, {
+    providerKey: raw.providerKey || source.providerKey || payload.providerKey,
+    id: raw.id || raw.providerId || source.id || source.providerId || payload.id || payload.providerId,
+    name: raw.name || raw.label || source.name || payload.name
+  });
+  record.overrides = Object.assign({}, capabilitySource);
+  PROVIDER_CAPABILITY_SLOTS.forEach((slot) => {
+    if (isProviderObject(raw[slot])) record.overrides[slot] = Object.assign({}, record.overrides[slot] || {}, raw[slot]);
+    if (isProviderObject(payload[slot])) record.overrides[slot] = Object.assign({}, record.overrides[slot] || {}, payload[slot]);
+  });
+  // 编辑器也可能把能力作为槽位名数组提交；空能力不算已配置。
+  if (Array.isArray(raw.capabilities)) {
+    raw.capabilities.forEach((slot) => {
+      if (PROVIDER_CAPABILITY_SLOTS.includes(slot) && !record.overrides[slot]) record.overrides[slot] = {};
+    });
+  }
+  const operation = String(
+    source.operation || source.mode || source.op || payload.operation || payload.mode || "upsert"
+  ).trim().toLowerCase();
+  const actionText = String(source.action || "").trim().toLowerCase();
+  const deleting = ["delete", "remove", "del", "删除"].includes(operation)
+    || actionText === "deleteadminprovider"
+    || actionText === "removeadminprovider"
+    || source.delete === true
+    || source.remove === true
+    || payload.delete === true
+    || payload.remove === true;
+  const activePatch = source.activeProviders || source.active || payload.activeProviders || payload.active;
+  return {
+    record,
+    operation: deleting ? "delete" : "upsert",
+    expectedVersion: source.expectedVersion !== undefined
+      ? source.expectedVersion
+      : payload.expectedVersion !== undefined
+        ? payload.expectedVersion
+        : source.version,
+    activeProviders: activePatch,
+    activeSlot: source.activeSlot || source.slot || payload.activeSlot || payload.slot,
+    setActive: source.setActive !== undefined ? source.setActive : payload.setActive
+  };
+}
+
+function providerError(message, code = "PROVIDER_INVALID") {
+  const error = new Error(String(message || "服务商配置无效"));
+  error.code = code;
+  error.retryable = false;
+  return error;
+}
+
+function validateProviderMutationRecord(value = {}) {
+  const source = isProviderObject(value) ? value : {};
+  const rawId = String(source.id || source.providerId || source.provider || "").trim();
+  const rawName = String(source.name || source.label || source.displayName || "").trim();
+  const id = providerText(rawId, 80);
+  const name = providerText(rawName, 40);
+  if (!/^[A-Za-z0-9._-]{1,64}$/.test(id)) {
+    throw providerError(
+      "服务商 ID 只能包含字母、数字、点、下划线和短横线，长度不超过 64。",
+      "PROVIDER_INVALID_ID"
+    );
+  }
+  if (!name || name.length > 20) {
+    throw providerError("服务商中文名必须是 1～20 个字符。", "PROVIDER_INVALID_NAME");
+  }
+  const aliases = Array.isArray(source.aliases) ? source.aliases : [];
+  if (aliases.some((alias) => {
+    const rawAlias = String(alias === undefined || alias === null ? "" : alias).trim();
+    return rawAlias.length > 64 || !/^[A-Za-z0-9._-]{1,64}$/.test(rawAlias);
+  })) {
+    throw providerError("历史服务商 ID 格式不合法。", "PROVIDER_INVALID_ALIAS");
+  }
+  return { id, name };
+}
+
+function providerVersionConflict(expected, actual) {
+  return providerError(
+    `服务商配置版本冲突，请刷新后重试（期望 ${expected}，当前 ${actual}）。`,
+    "ADMIN_CONFIG_CONFLICT"
+  );
+}
+
+function providerRuntimeVersion(value) {
+  const raw = value && typeof value === "object" ? value.version : value;
+  return Math.max(0, Number(raw) || 0);
+}
+
+function providerActiveFallback(slot, deletedKey, registry, active) {
+  const providers = registry.providers;
+  const fallbackKey = PROVIDER_ID_FALLBACKS[slot];
+  if (slot !== "video" && fallbackKey && fallbackKey !== deletedKey && hasOwn(providers, fallbackKey)
+      && providerConfigComplete(providers[fallbackKey], slot)) {
+    return fallbackKey;
+  }
+  if (slot === "video") {
+    const envVideo = resolveVideoConfig();
+    const envProvider = providerText(envVideo.provider, 120);
+    const envKey = providerRecordKeyFor(envProvider, registry);
+    if (envVideo.configured && envKey && envKey !== deletedKey && hasOwn(providers, envKey)
+        && providerConfigComplete(providers[envKey], slot)) {
+      return envKey;
+    }
+    if (envVideo.configured && envProvider && envKey !== deletedKey) {
+      const envRecord = normalizeProviderRecord({
+        providerKey: envKey || providerStableKey(envProvider),
+        id: envProvider,
+        name: providerDefaultName(envProvider),
+        baseUrl: envVideo.baseUrl,
+        apiKey: envVideo.apiKey,
+        overrides: { video: Object.assign({}, envVideo, { enabled: true }) }
+      }, envKey || envProvider, { includePreset: false });
+      if (envRecord) {
+        if (envKey && hasOwn(providers, envKey)) {
+          providers[envKey] = mergeProviderRecord(providers[envKey], envRecord);
+          providers[envKey].providerKey = envKey;
+        } else {
+          providers[envRecord.providerKey] = envRecord;
+        }
+        return envRecord.providerKey;
+      }
+    }
+  }
+  const complete = Object.keys(providers).find((key) => (
+    key !== deletedKey
+    && providerConfigComplete(providers[key], slot)
+  ));
+  return complete || "";
+}
+
+function applyProviderActivePatch(active, patch, registry) {
+  const result = Object.assign({}, active || {});
+  if (isProviderObject(patch)) {
+    PROVIDER_CAPABILITY_SLOTS.forEach((slot) => {
+      if (!hasOwn(patch, slot)) return;
+      const key = providerRecordKeyFor(patch[slot], registry);
+      result[slot] = key;
+    });
+  }
+  return normalizeActiveProviders(result, registry);
+}
+
+function providerAdminPayload(runtime, autoRebound = {}, metadata = {}) {
+  const source = runtime && typeof runtime === "object" ? runtime : {};
+  const registry = normalizeProviderRegistry(source.providerRegistry, { includeDefaults: true });
+  const activeProviders = normalizeActiveProviders(source.activeProviders, registry);
+  const projected = buildLegacyProjectionFromProviderRegistry(Object.assign({}, source, {
+    providerRegistry: registry,
+    activeProviders
+  }));
+  const configs = {
+    face: resolveFaceConfig(projected.face),
+    analysis: resolveAnalysisConfig(projected.analysis),
+    image: resolveImageConfig(projected.image),
+    imageBackup: resolveImageBackupConfig(projected.imageBackup),
+    video: resolveVideoConfig(projected.video),
+    points: resolvePointsConfig(projected.points),
+    costs: resolveCostConfig(projected.costs, { imageProvider: projected.image && projected.image.provider }),
+    generationQueue: generationQueueMonitor.normalizeQueueSettings(projected.generationQueue)
+  };
+  const view = adminConfigView(
+    Object.assign({}, configs, {
+      providerRegistry: registry,
+      activeProviders,
+      providerLabels: projected.providerLabels,
+      providerProfiles: projected.providerProfiles
+    }),
+    projected,
+    metadata
+  );
+  const reboundDetails = Array.isArray(autoRebound)
+    ? autoRebound.reduce((output, item) => {
+      if (!isProviderObject(item) || !PROVIDER_CAPABILITY_SLOTS.includes(item.slot)) return output;
+      output[item.slot] = item;
+      return output;
+    }, {})
+    : (isProviderObject(autoRebound) ? autoRebound : {});
+  const reboundLabels = {
+    face: "人脸识别",
+    analysis: "图片分析",
+    image: "生图主模型",
+    imageBackup: "生图备用模型",
+    video: "视频"
+  };
+  const reboundList = Object.keys(reboundDetails)
+    .filter((slot) => PROVIDER_CAPABILITY_SLOTS.includes(slot))
+    .map((slot) => {
+      const item = isProviderObject(reboundDetails[slot]) ? reboundDetails[slot] : {};
+      const from = providerText(item.from, 128);
+      const to = providerText(item.to, 128);
+      return {
+        slot,
+        from,
+        to,
+        label: `${reboundLabels[slot] || slot}：${from || "未配置"} → ${to || "未配置"}`
+      };
+    });
+  const selectedKey = providerText(
+    metadata.providerKey || metadata.deletedProviderKey || metadata.targetProviderKey,
+    128
+  );
+  let provider = null;
+  if (selectedKey && registry.providers[selectedKey]) {
+    const redacted = providerClone(registry.providers[selectedKey]);
+    if (redacted.metadata) redacted.metadata = redactProviderMetadata(redacted.metadata);
+    redacted.apiKey = "";
+    redacted.apiKeyConfigured = Boolean(
+      normalizeApiKey(registry.providers[selectedKey].apiKey)
+      || Object.keys(registry.providers[selectedKey].overrides || {}).some((slot) => (
+        registry.providers[selectedKey].overrides[slot]
+        && registry.providers[selectedKey].overrides[slot].overrideEnabled !== false
+        && normalizeApiKey(registry.providers[selectedKey].overrides[slot].apiKey)
+      ))
+      || PROVIDER_CAPABILITY_SLOTS.some((slot) => providerEnvironmentApiKey(registry.providers[selectedKey], slot))
+    );
+    Object.keys(redacted.overrides || {}).forEach((slot) => {
+      if (redacted.overrides[slot]) redacted.overrides[slot].apiKey = "";
+    });
+    provider = redacted;
+  }
+  return {
+    providerRegistry: redactProviderRegistry(registry),
+    activeProviders,
+    effective: view.effective,
+    version: providerRuntimeVersion(
+      metadata.version !== undefined && metadata.version !== null
+        ? metadata.version
+        : source.version
+    ),
+    providerKey: selectedKey,
+    provider,
+    autoRebound: reboundList,
+    autoReboundDetails: reboundDetails,
+    effectiveProviderRegistry: view.effectiveProviderRegistry,
+    effectiveActiveProviders: view.effectiveActiveProviders
+  };
+}
+
+function providerSecretView(runtime, requested) {
+  const source = runtime && typeof runtime === "object" ? runtime : {};
+  const registry = normalizeProviderRegistry(source.providerRegistry, { includeDefaults: true });
+  const keys = requested
+    ? [providerRecordKeyFor(requested, registry)]
+    : Object.keys(registry.providers);
+  const result = {};
+  keys.forEach((key) => {
+    const record = registry.providers[key];
+    if (!record) return;
+    const slots = {};
+    PROVIDER_CAPABILITY_SLOTS.forEach((slot) => {
+      const override = record.overrides && record.overrides[slot] || {};
+      const ownConnection = override.overrideEnabled !== false;
+      const apiKey = ownConnection && override.clearApiKey
+        ? ""
+        : normalizeApiKey((ownConnection && override.apiKey) || record.apiKey)
+          || providerEnvironmentApiKey(record, slot);
+      slots[slot] = { apiKey, configured: Boolean(apiKey) };
+    });
+    const preferredSlots = PROVIDER_CAPABILITY_SLOTS.filter((slot) => (
+      providerHasCapability(record, slot)
+    ));
+    const commonApiKey = normalizeApiKey(record.apiKey)
+      || preferredSlots
+        .concat(PROVIDER_CAPABILITY_SLOTS.filter((slot) => !preferredSlots.includes(slot)))
+        .map((slot) => providerEnvironmentApiKey(record, slot))
+        .find(Boolean)
+      || "";
+    result[key] = {
+      providerKey: key,
+      id: record.id,
+      name: record.name,
+      apiKey: commonApiKey,
+      apiKeyConfigured: Boolean(commonApiKey),
+      slots
+    };
+  });
+  return result;
+}
+
+async function saveAdminProvider(event = {}, context) {
+  if (!isAdminContext(context)) return adminForbidden();
+  const mutation = providerMutationInput(event);
+  const rawRecord = mutation.record || {};
+  if (mutation.operation === "upsert") {
+    try {
+      validateProviderMutationRecord(rawRecord);
+    } catch (error) {
+      return fail(error.message, error.code || "PROVIDER_INVALID");
+    }
+  }
+  const normalizedRecord = normalizeProviderRecord(rawRecord, rawRecord.providerKey || rawRecord.id, {
+    includePreset: false
+  });
+  if (mutation.operation === "upsert" && !normalizedRecord) {
+    return fail("服务商标识不能为空。", "PROVIDER_INVALID");
+  }
+  let outcome;
+  try {
+    outcome = await db.runTransaction(async (transaction) => {
+      const ref = transaction
+        .collection(ADMIN_RUNTIME_CONFIG_COLLECTION)
+        .doc(ADMIN_RUNTIME_CONFIG_ID);
+      const rawCurrent = await readDocument(ref);
+      const migrated = migrateLegacyProviderRegistry(
+        rawCurrent ? normalizeRuntimePatch(rawCurrent) : {},
+        rawCurrent || {}
+      );
+      const current = migrated.value || {};
+      const currentVersion = providerRuntimeVersion(rawCurrent || current);
+      const expected = mutation.expectedVersion === undefined
+        || mutation.expectedVersion === null
+        || mutation.expectedVersion === ""
+        ? null
+        : Number(mutation.expectedVersion);
+      if (expected !== null && Number.isFinite(expected) && expected !== currentVersion) {
+        const conflict = providerVersionConflict(expected, currentVersion);
+        conflict.currentVersion = currentVersion;
+        throw conflict;
+      }
+      const registry = normalizeProviderRegistry(current.providerRegistry, { includeDefaults: true });
+      let active = normalizeActiveProviders(current.activeProviders, registry);
+      const autoRebound = {};
+      let changedProviderKey = "";
+      let renamedFromId = "";
+      if (mutation.operation === "delete") {
+        const targetKey = providerRecordKeyFor(
+          rawRecord.providerKey || rawRecord.id || rawRecord.provider || event.providerKey || event.id,
+          registry
+        );
+        const target = registry.providers[targetKey];
+        if (!target) throw providerError("找不到要删除的服务商。", "PROVIDER_NOT_FOUND");
+        if (
+          target.builtIn
+          || target.protected
+          || target.migrated
+          || BUILTIN_PROVIDER_KEYS.includes(targetKey)
+        ) {
+          throw providerError("内置服务商不能删除。", "PROVIDER_BUILTIN_PROTECTED");
+        }
+        changedProviderKey = targetKey;
+        delete registry.providers[targetKey];
+        PROVIDER_CAPABILITY_SLOTS.forEach((slot) => {
+          if (active[slot] !== targetKey) return;
+          const rebound = providerActiveFallback(slot, targetKey, registry, active);
+          autoRebound[slot] = { from: targetKey, to: rebound };
+          active[slot] = rebound;
+        });
+      } else {
+        let targetKey = providerRecordKeyFor(
+          normalizedRecord.providerKey || normalizedRecord.id,
+          registry
+        );
+        const duplicateKey = Object.keys(registry.providers).find((key) => (
+          key !== targetKey
+          && String(registry.providers[key].id || "").toLowerCase() === String(normalizedRecord.id || "").toLowerCase()
+        ));
+        if (duplicateKey) {
+          throw providerError("服务商 ID 已存在（不区分大小写）。", "PROVIDER_DUPLICATE_ID");
+        }
+        const matchedById = Object.keys(registry.providers).find((key) => (
+          String(registry.providers[key].id || "").toLowerCase() === String(normalizedRecord.id || "").toLowerCase()
+          || (registry.providers[key].aliases || []).some((alias) => String(alias).toLowerCase() === String(normalizedRecord.id || "").toLowerCase())
+        ));
+        if (!hasOwn(registry.providers, targetKey) && matchedById) targetKey = matchedById;
+        if (hasOwn(registry.providers, targetKey)) {
+          const existing = registry.providers[targetKey];
+          const merged = mergeProviderRecord(existing, normalizedRecord);
+          if (existing.id && String(existing.id).toLowerCase() !== String(merged.id).toLowerCase()) {
+            renamedFromId = existing.id;
+            merged.aliases = Array.from(new Set([].concat(merged.aliases || [], existing.id)));
+          }
+          merged.providerKey = targetKey;
+          merged.builtIn = Boolean(existing.builtIn || BUILTIN_PROVIDER_KEYS.includes(targetKey));
+          registry.providers[targetKey] = merged;
+        } else {
+          targetKey = normalizedRecord.providerKey || providerStableKey(normalizedRecord.id);
+          normalizedRecord.providerKey = targetKey;
+          if (!normalizedRecord.builtIn && !PROVIDER_CAPABILITY_SLOTS.some((slot) => providerHasCapability(normalizedRecord, slot))) {
+            throw providerError("自定义服务商至少要配置一项能力。", "PROVIDER_CAPABILITY_REQUIRED");
+          }
+          registry.providers[targetKey] = normalizedRecord;
+        }
+        changedProviderKey = targetKey;
+        const savedRecord = registry.providers[targetKey];
+        if (!savedRecord || !PROVIDER_CAPABILITY_SLOTS.some((slot) => (
+          providerConfigComplete(savedRecord, slot)
+        ))) {
+          throw providerError("服务商至少要配置一项完整能力（地址、模型和 Key）。", "PROVIDER_CAPABILITY_REQUIRED");
+        }
+        if (mutation.activeProviders) active = applyProviderActivePatch(active, mutation.activeProviders, registry);
+        if (mutation.activeSlot && mutation.setActive !== false) {
+          const slot = String(mutation.activeSlot);
+          if (PROVIDER_CAPABILITY_SLOTS.includes(slot)) active[slot] = targetKey;
+        }
+      }
+      const projected = buildLegacyProjectionFromProviderRegistry(Object.assign({}, current, {
+        providerRegistry: registry,
+        activeProviders: active
+      }));
+      if (renamedFromId && changedProviderKey && registry.providers[changedProviderKey]) {
+        const renamed = migrateProviderExternalIdReferences(
+          projected,
+          renamedFromId,
+          registry.providers[changedProviderKey].id
+        );
+        Object.assign(projected, renamed);
+      }
+      const nextVersion = currentVersion + 1;
+      registry.version = nextVersion;
+      projected.providerRegistry = registry;
+      projected.activeProviders = active;
+      projected.version = nextVersion;
+      projected.updatedAt = new Date();
+      projected.updatedBy = getOpenId(context);
+      await ref.set({ data: stripDocumentId(projected) });
+      return {
+        previous: current,
+        runtime: projected,
+        autoRebound,
+        version: nextVersion,
+        providerKey: changedProviderKey
+      };
+    }, 5);
+  } catch (error) {
+    if (["PROVIDER_VERSION_CONFLICT", "ADMIN_CONFIG_CONFLICT"].includes(String(error && error.code || ""))) {
+      return fail(error.message, "ADMIN_CONFIG_CONFLICT", {
+        versionConflict: true,
+        currentVersion: error && error.currentVersion
+      });
+    }
+    if (String(error && error.code || "").startsWith("PROVIDER_")) {
+      return fail(error.message, error.code);
+    }
+    throw error;
+  }
+  adminRuntimeCache = { value: outcome.runtime, expiresAt: Date.now() + ADMIN_RUNTIME_CACHE_TTL_MS };
+  await writeAdminConfigAuditLog({
+    source: mutation.operation === "delete" ? "admin-provider-delete" : "admin-provider-save",
+    openid: getOpenId(context),
+    configVersion: outcome.version,
+    previous: outcome.previous || {},
+    next: outcome.runtime,
+    patch: {
+      providerKey: outcome.providerKey,
+      operation: mutation.operation,
+      provider: normalizedRecord || rawRecord,
+      autoRebound: outcome.autoRebound
+    }
+  });
+  const payload = providerAdminPayload(outcome.runtime, outcome.autoRebound, {
+    version: outcome.version,
+    providerKey: outcome.providerKey,
+    deletedProviderKey: mutation.operation === "delete" ? outcome.providerKey : "",
+    updatedAt: outcome.runtime.updatedAt
+  });
+  return jsonResponse(true, payload);
+}
+
+async function getAdminProviderSecrets(event = {}, context) {
+  if (!isAdminContext(context)) return adminForbidden();
+  const runtime = await loadAdminRuntimeConfig(true, { cache: false });
+  const migrated = migrateLegacyProviderRegistry(runtime || {}, runtime || {});
+  const registry = normalizeProviderRegistry(migrated.value && migrated.value.providerRegistry, { includeDefaults: true });
+  const requested = event && (event.providerKey || event.id || event.provider);
+  // 密钥接口只服务于当前管理员编辑器，必须明确指定单个档案；
+  // 不允许通过省略参数一次性拉取整个目录的明文 Key。
+  if (!requested) return fail("请选择要编辑的服务商档案。", "PROVIDER_INVALID");
+  const requestedKey = providerRecordKeyFor(requested, registry);
+  if (!requestedKey || !hasOwn(registry.providers, requestedKey)) {
+    return fail("找不到要读取的服务商档案。", "PROVIDER_NOT_FOUND");
+  }
+  const secrets = providerSecretView(migrated.value, requested);
+  const firstKey = Object.keys(secrets)[0] || "";
+  const selected = firstKey ? secrets[firstKey] : null;
+  const capabilities = {};
+  if (selected) {
+    PROVIDER_CAPABILITY_SLOTS.forEach((slot) => {
+      const item = selected.slots && selected.slots[slot] || {};
+      capabilities[slot] = {
+        apiKey: String(item.apiKey || ""),
+        apiKeyConfigured: Boolean(item.configured)
+      };
+    });
+  }
+  return jsonResponse(true, {
+    providerKey: firstKey,
+    secrets,
+    providers: secrets,
+    providerSecrets: secrets,
+    common: selected ? {
+      apiKey: String(selected.apiKey || ""),
+      apiKeyConfigured: Boolean(selected.apiKeyConfigured)
+    } : {},
+    capabilities,
+    apiKey: selected ? String(selected.apiKey || "") : "",
+    apiKeyConfigured: Boolean(selected && selected.apiKeyConfigured),
+    version: providerRuntimeVersion(runtime)
   });
 }
 
@@ -9437,9 +11647,13 @@ function dropBlankRuntimeApiKeys(patch = {}) {
 
 async function saveAdminConfig(event, context) {
   if (!isAdminContext(context)) return adminForbidden();
-  const rawConfig = event && event.config && typeof event.config === "object"
+  const requestConfig = event && event.config && typeof event.config === "object"
     ? event.config
     : {};
+  const rawConfig = requestConfig;
+  const expectedVersionRaw = event && event.expectedVersion !== undefined
+    ? event.expectedVersion
+    : requestConfig.expectedVersion;
   const rawProviderLabelErrors = hasOwn(rawConfig, "providerLabels")
     ? validateAdminProviderLabels(rawConfig.providerLabels, {})
     : [];
@@ -9470,65 +11684,110 @@ async function saveAdminConfig(event, context) {
   });
   const errors = validateRuntimePatch(patch);
   if (errors.length) return fail(errors.join("；"), "ADMIN_CONFIG_INVALID", { fields: errors });
-  const current = await loadAdminRuntimeConfig(true);
-  let next = mergeRuntimeConfig(current, patch);
-  const providerGuard = guardAdminImageProviderConfig(current, next, patch);
-  next = providerGuard.value;
-  const providerLabelErrors = validateAdminProviderLabels(
-    next.providerLabels,
-    next
-  );
-  if (providerLabelErrors.length) {
-    return fail(
-      providerLabelErrors.join("；"),
-      "ADMIN_PROVIDER_LABEL_REQUIRED",
-      { fields: providerLabelErrors }
-    );
+  const expectedVersion = expectedVersionRaw === undefined
+    || expectedVersionRaw === null
+    || expectedVersionRaw === ""
+    ? null
+    : Number(expectedVersionRaw);
+  let current = null;
+  let next = null;
+  let providerGuard = { corrected: false };
+  let data = null;
+  try {
+    data = await db.runTransaction(async (transaction) => {
+      const ref = transaction
+        .collection(ADMIN_RUNTIME_CONFIG_COLLECTION)
+        .doc(ADMIN_RUNTIME_CONFIG_ID);
+      const rawCurrent = await readDocument(ref);
+      current = rawCurrent
+        ? migrateLegacyProviderRegistry(normalizeRuntimePatch(rawCurrent), rawCurrent).value
+        : null;
+      const previousVersion = Number(rawCurrent && rawCurrent.version) || 0;
+      if (expectedVersion !== null && Number.isFinite(expectedVersion)
+          && expectedVersion !== previousVersion) {
+        const conflict = providerVersionConflict(expectedVersion, previousVersion);
+        conflict.currentVersion = previousVersion;
+        throw conflict;
+      }
+      next = mergeRuntimeConfig(current, patch);
+      providerGuard = guardAdminImageProviderConfig(current, next, patch);
+      next = providerGuard.value;
+      next.providerLabels = normalizeAdminProviderLabels(
+        next.providerLabels,
+        { includeDefaults: true }
+      );
+      next.providerProfiles = syncAdminTopLevelProviderProfiles(
+        next,
+        next.providerProfiles
+      );
+      const providerLabelErrors = validateAdminProviderLabels(
+        next.providerLabels,
+        next
+      );
+      if (providerLabelErrors.length) {
+        const error = providerError(
+          providerLabelErrors.join("；"),
+          "ADMIN_PROVIDER_LABEL_REQUIRED"
+        );
+        error.fields = providerLabelErrors;
+        throw error;
+      }
+      const mergedErrors = validateRuntimePatch(next);
+      if (mergedErrors.length) {
+        const error = providerError(
+          mergedErrors.join("；"),
+          "ADMIN_CONFIG_INVALID"
+        );
+        error.fields = mergedErrors;
+        throw error;
+      }
+      const canonicalRegistry = normalizeProviderRegistry(
+        next.providerRegistry,
+        { includeDefaults: true }
+      );
+      data = {
+        _id: ADMIN_RUNTIME_CONFIG_ID,
+        providerRegistry: canonicalRegistry,
+        activeProviders: normalizeActiveProviders(next.activeProviders, canonicalRegistry),
+        providerLabels: next.providerLabels || {},
+        providerProfiles: next.providerProfiles || {},
+        face: next.face,
+        analysis: next.analysis,
+        image: next.image,
+        imageBackup: next.imageBackup,
+        tencentFaceFusion: next.tencentFaceFusion,
+        video: next.video,
+        videoBackup: next.videoBackup,
+        points: next.points,
+        costs: next.costs,
+        generationQueue: next.generationQueue,
+        generationQueueAlertState: rawCurrent
+          && rawCurrent.generationQueueAlertState
+          && typeof rawCurrent.generationQueueAlertState === "object"
+          ? rawCurrent.generationQueueAlertState
+          : {},
+        version: previousVersion + 1,
+        updatedAt: new Date(),
+        updatedBy: getOpenId(context)
+      };
+      await ref.set({ data: stripDocumentId(data) });
+      return data;
+    }, 5);
+  } catch (error) {
+    if (["ADMIN_CONFIG_CONFLICT", "PROVIDER_VERSION_CONFLICT"].includes(String(error && error.code || ""))) {
+      return fail(error.message, "ADMIN_CONFIG_CONFLICT", {
+        versionConflict: true,
+        currentVersion: error && error.currentVersion
+      });
+    }
+    if (["ADMIN_PROVIDER_LABEL_REQUIRED", "ADMIN_CONFIG_INVALID"].includes(String(error && error.code || ""))) {
+      return fail(error.message, error.code, { fields: error.fields || [] });
+    }
+    throw error;
   }
-  next.providerLabels = normalizeAdminProviderLabels(
-    next.providerLabels,
-    { includeDefaults: true }
-  );
-  next.providerProfiles = syncAdminTopLevelProviderProfiles(
-    next,
-    next.providerProfiles
-  );
-  const mergedErrors = validateRuntimePatch(next);
-  if (mergedErrors.length) {
-    return fail(
-      mergedErrors.join("；"),
-      "ADMIN_CONFIG_INVALID",
-      { fields: mergedErrors }
-    );
-  }
-  const previousVersion = Number(current && current.version) || 0;
-  const data = {
-    _id: ADMIN_RUNTIME_CONFIG_ID,
-    providerLabels: next.providerLabels,
-    providerProfiles: next.providerProfiles,
-    face: next.face,
-    analysis: next.analysis,
-    image: next.image,
-    imageBackup: next.imageBackup,
-    tencentFaceFusion: next.tencentFaceFusion,
-    video: next.video,
-    videoBackup: next.videoBackup,
-    points: next.points,
-    costs: next.costs,
-    generationQueue: next.generationQueue,
-    generationQueueAlertState: current
-      && current.generationQueueAlertState
-      && typeof current.generationQueueAlertState === "object"
-      ? current.generationQueueAlertState
-      : {},
-    version: previousVersion + 1,
-    updatedAt: new Date(),
-    updatedBy: getOpenId(context)
-  };
-  await db
-    .collection(ADMIN_RUNTIME_CONFIG_COLLECTION)
-    .doc(ADMIN_RUNTIME_CONFIG_ID)
-    .set({ data: stripDocumentId(data) });
+  if (!data) return fail("管理员配置保存失败。", "ADMIN_CONFIG_SAVE_FAILED");
+  current = current || {};
+  next = next || data;
   await writeAdminConfigAuditLog({
     source: "admin-save",
     openid: getOpenId(context),
@@ -9539,8 +11798,10 @@ async function saveAdminConfig(event, context) {
   });
   adminRuntimeCache = {
     value: {
-      providerLabels: next.providerLabels,
-      providerProfiles: next.providerProfiles,
+      providerRegistry: data.providerRegistry,
+      activeProviders: data.activeProviders,
+      providerLabels: data.providerLabels,
+      providerProfiles: data.providerProfiles,
       face: next.face,
       analysis: next.analysis,
       image: next.image,
@@ -19218,6 +21479,12 @@ exports.main = async (event = {}, context) => {
       result = await getAdminDiagnosticLogs(requestEvent, context);
     }
     else if (action === "getAdminConfig") result = await getAdminConfig(context);
+    else if (action === "getAdminProviderSecrets") {
+      result = await getAdminProviderSecrets(requestEvent, context);
+    }
+    else if (action === "saveAdminProvider") {
+      result = await saveAdminProvider(requestEvent, context);
+    }
     else if (action === "getAdminImageApiKeys") {
       result = await getAdminImageApiKeys(context);
     }
@@ -19404,6 +21671,41 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     redactAdminProviderProfiles,
     migrateLegacyAdminProviderProfiles,
     normalizeRuntimePatch,
+    normalizeLegacyRuntimePatch,
+    providerStableKey,
+    isProviderUuidKey,
+    normalizeProviderKey,
+    normalizeProviderId,
+    normalizeAdminProviderLabels,
+    mergeAdminProviderLabels,
+    validateAdminProviderLabels,
+    normalizeAdminProviderProfileValue,
+    normalizeAdminProviderProfiles,
+    mergeAdminProviderProfiles,
+    syncAdminTopLevelProviderProfiles,
+    configuredAdminProviderIds,
+    normalizeProviderRecord,
+    mergeProviderRecord,
+    normalizeProviderRegistry,
+    normalizeProviderDirectory,
+    mergeProviderRegistry,
+    mergeProviderDirectory,
+    mergeActiveProviderOverrides,
+    normalizeActiveProviders,
+    buildLegacyProjectionFromProviderRegistry,
+    migrateLegacyProviderRegistry,
+    migrateProviderExternalIdReferences,
+    redactProviderMetadata,
+    redactProviderRegistry,
+    providerRegistryList,
+    validateProviderRegistry,
+    validateProviderDirectory,
+    providerConfigComplete,
+    providerEnvironmentApiKey,
+    providerActiveFallback,
+    providerMutationInput,
+    providerSecretView,
+    providerAdminPayload,
     dropBlankRuntimeApiKeys,
     extractModelUsage,
     extractVideoDuration,
@@ -19579,6 +21881,8 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     initializeDatabase,
     requiredDatabaseCollections: REQUIRED_DATABASE_COLLECTIONS.slice(),
     saveAdminConfig,
+    saveAdminProvider,
+    getAdminProviderSecrets,
     getAdminConfigAuditLogs,
     checkRuntimeDependencies,
     checkRuntimeHealth,

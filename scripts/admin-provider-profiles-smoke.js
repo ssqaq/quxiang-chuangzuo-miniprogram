@@ -29,6 +29,13 @@ const PICKER_STATE = {
   video: "videoProviderProfileOptions",
   videoBackup: "videoBackupProviderProfileOptions"
 };
+const PROVIDER_PICKER_STATE = {
+  face: "providerPickerOptionsFace",
+  analysis: "providerPickerOptionsAnalysis",
+  image: "providerPickerOptionsImage",
+  imageBackup: "providerPickerOptionsImageBackup",
+  video: "providerPickerOptionsVideo"
+};
 
 assert.ok(test, "云函数没有暴露测试接口");
 [
@@ -790,22 +797,46 @@ function verifyMarkup() {
     path.join(root, "pages/admin/admin.js"),
     "utf8"
   );
-  assert.strictEqual(
-    (wxml.match(/bindchange="onProviderProfileChange"/g) || []).length,
-    12,
-    "图片主备、腾讯版主备和视频主备都必须使用服务商档案下拉框"
+  const providerPickerBindings =
+    (wxml.match(/bindchange="onProviderPickerChange"/g) || []).length;
+  assert.ok(
+    providerPickerBindings >= Object.keys(PROVIDER_PICKER_STATE).length,
+    "五个功能槽位都必须使用服务商目录下拉框"
   );
-  Object.keys(PICKER_STATE).forEach((section) => {
+  Object.keys(PROVIDER_PICKER_STATE).forEach((section) => {
     assert.ok(
-      wxml.includes(`range="{{${PICKER_STATE[section]}}}"`),
-      `${section} 缺少服务商档案选项`
+      wxml.includes(`range="{{${PROVIDER_PICKER_STATE[section]}}}"`),
+      `${section} 缺少服务商目录选项`
     );
-    assert.strictEqual(
-      new RegExp(
-        `<input[^>]*data-section="${section}"[^>]*data-key="provider"`,
-        "m"
-      ).test(wxml),
-      false,
+  });
+  assert.ok(
+    pageJs.includes("onProviderPickerChange(event)"),
+    "管理员页面缺少统一服务商目录切换回调"
+  );
+
+  // 旧版 profile picker 仍可作为隐藏兼容层，但不能把绑定数量写死。
+  const legacyProfileBindings =
+    (wxml.match(/bindchange="onProviderProfileChange"/g) || []).length;
+  if (legacyProfileBindings > 0) {
+    assert.ok(
+      legacyProfileBindings >= Object.keys(PICKER_STATE).length,
+      "旧版服务商档案兼容下拉框不完整"
+    );
+    Object.keys(PICKER_STATE).forEach((section) => {
+      assert.ok(
+        wxml.includes(`range="{{${PICKER_STATE[section]}}}"`),
+        `${section} 缺少旧版服务商档案兼容选项`
+      );
+    });
+  }
+
+  const inputTags = wxml.match(/<input\b[^>]*>/g) || [];
+  SECTIONS.forEach((section) => {
+    assert.ok(
+      !inputTags.some((tag) => (
+        tag.includes(`data-section="${section}"`)
+        && tag.includes('data-key="provider"')
+      )),
       `${section} 仍在使用可随意输入的服务商文本框`
     );
     assert.ok(
@@ -813,9 +844,9 @@ function verifyMarkup() {
       `${section} 的 Key 状态没有跟随当前草稿`
     );
     assert.strictEqual(
-      wxml.includes(`effective.${section}.apiKeyConfigured`),
+      new RegExp(`effective\\.${section}\\.apiKey(?!Configured)`, "m").test(wxml),
       false,
-      `${section} 仍在显示旧云端 Key 状态`
+      `${section} 仍在直接显示 effective 中的明文 Key`
     );
   });
   assert.ok(

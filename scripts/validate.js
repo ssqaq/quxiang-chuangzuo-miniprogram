@@ -26,10 +26,16 @@ const jsonFiles = [
   "scripts/cloud-database-index-manager/package.json"
 ];
 const optionalJsonFiles = ["project.private.config.json"];
+// 新增的 smoke 单独列出，既做语法检查，也纳入必要文件检查。
+const smokeFiles = [
+  "scripts/admin-provider-management-smoke.js"
+];
 const jsFiles = [
   "app.js",
   "config.js",
   "services/cloud.js",
+  "services/admin-video-config.js",
+  "services/admin-provider-registry.js",
   "utils/storage.js",
   "utils/prompt.js",
   "utils/web-pose.js",
@@ -79,6 +85,7 @@ const jsFiles = [
   "scripts/cloudfunction-dependency-smoke.js",
   "scripts/cloud-deploy-safety-smoke.js",
   "scripts/runtime-dependency-health-smoke.js",
+  "scripts/npm-dependency-cache-smoke.js",
   "pages/index/index.js",
   "pages/records/records.js",
   "pages/repair/repair.js",
@@ -164,6 +171,7 @@ const pythonFiles = ["scripts/package-release.py"];
 const powerShellFiles = [
   "scripts/check-devtools.ps1",
   "scripts/deploy-and-verify-api.ps1",
+  "scripts/npm-dependency-cache.ps1",
   "scripts/cloud-deploy-safety.ps1",
   "scripts/deploy-api-cloudbase-cli.ps1",
   "scripts/verify-online-api.ps1",
@@ -250,6 +258,7 @@ const required = [
   "utils/interaction-log.js",
   "utils/diagnostic-log.js",
   "utils/points-ui.js",
+  "services/admin-provider-registry.js",
   "scripts/refresh-preview.ps1",
   "scripts/verify-online-api.ps1",
   "scripts/sync-to-github.ps1",
@@ -257,6 +266,7 @@ const required = [
   "scripts/install-git-hooks.cmd",
   "scripts/write-release-record.ps1",
   "scripts/admin-image-api-key-display-smoke.js",
+  ...smokeFiles,
   "一键刷新预览.cmd",
   "pages/publish-export/publish-export.js",
   "pages/publish-export/publish-export.json",
@@ -376,6 +386,7 @@ const required = [
   "scripts/cloud-deploy-safety.ps1",
   "scripts/deploy-api-cloudbase-cli.ps1",
   "scripts/deployment-script-smoke.js",
+  "scripts/npm-dependency-cache-smoke.js",
   "docs/superpowers/specs/2026-08-26-cloud-dependency-and-deploy-lock-design.md",
   "scripts/check-cloud-database-indexes.ps1",
   "scripts/cloud-database-index-manager/package.json",
@@ -1046,22 +1057,25 @@ const adminApiKeyInputBySection = adminApiKeyInputs.reduce((result, input) => {
   return result;
 }, {});
 if (
-  adminApiKeyInputs.length < 6
-  || !["face", "analysis", "image", "imageBackup", "video", "videoBackup"].every((section) => (
-    adminApiKeyInputBySection[section]
-    && !/\bpassword\b/.test(adminApiKeyInputBySection[section])
-  ))
-  || !(
-    adminApiKeyInputBySection.video
-    && /\bdisabled\b/.test(adminApiKeyInputBySection.video)
-    && adminApiKeyInputBySection.videoBackup
-    && /\bdisabled\b/.test(adminApiKeyInputBySection.videoBackup)
-  )
-  || !["face", "analysis", "image", "imageBackup", "video", "videoBackup"].every(
+  adminApiKeyInputs.length < 5
+  || !["face", "analysis", "image", "imageBackup", "video"].every((section) => {
+    const input = adminApiKeyInputBySection[section];
+    if (!input) return false;
+    // 人脸/分析允许沿用主线的明文编辑框，也允许目录页的 password 输入；
+    // 视频密钥仍必须只读，避免管理员页把云端 Key 写回小程序。
+    return section === "video" ? /\bdisabled\b/.test(input) : true;
+  })
+  || (adminApiKeyInputBySection.videoBackup
+    && !/\bdisabled\b/.test(adminApiKeyInputBySection.videoBackup))
+  || !["face", "analysis", "image", "imageBackup", "video"].every(
     (section) => adminWxml.includes(`form.${section}.apiKeyConfigured`)
+      || adminWxml.includes(`effective.${section}.apiKeyConfigured`)
   )
-  || (adminWxml.match(/已显示完整 Key/g) || []).length < 6
-  || !adminWxml.includes("已显示完整内容")
+  || (adminWxml.match(/已显示完整 Key/g) || []).length < 3
+  || (
+    !adminWxml.includes("当前显示云函数实际生效的完整视频 Key")
+    && !adminWxml.includes("已显示完整内容")
+  )
   || !clientCloudJs.includes('action: "getAdminImageApiKeys"')
   || !cloudJs.includes("async function getAdminImageApiKeys")
   || !adminJs.includes("fetchAdminConfigBundle")
@@ -1069,7 +1083,7 @@ if (
   || !adminWxss.includes(".api-key-config-state")
   || !adminWxss.includes(".api-key-field-tip")
 ) {
-  throw new Error("管理员页面六组完整 Key 明文显示、腾讯密钥状态或专用接口不完整。");
+  throw new Error("管理员页面服务商目录五个槽位的 Key 状态、兼容的视频备用只读项或专用接口不完整。");
 }
 if (
   !clientCloudJs.includes('action: "getModelUsageStats"')
@@ -1314,10 +1328,12 @@ if (
   || !configJs.includes("pointsPromo")
   || !configJs.includes("ledgerDefaultDescription")
   || !configJs.includes("checkInFailedFallback")
-  || !refreshPreviewPs1.includes("wechat-miniapp-preview-latest-qr.png")
-  || !refreshPreviewPs1.includes("wechat-miniapp-preview-latest-info.json")
+  || !refreshPreviewPs1.includes("release.ps1")
+  || !refreshPreviewPs1.includes("IncludePath")
+  || !refreshPreviewPs1.includes("Preview = $true")
+  || refreshPreviewPs1.includes("package-release.py")
 ) {
-  throw new Error("积分签到入口、明细页或云函数路由不完整。");
+  throw new Error("积分签到入口、明细页或统一预览发布入口不完整。");
 }
 if (
   !initCloudDatabasePs1.includes("initializeDatabase")

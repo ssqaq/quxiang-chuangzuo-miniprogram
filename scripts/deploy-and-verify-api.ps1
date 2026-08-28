@@ -115,14 +115,22 @@ function Invoke-WechatIde {
   if ($exitCode -ne 0) {
     throw "wechatide failed with exit code ${exitCode}: $text"
   }
-  $jsonStart = $text.IndexOf("{")
-  if ($jsonStart -lt 0) {
+  $jsonStarts = @()
+  for ($cursor = 0; $cursor -lt $text.Length; $cursor++) {
+    if ($text[$cursor] -eq "{") { $jsonStarts += $cursor }
+  }
+  if ($jsonStarts.Count -eq 0) {
     throw "wechatide did not return JSON: $text"
   }
-  try {
-    $response = $text.Substring($jsonStart) | ConvertFrom-Json
+  $response = $null
+  foreach ($jsonStart in ($jsonStarts | Sort-Object -Descending)) {
+    try {
+      $response = $text.Substring($jsonStart) | ConvertFrom-Json
+      break
+    } catch {
+    }
   }
-  catch {
+  if ($null -eq $response) {
     throw "wechatide returned invalid JSON: $text"
   }
   if (-not $response.ok) {

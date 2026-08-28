@@ -5,6 +5,23 @@ const {
   XINGJU_VIDEO_DEFAULTS,
   applyAdminVideoProviderDefaults
 } = require("../../services/admin-video-config");
+const adminProviderRegistry = require("../../services/admin-provider-registry");
+const {
+  SLOTS: ADMIN_PROVIDER_SLOTS,
+  MAIN_SLOTS: ADMIN_PROVIDER_MAIN_SLOTS,
+  CAPABILITY_LABELS: ADMIN_PROVIDER_CAPABILITY_LABELS,
+  normalizeRegistry: normalizeAdminProviderRegistry,
+  registryFromResult: adminProviderRegistryFromResult,
+  normalizeActiveProviders: normalizeAdminActiveProviders,
+  buildProviderRows: buildAdminProviderRows,
+  buildProviderOptions: buildAdminProviderOptions,
+  providerRecord: getAdminProviderRecord,
+  emptyProviderDraft,
+  draftFromRecord: adminProviderDraftFromRecord,
+  draftToProvider: adminProviderDraftToProvider,
+  effectiveSection: adminProviderEffectiveSection,
+  capabilityComplete: adminProviderCapabilityComplete
+} = adminProviderRegistry;
 
 const IMAGE_QUALITY_OPTIONS = Object.freeze([
   { value: "1K", label: "1K" },
@@ -1633,12 +1650,12 @@ function formatCostDisplay(value) {
 }
 
 const CONFIG_SECTION_TITLES = Object.freeze({
+  providers: "服务商目录",
   face: "人脸识别模型",
   analysis: "图片分析模型",
   image: "生图模型",
   tencentFaceFusion: "开始新创作-腾讯版",
   video: "视频模型",
-  providers: "服务商中文名称",
   points: "签到与积分规则",
   costs: "模型成本配置",
   users: "用户统计"
@@ -1652,7 +1669,9 @@ const MODEL_CONFIG_SECTIONS = Object.freeze([
 ]);
 
 function configEditorSelector(section) {
-  return MODEL_CONFIG_SECTIONS.indexOf(section) >= 0
+  return section === "providers"
+    ? "#config-editor-providers"
+    : MODEL_CONFIG_SECTIONS.indexOf(section) >= 0
     ? `#config-editor-${section}`
     : "#config-editor";
 }
@@ -4228,9 +4247,21 @@ function formFromConfig(result) {
       alertCooldownMinutes: String(generationQueue.alertCooldownMinutes || 10)
     }
   };
-  return applyAdminVideoProviderDefaults(
-    applyAdminVideoProviderDefaults(form),
-    "videoBackup"
+  const normalizedRegistry = adminProviderRegistryFromResult(result);
+  const activeProviders = normalizeAdminActiveProviders(
+    result && result.activeProviders,
+    normalizedRegistry,
+    source
+  );
+  return Object.assign(
+    applyAdminVideoProviderDefaults(
+      applyAdminVideoProviderDefaults(form),
+      "videoBackup"
+    ),
+    {
+      providerRegistry: normalizedRegistry,
+      activeProviders
+    }
   );
 }
 
@@ -4596,7 +4627,7 @@ function formWithAdminImageApiKeys(form, apiKeys) {
   return next;
 }
 
-function adminConfigSavePayload(form, baseline) {
+function adminConfigSavePayload(form, baseline, expectedVersion) {
   const syncedForm = syncAdminProviderProfiles(form);
   const configPayload = formToConfig(syncedForm);
   const currentKeys = adminImageApiKeysFromForm(syncedForm);
@@ -4653,6 +4684,22 @@ function adminConfigSavePayload(form, baseline) {
         delete profile.apiKey;
       }
     });
+  }
+  const activeProviders = form && form.activeProviders && typeof form.activeProviders === "object"
+    ? Object.assign({}, form.activeProviders)
+    : {};
+  const activeOverrides = {};
+  ADMIN_PROVIDER_SLOTS.forEach((slot) => {
+    const section = configPayload[slot] && typeof configPayload[slot] === "object"
+      ? Object.assign({}, configPayload[slot])
+      : {};
+    delete section.provider;
+    activeOverrides[slot] = section;
+  });
+  configPayload.activeProviders = activeProviders;
+  configPayload.activeOverrides = activeOverrides;
+  if (expectedVersion !== undefined && expectedVersion !== null && expectedVersion !== "") {
+    configPayload.expectedVersion = Number(expectedVersion) || 0;
   }
   return configPayload;
 }
@@ -4726,6 +4773,159 @@ function adminImageApiKeysAfterSave(form, baseline) {
     || ""
   ).trim();
   return result;
+}
+
+function emptyAdminProviderUiState() {
+  return {
+    providerRegistry: normalizeAdminProviderRegistry({}),
+    activeProviders: {},
+    providerRows: [],
+    providerPickerOptionsFace: [{ value: "", label: "未配置", status: "empty" }],
+    providerPickerOptionsAnalysis: [{ value: "", label: "未配置", status: "empty" }],
+    providerPickerOptionsImage: [{ value: "", label: "未配置", status: "empty" }],
+    providerPickerOptionsImageBackup: [{ value: "", label: "未配置", status: "empty" }],
+    providerPickerOptionsVideo: [{ value: "", label: "未配置", status: "empty" }],
+    providerPickerIndexFace: 0,
+    providerPickerIndexAnalysis: 0,
+    providerPickerIndexImage: 0,
+    providerPickerIndexImageBackup: 0,
+    providerPickerIndexVideo: 0
+  };
+}
+
+function buildAdminProviderUiState(registry, activeProviders) {
+  const source = normalizeAdminProviderRegistry(registry || {});
+  const active = normalizeAdminActiveProviders(activeProviders, source);
+  const patch = {
+    providerRegistry: source,
+    activeProviders: active,
+    providerRows: buildAdminProviderRows(source, active)
+  };
+  ADMIN_PROVIDER_SLOTS.forEach((slot) => {
+    const suffix = slot.charAt(0).toUpperCase() + slot.slice(1);
+    const options = buildAdminProviderOptions(source, active, slot);
+    patch[`providerPickerOptions${suffix}`] = options;
+    const index = options.findIndex((item) => item.value === active[slot]);
+    patch[`providerPickerIndex${suffix}`] = index >= 0 ? index : 0;
+  });
+  return patch;
+}
+
+function applyAdminProviderRegistryToForm(form, registry, activeProviders) {
+  const source = form && typeof form === "object" ? form : emptyForm();
+  const output = Object.assign({}, source);
+  const active = activeProviders || {};
+  ADMIN_PROVIDER_SLOTS.forEach((slot) => {
+    const key = String(active[slot] || "").trim();
+    const record = getAdminProviderRecord(registry, key);
+    if (!record) return;
+    const current = Object.assign({}, output[slot] || {});
+    const cap = record.capabilities && record.capabilities[slot] || {};
+    current.providerKey = key;
+    current.provider = slot === "image" || slot === "imageBackup"
+      ? displayAdminImageProvider(record.id)
+      : displayAdminProvider(record.id);
+    if (record.common && Object.prototype.hasOwnProperty.call(record.common, "baseUrl")) {
+      current.baseUrl = record.common.baseUrl;
+    }
+    [
+      "endpoint", "queryEndpoint", "model", "mode", "size", "resolution",
+      "compatibilityMode", "timeoutMs", "maxRetries", "retryEnabled",
+      "retryPreferenceVersion", "createPath", "queryPath", "aspectRatio", "enabled"
+    ].forEach((field) => {
+      // 目录档案是当前能力的唯一来源；空字符串也要覆盖旧服务商的值，
+      // 否则切换到未填完整的档案时会偷偷沿用上一家服务商的模型/路径。
+      if (cap[field] !== undefined) current[field] = cap[field];
+    });
+    current.apiKeyConfigured = Boolean(
+      cap.apiKeyConfigured
+      || record.common && record.common.apiKeyConfigured
+      || current.apiKey
+    );
+    output[slot] = current;
+  });
+  return output;
+}
+
+function providerSecretFingerprint(value) {
+  const text = String(value || "");
+  if (!text) return "";
+  let hash = 2166136261;
+  for (let index = 0; index < text.length; index += 1) {
+    hash = (hash ^ text.charCodeAt(index)) >>> 0;
+    hash = (hash * 16777619) >>> 0;
+  }
+  return `${text.length}:${hash.toString(16)}`;
+}
+
+function providerDraftSnapshot(draft) {
+  const source = draft && typeof draft === "object" ? draft : {};
+  const copy = JSON.parse(JSON.stringify(source));
+  // 草稿快照只保存不可逆指纹，能识别 Key 变化，也不把明文写进快照状态。
+  if (copy.common) copy.common.apiKey = providerSecretFingerprint(copy.common.apiKey);
+  if (copy.capabilities) {
+    Object.keys(copy.capabilities).forEach((slot) => {
+      if (copy.capabilities[slot]) {
+        copy.capabilities[slot].apiKey = providerSecretFingerprint(copy.capabilities[slot].apiKey);
+      }
+    });
+  }
+  return JSON.stringify(copy);
+}
+
+function validateAdminProviderDraft(draft) {
+  const source = draft && typeof draft === "object" ? draft : {};
+  const id = String(source.id || "").trim();
+  const name = String(source.name || "").trim();
+  if (!/^[A-Za-z0-9._-]{1,64}$/.test(id)) {
+    return "服务商 ID 只能用字母、数字、点、下划线和短横线，长度不超过 64。";
+  }
+  if (name.length < 1 || name.length > 20) return "中文名长度必须是 1～20 个字符。";
+  const complete = ADMIN_PROVIDER_SLOTS.some((slot) => (
+    source.capabilities
+    && adminProviderCapabilityComplete({
+      common: source.common,
+      capabilities: { [slot]: Object.assign({}, source.capabilities[slot] || {}, {
+        baseUrl: source.capabilities[slot] && source.capabilities[slot].baseUrl || source.common && source.common.baseUrl,
+        apiKeyConfigured: source.capabilities[slot] && source.capabilities[slot].apiKeyConfigured || source.common && source.common.apiKeyConfigured
+      })
+    }}, slot)
+  ));
+  if (!complete) return "至少完整配置一项能力后才能保存。";
+  return "";
+}
+
+function normalizeAdminProviderRebound(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => {
+      if (item && typeof item === "object") {
+        return String(item.label || `${item.from || "未配置"} → ${item.to || "未配置"}`);
+      }
+      return String(item || "");
+    }).filter(Boolean);
+  }
+  if (value && typeof value === "object") {
+    return Object.keys(value).map((slot) => {
+      const item = value[slot] || {};
+      return `${ADMIN_PROVIDER_CAPABILITY_LABELS[slot] || slot}：${item.from || "未配置"} → ${item.to || "未配置"}`;
+    });
+  }
+  return [];
+}
+
+function adminApiKeyBaselineWithoutProvider(baseline, activeProviders, providerKey) {
+  const output = Object.assign(
+    emptyAdminImageApiKeys(),
+    baseline && typeof baseline === "object" ? baseline : {}
+  );
+  const target = String(providerKey || "").trim();
+  if (!target) return output;
+  ADMIN_PROVIDER_SLOTS.forEach((slot) => {
+    if (String(activeProviders && activeProviders[slot] || "").trim() === target) {
+      output[slot] = "";
+    }
+  });
+  return output;
 }
 
 async function fetchAdminConfigBundle() {
@@ -5175,6 +5375,35 @@ Page({
     videoWizardStep: 1,
     videoWizardAdvancedOpen: false,
     entryHealth: buildEntryHealth(),
+    configVersion: 0,
+    providerRegistry: normalizeAdminProviderRegistry({}),
+    activeProviders: {},
+    providerRows: [],
+    providerPickerOptionsFace: [{ value: "", label: "未配置" }],
+    providerPickerOptionsAnalysis: [{ value: "", label: "未配置" }],
+    providerPickerOptionsImage: [{ value: "", label: "未配置" }],
+    providerPickerOptionsImageBackup: [{ value: "", label: "未配置" }],
+    providerPickerOptionsVideo: [{ value: "", label: "未配置" }],
+    providerPickerIndexFace: 0,
+    providerPickerIndexAnalysis: 0,
+    providerPickerIndexImage: 0,
+    providerPickerIndexImageBackup: 0,
+    providerPickerIndexVideo: 0,
+    providerDraft: emptyProviderDraft(),
+    providerDraftDirty: false,
+    providerDraftSnapshot: "",
+    providerEditingKey: "",
+    providerActiveTab: "face",
+    providerEditorTabs: [
+      { value: "face", label: "人脸" },
+      { value: "analysis", label: "分析" },
+      { value: "image", label: "生图" },
+      { value: "video", label: "视频" }
+    ],
+    providerSaving: false,
+    providerDeleting: false,
+    providerSecretsLoading: false,
+    providerAutoRebound: [],
     activeConfigSection: "",
     activeConfigTitle: "",
     monitorExpanded: true,
@@ -5192,6 +5421,7 @@ Page({
 
   onLoad() {
     this._adminLoadToken = 0;
+    this._providerDraftRequestSeq = 0;
     this._imageApiKeyBaseline = emptyAdminImageApiKeys();
     this.restoreMonitorLayout();
     this.loadAdminPage();
@@ -5201,13 +5431,20 @@ Page({
 
   onUnload() {
     this._adminLoadToken = (this._adminLoadToken || 0) + 1;
+    this._providerDraftRequestSeq = (this._providerDraftRequestSeq || 0) + 1;
     this._imageApiKeyBaseline = emptyAdminImageApiKeys();
     this.stopModelFailureAutoRefresh();
     this.stopAutoFaceFailureAutoRefresh();
   },
 
   onPullDownRefresh() {
-    this.loadAdminPage().finally(() => wx.stopPullDownRefresh());
+    const refresh = () => this.loadAdminPage().finally(() => wx.stopPullDownRefresh());
+    if (this.providerDraftHasChanges()) {
+      wx.stopPullDownRefresh();
+      this.confirmDiscardProviderDraft(refresh);
+      return;
+    }
+    refresh();
   },
 
   isCurrentAdminLoad(token) {
@@ -5617,13 +5854,22 @@ Page({
         ? apiKeyResult.apiKeys
         : emptyAdminImageApiKeys();
       const effective = result && result.effective ? result.effective : null;
+      const rawForm = formFromConfig(result);
+      const providerUi = buildAdminProviderUiState(
+        rawForm.providerRegistry,
+        rawForm.activeProviders
+      );
       const form = formWithAdminImageApiKeys(
-        formFromConfig(result),
+        applyAdminProviderRegistryToForm(
+          rawForm,
+          providerUi.providerRegistry,
+          providerUi.activeProviders
+        ),
         imageApiKeys
       );
       this._imageApiKeyBaseline = adminImageApiKeysFromForm(form);
       const moduleStates = loadingAdminModuleStates(this.data.moduleStates);
-      const basePatch = Object.assign({
+      const basePatch = Object.assign({}, providerUi, {
         loading: false,
         isAdmin: true,
         canRetry: false,
@@ -5632,12 +5878,13 @@ Page({
         form,
         costFieldErrors: {},
         defaults: result.defaults || null,
+        configVersion: Number(result.version) || 0,
         effective,
         moduleStates,
         message: apiKeyResult.ok
           ? ""
           : "普通配置已读取，但完整 Key 读取失败，请刷新。"
-      }, buildQualityPickerState(form), buildAdminProviderProfilePickerState(form),
+      }, providerUi, buildQualityPickerState(form), buildAdminProviderProfilePickerState(form),
       buildAdminProviderManagementState(
         form,
         this.data.modelProbes,
@@ -6352,6 +6599,15 @@ Page({
 
   async refreshAll() {
     if (this.data.refreshingAll) return;
+    if (this.providerDraftHasChanges()) {
+      const shouldRefresh = await this.confirmDiscardProviderDraft();
+      if (!shouldRefresh) return;
+    }
+    return this.refreshAllNow();
+  },
+
+  async refreshAllNow() {
+    if (this.data.refreshingAll) return;
     const token = (this._adminLoadToken || 0) + 1;
     this._adminLoadToken = token;
     const loadingStates = loadingAdminModuleStates(this.data.moduleStates);
@@ -6379,15 +6635,25 @@ Page({
         const imageApiKeys = apiKeyResult.ok
           ? apiKeyResult.apiKeys
           : emptyAdminImageApiKeys();
+        const rawForm = formFromConfig(result);
+        const providerUi = buildAdminProviderUiState(
+          rawForm.providerRegistry,
+          rawForm.activeProviders
+        );
         const form = formWithAdminImageApiKeys(
-          formFromConfig(result),
+          applyAdminProviderRegistryToForm(
+            rawForm,
+            providerUi.providerRegistry,
+            providerUi.activeProviders
+          ),
           imageApiKeys
         );
         this._imageApiKeyBaseline = adminImageApiKeysFromForm(form);
-        const patch = Object.assign({
+        const patch = Object.assign({}, providerUi, {
           form,
           costFieldErrors: {},
           defaults: result.defaults || null,
+          configVersion: Number(result.version) || 0,
           effective: result.effective || null
         }, buildQualityPickerState(form), buildAdminProviderProfilePickerState(form),
         buildAdminProviderManagementState(
@@ -6888,6 +7154,364 @@ Page({
       this.buildAdminDerivedPatch({ form: nextForm }, this.data.moduleStates)
     );
     this.setData(patch);
+  },
+
+  providerUiPatch(registry = this.data.providerRegistry, activeProviders = this.data.activeProviders) {
+    return buildAdminProviderUiState(registry, activeProviders);
+  },
+
+  providerDraftHasChanges() {
+    if (!this.data.providerDraftDirty) return false;
+    return providerDraftSnapshot(this.data.providerDraft)
+      !== String(this.data.providerDraftSnapshot || "");
+  },
+
+  confirmDiscardProviderDraft(callback) {
+    if (!this.providerDraftHasChanges()) {
+      if (typeof callback === "function") callback();
+      return Promise.resolve(true);
+    }
+    return new Promise((resolve) => {
+      wx.showModal({
+        title: "丢弃未保存修改？",
+        content: "当前服务商编辑器还有未保存内容，继续切换会丢失这些修改。",
+        confirmText: "丢弃并继续",
+        cancelText: "继续编辑",
+        success: (result) => {
+          const confirmed = Boolean(result && result.confirm);
+          if (confirmed && typeof callback === "function") callback();
+          resolve(confirmed);
+        },
+        fail: () => resolve(false)
+      });
+    });
+  },
+
+  openProviderDraft(providerKey, options = {}) {
+    const key = String(providerKey || "").trim();
+    const open = async () => {
+      const requestSeq = (this._providerDraftRequestSeq || 0) + 1;
+      this._providerDraftRequestSeq = requestSeq;
+      this.setData({ providerSecretsLoading: Boolean(key) });
+      let draft = emptyProviderDraft();
+      let secretError = null;
+      if (key) {
+        const record = getAdminProviderRecord(this.data.providerRegistry, key);
+        if (!record) {
+          this.setData({ providerSecretsLoading: false });
+          return;
+        }
+        try {
+          const secrets = await cloud.getAdminProviderSecrets(key, { retryLimit: 0 });
+          draft = adminProviderDraftFromRecord(record, secrets || {});
+        } catch (error) {
+          secretError = error;
+          draft = adminProviderDraftFromRecord(record, {});
+        }
+        if (requestSeq !== this._providerDraftRequestSeq) return;
+        this.setData({ providerSecretsLoading: false });
+      }
+      if (requestSeq !== this._providerDraftRequestSeq) return;
+      const snapshot = providerDraftSnapshot(draft);
+      this.setData({
+        providerDraft: draft,
+        providerEditingKey: key,
+        providerDraftDirty: false,
+        providerDraftSnapshot: snapshot,
+        providerActiveTab: options.tab && ADMIN_PROVIDER_MAIN_SLOTS.includes(options.tab)
+          ? options.tab
+          : "face",
+        providerAutoRebound: [],
+        message: secretError ? "服务商参数已读取，完整 Key 读取失败；可继续编辑后重试。" : ""
+      });
+    };
+    this.confirmDiscardProviderDraft(open);
+  },
+
+  startAddProvider() {
+    this.openProviderDraft("");
+  },
+
+  selectProviderRow(event) {
+    const key = event && event.currentTarget && event.currentTarget.dataset
+      ? event.currentTarget.dataset.providerKey
+      : "";
+    this.openProviderDraft(key);
+  },
+
+  onProviderDraftInput(event) {
+    const path = event && event.currentTarget && event.currentTarget.dataset
+      ? String(event.currentTarget.dataset.path || "").trim()
+      : "";
+    if (
+      !path
+      || path.split(".").some((part) => ADMIN_PROVIDER_DANGEROUS_KEYS.includes(part))
+    ) return;
+    this.setData({
+      [`providerDraft.${path}`]: event.detail && event.detail.value !== undefined
+        ? event.detail.value
+        : "",
+      providerDraftDirty: true
+    });
+  },
+
+  onProviderCapabilityToggle(event) {
+    const path = event && event.currentTarget && event.currentTarget.dataset
+      ? String(event.currentTarget.dataset.path || "").trim()
+      : "";
+    if (!path) return;
+    this.setData({
+      [`providerDraft.${path}`]: Boolean(event.detail && event.detail.value),
+      providerDraftDirty: true
+    });
+  },
+
+  onProviderOverrideToggle(event) {
+    const slot = event && event.currentTarget && event.currentTarget.dataset
+      ? String(event.currentTarget.dataset.slot || "").trim()
+      : "";
+    if (!ADMIN_PROVIDER_SLOTS.includes(slot)) return;
+    this.setData({
+      [`providerDraft.capabilities.${slot}.overrideEnabled`]: Boolean(
+        event.detail && event.detail.value
+      ),
+      providerDraftDirty: true
+    });
+  },
+
+  onProviderClearKeyToggle(event) {
+    const target = event && event.currentTarget && event.currentTarget.dataset
+      ? String(event.currentTarget.dataset.target || "common").trim()
+      : "common";
+    if (target !== "common" && !ADMIN_PROVIDER_SLOTS.includes(target)) return;
+    const path = target === "common"
+      ? "providerDraft.common.clearApiKey"
+      : `providerDraft.capabilities.${target}.clearApiKey`;
+    this.setData({
+      [path]: Boolean(event.detail && event.detail.value),
+      providerDraftDirty: true
+    });
+  },
+
+  onProviderTabChange(event) {
+    const tab = event && event.currentTarget && event.currentTarget.dataset
+      ? String(event.currentTarget.dataset.tab || "")
+      : "";
+    if (ADMIN_PROVIDER_MAIN_SLOTS.includes(tab)) this.setData({ providerActiveTab: tab });
+  },
+
+  async saveProviderDraft() {
+    if (this.data.providerSaving) return;
+    const draft = this.data.providerDraft || emptyProviderDraft();
+    const validationError = validateAdminProviderDraft(draft);
+    if (validationError) {
+      wx.showModal({ title: "服务商信息不完整", content: validationError, showCancel: false });
+      return;
+    }
+    const duplicate = Object.keys(this.data.providerRegistry.providers || {}).some((key) => {
+      if (key === this.data.providerEditingKey) return false;
+      const record = this.data.providerRegistry.providers[key];
+      return record && String(record.id || "").toLowerCase() === String(draft.id).toLowerCase();
+    });
+    if (duplicate) {
+      wx.showModal({ title: "服务商 ID 重复", content: "ID 不区分大小写，换一个再保存。", showCancel: false });
+      return;
+    }
+    this.setData({ providerSaving: true, message: "" });
+    try {
+      const result = await cloud.saveAdminProvider({
+        operation: "upsert",
+        expectedVersion: this.data.configVersion || (this.data.effective && this.data.effective.version),
+        provider: adminProviderDraftToProvider(draft)
+      });
+      const registry = adminProviderRegistryFromResult(result);
+      const active = normalizeAdminActiveProviders(
+        result && result.activeProviders || this.data.activeProviders,
+        registry,
+        result && result.effective || this.data.effective || {}
+      );
+      const effective = result && result.effective || this.data.effective;
+      const savedKey = String(
+        result && result.provider && result.provider.providerKey
+        || draft.providerKey
+        || this.data.providerEditingKey
+        || ""
+      );
+      // 服务商 Key 可能刚被改写；不要把保存前旧服务商的明文 Key 回填到新配置。
+      const nextApiKeyBaseline = adminApiKeyBaselineWithoutProvider(
+        this._imageApiKeyBaseline,
+        active,
+        savedKey
+      );
+      const nextForm = effective
+        ? formWithAdminImageApiKeys(
+          applyAdminProviderRegistryToForm(formFromConfig(result), registry, active),
+          nextApiKeyBaseline
+        )
+        : this.data.form;
+      const savedRecord = getAdminProviderRecord(registry, savedKey);
+      const nextDraft = savedRecord
+        ? adminProviderDraftFromRecord(savedRecord, draft)
+        : draft;
+      const patch = Object.assign({}, this.providerUiPatch(registry, active), {
+        form: nextForm,
+        effective,
+        configVersion: Number(result && result.version) || this.data.configVersion,
+        providerDraft: nextDraft,
+        providerEditingKey: savedKey,
+        providerDraftDirty: false,
+        providerDraftSnapshot: providerDraftSnapshot(nextDraft),
+        providerSaving: false,
+        providerAutoRebound: normalizeAdminProviderRebound(result && result.autoRebound),
+        message: "服务商已保存；当前四项功能绑定未自动改变。"
+      });
+      this._imageApiKeyBaseline = nextApiKeyBaseline;
+      this.setData(patch);
+      wx.showToast({ title: "服务商已保存", icon: "success" });
+    } catch (error) {
+      this.setData({ providerSaving: false });
+      diagnosticLog.error("admin", "provider-save-failed", "服务商保存失败", { error });
+      this.showError("服务商保存失败", error);
+    }
+  },
+
+  providerDeletePreview(providerKey) {
+    const key = String(providerKey || "");
+    const record = getAdminProviderRecord(this.data.providerRegistry, key);
+    if (!record) return [];
+    const active = this.data.activeProviders || {};
+    return ADMIN_PROVIDER_SLOTS.filter((slot) => active[slot] === key).map((slot) => {
+      const fallback = slot === "face" || slot === "analysis"
+        ? "阿里云百炼"
+        : slot === "image"
+          ? "星炬"
+          : slot === "imageBackup"
+            ? "凌云"
+            : "当前环境预设";
+      return `${ADMIN_PROVIDER_CAPABILITY_LABELS[slot]}：${fallback}`;
+    });
+  },
+
+  async deleteProviderDraft() {
+    if (this.data.providerDeleting) return;
+    const key = String(this.data.providerEditingKey || "").trim();
+    const record = getAdminProviderRecord(this.data.providerRegistry, key);
+    if (!record) return;
+    if (record.protected || record.builtIn) {
+      wx.showModal({ title: "不能删除内置服务商", content: "内置或迁移来的服务商只能改参数，不能删除。", showCancel: false });
+      return;
+    }
+    const preview = this.providerDeletePreview(key);
+    const content = preview.length
+      ? `删除后会自动切换：\n${preview.join("\n")}\n继续删除吗？`
+      : "该服务商当前没有被功能使用，删除后不能恢复。继续吗？";
+    wx.showModal({
+      title: `删除${record.name}`,
+      content,
+      confirmText: "删除",
+      confirmColor: "#d64545",
+      success: async (modal) => {
+        if (!modal || !modal.confirm) return;
+        this.setData({ providerDeleting: true, message: "" });
+        try {
+          const result = await cloud.saveAdminProvider({
+            operation: "delete",
+            providerKey: key,
+            expectedVersion: this.data.configVersion || (this.data.effective && this.data.effective.version)
+          });
+          const registry = adminProviderRegistryFromResult(result);
+          const active = normalizeAdminActiveProviders(
+            result && result.activeProviders || {},
+            registry,
+            result && result.effective || {}
+          );
+          const effective = result && result.effective || null;
+          const nextApiKeyBaseline = adminApiKeyBaselineWithoutProvider(
+            this._imageApiKeyBaseline,
+            this.data.activeProviders,
+            key
+          );
+          const form = effective
+            ? formWithAdminImageApiKeys(
+              applyAdminProviderRegistryToForm(formFromConfig(result), registry, active),
+              nextApiKeyBaseline
+            )
+            : this.data.form;
+          const rows = buildAdminProviderRows(registry, active);
+          const nextKey = rows.length ? rows[0].providerKey : "";
+          const nextRecord = getAdminProviderRecord(registry, nextKey);
+          const nextDraft = nextRecord ? adminProviderDraftFromRecord(nextRecord, {}) : emptyProviderDraft();
+          const patch = Object.assign({}, this.providerUiPatch(registry, active), {
+            form,
+            effective,
+            configVersion: Number(result && result.version) || this.data.configVersion,
+            providerEditingKey: nextKey,
+            providerDraft: nextDraft,
+            providerDraftDirty: false,
+            providerDraftSnapshot: providerDraftSnapshot(nextDraft),
+            providerDeleting: false,
+            providerAutoRebound: normalizeAdminProviderRebound(result && result.autoRebound),
+            message: normalizeAdminProviderRebound(result && result.autoRebound).length
+              ? `已删除；自动切换：${normalizeAdminProviderRebound(result && result.autoRebound).join("、")}`
+              : "服务商已删除。"
+          });
+          this._imageApiKeyBaseline = nextApiKeyBaseline;
+          this.setData(patch);
+          wx.showToast({ title: "服务商已删除", icon: "success" });
+        } catch (error) {
+          this.setData({ providerDeleting: false });
+          diagnosticLog.error("admin", "provider-delete-failed", "服务商删除失败", { error });
+          this.showError("服务商删除失败", error);
+        }
+      }
+    });
+  },
+
+  async onProviderPickerChange(event) {
+    const section = event && event.currentTarget && event.currentTarget.dataset
+      ? String(event.currentTarget.dataset.section || "")
+      : "";
+    if (!ADMIN_PROVIDER_SLOTS.includes(section)) return;
+    const index = Number(event && event.detail && event.detail.value) || 0;
+    const suffix = section.charAt(0).toUpperCase() + section.slice(1);
+    const options = this.data[`providerPickerOptions${suffix}`] || [];
+    const option = options[index] || options[0];
+    const key = option && option.value || "";
+    const active = Object.assign({}, this.data.activeProviders, { [section]: key });
+    this._imageApiKeyBaseline = Object.assign(
+      emptyAdminImageApiKeys(),
+      this._imageApiKeyBaseline || {},
+      { [section]: "" }
+    );
+    let nextForm = Object.assign({}, this.data.form);
+    if (!key) {
+      nextForm[section] = Object.assign({}, nextForm[section] || {}, {
+        provider: "",
+        providerKey: "",
+        apiKey: "",
+        apiKeyConfigured: false
+      });
+    } else {
+      const record = getAdminProviderRecord(this.data.providerRegistry, key);
+      if (!record) return;
+      nextForm[section] = adminProviderEffectiveSection(
+        record,
+        section,
+        Object.assign({}, nextForm[section] || {}, { apiKey: "" })
+      );
+      nextForm[section].providerKey = key;
+      nextForm[section].provider = section === "image" || section === "imageBackup"
+        ? displayAdminImageProvider(record.id)
+        : displayAdminProvider(record.id);
+      if (section === "video") nextForm = applyAdminVideoProviderDefaults(nextForm);
+    }
+    const patch = Object.assign({}, this.providerUiPatch(this.data.providerRegistry, active), {
+      form: nextForm,
+      message: key && option.status === "empty"
+        ? "这个服务商页签还没配置完整，保存后不会自动兜底。"
+        : "已切换服务商；点击“保存全部配置”后生效。"
+    });
+    this.setData(Object.assign(patch, buildQualityPickerState(nextForm)));
   },
 
   async loadTencentFaceFusionStatus(token = this._adminLoadToken || 0) {
@@ -7558,49 +8182,67 @@ Page({
       : this.data.activeConfigSection === section
       ? ""
       : section;
-    const patch = {
-      activeConfigSection: nextSection,
-      activeConfigTitle: nextSection ? CONFIG_SECTION_TITLES[nextSection] : ""
+    const apply = () => {
+      const patch = {
+        activeConfigSection: nextSection,
+        activeConfigTitle: nextSection ? CONFIG_SECTION_TITLES[nextSection] : ""
+      };
+      if (section === "image") {
+        patch.tencentFaceFusionFieldErrors = {};
+        patch.imageWizardStep = 1;
+        patch.imageWizardAdvancedOpen = false;
+      }
+      if (section === "tencentFaceFusion") {
+        patch.tencentPipelineWizardStep = 1;
+        patch.tencentFaceFusionFieldErrors = {};
+      }
+      if (section === "video") {
+        patch.videoWizardStep = 1;
+        patch.videoWizardAdvancedOpen = false;
+      }
+      this.setData(patch, () => {
+        if (nextSection === "providers" && !this.data.providerEditingKey) {
+          const first = this.data.providerRows && this.data.providerRows[0];
+          if (first) this.openProviderDraft(first.providerKey);
+        }
+        this.persistMonitorLayout();
+        if (nextSection === "users" && this.data.userStats.unavailable) {
+          this.refreshUserStats(true);
+        }
+        if (nextSection && typeof wx.pageScrollTo === "function") {
+          wx.pageScrollTo({
+            selector: configEditorSelector(nextSection),
+            duration: 220
+          });
+        }
+      });
     };
-    if (section === "image") {
-      patch.tencentFaceFusionFieldErrors = {};
-      patch.imageWizardStep = 1;
-      patch.imageWizardAdvancedOpen = false;
+    if (this.data.activeConfigSection === "providers" && nextSection !== "providers") {
+      this.confirmDiscardProviderDraft(apply);
+      return;
     }
-    if (section === "tencentFaceFusion") {
-      patch.tencentPipelineWizardStep = 1;
-      patch.tencentFaceFusionFieldErrors = {};
-    }
-    if (section === "video") {
-      patch.videoWizardStep = 1;
-      patch.videoWizardAdvancedOpen = false;
-    }
-    this.setData(patch, () => {
-      this.persistMonitorLayout();
-      if (nextSection === "users" && this.data.userStats.unavailable) {
-        this.refreshUserStats(true);
-      }
-      if (nextSection && typeof wx.pageScrollTo === "function") {
-        wx.pageScrollTo({
-          selector: configEditorSelector(nextSection),
-          duration: 220
-        });
-      }
-    });
+    apply();
   },
 
   closeConfigSection() {
-    const patch = {
-      activeConfigSection: "",
-      activeConfigTitle: ""
+    const close = () => {
+      const patch = {
+        activeConfigSection: "",
+        activeConfigTitle: "",
+        tencentFaceFusionFieldErrors: {},
+        imageWizardStep: 1,
+        imageWizardAdvancedOpen: false,
+        tencentPipelineWizardStep: 1,
+        videoWizardStep: 1,
+        videoWizardAdvancedOpen: false
+      };
+      this.setData(patch, () => this.persistMonitorLayout());
     };
-    patch.tencentFaceFusionFieldErrors = {};
-    patch.imageWizardStep = 1;
-    patch.imageWizardAdvancedOpen = false;
-    patch.tencentPipelineWizardStep = 1;
-    patch.videoWizardStep = 1;
-    patch.videoWizardAdvancedOpen = false;
-    this.setData(patch, () => this.persistMonitorLayout());
+    if (this.data.activeConfigSection === "providers") {
+      this.confirmDiscardProviderDraft(close);
+      return;
+    }
+    close();
   },
 
   toggleMonitor() {
@@ -7954,7 +8596,7 @@ Page({
         providerErrorCode: ADMIN_PROVIDER_LABEL_REQUIRED
       }, () => {
         if (typeof wx.pageScrollTo === "function") {
-          wx.pageScrollTo({ selector: "#config-editor", duration: 220 });
+          wx.pageScrollTo({ selector: configEditorSelector("providers"), duration: 220 });
         }
       });
       wx.showModal({
@@ -8009,7 +8651,8 @@ Page({
       const result = await cloud.saveAdminConfig(
         adminConfigSavePayload(
           this.data.form,
-          this._imageApiKeyBaseline
+          this._imageApiKeyBaseline,
+          this.data.configVersion
         )
       );
       const effective = result.effective || null;
@@ -8020,12 +8663,17 @@ Page({
         ),
         tencentFaceFusionBeforeSave
       );
-      this._imageApiKeyBaseline = adminImageApiKeysFromForm(form);
-      const patch = Object.assign({
+      const providerUi = buildAdminProviderUiState(
+        form.providerRegistry,
+        form.activeProviders
+      );
+      this._imageApiKeyBaseline = savedImageApiKeys;
+      const patch = Object.assign({}, providerUi, {
         form,
         costFieldErrors: {},
         tencentFaceFusionFieldErrors: {},
         effective,
+        configVersion: Number(result.version) || this.data.configVersion,
         saving: false,
         message: `配置保存成功，第 ${result.version || 0} 版；当前配置已生效，正在自动检查四套模型和生图三档清晰度...`
       }, buildQualityPickerState(form), buildAdminProviderProfilePickerState(form),
@@ -8535,7 +9183,9 @@ Page({
   },
 
   backToWorkbench() {
-    wx.reLaunch({ url: "/pages/workbench/workbench" });
+    this.confirmDiscardProviderDraft(() => {
+      wx.reLaunch({ url: "/pages/workbench/workbench" });
+    });
   },
 
   showError(title, error) {

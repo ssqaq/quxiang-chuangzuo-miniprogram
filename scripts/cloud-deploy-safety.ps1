@@ -203,6 +203,55 @@ function Assert-CloudDeployVersionNotDowngrade {
     }
 }
 
+function Test-CloudDeployTextPath {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $extension = [IO.Path]::GetExtension($Path).ToLowerInvariant()
+    return $extension -in @(
+        ".cjs", ".css", ".html", ".js", ".json", ".md", ".mjs", ".njs",
+        ".ps1", ".sh", ".ts", ".tsx", ".txt", ".wxml", ".wxss", ".xml",
+        ".yaml", ".yml"
+    )
+}
+
+function Get-CloudDeployFileDigest {
+    param(
+        [Parameter(Mandatory = $true)][IO.FileInfo]$File,
+        [Parameter(Mandatory = $true)][string]$RelativePath
+    )
+
+    $bytes = [IO.File]::ReadAllBytes($File.FullName)
+    if (Test-CloudDeployTextPath -Path $RelativePath) {
+        # Tooling on Windows may rewrite only CRLF/LF while the source is
+        # unchanged.  Canonicalize line endings for text files, but leave
+        # binary assets byte-for-byte protected.
+        $normalized = New-Object 'System.Collections.Generic.List[byte]'
+        for ($index = 0; $index -lt $bytes.Length; $index++) {
+            if ($bytes[$index] -eq 13) {
+                if ($index + 1 -lt $bytes.Length -and $bytes[$index + 1] -eq 10) {
+                    $index++
+                }
+                [void]$normalized.Add(10)
+            } else {
+                [void]$normalized.Add($bytes[$index])
+            }
+        }
+        $bytes = $normalized.ToArray()
+    }
+
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try {
+        $hash = ($sha.ComputeHash($bytes) | ForEach-Object { $_.ToString("x2") }) -join ""
+    }
+    finally {
+        $sha.Dispose()
+    }
+    return [pscustomobject]@{
+        Length = [int64]$bytes.Length
+        Sha256 = $hash
+    }
+}
+
 function Get-CloudDeploySourceSnapshot {
     param(
         [Parameter(Mandatory = $true)]
@@ -225,10 +274,11 @@ function Get-CloudDeploySourceSnapshot {
         Sort-Object FullName
     foreach ($file in $files) {
         $relative = $file.FullName.Substring($api.Length).TrimStart("\", "/")
+        $digest = Get-CloudDeployFileDigest -File $file -RelativePath $relative
         $entries += [pscustomobject]@{
             Path = $relative.Replace("\", "/")
-            Length = [int64]$file.Length
-            Sha256 = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
+            Length = $digest.Length
+            Sha256 = $digest.Sha256
         }
     }
     $manifest = (

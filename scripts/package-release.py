@@ -202,7 +202,7 @@ def main() -> None:
     source_sha256 = compute_source_sha256(source_root)
     tree_sha = args.tree_sha
     if not tree_sha and args.source_tree:
-        tree_sha = git_output(f"{args.source_tree}^{{tree}}")
+        tree_sha = git_output("rev-parse", f"{args.source_tree}^{{tree}}")
     tree_sha = tree_sha or "未提供"
     output.parent.mkdir(parents=True, exist_ok=True)
     if output.exists():

@@ -792,8 +792,8 @@ function verifyMarkup() {
   );
   assert.strictEqual(
     (wxml.match(/bindchange="onProviderProfileChange"/g) || []).length,
-    10,
-    "四个功能区的主备配置、图片向导和视频向导都必须使用服务商档案下拉框"
+    12,
+    "图片主备、腾讯版主备和视频主备都必须使用服务商档案下拉框"
   );
   Object.keys(PICKER_STATE).forEach((section) => {
     assert.ok(
@@ -853,6 +853,46 @@ function verifyMarkup() {
       && pageJs.includes("validateVideoWizardStep")
       && pageJs.includes("videoWizardAdvancedOpen"),
     "视频主备四步向导或备用开关缺失"
+  );
+  assert.ok(
+    wxml.includes('data-section="tencentFaceFusion"')
+      && wxml.includes('id="config-editor-tencentFaceFusion"')
+      && wxml.includes("开始新创作-腾讯版")
+      && wxml.includes("tencentPipelineWizardStep")
+      && wxml.includes("第 1 步：选择主生图模型")
+      && wxml.includes("第 2 步：要不要启用备用生图")
+      && wxml.includes("第 3 步：配置腾讯融合")
+      && wxml.includes("第 4 步：测试并保存")
+      && wxml.includes('bindtap="onTencentWizardNext"')
+      && wxml.includes('bindtap="onTencentWizardPrev"')
+      && !wxml.includes("tencentImageTab ===")
+      && !wxml.includes("tencent-fusion-tab-panel"),
+    "独立腾讯版四步向导缺失，或普通生图仍残留旧腾讯页签"
+  );
+  [
+    "secretId",
+    "secretKey",
+    "region",
+    "endpoint",
+    "apiVersion",
+    "action",
+    "model",
+    "swapModelType",
+    "logoAdd",
+    "timeoutMs",
+    "maxImageBytes"
+  ].forEach((field) => {
+    assert.ok(
+      wxml.includes(`form.tencentFaceFusion.${field}`),
+      `腾讯版缺少配置字段 ${field}`
+    );
+  });
+  assert.ok(
+    pageJs.includes('tencentFaceFusion: "开始新创作-腾讯版"')
+      && pageJs.includes('rawSection === "tencentImage"')
+      && pageJs.includes('? "tencentFaceFusion" : rawSection')
+      && pageJs.includes("tencentPipelineWizardStep"),
+    "腾讯版独立 section 或旧布局迁移逻辑缺失"
   );
 }
 

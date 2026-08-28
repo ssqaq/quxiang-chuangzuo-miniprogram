@@ -24,8 +24,8 @@ assert.strictEqual(
 );
 assert.strictEqual(
   (wxml.match(/class="current-config-row/g) || []).length,
-  4,
-  "当前配置不能再出现腾讯独立行"
+  5,
+  "当前配置必须包含独立腾讯版行"
 );
 assert.strictEqual(
   wxml.includes('id="config-editor-tencentImage"')
@@ -34,25 +34,30 @@ assert.strictEqual(
   "腾讯融合不能再使用旧的独立行或独立面板"
 );
 const imageEditorStart = wxml.indexOf('id="config-editor-image"');
-const imageEditorEnd = wxml.indexOf('id="config-editor-video"');
+const tencentEditorStart = wxml.indexOf('id="config-editor-tencentFaceFusion"');
+const imageEditorEnd = tencentEditorStart;
 assert.ok(imageEditorStart >= 0 && imageEditorEnd > imageEditorStart);
 assert.ok(
-  wxml.indexOf('class="tencent-tabs"') > imageEditorStart
-    && wxml.indexOf('class="tencent-fusion-tab-panel"') > imageEditorStart
-    && wxml.indexOf('class="tencent-fusion-tab-panel"') < imageEditorEnd,
-  "图片模型和腾讯融合页签必须位于同一个生图配置编辑区"
+  !wxml.slice(imageEditorStart, imageEditorEnd).includes("tencent-tabs")
+    && !wxml.slice(imageEditorStart, imageEditorEnd).includes("tencent-fusion-tab-panel")
+    && !wxml.slice(imageEditorStart, imageEditorEnd).includes("tencentImageTab"),
+  "普通生图配置区不能再包含腾讯融合页签"
 );
 assert.ok(
-  wxml.includes('class="config-editor-body tencent-image-editor-body"')
-    && wxml.includes('tencentImageTab === \'image\'')
-    && wxml.includes('tencentImageTab === \'fusion\''),
-  "生图配置区缺少双页签状态"
+  wxml.includes('class="card config-editor config-editor-inline tencent-pipeline-editor"')
+    && wxml.includes("tencentPipelineWizardStep")
+    && wxml.includes("第 1 步：选择主生图模型")
+    && wxml.includes("第 2 步：要不要启用备用生图")
+    && wxml.includes("第 3 步：配置腾讯融合")
+    && wxml.includes("第 4 步：测试并保存"),
+  "腾讯版独立配置区缺少四步向导"
 );
 assert.ok(
-  js.includes('activeConfigSection: "image"')
-    && js.includes('activeConfigTitle: CONFIG_SECTION_TITLES.image')
-    && js.includes('const legacyTencentImagePanel = storedActiveConfigSectionValue === "tencentImage";'),
-  "腾讯融合校验失败或旧缓存恢复没有收口到生图配置区"
+  js.includes('activeConfigSection: "tencentFaceFusion"')
+    && js.includes('activeConfigTitle: CONFIG_SECTION_TITLES.tencentFaceFusion')
+    && js.includes('storedActiveConfigSectionValue === "tencentImage"')
+    && js.includes('tencentPipelineWizardStep'),
+  "腾讯融合校验失败或旧缓存恢复没有收口到独立腾讯版配置区"
 );
 
 const envConfig = test.resolveTencentFaceFusionConfig();
@@ -134,5 +139,5 @@ assert.deepStrictEqual(merged.tencentFaceFusion, {
 });
 
 console.log(
-  "tencent face fusion config smoke: OK (单一生图面板、页签、参数校验、密钥保留和旧缓存迁移)"
+  "tencent face fusion config smoke: OK (独立腾讯版面板、四步向导、参数校验、密钥保留和旧缓存迁移)"
 );

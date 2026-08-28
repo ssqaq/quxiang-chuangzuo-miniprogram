@@ -28,6 +28,8 @@ global.Page = (definition) => {
   pageDefinition = definition;
 };
 global.wx = {
+  showToast() {},
+  showModal() {},
   getStorageSync(key) {
     return storage[key] || null;
   },
@@ -195,16 +197,43 @@ firstPage.toggleConfigSection({
 });
 assert.strictEqual(firstPage.data.activeConfigSection, "image");
 assert.strictEqual(firstPage.data.activeConfigTitle, "生图模型");
-assert.strictEqual(firstPage.data.tencentImageTab, "image");
 assert.strictEqual(firstPage.data.imageWizardStep, 1);
 firstPage.onImageBackupEnabledChange({ detail: { value: true } });
 assert.strictEqual(firstPage.data.form.imageBackup.enabled, true);
 firstPage.onImageBackupEnabledChange({ detail: { value: false } });
 assert.strictEqual(firstPage.data.form.imageBackup.enabled, false);
-firstPage.switchTencentImageTab({
-  currentTarget: { dataset: { tab: "fusion" } }
+firstPage.toggleConfigSection({
+  currentTarget: { dataset: { section: "image" } }
 });
-assert.strictEqual(firstPage.data.tencentImageTab, "fusion");
+assert.strictEqual(firstPage.data.activeConfigSection, "", "生图模型再次点击必须收起");
+
+// 腾讯版独立面板必须从第 1 步开始，并且四步可以按顺序推进/回退。
+firstPage.setData({
+  "form.image.provider": "xingju",
+  "form.image.model": "jw-wy-gpt-image-2",
+  "form.image.baseUrl": "https://image.example.com/v1",
+  "form.image.apiKey": "image-key",
+  "form.image.apiKeyConfigured": true,
+  "form.imageBackup.enabled": false,
+  "form.tencentFaceFusion.region": "ap-guangzhou",
+  "form.tencentFaceFusion.endpoint": "https://facefusion.tencentcloudapi.com",
+  "form.tencentFaceFusion.apiVersion": "2022-09-27",
+  "form.tencentFaceFusion.action": "FuseFaceUltra",
+  "form.tencentFaceFusion.model": "FuseFaceUltra",
+  "form.tencentFaceFusion.swapModelType": "4",
+  "form.tencentFaceFusion.timeoutMs": "75000",
+  "form.tencentFaceFusion.maxImageBytes": "5242880"
+});
+firstPage.toggleConfigSection({
+  currentTarget: { dataset: { section: "tencentFaceFusion" } }
+});
+assert.strictEqual(firstPage.data.activeConfigSection, "tencentFaceFusion");
+assert.strictEqual(firstPage.data.activeConfigTitle, "开始新创作-腾讯版");
+assert.strictEqual(firstPage.data.tencentPipelineWizardStep, 1);
+firstPage.onTencentWizardNext();
+assert.strictEqual(firstPage.data.tencentPipelineWizardStep, 2);
+firstPage.onTencentWizardNext();
+assert.strictEqual(firstPage.data.tencentPipelineWizardStep, 3);
 firstPage.onInput({
   currentTarget: { dataset: { section: "tencentFaceFusion", key: "endpoint" } },
   detail: { value: "https://example.com/tencent" }
@@ -213,14 +242,15 @@ assert.strictEqual(
   firstPage.data.form.tencentFaceFusion.endpoint,
   "https://example.com/tencent"
 );
+firstPage.onTencentWizardNext();
+assert.strictEqual(firstPage.data.tencentPipelineWizardStep, 4);
+firstPage.onTencentWizardPrev();
+assert.strictEqual(firstPage.data.tencentPipelineWizardStep, 3);
+firstPage.closeConfigSection();
 firstPage.toggleConfigSection({
-  currentTarget: { dataset: { section: "image" } }
+  currentTarget: { dataset: { section: "tencentFaceFusion" } }
 });
-assert.strictEqual(firstPage.data.activeConfigSection, "", "生图模型再次点击必须收起");
-firstPage.toggleConfigSection({
-  currentTarget: { dataset: { section: "image" } }
-});
-assert.strictEqual(firstPage.data.tencentImageTab, "image", "生图模型重新打开必须回到图片模型页签");
+assert.strictEqual(firstPage.data.tencentPipelineWizardStep, 1, "腾讯版重新打开必须回到第 1 步");
 storage["admin-monitor-layout-v3"] = {
   activeConfigSection: "tencentImage",
   tencentImageTab: "image"
@@ -229,13 +259,18 @@ const restoredTencentPage = createPageInstance();
 restoredTencentPage.restoreMonitorLayout();
 assert.strictEqual(
   restoredTencentPage.data.activeConfigSection,
-  "image",
-  "旧腾讯独立面板状态必须恢复到生图模型面板"
+  "tencentFaceFusion",
+  "旧腾讯入口状态必须迁移到独立腾讯版面板"
+);
+assert.strictEqual(
+  restoredTencentPage.data.tencentPipelineWizardStep,
+  1,
+  "旧腾讯入口迁移后必须从第 1 步开始"
 );
 assert.strictEqual(
   restoredTencentPage.data.tencentImageTab,
-  "fusion",
-  "旧腾讯独立面板状态必须恢复到腾讯融合页签"
+  undefined,
+  "旧腾讯页签状态不能继续写入页面状态"
 );
 firstPage.toggleConfigSection({
   currentTarget: { dataset: { section: "users" } }
@@ -267,6 +302,12 @@ async function verifyTencentAdminStatusDisplay() {
   const configuredPage = createPageInstance();
   configuredPage._adminLoadToken = 1;
   configuredPage.data.isAdmin = true;
+  configuredPage.setData({
+    "form.image.provider": "xingju",
+    "form.image.model": "jw-wy-gpt-image-2",
+    "form.image.apiKeyConfigured": true,
+    "form.imageBackup.enabled": false
+  });
   tencentStatusResult = {
     configured: true,
     secretId: "visible-secret-id",
@@ -294,10 +335,18 @@ async function verifyTencentAdminStatusDisplay() {
   assert.strictEqual(configuredPage.data.form.tencentFaceFusion.endpoint, "https://facefusion.tencentcloudapi.com");
   assert.strictEqual(configuredPage.data.tencentFaceFusionStatus.lastCallStatusText, "调用成功");
   assert.strictEqual(configuredPage.data.tencentFaceFusionStatus.lastCalledAt, "2026-08-27 12:30");
+  assert.strictEqual(configuredPage.data.entryHealth.tencentFaceFusion.abnormal, false);
+  assert.strictEqual(configuredPage.data.entryHealth.tencentFaceFusion.label, "正常");
 
   const unconfiguredPage = createPageInstance();
   unconfiguredPage._adminLoadToken = 2;
   unconfiguredPage.data.isAdmin = true;
+  unconfiguredPage.setData({
+    "form.image.provider": "xingju",
+    "form.image.model": "jw-wy-gpt-image-2",
+    "form.image.apiKeyConfigured": true,
+    "form.imageBackup.enabled": false
+  });
   tencentStatusResult = {
     configured: false,
     region: "ap-guangzhou",
@@ -307,17 +356,25 @@ async function verifyTencentAdminStatusDisplay() {
   assert.strictEqual(unconfiguredPage.data.tencentFaceFusionStatus.statusText, "未就绪");
   assert.strictEqual(unconfiguredPage.data.tencentFaceFusionStatus.secretId, "未配置");
   assert.strictEqual(unconfiguredPage.data.tencentFaceFusionStatus.secretKey, "未配置");
+  assert.strictEqual(unconfiguredPage.data.entryHealth.tencentFaceFusion.abnormal, true);
 
   const failedPage = createPageInstance();
   failedPage._adminLoadToken = 3;
   failedPage.data.isAdmin = true;
+  failedPage.setData({
+    "form.image.provider": "xingju",
+    "form.image.model": "jw-wy-gpt-image-2",
+    "form.image.apiKeyConfigured": true,
+    "form.imageBackup.enabled": false
+  });
   tencentStatusError = new Error("status unavailable");
   await failedPage.loadTencentFaceFusionStatus(3);
   tencentStatusError = null;
   assert.strictEqual(failedPage.data.tencentFaceFusionStatus.statusText, "读取失败");
   assert.strictEqual(failedPage.data.tencentFaceFusionStatus.readFailed, true);
+  assert.strictEqual(failedPage.data.entryHealth.tencentFaceFusion.abnormal, true);
 
-  console.log("admin layout state smoke: OK (主备/页签切换、重新打开重置、腾讯参数状态可显示)");
+  console.log("admin layout state smoke: OK (主备/腾讯版向导切换、旧入口迁移、状态健康度可显示)");
 }
 
 verifyTencentAdminStatusDisplay().catch((error) => {

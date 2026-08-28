@@ -162,70 +162,6 @@ page {
   pointer-events: none;
 }
 
-.tencent-image-editor-body {
-  padding-top: 12rpx;
-}
-
-.tencent-tabs {
-  display: flex;
-  gap: 8rpx;
-  padding: 6rpx;
-  border: 1rpx solid #ddd2f4;
-  border-radius: 16rpx;
-  background: #f7f3ff;
-}
-
-.tencent-tab {
-  flex: 1 1 0;
-  min-height: 64rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 12rpx;
-  color: #765e9e;
-  font-size: 21rpx;
-  font-weight: 700;
-}
-
-.tencent-tab.is-active {
-  color: #ffffff;
-  background: #6848bb;
-  box-shadow: 0 6rpx 14rpx rgba(104, 72, 187, 0.2);
-}
-
-.tencent-panel-intro {
-  margin-top: 18rpx;
-}
-
-.tencent-role-head {
-  margin-top: 18rpx;
-}
-
-.tencent-model-actions {
-  justify-content: flex-start;
-  margin-top: 18rpx;
-}
-
-.tencent-role-switch-button {
-  color: #6848bb;
-  border-color: #cfc0ee;
-  background: #f4efff;
-}
-
-.tencent-role-switch-button.is-backup-switch {
-  color: #94641b;
-  border-color: #e7cf9e;
-  background: #fff8e9;
-}
-
-.tencent-image-fields {
-  margin-top: 16rpx;
-}
-
-.tencent-fusion-tab-panel {
-  margin-top: 16rpx;
-}
-
 .tencent-fusion-fields {
   margin-top: 16rpx;
 }
@@ -268,17 +204,6 @@ page {
   margin-top: 8rpx;
   line-height: 28rpx;
   word-break: break-all;
-}
-
-@media (max-width: 560px) {
-  .tencent-model-actions {
-    justify-content: stretch;
-  }
-
-  .tencent-model-actions .config-model-button {
-    min-width: 0;
-    flex: 1 1 calc(50% - 10rpx);
-  }
 }
 
 .card {
@@ -779,6 +704,83 @@ page {
   font-size: 36rpx;
   font-weight: 500;
   line-height: 40rpx;
+}
+
+/* 腾讯版是独立的制作链路入口，和普通生图卡保持同一层级。 */
+.tencent-pipeline-config-row {
+  border-color: #d8c9f3;
+  background: #fcfaff;
+}
+
+.tencent-pipeline-config-row .current-config-title {
+  color: #4f3687;
+}
+
+.tencent-pipeline-config-row .current-config-meta {
+  color: #7b68a0;
+}
+
+.tencent-pipeline-health-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6rpx 14rpx;
+  margin-top: 6rpx;
+  color: #7b68a0;
+  font-size: 19rpx;
+  line-height: 30rpx;
+}
+
+.tencent-pipeline-health-summary text.is-ready {
+  color: #17835d;
+}
+
+.tencent-pipeline-health-summary text.is-off {
+  color: #b45d36;
+}
+
+.tencent-pipeline-editor {
+  border-color: #d8c9f3;
+  background: #fffefe;
+}
+
+.tencent-pipeline-intro {
+  border-left-color: #6848bb;
+  background: #f8f4ff;
+}
+
+.tencent-pipeline-intro .image-wizard-kicker,
+.tencent-pipeline-intro .image-wizard-title {
+  color: #543b91;
+}
+
+.tencent-pipeline-progress .image-wizard-progress-item.is-active {
+  color: #6848bb;
+}
+
+.tencent-pipeline-progress .image-wizard-progress-item.is-active text {
+  border-color: #6848bb;
+  background: #6848bb;
+  box-shadow: 0 5rpx 12rpx rgba(104, 72, 187, 0.2);
+}
+
+.tencent-pipeline-progress .image-wizard-progress-line.is-active {
+  background: #b5a0e2;
+}
+
+.tencent-pipeline-step {
+  border-color: #ded4f1;
+}
+
+.tencent-pipeline-status-card {
+  margin-bottom: 0;
+}
+
+.tencent-pipeline-save-actions {
+  margin-top: 18rpx;
+}
+
+.tencent-pipeline-nav {
+  margin-bottom: 4rpx;
 }
 
 .today-section {

@@ -387,6 +387,9 @@ function buildAdminProviderFilterState(form, selectedValue = "all") {
       image: selected === "all"
         || sectionProviderId("image") === selected
         || sectionProviderId("imageBackup") === selected,
+      tencentFaceFusion: selected === "all"
+        || sectionProviderId("image") === selected
+        || sectionProviderId("imageBackup") === selected,
       video: selected === "all"
         || sectionProviderId("video") === selected
         || sectionProviderId("videoBackup") === selected
@@ -1605,6 +1608,7 @@ function emptyCurrentConfigModels() {
     face: "未配置",
     analysis: "未配置",
     image: "未配置",
+    tencentFaceFusion: "未配置",
     video: "未配置"
   };
 }
@@ -1614,7 +1618,11 @@ function buildCurrentConfigModels(form) {
   return ["face", "analysis", "image", "video"].reduce((result, key) => {
     result[key] = displayModelName(source[key] && source[key].model);
     return result;
-  }, emptyCurrentConfigModels());
+  }, Object.assign(emptyCurrentConfigModels(), {
+    tencentFaceFusion: displayModelName(
+      source.tencentFaceFusion && source.tencentFaceFusion.model
+    )
+  }));
 }
 
 // 成本金额只展示到小数点后 4 位并直接截断，底层统计和 Excel 仍保留原值。
@@ -1628,6 +1636,7 @@ const CONFIG_SECTION_TITLES = Object.freeze({
   face: "人脸识别模型",
   analysis: "图片分析模型",
   image: "生图模型",
+  tencentFaceFusion: "开始新创作-腾讯版",
   video: "视频模型",
   providers: "服务商中文名称",
   points: "签到与积分规则",
@@ -1638,6 +1647,7 @@ const MODEL_CONFIG_SECTIONS = Object.freeze([
   "face",
   "analysis",
   "image",
+  "tencentFaceFusion",
   "video"
 ]);
 
@@ -3872,7 +3882,8 @@ function buildEntryHealth(
   autoFaceProbeHistory,
   autoFaceFailureStats,
   userStats,
-  moduleStates
+  moduleStates,
+  tencentFaceFusionStatus
 ) {
   const configs = effective || {};
   const usage = usageStats || emptyUsageStats();
@@ -3892,6 +3903,22 @@ function buildEntryHealth(
   const videoBackupEnabled = Boolean(
     configs.videoBackup
     && configs.videoBackup.enabled
+  );
+  const imageBackupEnabled = Boolean(
+    configs.imageBackup
+    && configs.imageBackup.enabled
+  );
+  const tencentStatus = tencentFaceFusionStatus || {};
+  const tencentConfig = configs.tencentFaceFusion || {};
+  const tencentConfigured = !tencentStatus.readFailed && Boolean(
+    tencentStatus.configured
+    || tencentConfig.configured
+    || (tencentConfig.secretId && tencentConfig.secretKey)
+  );
+  const tencentPipelineReady = Boolean(
+    configReady("image")
+    && (!imageBackupEnabled || configReady("imageBackup"))
+    && tencentConfigured
   );
   const failureFor = (section) => Number(today[section] && today[section].failure) || 0;
   const stateLabel = (key, normalLabel = "正常") => {
@@ -3924,6 +3951,20 @@ function buildEntryHealth(
         || !configReady("imageBackup")
         || failureFor("image") > 0
       ) ? "异常" : "正常"
+    },
+    tencentFaceFusion: {
+      abnormal: !tencentPipelineReady,
+      label: tencentPipelineReady ? "正常" : "未就绪",
+      primaryReady: configReady("image"),
+      primaryText: configReady("image") ? "主生图已配置" : "主生图未配置",
+      backupReady: !imageBackupEnabled || configReady("imageBackup"),
+      backupText: !imageBackupEnabled
+        ? "备用未启用"
+        : configReady("imageBackup")
+          ? "备用生图已配置"
+          : "备用生图未配置",
+      tencentReady: tencentConfigured,
+      tencentText: tencentConfigured ? "腾讯融合已配置" : "腾讯融合未配置"
     },
     video: {
       abnormal: (
@@ -4958,6 +4999,7 @@ Page({
       face: true,
       analysis: true,
       image: true,
+      tencentFaceFusion: true,
       video: true
     },
     costFieldErrors: {},
@@ -5120,7 +5162,6 @@ Page({
     analysisConfigSummary: emptyAnalysisConfigSummary(),
     tencentFaceFusionStatus: emptyTencentFaceFusionStatus(),
     tencentFaceFusionFieldErrors: {},
-    tencentImageTab: "image",
     tencentTestTemplate: null,
     tencentTestFace: null,
     tencentTestLoading: false,
@@ -5130,6 +5171,7 @@ Page({
     imageBackupEditCapabilityProbe: emptyImageEditCapabilityProbe(),
     imageWizardStep: 1,
     imageWizardAdvancedOpen: false,
+    tencentPipelineWizardStep: 1,
     videoWizardStep: 1,
     videoWizardAdvancedOpen: false,
     entryHealth: buildEntryHealth(),
@@ -5193,6 +5235,9 @@ Page({
       ? overrides.modelFailureSelectedMonth
       : this.data.modelFailureSelectedMonth;
     const userStats = hasOwnValue("userStats") ? overrides.userStats : this.data.userStats;
+    const tencentFaceFusionStatus = hasOwnValue("tencentFaceFusionStatus")
+      ? overrides.tencentFaceFusionStatus
+      : this.data.tencentFaceFusionStatus;
     return Object.assign(
       {
         currentConfigModels: buildCurrentConfigModels(form),
@@ -5216,13 +5261,14 @@ Page({
         ),
         analysisConfigSummary: buildAnalysisConfigSummary(effective),
         entryHealth: buildEntryHealth(
-          effective,
+          effective || form,
           usageStats,
           autoFaceProbe,
           autoFaceProbeHistory,
           autoFaceFailureStats,
           userStats,
-          moduleStates
+          moduleStates,
+          tencentFaceFusionStatus
         ),
         todayFailureText: buildTodayFailureText(usageStats, moduleStates),
         modelFailureView: buildModelFailureView(
@@ -6709,7 +6755,7 @@ Page({
     );
     const activeSection = String(this.data.activeConfigSection || "");
     if (
-      ["face", "analysis", "image", "video"].includes(activeSection)
+      ["face", "analysis", "image", "tencentFaceFusion", "video"].includes(activeSection)
       && patch.providerSectionVisibility
       && !patch.providerSectionVisibility[activeSection]
     ) {
@@ -6799,7 +6845,7 @@ Page({
         )
       );
       if (
-        ["face", "analysis", "image", "video"].includes(this.data.activeConfigSection)
+        ["face", "analysis", "image", "tencentFaceFusion", "video"].includes(this.data.activeConfigSection)
         && patch.providerSectionVisibility
         && !patch.providerSectionVisibility[this.data.activeConfigSection]
       ) {
@@ -6886,21 +6932,34 @@ Page({
             : currentForm.maxImageBytes || 5 * 1024 * 1024
         )
       });
-      this.setData({
-        tencentFaceFusionStatus: formatTencentFaceFusionStatus(result),
-        "form.tencentFaceFusion": tencentForm
+      const tencentStatus = formatTencentFaceFusionStatus(result);
+      const nextForm = Object.assign({}, this.data.form, {
+        tencentFaceFusion: tencentForm
       });
+      const patch = {
+        tencentFaceFusionStatus: tencentStatus,
+        form: nextForm
+      };
+      Object.assign(
+        patch,
+        this.buildAdminDerivedPatch(patch, this.data.moduleStates)
+      );
+      this.setData(patch);
     } catch (error) {
       diagnosticLog.warn("admin", "tencent-facefusion-status-failed", "腾讯人脸融合状态读取失败", {
         error
       });
       if (this.isCurrentAdminLoad(token) && this.data.isAdmin) {
-        this.setData({
-          tencentFaceFusionStatus: formatTencentFaceFusionStatus({
-            readFailed: true,
-            lastCallStatus: "unavailable"
-          })
+        const tencentStatus = formatTencentFaceFusionStatus({
+          readFailed: true,
+          lastCallStatus: "unavailable"
         });
+        const patch = { tencentFaceFusionStatus: tencentStatus };
+        Object.assign(
+          patch,
+          this.buildAdminDerivedPatch(patch, this.data.moduleStates)
+        );
+        this.setData(patch);
       }
     }
   },
@@ -6945,7 +7004,9 @@ Page({
     const fieldErrors = validateTencentFaceFusionForm(this.data.form);
     if (Object.keys(fieldErrors).length) {
       this.setData({
-        tencentImageTab: "fusion",
+        activeConfigSection: "tencentFaceFusion",
+        activeConfigTitle: CONFIG_SECTION_TITLES.tencentFaceFusion,
+        tencentPipelineWizardStep: 3,
         tencentFaceFusionFieldErrors: fieldErrors,
         message: "腾讯融合参数有误，请先修正标红字段。"
       });
@@ -6983,31 +7044,39 @@ Page({
         tencentFaceFusion: tencentConfig,
         requestId
       }, { requestId });
-      this.setData({
-        tencentFaceFusionStatus: formatTencentFaceFusionStatus(
-          Object.assign({}, tencentConfig, {
-            configured: true,
-            lastCallStatus: "succeeded",
-            lastErrorCode: "",
-            lastErrorMessage: ""
-          })
-        )
-      });
+      const tencentStatus = formatTencentFaceFusionStatus(
+        Object.assign({}, tencentConfig, {
+          configured: true,
+          lastCallStatus: "succeeded",
+          lastErrorCode: "",
+          lastErrorMessage: ""
+        })
+      );
+      const statusPatch = { tencentFaceFusionStatus: tencentStatus };
+      Object.assign(
+        statusPatch,
+        this.buildAdminDerivedPatch(statusPatch, this.data.moduleStates)
+      );
+      this.setData(statusPatch);
       wx.showToast({
         title: "真实测试成功",
         icon: "success"
       });
     } catch (error) {
-      this.setData({
-        tencentFaceFusionStatus: formatTencentFaceFusionStatus(
-          Object.assign({}, tencentConfig, {
-            configured: true,
-            lastCallStatus: "failed",
-            lastErrorCode: String(error && (error.code || error.errCode) || ""),
-            lastErrorMessage: String(error && error.message || "腾讯真实测试失败")
-          })
-        )
-      });
+      const tencentStatus = formatTencentFaceFusionStatus(
+        Object.assign({}, tencentConfig, {
+          configured: true,
+          lastCallStatus: "failed",
+          lastErrorCode: String(error && (error.code || error.errCode) || ""),
+          lastErrorMessage: String(error && error.message || "腾讯真实测试失败")
+        })
+      );
+      const statusPatch = { tencentFaceFusionStatus: tencentStatus };
+      Object.assign(
+        statusPatch,
+        this.buildAdminDerivedPatch(statusPatch, this.data.moduleStates)
+      );
+      this.setData(statusPatch);
       this.showError("腾讯真实测试失败", error);
     } finally {
       this.setData({
@@ -7190,7 +7259,20 @@ Page({
     return "";
   },
 
-  onImageWizardNext() {
+  onImageWizardNext(event) {
+    const wizardSection = String(
+      event
+      && event.currentTarget
+      && event.currentTarget.dataset
+      && event.currentTarget.dataset.wizardSection
+      || ""
+    ).trim();
+    if (
+      wizardSection === "tencentFaceFusion"
+      || this.data.activeConfigSection === "tencentFaceFusion"
+    ) {
+      return this.onTencentWizardNext(event);
+    }
     const step = Math.max(1, Number(this.data.imageWizardStep) || 1);
     const message = this.validateImageWizardStep(step);
     if (message) {
@@ -7201,13 +7283,84 @@ Page({
     this.setData({ imageWizardStep: Math.min(4, step + 1), message: "" });
   },
 
-  onImageWizardPrev() {
+  onImageWizardPrev(event) {
+    const wizardSection = String(
+      event
+      && event.currentTarget
+      && event.currentTarget.dataset
+      && event.currentTarget.dataset.wizardSection
+      || ""
+    ).trim();
+    if (
+      wizardSection === "tencentFaceFusion"
+      || this.data.activeConfigSection === "tencentFaceFusion"
+    ) {
+      return this.onTencentWizardPrev(event);
+    }
     const step = Math.max(1, Number(this.data.imageWizardStep) || 1);
     this.setData({ imageWizardStep: Math.max(1, step - 1), message: "" });
   },
 
   toggleImageAdvancedSettings() {
     this.setData({ imageWizardAdvancedOpen: !this.data.imageWizardAdvancedOpen });
+  },
+
+  validateTencentWizardStep(step = this.data.tencentPipelineWizardStep) {
+    const currentStep = Math.max(1, Math.min(4, Number(step) || 1));
+    if (currentStep === 1) {
+      return this.validateImageWizardStep(1);
+    }
+    if (currentStep === 2) {
+      const backup = this.data.form && this.data.form.imageBackup || {};
+      return backup.enabled ? this.validateImageWizardStep(2) : "";
+    }
+    if (currentStep === 3) {
+      const fieldErrors = validateTencentFaceFusionForm(this.data.form);
+      const invalidKeys = Object.keys(fieldErrors);
+      return invalidKeys.length ? fieldErrors[invalidKeys[0]] : "";
+    }
+    return "";
+  },
+
+  onTencentWizardNext(event) {
+    const step = Math.max(
+      1,
+      Math.min(4, Number(this.data.tencentPipelineWizardStep) || 1)
+    );
+    const message = this.validateTencentWizardStep(step);
+    if (message) {
+      const patch = { message };
+      if (step === 3) {
+        patch.tencentFaceFusionFieldErrors = validateTencentFaceFusionForm(this.data.form);
+      }
+      this.setData(patch);
+      wx.showToast({ title: message, icon: "none" });
+      return;
+    }
+    this.setData({
+      tencentPipelineWizardStep: Math.min(4, step + 1),
+      message: ""
+    });
+  },
+
+  onTencentWizardPrev() {
+    const step = Math.max(
+      1,
+      Math.min(4, Number(this.data.tencentPipelineWizardStep) || 1)
+    );
+    this.setData({
+      tencentPipelineWizardStep: Math.max(1, step - 1),
+      message: ""
+    });
+  },
+
+  // 保留更直观的别名，便于后续模板按腾讯版前缀绑定。
+  onTencentPipelineWizardNext(event) {
+    return this.onTencentWizardNext(event);
+  },
+
+  onTencentPipelineWizardPrev(event) {
+    return this.onTencentWizardPrev(event);
   },
 
   validateVideoWizardStep(step = this.data.videoWizardStep) {
@@ -7347,17 +7500,6 @@ Page({
     });
   },
 
-  switchTencentImageTab(event) {
-    const tab = String(
-      event && event.currentTarget && event.currentTarget.dataset && event.currentTarget.dataset.tab
-      || ""
-    ).trim();
-    if (!["image", "fusion"].includes(tab)) return;
-    this.setData({
-      tencentImageTab: tab
-    });
-  },
-
   copyFaceConfigToAnalysis() {
     const face = this.data.form && this.data.form.face
       ? this.data.form.face
@@ -7409,7 +7551,7 @@ Page({
 
   toggleConfigSection(event) {
     const rawSection = event.currentTarget.dataset.section;
-    const section = rawSection === "tencentImage" ? "image" : rawSection;
+    const section = rawSection === "tencentImage" ? "tencentFaceFusion" : rawSection;
     if (!CONFIG_SECTION_TITLES[section]) return;
     const nextSection = section === "users"
       ? section
@@ -7421,10 +7563,13 @@ Page({
       activeConfigTitle: nextSection ? CONFIG_SECTION_TITLES[nextSection] : ""
     };
     if (section === "image") {
-      patch.tencentImageTab = rawSection === "tencentImage" ? "fusion" : "image";
       patch.tencentFaceFusionFieldErrors = {};
       patch.imageWizardStep = 1;
       patch.imageWizardAdvancedOpen = false;
+    }
+    if (section === "tencentFaceFusion") {
+      patch.tencentPipelineWizardStep = 1;
+      patch.tencentFaceFusionFieldErrors = {};
     }
     if (section === "video") {
       patch.videoWizardStep = 1;
@@ -7449,10 +7594,10 @@ Page({
       activeConfigSection: "",
       activeConfigTitle: ""
     };
-    patch.tencentImageTab = "image";
     patch.tencentFaceFusionFieldErrors = {};
     patch.imageWizardStep = 1;
     patch.imageWizardAdvancedOpen = false;
+    patch.tencentPipelineWizardStep = 1;
     patch.videoWizardStep = 1;
     patch.videoWizardAdvancedOpen = false;
     this.setData(patch, () => this.persistMonitorLayout());
@@ -7540,9 +7685,13 @@ Page({
     const storedActiveConfigSectionValue = typeof stored.activeConfigSection === "string"
       ? stored.activeConfigSection
       : "";
-    const legacyTencentImagePanel = storedActiveConfigSectionValue === "tencentImage";
+    const legacyTencentImagePanel = storedActiveConfigSectionValue === "tencentImage"
+      || (
+        storedActiveConfigSectionValue === "image"
+        && stored.tencentImageTab === "fusion"
+      );
     const normalizedActiveConfigSection = legacyTencentImagePanel
-      ? "image"
+      ? "tencentFaceFusion"
       : storedActiveConfigSectionValue;
     const storedActiveConfigSection = CONFIG_SECTION_TITLES[normalizedActiveConfigSection]
       ? normalizedActiveConfigSection
@@ -7590,11 +7739,9 @@ Page({
       activeConfigTitle: storedActiveConfigSection
         ? CONFIG_SECTION_TITLES[storedActiveConfigSection]
         : "",
-      tencentImageTab: legacyTencentImagePanel
-        ? "fusion"
-        : ["image", "fusion"].includes(stored.tencentImageTab)
-          ? stored.tencentImageTab
-          : "image"
+      tencentPipelineWizardStep: 1
+    }, () => {
+      if (legacyTencentImagePanel) this.persistMonitorLayout();
     });
   },
 
@@ -7634,7 +7781,7 @@ Page({
   persistMonitorLayout() {
     try {
       wx.setStorageSync(MONITOR_LAYOUT_STORAGE_KEY, {
-        version: 7,
+        version: 8,
         monitorExpanded: Boolean(this.data.monitorExpanded),
         usageExpanded: Boolean(this.data.usageExpanded),
         monitorSections: Object.assign({}, this.data.monitorSections),
@@ -7642,9 +7789,6 @@ Page({
         autoFaceFailureSections: Object.assign({}, this.data.autoFaceFailureSections),
         deploymentSections: Object.assign({}, this.data.deploymentSections),
         providerFilterValue: String(this.data.providerFilterValue || "all"),
-        tencentImageTab: ["image", "fusion"].includes(this.data.tencentImageTab)
-          ? this.data.tencentImageTab
-          : "image",
         activeConfigSection: CONFIG_SECTION_TITLES[this.data.activeConfigSection]
           ? this.data.activeConfigSection
           : ""
@@ -7749,7 +7893,7 @@ Page({
 
   async saveConfig() {
     if (this.data.saving) return;
-    if (this.data.activeConfigSection === "image" && this.data.tencentImageTab === "image") {
+    if (this.data.activeConfigSection === "image") {
       const wizardError = this.validateImageWizardStep(1)
         || (this.data.form.imageBackup && this.data.form.imageBackup.enabled
           ? this.validateImageWizardStep(2)
@@ -7769,6 +7913,28 @@ Page({
         || this.validateVideoWizardStep(3);
       if (wizardError) {
         this.setData({ message: wizardError });
+        wx.showToast({ title: wizardError, icon: "none" });
+        return;
+      }
+    }
+    if (this.data.activeConfigSection === "tencentFaceFusion") {
+      const stepOneError = this.validateTencentWizardStep(1);
+      const stepTwoError = this.data.form.imageBackup && this.data.form.imageBackup.enabled
+        ? this.validateTencentWizardStep(2)
+        : "";
+      const stepThreeError = this.validateTencentWizardStep(3);
+      const wizardError = stepOneError || stepTwoError || stepThreeError;
+      if (wizardError) {
+        const tencentFaceFusionFieldErrors = validateTencentFaceFusionForm(this.data.form);
+        this.setData({
+          message: wizardError,
+          tencentFaceFusionFieldErrors,
+          tencentPipelineWizardStep: stepOneError
+            ? 1
+            : stepTwoError
+              ? 2
+              : 3
+        });
         wx.showToast({ title: wizardError, icon: "none" });
         return;
       }
@@ -7820,9 +7986,9 @@ Page({
     if (invalidTencentFields.length) {
       this.setData({
         tencentFaceFusionFieldErrors,
-        activeConfigSection: "image",
-        activeConfigTitle: CONFIG_SECTION_TITLES.image,
-        tencentImageTab: "fusion",
+        activeConfigSection: "tencentFaceFusion",
+        activeConfigTitle: CONFIG_SECTION_TITLES.tencentFaceFusion,
+        tencentPipelineWizardStep: 3,
         message: "腾讯融合参数有误，请先修正标红字段。"
       });
       wx.showModal({
@@ -7942,7 +8108,9 @@ Page({
           autoFaceProbe,
           autoFaceProbeHistory,
           this.data.autoFaceFailureStats,
-          this.data.userStats
+          this.data.userStats,
+          this.data.moduleStates,
+          this.data.tencentFaceFusionStatus
         ),
         monitorExpanded: true,
         checking: false,

@@ -36,21 +36,11 @@ const test = api.__test;
 
 assert.ok(test, "云函数测试接口未暴露");
 
-assert.strictEqual(
-  (wxml.match(/class="tencent-tab /g) || []).length,
-  2,
-  "腾讯版必须有两个页签"
-);
-assert.ok(wxml.includes("图片模型"));
-assert.ok(wxml.includes("腾讯融合"));
-assert.ok(wxml.includes("tencentImageTab === 'image'"));
-assert.ok(wxml.includes("tencentImageTab === 'fusion'"));
-assert.ok(wxml.includes("switchTencentImageTab"));
 assert.ok(wxml.includes('id="config-editor-image"'));
 assert.strictEqual(
-  wxml.includes('id="config-editor-tencentImage"'),
-  false,
-  "腾讯融合不能再使用独立配置面板"
+  (wxml.match(/id="config-editor-tencentFaceFusion"/g) || []).length,
+  1,
+  "腾讯版必须只有一个独立配置面板"
 );
 assert.strictEqual(
   wxml.includes('data-section="tencentImage"'),
@@ -67,6 +57,17 @@ assert.ok(/data-section="image" data-(?:key|field-key)="apiKey"/.test(wxml));
 assert.ok(/data-section="imageBackup" data-(?:key|field-key)="apiKey"/.test(wxml));
 assert.ok(js.includes("event.currentTarget.dataset.fieldKey"));
 assert.ok(wxml.includes("data-section=\"tencentFaceFusion\""));
+assert.ok(wxml.includes("tencentPipelineWizardStep"));
+assert.ok(wxml.includes("第 1 步：选择主生图模型"));
+assert.ok(wxml.includes("第 2 步：要不要启用备用生图"));
+assert.ok(wxml.includes("第 3 步：配置腾讯融合"));
+assert.ok(wxml.includes("第 4 步：测试并保存"));
+const imageEditorStart = wxml.indexOf('id="config-editor-image"');
+const tencentEditorStart = wxml.indexOf('id="config-editor-tencentFaceFusion"');
+assert.ok(imageEditorStart >= 0 && tencentEditorStart > imageEditorStart);
+const imageEditorBlock = wxml.slice(imageEditorStart, tencentEditorStart);
+assert.ok(!imageEditorBlock.includes("tencent-tabs"));
+assert.ok(!imageEditorBlock.includes("tencentImageTab"));
 [
   "secretId",
   "secretKey",
@@ -85,7 +86,10 @@ assert.ok(wxml.includes("data-section=\"tencentFaceFusion\""));
     `缺少腾讯融合字段 ${field}`
   );
 });
-assert.ok(wxml.includes("测试使用当前页面填写值"));
+assert.ok(
+  wxml.includes("测试使用当前页面填写值")
+    || wxml.includes("测试会使用当前页面填写的腾讯参数")
+);
 assert.ok(wxml.includes("tencentFaceFusionStatus.lastCallStatusText"));
 assert.ok(wxml.includes("tencentFaceFusionStatus.lastErrorMessage"));
 [
@@ -103,12 +107,13 @@ assert.ok(wxml.includes("tencentFaceFusionStatus.lastErrorMessage"));
 assert.ok(!js.includes("TENCENT_FACEFUSION_LAST_TEST_STORAGE_KEY"));
 assert.ok(!js.includes("saveTencentFaceFusionLocalStatus"));
 assert.ok(!js.includes("mergeTencentFaceFusionStatus"));
-assert.ok(js.includes('const section = rawSection === "tencentImage" ? "image" : rawSection;'));
-assert.ok(js.includes('const legacyTencentImagePanel = storedActiveConfigSectionValue === "tencentImage";'));
+assert.ok(js.includes('rawSection === "tencentImage"'));
+assert.ok(js.includes('? "tencentFaceFusion" : rawSection'));
+assert.ok(js.includes('storedActiveConfigSectionValue === "tencentImage"'));
 [
-  ".tencent-tabs {",
-  ".tencent-tab.is-active {",
-  ".tencent-image-editor-body {",
+  ".tencent-pipeline-config-row {",
+  ".tencent-pipeline-editor {",
+  ".tencent-pipeline-progress",
   ".tencent-fusion-fields {",
   ".tencent-test-result {"
 ].forEach((selector) => assert.ok(wxss.includes(selector), `缺少样式 ${selector}`));
@@ -248,5 +253,5 @@ assert.deepStrictEqual(merged.tencentFaceFusion, {
 });
 
 console.log(
-  "tencent image tabs smoke: OK (双页签、主备独立调用、腾讯参数编辑、校验和优先级)"
+  "tencent image tabs smoke: OK (独立腾讯版卡片、主备共用、参数编辑、校验和优先级)"
 );

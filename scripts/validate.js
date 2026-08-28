@@ -1160,10 +1160,11 @@ if (
   || !adminWxml.includes('id="config-editor-face"')
   || !adminWxml.includes('id="config-editor-analysis"')
   || !adminWxml.includes('id="config-editor-image"')
+  || !adminWxml.includes('id="config-editor-tencentFaceFusion"')
   || !adminWxml.includes('id="config-editor-video"')
   || adminWxml.includes('id="config-editor-tencentImage"')
   || adminWxml.includes('data-section="tencentImage"')
-  || (adminWxml.match(/class="config-editor-focus-tip"/g) || []).length !== 5
+  || (adminWxml.match(/class="config-editor-focus-tip"/g) || []).length !== 6
   || !adminWxss.includes(".config-editor-focus-tip")
   || !adminWxss.includes(".config-editor-focus-dot")
   || !adminJs.includes("function configEditorSelector(section)")
@@ -1172,7 +1173,7 @@ if (
   || adminWxml.includes("monitorSections.usage")
   || !adminWxml.includes('catchtap="toggleUsageCard"')
 ) {
-  throw new Error("管理员页面配置入口或区块顺序不正确：四个模型应就地展开，腾讯融合应位于生图模型页签内。");
+  throw new Error("管理员页面配置入口或区块顺序不正确：腾讯版独立卡或五个模型编辑区缺失。");
 }
 if (
   !adminWxml.includes("模型调用失败统计")

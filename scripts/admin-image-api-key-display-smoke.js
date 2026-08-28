@@ -158,7 +158,8 @@ async function verifyCloudAction() {
     "ok",
     "providerProfiles",
     "requestId",
-    "video"
+    "video",
+    "videoBackup"
   ]);
   assert.strictEqual(allowed.face.apiKey, "smoke-vision-value");
   assert.strictEqual(allowed.analysis.apiKey, "smoke-vision-value");
@@ -377,7 +378,7 @@ function verifyMarkupAndStaticBoundaries() {
     "utf8"
   );
   const inputs = inputBySection(wxml);
-  assert.strictEqual(Object.keys(inputs).length, 5);
+  assert.strictEqual(Object.keys(inputs).length, 6);
   ["face", "analysis", "image", "imageBackup"].forEach((section) => {
     assert.ok(inputs[section]);
     assert.strictEqual(/\bpassword\b/.test(inputs[section]), false);
@@ -385,6 +386,9 @@ function verifyMarkupAndStaticBoundaries() {
   assert.ok(inputs.video);
   assert.strictEqual(/\bdisabled\b/.test(inputs.video), true);
   assert.strictEqual(/\bpassword\b/.test(inputs.video), false);
+  assert.ok(inputs.videoBackup);
+  assert.strictEqual(/\bdisabled\b/.test(inputs.videoBackup), true);
+  assert.strictEqual(/\bpassword\b/.test(inputs.videoBackup), false);
   assert.ok((wxml.match(/已显示完整 Key/g) || []).length >= 5);
   assert.ok(wxml.includes("已显示完整内容"));
   assert.ok(

@@ -286,9 +286,11 @@ api.main({
   assert.deepStrictEqual(result.effective.providerLabels, {
     dashscope: "阿里云百炼",
     lingyun: "凌云",
-    xingju: "星炬"
+    xingju: "星炬",
+    laoli: "老李",
+    panda: "熊猫"
   });
-  ["face", "analysis", "image", "imageBackup", "video"].forEach((type) => {
+  ["face", "analysis", "image", "imageBackup", "video", "videoBackup"].forEach((type) => {
     assert.strictEqual(
       Object.prototype.hasOwnProperty.call(result.effective[type], "apiKey"),
       true

@@ -1003,10 +1003,11 @@ if (
   || !adminJs.includes("modelPickerTarget")
   || !adminJs.includes("runImageBackupEditCapabilityProbe")
   || !adminWxml.includes('data-model-config="imageBackup"')
+  || !adminWxml.includes('data-model-config="videoBackup"')
   || !adminWxml.includes("imageBackupEditCapabilityProbe.checked")
   || !adminWxml.includes("imageBackupEditCapabilityLoading")
   || !cloudJs.includes('requestedTarget === "imageBackup"')
-  || !cloudJs.includes('? "imageBackup"')
+  || !cloudJs.includes('requestedTarget === "videoBackup"')
   || !fs.existsSync(path.join(root, "scripts", "admin-backup-model-target-smoke.js"))
   || !adminWxml.includes("搜索模型名称")
   || !adminWxml.includes("没有找到相关模型")
@@ -1041,19 +1042,21 @@ const adminApiKeyInputBySection = adminApiKeyInputs.reduce((result, input) => {
   return result;
 }, {});
 if (
-  adminApiKeyInputs.length !== 5
-  || !["face", "analysis", "image", "imageBackup", "video"].every((section) => (
+  adminApiKeyInputs.length !== 6
+  || !["face", "analysis", "image", "imageBackup", "video", "videoBackup"].every((section) => (
     adminApiKeyInputBySection[section]
     && !/\bpassword\b/.test(adminApiKeyInputBySection[section])
   ))
   || !(
     adminApiKeyInputBySection.video
     && /\bdisabled\b/.test(adminApiKeyInputBySection.video)
+    && adminApiKeyInputBySection.videoBackup
+    && /\bdisabled\b/.test(adminApiKeyInputBySection.videoBackup)
   )
-  || !["face", "analysis", "image", "imageBackup", "video"].every(
+  || !["face", "analysis", "image", "imageBackup", "video", "videoBackup"].every(
     (section) => adminWxml.includes(`form.${section}.apiKeyConfigured`)
   )
-  || (adminWxml.match(/已显示完整 Key/g) || []).length < 5
+  || (adminWxml.match(/已显示完整 Key/g) || []).length < 6
   || !adminWxml.includes("已显示完整内容")
   || !clientCloudJs.includes('action: "getAdminImageApiKeys"')
   || !cloudJs.includes("async function getAdminImageApiKeys")
@@ -1062,7 +1065,7 @@ if (
   || !adminWxss.includes(".api-key-config-state")
   || !adminWxss.includes(".api-key-field-tip")
 ) {
-  throw new Error("管理员页面五组完整 Key 明文显示、腾讯密钥状态或专用接口不完整。");
+  throw new Error("管理员页面六组完整 Key 明文显示、腾讯密钥状态或专用接口不完整。");
 }
 if (
   !clientCloudJs.includes('action: "getModelUsageStats"')
@@ -1120,7 +1123,7 @@ if (
   || !adminJs.includes("配置保存成功")
   || !adminJs.includes("当前配置已生效")
   || !adminJs.includes("自动探测只是保存后的附加检查")
-  || !adminWxml.includes("测试使用当前已保存的服务商配置")
+  || !adminWxml.includes("修改参数后请先保存")
   || !fs.existsSync(path.join(root, "scripts/admin-provider-connection-test-smoke.js"))
   || !fs.existsSync(path.join(root, "scripts/analysis-cost-probe-smoke.js"))
 ) {

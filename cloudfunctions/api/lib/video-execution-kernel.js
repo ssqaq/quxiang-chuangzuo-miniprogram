@@ -87,6 +87,54 @@ function providerFailure(normalized = {}) {
   return error;
 }
 
+function normalizedProviderId(video = {}) {
+  return text(video.provider, 80).toLowerCase();
+}
+
+function videoProviderCandidates(configs = {}) {
+  const primary = configs.video && typeof configs.video === "object"
+    ? configs.video
+    : {};
+  const backup = configs.videoBackup && typeof configs.videoBackup === "object"
+    ? configs.videoBackup
+    : {};
+  const candidates = [];
+  if (primary.configured) candidates.push({ role: "primary", video: primary });
+  if (
+    backup.configured
+    && normalizedProviderId(backup)
+    && normalizedProviderId(backup) !== normalizedProviderId(primary)
+  ) {
+    candidates.push({ role: "backup", video: backup });
+  }
+  return candidates;
+}
+
+function shouldUseBackupProvider(error) {
+  const status = Number(error && (error.status || error.statusCode)) || 0;
+  if (status === 403 || status === 408 || status === 429 || status >= 500) {
+    return true;
+  }
+  if (error && error.retryable) return true;
+  return /(?:timeout|timed out|network|socket|econn|enotfound|超时|网络|连接)/i.test(
+    String(error && error.message || "")
+  );
+}
+
+function videoConfigForOperation(configs = {}, operation = {}) {
+  const requestedProvider = normalizedProviderId(operation);
+  const candidates = videoProviderCandidates(configs);
+  if (requestedProvider) {
+    const matched = candidates.find(
+      (candidate) => normalizedProviderId(candidate.video) === requestedProvider
+    );
+    return matched ? matched.video : {};
+  }
+  return configs.video && typeof configs.video === "object"
+    ? configs.video
+    : {};
+}
+
 function createVideoExecutionKernel(services = {}) {
   const identity = services.identity || {};
   const config = services.config || {};
@@ -493,8 +541,13 @@ function createVideoExecutionKernel(services = {}) {
 
   async function createVideoTask(event = {}, context = {}) {
     const configs = await resolveConfig();
-    const video = configs.video || {};
-    if (!video.configured) {
+    const providerCandidates = videoProviderCandidates(configs);
+    const primaryVideo = configs.video && typeof configs.video === "object"
+      ? configs.video
+      : {};
+    const initialCandidate = providerCandidates[0] || null;
+    const video = initialCandidate && initialCandidate.video || {};
+    if (!providerCandidates.length) {
       return failResponse(
         "视频服务未配置，请联系管理员配置 AI_VIDEO_PROVIDER、AI_VIDEO_BASE_URL、AI_VIDEO_MODEL 和 AI_VIDEO_API_KEY。",
         "VIDEO_PROVIDER_NOT_CONFIGURED"
@@ -548,79 +601,135 @@ function createVideoExecutionKernel(services = {}) {
         requestId,
         action: "video.create"
       });
-      const requestPayload = buildProviderPayload(
-        payload,
-        prepared.buffer,
-        video
-      );
-      if (!(billingValue && billingValue.untracked)) {
-        await updateOperation(openid, requestId, {
-          kind: "video",
-          workflow: "video-generation-v1",
-          status: "processing",
-          pipelineStage: "provider-create",
-          progress: 25,
-          sourceOriginalFileID: text(
-            prepared.sourceOriginalFileID || payload.imageFileID,
-            512
+      let activeVideo = video;
+      let activeProviderRole = initialCandidate && initialCandidate.role || "primary";
+      let requestPayload = null;
+      let normalized = null;
+      let primaryCreateError = null;
+      for (let index = 0; index < providerCandidates.length; index += 1) {
+        const candidate = providerCandidates[index];
+        activeVideo = candidate.video;
+        activeProviderRole = candidate.role;
+        requestPayload = buildProviderPayload(
+          payload,
+          prepared.buffer,
+          activeVideo
+        );
+        if (!(billingValue && billingValue.untracked)) {
+          await updateOperation(openid, requestId, {
+            kind: "video",
+            workflow: "video-generation-v2",
+            status: "processing",
+            pipelineStage: candidate.role === "backup"
+              ? "provider-create-backup"
+              : "provider-create",
+            progress: candidate.role === "backup" ? 28 : 25,
+            sourceOriginalFileID: text(
+              prepared.sourceOriginalFileID || payload.imageFileID,
+              512
+            ),
+            sourceImageFileID: text(prepared.sourceImageFileID, 512),
+            sourceCloudPath: text(prepared.sourceCloudPath, 1024),
+            sourceImageWidth: Math.max(
+              0,
+              Number(prepared.width || prepared.sourceImageWidth) || 0
+            ),
+            sourceImageHeight: Math.max(
+              0,
+              Number(prepared.height || prepared.sourceImageHeight) || 0
+            ),
+            sourceImageBytes: Math.max(
+              0,
+              Number(prepared.bytes || prepared.sourceImageBytes) || 0
+            ),
+            provider: text(activeVideo.provider, 80),
+            providerRole: candidate.role,
+            providerFallbackUsed: candidate.role === "backup",
+            providerFallbackFrom: candidate.role === "backup"
+              ? text(primaryVideo.provider, 80)
+              : "",
+            model: text(requestPayload.model || activeVideo.model, 160),
+            resolution: text(
+              requestPayload.resolution || activeVideo.resolution,
+              32
+            ),
+            lastHeartbeatAt: now(),
+            reconcilePending: false,
+            cleanupPending: false,
+            lastError: candidate.role === "backup" && primaryCreateError
+              ? {
+                  code: text(primaryCreateError.code || "video-primary-failed", 80),
+                  message: sanitizeError(primaryCreateError.message),
+                  retryable: Boolean(primaryCreateError.retryable)
+                }
+              : null
+          }, {
+            allowedStatuses: ["processing"],
+            enforceState: true,
+            actor: "client",
+            historyStage: candidate.role === "backup"
+              ? "provider-create-backup"
+              : "provider-create",
+            historyCode: candidate.role === "backup"
+              ? "video-provider-fallback"
+              : ""
+          });
+        }
+        log("info", "video.create.start", {
+          requestId,
+          provider: text(activeVideo.provider, 80),
+          providerRole: candidate.role,
+          model: text(requestPayload.model || activeVideo.model, 160),
+          resolution: text(
+            requestPayload.resolution || activeVideo.resolution,
+            32
           ),
-          sourceImageFileID: text(prepared.sourceImageFileID, 512),
-          sourceCloudPath: text(prepared.sourceCloudPath, 1024),
-          sourceImageWidth: Math.max(
-            0,
-            Number(prepared.width || prepared.sourceImageWidth) || 0
-          ),
-          sourceImageHeight: Math.max(
-            0,
-            Number(prepared.height || prepared.sourceImageHeight) || 0
-          ),
-          sourceImageBytes: Math.max(
+          duration: Math.max(0, Number(requestPayload.duration) || 0),
+          imageBytes: Math.max(
             0,
             Number(prepared.bytes || prepared.sourceImageBytes) || 0
           ),
-          provider: text(video.provider, 80),
-          model: text(requestPayload.model || video.model, 160),
-          resolution: text(requestPayload.resolution || video.resolution, 32),
-          lastHeartbeatAt: now(),
-          reconcilePending: false,
-          cleanupPending: false
-        }, {
-          allowedStatuses: ["processing"],
-          enforceState: true,
-          actor: "client",
-          historyStage: "provider-create"
+          imageWidth: Math.max(
+            0,
+            Number(prepared.width || prepared.sourceImageWidth) || 0
+          ),
+          imageHeight: Math.max(
+            0,
+            Number(prepared.height || prepared.sourceImageHeight) || 0
+          )
         });
+        try {
+          normalized = await createProviderTask({
+            openid,
+            requestId,
+            configs,
+            video: activeVideo,
+            requestPayload
+          });
+          break;
+        } catch (error) {
+          const canFallback = candidate.role === "primary"
+            && providerCandidates.length > 1
+            && shouldUseBackupProvider(error);
+          if (!canFallback) throw error;
+          primaryCreateError = error;
+          log("warn", "video.create.fallback", {
+            requestId,
+            fromProvider: text(activeVideo.provider, 80),
+            toProvider: text(providerCandidates[1].video.provider, 80),
+            status: Number(error && error.status) || 0,
+            errorCode: text(error && error.code || "video-primary-failed", 80),
+            error: sanitizeError(error && error.message)
+          });
+        }
       }
-      log("info", "video.create.start", {
-        requestId,
-        provider: text(video.provider, 80),
-        model: text(requestPayload.model || video.model, 160),
-        resolution: text(requestPayload.resolution || video.resolution, 32),
-        duration: Math.max(0, Number(requestPayload.duration) || 0),
-        imageBytes: Math.max(
-          0,
-          Number(prepared.bytes || prepared.sourceImageBytes) || 0
-        ),
-        imageWidth: Math.max(
-          0,
-          Number(prepared.width || prepared.sourceImageWidth) || 0
-        ),
-        imageHeight: Math.max(
-          0,
-          Number(prepared.height || prepared.sourceImageHeight) || 0
-        )
-      });
-      const normalized = await createProviderTask({
-        openid,
-        requestId,
-        configs,
-        video,
-        requestPayload
-      });
+      if (!normalized) throw primaryCreateError || new Error("视频服务没有接收任务。");
       providerAccepted = true;
       const result = Object.assign({}, normalized, {
         requestId,
-        provider: video.provider,
+        provider: activeVideo.provider,
+        providerRole: activeProviderRole,
+        providerFallbackUsed: activeProviderRole === "backup",
         model: requestPayload.model,
         resolution: requestPayload.resolution || "",
         sourceImageFileID: prepared.sourceImageFileID,
@@ -648,7 +757,12 @@ function createVideoExecutionKernel(services = {}) {
           progress: normalized.status === "succeeded" ? 90 : 35,
           providerTaskId: normalized.taskId,
           providerStatus: normalized.providerStatus,
-          provider: video.provider,
+          provider: activeVideo.provider,
+          providerRole: activeProviderRole,
+          providerFallbackUsed: activeProviderRole === "backup",
+          providerFallbackFrom: activeProviderRole === "backup"
+            ? text(primaryVideo.provider, 80)
+            : "",
           model: requestPayload.model,
           resolution: requestPayload.resolution || "",
           result: Object.assign({}, result, { billing: null }),
@@ -668,7 +782,7 @@ function createVideoExecutionKernel(services = {}) {
       }
       log("info", "video.create.finish", {
         requestId,
-        provider: text(video.provider, 80),
+        provider: text(activeVideo.provider, 80),
         taskId: text(normalized.taskId, 160),
         providerStatus: text(normalized.providerStatus, 80)
       });
@@ -683,7 +797,7 @@ function createVideoExecutionKernel(services = {}) {
           taskId: normalized.taskId,
           operation: currentOperation,
           normalized,
-          video
+          video: activeVideo
         });
         if (completed.response && completed.response.ok !== false) {
           return Object.assign({}, completed.response, {
@@ -724,13 +838,6 @@ function createVideoExecutionKernel(services = {}) {
 
   async function queryVideoTask(event = {}, context = {}) {
     const configs = await resolveConfig();
-    const video = configs.video || {};
-    if (!video.configured) {
-      return failResponse(
-        "视频服务未配置，无法查询动态视频任务。",
-        "VIDEO_PROVIDER_NOT_CONFIGURED"
-      );
-    }
     const openid = getOpenId(context);
     const taskId = text(event.taskId, 160);
     if (!taskId) {
@@ -740,6 +847,13 @@ function createVideoExecutionKernel(services = {}) {
     const operation = openid !== "anonymous" && requestId
       ? await findOperation(openid, requestId)
       : null;
+    const video = videoConfigForOperation(configs, operation || {});
+    if (!video.configured) {
+      return failResponse(
+        "原视频服务配置已失效，暂时无法查询这个任务。",
+        "VIDEO_PROVIDER_NOT_CONFIGURED"
+      );
+    }
     if (operation) {
       if (String(operation.kind || "") !== "video") {
         return failResponse(
@@ -764,7 +878,7 @@ function createVideoExecutionKernel(services = {}) {
         return okResponse(Object.assign({}, stored, {
           requestId,
           taskId,
-          provider: video.provider,
+          provider: text(operation.provider || video.provider, 80),
           deduplicated: true
         }));
       }
@@ -948,7 +1062,7 @@ function createVideoExecutionKernel(services = {}) {
         historyCode: "video-provider-query"
       });
       const configs = await resolveConfig();
-      const video = configs.video || {};
+      const video = videoConfigForOperation(configs, sourceOperation);
       const processed = await processProviderQuery({
         openid,
         requestId,

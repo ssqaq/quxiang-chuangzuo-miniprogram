@@ -15,10 +15,12 @@ function isXingjuProvider(value) {
   return text === "xingju" || text === "星炬";
 }
 
-function applyAdminVideoProviderDefaults(form) {
+function applyAdminVideoProviderDefaults(form, section = "video") {
   const source = form && typeof form === "object" ? form : {};
-  const video = source.video && typeof source.video === "object"
-    ? source.video
+  const normalizedSection = section === "videoBackup" ? "videoBackup" : "video";
+  const video = source[normalizedSection]
+    && typeof source[normalizedSection] === "object"
+    ? source[normalizedSection]
     : {};
   if (!isXingjuProvider(video.provider)) return source;
 
@@ -35,7 +37,7 @@ function applyAdminVideoProviderDefaults(form) {
     nextVideo.timeoutMs = String(nextVideo.timeoutMs);
   }
   return Object.assign({}, source, {
-    video: nextVideo
+    [normalizedSection]: nextVideo
   });
 }
 

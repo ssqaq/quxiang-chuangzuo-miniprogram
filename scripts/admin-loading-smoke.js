@@ -16,6 +16,7 @@ let adminConfigCallCount = 0;
 const modalCalls = [];
 const reLaunchCalls = [];
 const probeModelCalls = [];
+const adminConnectionCalls = [];
 const listModelCalls = [];
 const imageEditProbeCalls = [];
 const localStorage = Object.create(null);
@@ -146,6 +147,27 @@ const cloudMock = {
     retentionDays: 30
   }),
   listDeploymentLogs: async () => ({ logs: [] }),
+  testAdminProviderConnection: async (section, providerId, options = {}) => {
+    adminConnectionCalls.push({ section, providerId, options });
+    return {
+      ok: true,
+      section,
+      providerId,
+      provider: providerId,
+      model: baseConfig.effective[section]
+        && baseConfig.effective[section].model
+        || "configured-model",
+      ready: !probeFailure,
+      reachable: true,
+      status: probeFailure ? "auth-failed" : "ok",
+      statusText: probeFailure ? "密钥异常" : "正常",
+      httpStatus: probeFailure ? 401 : 200,
+      durationMs: 20,
+      message: probeFailure
+        ? "接口地址可访问，但 API Key 无效或没有权限。"
+        : "接口可访问，当前模型配置正常。"
+    };
+  },
   probeModels: async (modelType, modelConfig) => {
     probeCallCount += 1;
     if (modelConfig) lastProbeModelConfig = modelConfig;
@@ -433,11 +455,13 @@ async function main() {
   assert.deepStrictEqual(page.data.form.providerLabels, {
     dashscope: "阿里云百炼",
     lingyun: "凌云",
-    xingju: "星炬"
+    xingju: "星炬",
+    laoli: "老李",
+    panda: "熊猫"
   });
   assert.deepStrictEqual(
     page.data.providerLabelRows.map((item) => item.providerId),
-    ["xingju", "lingyun", "dashscope"]
+    ["dashscope", "xingju", "lingyun", "laoli", "panda"]
   );
 
   page.onInput({
@@ -482,7 +506,7 @@ async function main() {
   );
   assert.deepStrictEqual(
     page.data.providerLabelRows.map((item) => item.providerId),
-    ["xingju", "lingyun", "dashscope", "custom-face-provider"],
+    ["dashscope", "xingju", "lingyun", "laoli", "panda", "custom-face-provider"],
     "内置服务商必须固定排前，自定义服务商按中文名称排在后面"
   );
   page.onInput({
@@ -496,9 +520,11 @@ async function main() {
   assert.deepStrictEqual(
     page.data.providerLabelRows.map((item) => item.providerId),
     [
+      "dashscope",
       "xingju",
       "lingyun",
-      "dashscope",
+      "laoli",
+      "panda",
       "custom-alpha-provider",
       "custom-face-provider"
     ],
@@ -570,7 +596,7 @@ async function main() {
   assert.ok(lingyunFilterIndex > 0, "筛选项缺少凌云");
   assert.deepStrictEqual(
     page.data.providerFilterOptions.map((item) => item.value),
-    ["all", "xingju", "lingyun", "dashscope"],
+    ["all", "dashscope", "xingju", "lingyun"],
     "服务商筛选项必须先显示内置服务商固定顺序"
   );
   page.setData({
@@ -626,7 +652,7 @@ async function main() {
   });
   assert.strictEqual(page.data.modelActionType, "");
   assert.ok(page.data.message.includes("测试完成"));
-  assert.strictEqual(lastProbeModelConfig.provider, "xingju");
+  assert.strictEqual(adminConnectionCalls[adminConnectionCalls.length - 1].providerId, "xingju");
 
   await page.testModelConnection({
     currentTarget: {
@@ -639,16 +665,12 @@ async function main() {
   assert.strictEqual(page.data.modelActionType, "");
   assert.strictEqual(page.data.modelActionTarget, "");
   assert.strictEqual(
-    probeModelCalls[probeModelCalls.length - 1].modelConfig.provider,
-    "lingyun"
-  );
-  assert.strictEqual(
-    probeModelCalls[probeModelCalls.length - 1].modelConfig.model,
-    "gpt-image-2"
-  );
-  assert.strictEqual(
-    probeModelCalls[probeModelCalls.length - 1].modelConfig.configTarget,
+    adminConnectionCalls[adminConnectionCalls.length - 1].section,
     "imageBackup"
+  );
+  assert.strictEqual(
+    adminConnectionCalls[adminConnectionCalls.length - 1].providerId,
+    "lingyun"
   );
   assert.ok(page.data.message.includes("备用生图测试完成"));
 
@@ -690,7 +712,7 @@ async function main() {
   await page.testModelConnection({
     currentTarget: { dataset: { modelType: "video" } }
   });
-  assert.strictEqual(lastProbeModelConfig.provider, "lingyun");
+  assert.strictEqual(adminConnectionCalls[adminConnectionCalls.length - 1].providerId, "lingyun");
 
   await page.getModelOptions({
     currentTarget: { dataset: { modelType: "video" } }

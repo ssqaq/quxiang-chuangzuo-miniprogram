@@ -83,9 +83,20 @@ const ADMIN_PROVIDER_FORM_SECTIONS = Object.freeze([
   "analysis",
   "image",
   "imageBackup",
+  "video",
+  "videoBackup"
+]);
+const ADMIN_PROVIDER_PROFILE_SECTIONS = Object.freeze([
+  "face",
+  "analysis",
+  "image",
+  "imageBackup",
   "video"
 ]);
-const ADMIN_PROVIDER_PROFILE_SECTIONS = ADMIN_PROVIDER_FORM_SECTIONS;
+const ADMIN_PROVIDER_PICKER_SECTIONS = Object.freeze([
+  ...ADMIN_PROVIDER_PROFILE_SECTIONS,
+  "videoBackup"
+]);
 const ADMIN_PROVIDER_PROFILE_STATE = Object.freeze({
   face: Object.freeze({
     options: "faceProviderProfileOptions",
@@ -106,6 +117,10 @@ const ADMIN_PROVIDER_PROFILE_STATE = Object.freeze({
   video: Object.freeze({
     options: "videoProviderProfileOptions",
     index: "videoProviderProfileIndex"
+  }),
+  videoBackup: Object.freeze({
+    options: "videoBackupProviderProfileOptions",
+    index: "videoBackupProviderProfileIndex"
   })
 });
 const ADMIN_PROVIDER_DISPLAY_ORDER = Object.freeze([
@@ -372,7 +387,9 @@ function buildAdminProviderFilterState(form, selectedValue = "all") {
       image: selected === "all"
         || sectionProviderId("image") === selected
         || sectionProviderId("imageBackup") === selected,
-      video: matches("video")
+      video: selected === "all"
+        || sectionProviderId("video") === selected
+        || sectionProviderId("videoBackup") === selected
     }
   };
 }
@@ -743,6 +760,7 @@ function buildQualityPickerState(form, capabilityPayload = {}) {
   const image = form && form.image ? form.image : {};
   const imageBackup = form && form.imageBackup ? form.imageBackup : {};
   const video = form && form.video ? form.video : {};
+  const videoBackup = form && form.videoBackup ? form.videoBackup : {};
   const imageCapability = capabilityPayload.image || {};
   const videoCapability = capabilityPayload.video || {};
   const imageQuality = buildAdminQualityOptions("image", imageCapability, form);
@@ -760,6 +778,11 @@ function buildQualityPickerState(form, capabilityPayload = {}) {
     "1K"
   );
   const videoQualityValue = normalizeAdminVideoResolution(video.resolution, "720p");
+  const videoBackupQualityOptions = buildAdminVideoQualityOptions(form && form.costs);
+  const videoBackupQualityValue = normalizeAdminVideoResolution(
+    videoBackup.resolution,
+    "720p"
+  );
   const imageSizeOptions = buildAdminImageSizeOptions(image.size || "1080x1440");
   const imageSizeValue = String(image.size || "").trim().toLowerCase().replace("×", "x")
     || "1080x1440";
@@ -799,6 +822,12 @@ function buildQualityPickerState(form, capabilityPayload = {}) {
       ),
       videoQualityOptions: videoQuality.options,
       videoQualityIndex: pickerIndex(videoQuality.options, videoQualityValue, 1),
+      videoBackupQualityOptions,
+      videoBackupQualityIndex: pickerIndex(
+        videoBackupQualityOptions,
+        videoBackupQualityValue,
+        1
+      ),
       videoPricingNotice: buildAdminVideoPricingNotice(imageCosts),
       imageCapabilitySource: imageQuality.source,
       videoCapabilitySource: videoQuality.source,
@@ -872,7 +901,6 @@ const ADMIN_PROVIDER_PROFILE_FORM_KEYS = Object.freeze({
     "baseUrl",
     "endpoint",
     "queryEndpoint",
-    "apiKey",
     "model",
     "createPath",
     "queryPath",
@@ -965,7 +993,7 @@ function formSectionToProviderConfig(section, source = {}) {
       retryPreferenceVersion: 1
     };
   }
-  if (section === "video") {
+  if (section === "video" || section === "videoBackup") {
     return {
       provider: normalizeAdminProviderInput(value.provider),
       baseUrl: String(value.baseUrl || "").trim(),
@@ -1011,14 +1039,40 @@ function providerProfilesFromForm(form) {
     const previous = result[section][providerId] || {};
     const current = formSectionToProviderConfig(section, active);
     const merged = Object.assign({}, previous, current, { provider: providerId });
-    if (!current.apiKey && previous.apiKey) merged.apiKey = previous.apiKey;
-    merged.apiKeyConfigured = Boolean(
-      active.apiKeyConfigured
-      || previous.apiKeyConfigured
-      || merged.apiKey
-    );
+    if (section === "video") {
+      delete merged.apiKey;
+      merged.apiKeyConfigured = false;
+    } else {
+      if (!current.apiKey && previous.apiKey) merged.apiKey = previous.apiKey;
+      merged.apiKeyConfigured = Boolean(
+        active.apiKeyConfigured
+        || previous.apiKeyConfigured
+        || merged.apiKey
+      );
+    }
     result[section][providerId] = merged;
   });
+  const backup = source.videoBackup && typeof source.videoBackup === "object"
+    ? source.videoBackup
+    : {};
+  const backupProviderId = providerIdFromDisplay(backup.provider);
+  if (
+    backupProviderId
+    && !ADMIN_PROVIDER_DANGEROUS_KEYS.includes(backupProviderId)
+  ) {
+    result.video = Object.assign({}, result.video || {});
+    const previous = result.video[backupProviderId] || {};
+    const current = formSectionToProviderConfig("videoBackup", backup);
+    const merged = Object.assign(
+      {},
+      previous,
+      current,
+      { provider: backupProviderId }
+    );
+    delete merged.apiKey;
+    merged.apiKeyConfigured = false;
+    result.video[backupProviderId] = merged;
+  }
   return result;
 }
 
@@ -1032,10 +1086,11 @@ function syncAdminProviderProfiles(form) {
 
 function buildAdminProviderProfileOptions(form, section) {
   const source = form && typeof form === "object" ? form : {};
+  const profileSectionName = section === "videoBackup" ? "video" : section;
   const profileSection = source.providerProfiles
-    && source.providerProfiles[section]
-    && typeof source.providerProfiles[section] === "object"
-    ? source.providerProfiles[section]
+    && source.providerProfiles[profileSectionName]
+    && typeof source.providerProfiles[profileSectionName] === "object"
+    ? source.providerProfiles[profileSectionName]
     : {};
   const currentProviderId = providerIdFromDisplay(
     source[section] && source[section].provider
@@ -1052,18 +1107,21 @@ function buildAdminProviderProfileOptions(form, section) {
     ...Object.keys(profileSection),
     currentProviderId
   ], source.providerLabels);
-  return ids.map((providerId) => ({
+  const options = ids.map((providerId) => ({
     value: providerId,
     label: `${displayAdminProvider(providerId, providerId)}${
       profileSection[providerId] ? "（已有参数）" : "（未配置）"
     }`
   }));
+  return section === "videoBackup"
+    ? [{ value: "", label: "未启用" }].concat(options)
+    : options;
 }
 
 function buildAdminProviderProfilePickerState(form) {
   const source = form && typeof form === "object" ? form : {};
   const patch = {};
-  ADMIN_PROVIDER_PROFILE_SECTIONS.forEach((section) => {
+  ADMIN_PROVIDER_PICKER_SECTIONS.forEach((section) => {
     const state = ADMIN_PROVIDER_PROFILE_STATE[section];
     const options = buildAdminProviderProfileOptions(source, section);
     const currentProviderId = providerIdFromDisplay(
@@ -1084,9 +1142,10 @@ function captureAdminProviderProfile(form, section) {
   if (!providerId || ADMIN_PROVIDER_DANGEROUS_KEYS.includes(providerId)) {
     return normalizeAdminProviderProfiles(source.providerProfiles);
   }
+  const profileSection = section === "videoBackup" ? "video" : section;
   const profiles = normalizeAdminProviderProfiles(source.providerProfiles);
-  profiles[section] = Object.assign({}, profiles[section] || {});
-  const previous = profiles[section][providerId] || {};
+  profiles[profileSection] = Object.assign({}, profiles[profileSection] || {});
+  const previous = profiles[profileSection][providerId] || {};
   const captured = Object.assign(
     {},
     previous,
@@ -1100,8 +1159,13 @@ function captureAdminProviderProfile(form, section) {
       )
     }
   );
-  if (!captured.apiKey && previous.apiKey) captured.apiKey = previous.apiKey;
-  profiles[section][providerId] = captured;
+  if (profileSection === "video") {
+    delete captured.apiKey;
+    captured.apiKeyConfigured = false;
+  } else if (!captured.apiKey && previous.apiKey) {
+    captured.apiKey = previous.apiKey;
+  }
+  profiles[profileSection][providerId] = captured;
   return profiles;
 }
 
@@ -1131,9 +1195,12 @@ function providerProfileDefaultForm(section, providerId) {
       ADMIN_IMAGE_PROVIDER_DEFAULTS[normalizedProviderId] || {}
     );
   }
-  if (section === "video" && normalizedProviderId === "xingju") {
+  if (
+    (section === "video" || section === "videoBackup")
+    && normalizedProviderId === "xingju"
+  ) {
     Object.assign(result, XINGJU_VIDEO_DEFAULTS);
-  } else if (section === "video") {
+  } else if (section === "video" || section === "videoBackup") {
     result.queryEndpoint = "";
     result.createPath = "";
     result.queryPath = "";
@@ -1147,11 +1214,12 @@ function providerProfileDefaultForm(section, providerId) {
 function profileFormForProvider(form, section, providerId) {
   const source = form && typeof form === "object" ? form : {};
   const normalizedProviderId = providerIdFromDisplay(providerId);
+  const profileSection = section === "videoBackup" ? "video" : section;
   const profile = source.providerProfiles
-    && source.providerProfiles[section]
-    && source.providerProfiles[section][normalizedProviderId]
-    && typeof source.providerProfiles[section][normalizedProviderId] === "object"
-    ? source.providerProfiles[section][normalizedProviderId]
+    && source.providerProfiles[profileSection]
+    && source.providerProfiles[profileSection][normalizedProviderId]
+    && typeof source.providerProfiles[profileSection][normalizedProviderId] === "object"
+    ? source.providerProfiles[profileSection][normalizedProviderId]
     : null;
   if (profile) {
     return Object.assign({}, profile, {
@@ -1174,8 +1242,15 @@ function updateAdminProviderProfileForm(form, section, patch) {
 
 function switchAdminProviderProfile(form, section, providerId) {
   const source = form && typeof form === "object" ? form : {};
-  if (!ADMIN_PROVIDER_PROFILE_SECTIONS.includes(section)) return source;
+  if (!ADMIN_PROVIDER_PICKER_SECTIONS.includes(section)) return source;
   const normalizedProviderId = providerIdFromDisplay(providerId);
+  if (section === "videoBackup" && !normalizedProviderId) {
+    const capturedProfiles = captureAdminProviderProfile(source, section);
+    return Object.assign({}, source, {
+      providerProfiles: capturedProfiles,
+      videoBackup: Object.assign({}, emptyForm().videoBackup)
+    });
+  }
   if (
     !normalizedProviderId
     || ADMIN_PROVIDER_DANGEROUS_KEYS.includes(normalizedProviderId)
@@ -1186,12 +1261,37 @@ function switchAdminProviderProfile(form, section, providerId) {
   const working = Object.assign({}, source, {
     providerProfiles: capturedProfiles
   });
+  const selected = profileFormForProvider(
+    working,
+    section,
+    normalizedProviderId
+  );
+  if (section === "videoBackup") {
+    selected.enabled = true;
+    selected.apiKey = String(
+      source.videoBackup
+      && source.videoBackup.apiKey
+      || ""
+    ).trim();
+    selected.apiKeyConfigured = Boolean(
+      source.videoBackup
+      && source.videoBackup.apiKeyConfigured
+      || selected.apiKey
+    );
+  } else if (section === "video") {
+    selected.apiKey = String(
+      source.video
+      && source.video.apiKey
+      || ""
+    ).trim();
+    selected.apiKeyConfigured = Boolean(
+      source.video
+      && source.video.apiKeyConfigured
+      || selected.apiKey
+    );
+  }
   return Object.assign({}, working, {
-    [section]: profileFormForProvider(
-      working,
-      section,
-      normalizedProviderId
-    )
+    [section]: selected
   });
 }
 
@@ -1252,6 +1352,21 @@ function emptyForm() {
       endpoint: "",
       queryEndpoint: "",
       apiKey: "",
+      model: "",
+      createPath: "/v1/videos/generations",
+      queryPath: "/v1/videos/{taskId}",
+      resolution: "720p",
+      aspectRatio: "",
+      timeoutMs: "90000"
+    },
+    videoBackup: {
+      enabled: false,
+      provider: "",
+      baseUrl: "",
+      endpoint: "",
+      queryEndpoint: "",
+      apiKey: "",
+      apiKeyConfigured: false,
       model: "",
       createPath: "/v1/videos/generations",
       queryPath: "/v1/videos/{taskId}",
@@ -3764,6 +3879,7 @@ function formFromConfig(result) {
   const imageBackup = source.imageBackup || {};
   const tencentFaceFusion = source.tencentFaceFusion || {};
   const video = source.video || {};
+  const videoBackup = source.videoBackup || {};
   const points = source.points || {};
   const costs = source.costs || {};
   const faceCosts = costs.face || {};
@@ -3885,6 +4001,24 @@ function formFromConfig(result) {
       aspectRatio: video.aspectRatio || "",
       timeoutMs: String(video.timeoutMs || 90000)
     },
+    videoBackup: {
+      enabled: Boolean(videoBackup.enabled && videoBackup.provider),
+      provider: displayAdminProvider(videoBackup.provider),
+      baseUrl: videoBackup.baseUrl || "",
+      endpoint: videoBackup.endpoint || "",
+      queryEndpoint: videoBackup.queryEndpoint || "",
+      apiKey: videoBackup.apiKey || "",
+      apiKeyConfigured: Boolean(
+        videoBackup.apiKeyConfigured
+        || videoBackup.apiKey
+      ),
+      model: videoBackup.model || "",
+      createPath: videoBackup.createPath || "/v1/videos/generations",
+      queryPath: videoBackup.queryPath || "/v1/videos/{taskId}",
+      resolution: videoBackup.resolution || "720p",
+      aspectRatio: videoBackup.aspectRatio || "",
+      timeoutMs: String(videoBackup.timeoutMs || 90000)
+    },
     points: {
       dailyFreeLimit: String(points.dailyFreeLimit || 3),
       imageCost: String(points.imageCost || 10),
@@ -3962,7 +4096,10 @@ function formFromConfig(result) {
       alertCooldownMinutes: String(generationQueue.alertCooldownMinutes || 10)
     }
   };
-  return applyAdminVideoProviderDefaults(form);
+  return applyAdminVideoProviderDefaults(
+    applyAdminVideoProviderDefaults(form),
+    "videoBackup"
+  );
 }
 
 function providerProfilesToConfig(form) {
@@ -4090,6 +4227,23 @@ function formToConfig(form) {
       aspectRatio: String(form.video.aspectRatio || "").trim(),
       timeoutMs: Number(form.video.timeoutMs || 0)
     },
+    videoBackup: {
+      enabled: Boolean(
+        form.videoBackup.enabled
+        && form.videoBackup.provider
+      ),
+      provider: normalizeAdminProviderInput(form.videoBackup.provider),
+      baseUrl: String(form.videoBackup.baseUrl || "").trim(),
+      endpoint: String(form.videoBackup.endpoint || "").trim(),
+      queryEndpoint: String(form.videoBackup.queryEndpoint || "").trim(),
+      apiKey: String(form.videoBackup.apiKey || "").trim(),
+      model: String(form.videoBackup.model || "").trim(),
+      createPath: String(form.videoBackup.createPath || "").trim(),
+      queryPath: String(form.videoBackup.queryPath || "").trim(),
+      resolution: String(form.videoBackup.resolution || "").trim(),
+      aspectRatio: String(form.videoBackup.aspectRatio || "").trim(),
+      timeoutMs: Number(form.videoBackup.timeoutMs || 0)
+    },
     points: {
       dailyFreeLimit: Number(form.points.dailyFreeLimit || 0),
       imageCost: Number(form.points.imageCost || 0),
@@ -4153,6 +4307,7 @@ function emptyAdminImageApiKeys() {
     image: "",
     imageBackup: "",
     video: "",
+    videoBackup: "",
     providerProfiles
   };
 }
@@ -4189,6 +4344,12 @@ function normalizeAdminImageApiKeys(result) {
       ).trim();
     });
   });
+  const videoBackup = source.videoBackup;
+  normalized.videoBackup = String(
+    videoBackup && typeof videoBackup === "object"
+      ? videoBackup.apiKey || ""
+      : videoBackup || ""
+  ).trim();
   return normalized;
 }
 
@@ -4223,6 +4384,11 @@ function adminImageApiKeysFromForm(form) {
       result.providerProfiles[section][activeProviderId] = result[section];
     }
   });
+  result.videoBackup = String(
+    source.videoBackup
+    && source.videoBackup.apiKey
+    || ""
+  ).trim();
   return result;
 }
 
@@ -4283,6 +4449,17 @@ function formWithAdminImageApiKeys(form, apiKeys) {
     });
     next.providerProfiles = captureAdminProviderProfile(next, section);
   });
+  const backupKey = String(keys.videoBackup || "").trim();
+  next = Object.assign({}, next, {
+    videoBackup: Object.assign({}, source.videoBackup || {}, {
+      apiKey: backupKey,
+      apiKeyConfigured: Boolean(
+        source.videoBackup
+        && source.videoBackup.apiKeyConfigured
+        || backupKey
+      )
+    })
+  });
   return next;
 }
 
@@ -4328,6 +4505,9 @@ function adminConfigSavePayload(form, baseline) {
   });
   if (configPayload.video) {
     delete configPayload.video.apiKey;
+  }
+  if (configPayload.videoBackup) {
+    delete configPayload.videoBackup.apiKey;
   }
   if (
     configPayload.providerProfiles
@@ -4407,6 +4587,11 @@ function adminImageApiKeysAfterSave(form, baseline) {
       result.providerProfiles[section][activeProviderId] = result[section];
     }
   });
+  result.videoBackup = String(
+    currentKeys.videoBackup
+    || loadedKeys.videoBackup
+    || ""
+  ).trim();
   return result;
 }
 
@@ -4666,6 +4851,11 @@ Page({
       "video"
     ),
     videoProviderProfileIndex: 0,
+    videoBackupProviderProfileOptions: buildAdminProviderProfileOptions(
+      emptyForm(),
+      "videoBackup"
+    ),
+    videoBackupProviderProfileIndex: 0,
     providerLabelRows: buildAdminProviderLabelRows(emptyForm()),
     providerLabelErrors: {},
     providerFilterOptions: buildAdminProviderFilterState(emptyForm()).providerFilterOptions,
@@ -4703,6 +4893,8 @@ Page({
     ),
     videoQualityOptions: buildAdminVideoQualityOptions(emptyForm().costs),
     videoQualityIndex: 1,
+    videoBackupQualityOptions: buildAdminVideoQualityOptions(emptyForm().costs),
+    videoBackupQualityIndex: 1,
     videoPricingNotice: buildAdminVideoPricingNotice(emptyForm().costs),
     imageCapabilitySource: "known-model-rule",
     videoCapabilitySource: "known-model-rule",
@@ -4715,7 +4907,8 @@ Page({
     imageQualityProbe: emptyImageQualityProbe(),
     modelCapabilityProfiles: {
       image: {},
-      video: {}
+      video: {},
+      videoBackup: {}
     },
     currentConfigModels: emptyCurrentConfigModels(),
     defaults: null,
@@ -6280,23 +6473,23 @@ Page({
       Number(event && event.detail && event.detail.value) || 0
     );
     const option = options[index];
-    if (!option || !option.value) return;
+    if (!option || (section !== "videoBackup" && !option.value)) return;
     let nextForm = switchAdminProviderProfile(
       this.data.form,
       section,
       option.value
     );
-    if (section === "video") {
+    if (section === "video" || section === "videoBackup") {
       const currentVideoApiKey = String(
         this.data.form
-        && this.data.form.video
-        && this.data.form.video.apiKey
+        && this.data.form[section]
+        && this.data.form[section].apiKey
         || ""
       ).trim();
-      nextForm = applyAdminVideoProviderDefaults(nextForm);
+      nextForm = applyAdminVideoProviderDefaults(nextForm, section);
       if (currentVideoApiKey) {
         nextForm = Object.assign({}, nextForm, {
-          video: Object.assign({}, nextForm.video, {
+          [section]: Object.assign({}, nextForm[section], {
             apiKey: currentVideoApiKey,
             apiKeyConfigured: true
           })
@@ -6313,10 +6506,17 @@ Page({
       && nextForm.video.model
       || ""
     ).trim();
+    const videoBackupModel = String(
+      nextForm.videoBackup
+      && nextForm.videoBackup.model
+      || ""
+    ).trim();
     const capabilityProfiles = this.data.modelCapabilityProfiles || {};
     const patch = Object.assign({
       form: nextForm,
-      message: `已切换到${displayAdminProvider(option.value, option.value)}；当前只修改页面草稿，点击“保存全部配置”后才写入云端。`
+      message: section === "videoBackup" && !option.value
+        ? "已关闭备用视频服务商；保存后，主服务商失败时不会自动切换。"
+        : `已切换到${displayAdminProvider(option.value, option.value)}；当前只修改页面草稿，点击“保存全部配置”后才写入云端。`
     }, buildAdminProviderProfilePickerState(nextForm),
     buildAdminProviderManagementState(
       nextForm,
@@ -6329,6 +6529,9 @@ Page({
         || {},
       video: capabilityProfiles.video
         && capabilityProfiles.video[videoModel]
+        || {},
+      videoBackup: capabilityProfiles.videoBackup
+        && capabilityProfiles.videoBackup[videoBackupModel]
         || {}
     }));
     Object.assign(
@@ -6433,7 +6636,7 @@ Page({
       ? displayAdminProvider(inputValue)
       : inputValue;
     let nextForm;
-    if (ADMIN_PROVIDER_PROFILE_SECTIONS.includes(section)) {
+    if (ADMIN_PROVIDER_PICKER_SECTIONS.includes(section)) {
       if (key === "provider") {
         const currentProviderId = providerIdFromDisplay(
           this.data.form[section]
@@ -6465,8 +6668,8 @@ Page({
         })
       });
     }
-    if (section === "video") {
-      nextForm = applyAdminVideoProviderDefaults(nextForm);
+    if (section === "video" || section === "videoBackup") {
+      nextForm = applyAdminVideoProviderDefaults(nextForm, section);
     }
     const patch = { form: nextForm };
     if (section === "tencentFaceFusion") {
@@ -6475,7 +6678,7 @@ Page({
     if (section === "costs" && ADMIN_COST_KEYS.includes(key)) {
       patch[`costFieldErrors.${key}`] = validateAdminCostInput(value);
     }
-    if (ADMIN_PROVIDER_PROFILE_SECTIONS.includes(section)) {
+    if (ADMIN_PROVIDER_PICKER_SECTIONS.includes(section)) {
       Object.assign(
         patch,
         buildAdminProviderProfilePickerState(nextForm),
@@ -6496,7 +6699,12 @@ Page({
       }
     }
     if (
-      (section === "image" || section === "imageBackup" || section === "video")
+      (
+        section === "image"
+        || section === "imageBackup"
+        || section === "video"
+        || section === "videoBackup"
+      )
       && (key === "model" || key === "provider")
     ) {
       const profiles = this.data.modelCapabilityProfiles
@@ -6834,6 +7042,23 @@ Page({
     }, buildAdminProviderProfilePickerState(nextForm), buildQualityPickerState(nextForm, {
       video: this.data.modelCapabilityProfiles.video
         && this.data.modelCapabilityProfiles.video[nextForm.video.model]
+        || {}
+    })));
+  },
+
+  onVideoBackupQualityChange(event) {
+    const index = Math.max(0, Number(event && event.detail && event.detail.value) || 1);
+    const option = this.data.videoBackupQualityOptions[index] || VIDEO_QUALITY_OPTIONS[1];
+    const nextForm = updateAdminProviderProfileForm(
+      this.data.form,
+      "videoBackup",
+      { resolution: option.value }
+    );
+    this.setData(Object.assign({
+      form: nextForm
+    }, buildAdminProviderProfilePickerState(nextForm), buildQualityPickerState(nextForm, {
+      videoBackup: this.data.modelCapabilityProfiles.videoBackup
+        && this.data.modelCapabilityProfiles.videoBackup[nextForm.videoBackup.model]
         || {}
     })));
   },
@@ -7498,7 +7723,9 @@ Page({
     const typeLabel = usageTypeLabel(modelType);
     const targetLabel = modelConfigKey === "imageBackup"
       ? "备用生图"
-      : typeLabel;
+      : modelConfigKey === "videoBackup"
+        ? "备用视频"
+        : typeLabel;
     const providerId = normalizeAdminProviderInput(
       this.data.form
       && this.data.form[modelConfigKey]
@@ -7583,7 +7810,9 @@ Page({
     const typeLabel = usageTypeLabel(modelType);
     const targetLabel = modelConfigKey === "imageBackup"
       ? "备用生图"
-      : typeLabel;
+      : modelConfigKey === "videoBackup"
+        ? "备用视频"
+        : typeLabel;
     this.setData({
       modelActionType: modelType,
       modelActionKind: "list",
@@ -7697,7 +7926,7 @@ Page({
       type,
       this.data.modelPickerTarget
     );
-    const nextForm = ADMIN_PROVIDER_PROFILE_SECTIONS.includes(configKey)
+    const nextForm = ADMIN_PROVIDER_PICKER_SECTIONS.includes(configKey)
       ? updateAdminProviderProfileForm(
           this.data.form,
           configKey,
@@ -7725,7 +7954,13 @@ Page({
       modelPickerSearch: "",
       modelPickerAllOptions: [],
       modelPickerOptions: [],
-      message: `已选择${configKey === "imageBackup" ? "备用生图" : usageTypeLabel(type)}模型：${value}；点击“保存全部配置”后才会生效。`
+      message: `已选择${
+        configKey === "imageBackup"
+          ? "备用生图"
+          : configKey === "videoBackup"
+            ? "备用视频"
+            : usageTypeLabel(type)
+      }模型：${value}；点击“保存全部配置”后才会生效。`
     }, buildAdminProviderProfilePickerState(nextForm),
     buildAdminProviderManagementState(
       nextForm,

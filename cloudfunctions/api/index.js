@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.54.0";
-const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0540";
+const API_BUILD_VERSION = "0.55.0";
+const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V0550";
 const DEFAULT_IMAGE_MODE = "edits";
 // 图片和视频默认成本只在云函数入口维护；管理员页读取云端有效配置，
 // 避免前后端各写一份价格。入口保持单文件可启动，兼容 CloudBase 部署。
@@ -1235,7 +1235,9 @@ const IMAGE_RETRY_PREFERENCE_VERSION = 1;
 const DEFAULT_ADMIN_PROVIDER_LABELS = Object.freeze({
   dashscope: "阿里云百炼",
   lingyun: "凌云",
-  xingju: "星炬"
+  xingju: "星炬",
+  laoli: "老李",
+  panda: "熊猫"
 });
 const FORBIDDEN_ADMIN_PROVIDER_LABEL_KEYS = new Set([
   "__proto__",
@@ -1247,7 +1249,8 @@ const ADMIN_PROVIDER_CONFIG_SECTIONS = Object.freeze([
   "analysis",
   "image",
   "imageBackup",
-  "video"
+  "video",
+  "videoBackup"
 ]);
 const ADMIN_CONFIG_AUDIT_LOG_COLLECTION = "admin_config_audit_logs";
 const ADMIN_CONFIG_AUDIT_MAX_READ = 200;
@@ -1907,6 +1910,96 @@ function resolveVideoConfig(overrides = {}) {
       )
     ),
     configured: Boolean(provider && (baseUrl || endpointValue) && apiKey && model)
+  };
+}
+
+function resolveVideoBackupConfig(overrides = {}) {
+  const video = overrides && overrides.videoBackup
+    ? overrides.videoBackup
+    : overrides;
+  const provider = overrideString(
+    video,
+    "provider",
+    firstEnv(["AI_VIDEO_BACKUP_PROVIDER"])
+  );
+  const baseUrl = overrideString(
+    video,
+    "baseUrl",
+    firstEnv(["AI_VIDEO_BACKUP_BASE_URL"])
+  );
+  const endpointValue = overrideString(
+    video,
+    "endpoint",
+    env("AI_VIDEO_BACKUP_ENDPOINT")
+  );
+  const apiKey = normalizeApiKey(
+    overrideString(
+      video,
+      "apiKey",
+      firstEnv(["AI_VIDEO_BACKUP_API_KEY"])
+    )
+  );
+  const model = overrideString(
+    video,
+    "model",
+    env("AI_VIDEO_BACKUP_MODEL", "")
+  );
+  const enabled = hasOwn(video, "enabled")
+    ? overrideBoolean(video, "enabled", false)
+    : Boolean(provider || firstEnv(["AI_VIDEO_BACKUP_PROVIDER"]));
+  return {
+    enabled,
+    provider,
+    baseUrl,
+    endpoint: endpointValue,
+    queryEndpoint: overrideString(
+      video,
+      "queryEndpoint",
+      env("AI_VIDEO_BACKUP_QUERY_ENDPOINT")
+    ),
+    apiKey,
+    model,
+    createPath: overrideString(
+      video,
+      "createPath",
+      env("AI_VIDEO_BACKUP_CREATE_PATH", "/v1/videos/generations")
+    ),
+    queryPath: overrideString(
+      video,
+      "queryPath",
+      env("AI_VIDEO_BACKUP_QUERY_PATH", "/v1/videos/{taskId}")
+    ),
+    resolution: normalizeVideoResolution(
+      overrideString(video, "resolution", env("AI_VIDEO_BACKUP_RESOLUTION", "720p")),
+      "720p"
+    ),
+    aspectRatio: overrideString(
+      video,
+      "aspectRatio",
+      env("AI_VIDEO_BACKUP_ASPECT_RATIO", "")
+    ),
+    prompt: env(
+      "AI_VIDEO_PROMPT",
+      "让照片中的人物自然轻微运动，保持人物身份、脸部、发型、服装和背景不变，镜头稳定，动作连贯，不要新增人物，不要变形。"
+    ),
+    timeoutMs: Math.max(
+      10000,
+      Math.min(
+        15 * 60 * 1000,
+        Number(
+          video && Object.prototype.hasOwnProperty.call(video, "timeoutMs")
+            ? video.timeoutMs
+            : env("AI_VIDEO_BACKUP_TIMEOUT_MS", "90000")
+        ) || 90000
+      )
+    ),
+    configured: Boolean(
+      enabled
+      && provider
+      && (baseUrl || endpointValue)
+      && apiKey
+      && model
+    )
   };
 }
 
@@ -6354,7 +6447,14 @@ function mergeAdminProviderLabels(current, patch) {
   ));
 }
 
-const ADMIN_PROVIDER_PROFILE_SECTIONS = ADMIN_PROVIDER_CONFIG_SECTIONS;
+// 主视频和备用视频共用同一套服务商档案，备用项只保存“选中了谁”。
+const ADMIN_PROVIDER_PROFILE_SECTIONS = Object.freeze([
+  "face",
+  "analysis",
+  "image",
+  "imageBackup",
+  "video"
+]);
 const ADMIN_PROVIDER_PROFILE_KEYS = Object.freeze({
   face: Object.freeze([
     "provider",
@@ -6413,7 +6513,7 @@ const ADMIN_PROVIDER_PROFILE_KEYS = Object.freeze({
     "resolution",
     "aspectRatio",
     "timeoutMs"
-  ])
+  ]),
 });
 
 function isAdminProviderObject(value) {
@@ -6533,17 +6633,24 @@ function syncAdminTopLevelProviderProfiles(config, baseProfiles) {
     baseProfiles || source.providerProfiles,
     {}
   );
-  ADMIN_PROVIDER_PROFILE_SECTIONS.forEach((section) => {
+  ADMIN_PROVIDER_CONFIG_SECTIONS.forEach((section) => {
     const topLevel = isAdminProviderObject(source[section]) ? source[section] : {};
     const providerId = normalizeAdminProviderId(topLevel.provider);
     if (!providerId || isDangerousAdminProviderId(providerId)) return;
-    profiles[section][providerId] = Object.assign(
+    const profileSection = section === "videoBackup" ? "video" : section;
+    if (
+      section === "videoBackup"
+      && normalizeAdminProviderId(source.video && source.video.provider) === providerId
+    ) {
+      return;
+    }
+    profiles[profileSection][providerId] = Object.assign(
       {},
-      profiles[section][providerId] || {},
-      normalizeAdminProviderProfileValue(section, topLevel, providerId),
+      profiles[profileSection][providerId] || {},
+      normalizeAdminProviderProfileValue(profileSection, topLevel, providerId),
       { provider: providerId }
     );
-    profiles[section] = sortAdminProviderObject(profiles[section]);
+    profiles[profileSection] = sortAdminProviderObject(profiles[profileSection]);
   });
   return profiles;
 }
@@ -6551,7 +6658,7 @@ function syncAdminTopLevelProviderProfiles(config, baseProfiles) {
 function configuredAdminProviderIds(config) {
   const source = isAdminProviderObject(config) ? config : {};
   const result = new Set();
-  ADMIN_PROVIDER_PROFILE_SECTIONS.forEach((section) => {
+  ADMIN_PROVIDER_CONFIG_SECTIONS.forEach((section) => {
     const providerId = normalizeAdminProviderId(
       source[section] && source[section].provider
     );
@@ -6623,7 +6730,8 @@ function mergeAdminRuntimeProviderSection(
   section,
   existingSection,
   patchSection,
-  profiles
+  profiles,
+  profileSection = section
 ) {
   const existingValue = isAdminProviderObject(existingSection) ? existingSection : {};
   const submittedValue = isAdminProviderObject(patchSection) ? patchSection : {};
@@ -6633,9 +6741,9 @@ function mergeAdminRuntimeProviderSection(
     ? normalizeAdminProviderId(submittedValue.provider)
     : existingProviderId;
   const storedProfile = providerId
-    && profiles[section]
-    && profiles[section][providerId]
-    ? profiles[section][providerId]
+    && profiles[profileSection]
+    && profiles[profileSection][providerId]
+    ? profiles[profileSection][providerId]
     : {};
   const sameExistingProvider = providerId === existingProviderId
     ? existingValue
@@ -6667,6 +6775,9 @@ function normalizeRuntimePatch(input = {}) {
     ? source.tencentFaceFusion
     : {};
   const videoSource = source.video && typeof source.video === "object" ? source.video : {};
+  const videoBackupSource = source.videoBackup && typeof source.videoBackup === "object"
+    ? source.videoBackup
+    : {};
   const pointsSource = source.points && typeof source.points === "object" ? source.points : {};
   const costsSource = source.costs && typeof source.costs === "object" ? source.costs : {};
   const generationQueueSource = source.generationQueue
@@ -6773,6 +6884,7 @@ function normalizeRuntimePatch(input = {}) {
   const imageBackup = {};
   const tencentFaceFusion = {};
   const video = {};
+  const videoBackup = {};
   const points = {};
   const costs = {};
   const face = {};
@@ -6849,6 +6961,16 @@ function normalizeRuntimePatch(input = {}) {
         : videoSource[key];
     }
   });
+  if (hasOwn(videoBackupSource, "enabled")) {
+    videoBackup.enabled = overrideBoolean(videoBackupSource, "enabled", false);
+  }
+  videoKeys.forEach((key) => {
+    if (hasOwn(videoBackupSource, key)) {
+      videoBackup[key] = key === "apiKey"
+        ? normalizeApiKey(videoBackupSource[key])
+        : videoBackupSource[key];
+    }
+  });
   pointsKeys.forEach((key) => {
     if (hasOwn(pointsSource, key)) points[key] = pointsSource[key];
   });
@@ -6920,6 +7042,7 @@ const result = {
     imageBackup,
     tencentFaceFusion,
     video,
+    videoBackup,
     points,
     costs,
     generationQueue
@@ -6978,6 +7101,7 @@ function validateRuntimePatch(patch, options = {}) {
   const imageBackup = patch.imageBackup || {};
   const tencentFaceFusion = patch.tencentFaceFusion || {};
   const video = patch.video || {};
+  const videoBackup = patch.videoBackup || {};
   const points = patch.points || {};
   const costs = patch.costs || {};
   const faceCosts = costs.face || {};
@@ -6997,13 +7121,18 @@ function validateRuntimePatch(patch, options = {}) {
     ["imageBackup.endpoint", imageBackup.endpoint],
     ["video.baseUrl", video.baseUrl],
     ["video.endpoint", video.endpoint],
-    ["video.queryEndpoint", video.queryEndpoint]
+    ["video.queryEndpoint", video.queryEndpoint],
+    ["videoBackup.baseUrl", videoBackup.baseUrl],
+    ["videoBackup.endpoint", videoBackup.endpoint],
+    ["videoBackup.queryEndpoint", videoBackup.queryEndpoint]
   ].forEach(([field, value]) => {
     if (value !== undefined && !isValidHttpUrl(value)) errors.push(`${field} 必须是 http/https 地址`);
   });
   [
     ["video.createPath", video.createPath],
-    ["video.queryPath", video.queryPath]
+    ["video.queryPath", video.queryPath],
+    ["videoBackup.createPath", videoBackup.createPath],
+    ["videoBackup.queryPath", videoBackup.queryPath]
   ].forEach(([field, value]) => {
     if (value !== undefined && !isValidEndpointOrPath(value)) {
       errors.push(`${field} 必须是 / 开头的路径或 http/https 地址`);
@@ -7124,6 +7253,24 @@ function validateRuntimePatch(patch, options = {}) {
   if (video.timeoutMs !== undefined && (!Number.isFinite(Number(video.timeoutMs)) || Number(video.timeoutMs) < 10000 || Number(video.timeoutMs) > 900000)) {
     errors.push("video.timeoutMs 必须在 10000～900000 之间");
   }
+  if (
+    videoBackup.timeoutMs !== undefined
+    && (
+      !Number.isFinite(Number(videoBackup.timeoutMs))
+      || Number(videoBackup.timeoutMs) < 10000
+      || Number(videoBackup.timeoutMs) > 900000
+    )
+  ) {
+    errors.push("videoBackup.timeoutMs 必须在 10000～900000 之间");
+  }
+  if (
+    overrideBoolean(videoBackup, "enabled", false)
+    && normalizeAdminProviderId(video.provider)
+    && normalizeAdminProviderId(video.provider)
+      === normalizeAdminProviderId(videoBackup.provider)
+  ) {
+    errors.push("videoBackup.provider 不能和 video.provider 相同，请选择另一家备用服务商");
+  }
   [
     ["face.provider", face.provider],
     ["face.model", face.model],
@@ -7140,7 +7287,11 @@ function validateRuntimePatch(patch, options = {}) {
     ["video.provider", video.provider],
     ["video.model", video.model],
     ["video.resolution", video.resolution],
-    ["video.aspectRatio", video.aspectRatio]
+    ["video.aspectRatio", video.aspectRatio],
+    ["videoBackup.provider", videoBackup.provider],
+    ["videoBackup.model", videoBackup.model],
+    ["videoBackup.resolution", videoBackup.resolution],
+    ["videoBackup.aspectRatio", videoBackup.aspectRatio]
   ].forEach(([field, value]) => {
     if (value !== undefined && String(value).length > 120) errors.push(`${field} 长度不能超过 120`);
   });
@@ -7352,12 +7503,20 @@ function mergeRuntimeConfig(current, patch) {
     submitted.video,
     providerProfiles
   );
+  const videoBackupConfig = mergeAdminRuntimeProviderSection(
+    "videoBackup",
+    existing.videoBackup,
+    submitted.videoBackup,
+    providerProfiles,
+    "video"
+  );
   providerProfiles = syncAdminTopLevelProviderProfiles({
     face: faceConfig,
     analysis: analysisConfig,
     image: imageConfig,
     imageBackup: imageBackupConfig,
-    video: videoConfig
+    video: videoConfig,
+    videoBackup: videoBackupConfig
   }, providerProfiles);
   const existingCosts = existing.costs || {};
   const patchCosts = submitted.costs || {};
@@ -7399,6 +7558,7 @@ function mergeRuntimeConfig(current, patch) {
       submitted.tencentFaceFusion || {}
     ),
     video: videoConfig,
+    videoBackup: videoBackupConfig,
     points: Object.assign({}, existing.points || {}, submitted.points || {}),
     generationQueue: generationQueueMonitor.normalizeQueueSettings(
       Object.assign(
@@ -7479,6 +7639,7 @@ const ADMIN_CONFIG_AUDIT_SECTIONS = Object.freeze([
   "imageBackup",
   "tencentFaceFusion",
   "video",
+  "videoBackup",
   "points",
   "costs",
   "generationQueue"
@@ -7907,6 +8068,7 @@ function redactConfig(config, defaults) {
   );
   const tencentFaceFusion = config.tencentFaceFusion || {};
   const video = config.video || {};
+  const videoBackup = config.videoBackup || {};
   const points = config.points || {};
   const costs = resolveCostConfig(config.costs || {}, {
     imageProvider: image.provider || defaults.image && defaults.image.provider
@@ -8033,6 +8195,25 @@ function redactConfig(config, defaults) {
       apiKeyConfigured: Boolean(
         normalizeApiKey(video.apiKey)
         || normalizeApiKey(defaults.video && defaults.video.apiKey)
+      )
+    },
+    videoBackup: {
+      enabled: Boolean(videoBackup.enabled),
+      provider: videoBackup.provider || "",
+      baseUrl: videoBackup.baseUrl || "",
+      endpoint: videoBackup.endpoint || "",
+      queryEndpoint: videoBackup.queryEndpoint || "",
+      apiKey: "",
+      model: videoBackup.model || "",
+      createPath: videoBackup.createPath || "",
+      queryPath: videoBackup.queryPath || "",
+      resolution: videoBackup.resolution || "",
+      aspectRatio: videoBackup.aspectRatio || "",
+      timeoutMs: Number(videoBackup.timeoutMs || 0),
+      configured: Boolean(videoBackup.configured),
+      apiKeyConfigured: Boolean(
+        normalizeApiKey(videoBackup.apiKey)
+        || normalizeApiKey(defaults.videoBackup && defaults.videoBackup.apiKey)
       )
     },
     points: {
@@ -8360,6 +8541,7 @@ async function resolveEffectiveConfigs(options = {}) {
       imageBackup: {},
       tencentFaceFusion: {},
       video: {},
+      videoBackup: {},
       points: {},
       costs: {},
       generationQueue: generationQueueMonitor.normalizeQueueSettings()
@@ -8376,6 +8558,7 @@ async function resolveEffectiveConfigs(options = {}) {
       runtime && runtime.tencentFaceFusion
     ),
     video: resolveVideoConfig(runtime && runtime.video),
+    videoBackup: resolveVideoBackupConfig(runtime && runtime.videoBackup),
     points: resolvePointsConfig(runtime && runtime.points),
     costs: resolveCostConfig(runtime && runtime.costs, {
       imageProvider: image.provider
@@ -8393,6 +8576,7 @@ function adminConfigView(configs, runtime, metadata = {}) {
   const imageBackupDefaults = resolveImageBackupConfig();
   const tencentFaceFusionDefaults = resolveTencentFaceFusionConfig();
   const videoDefaults = resolveVideoConfig();
+  const videoBackupDefaults = resolveVideoBackupConfig();
   const pointDefaults = resolvePointsConfig();
   const costDefaults = resolveCostConfig({}, {
     imageProvider: imageDefaults.provider
@@ -8406,6 +8590,7 @@ function adminConfigView(configs, runtime, metadata = {}) {
     imageBackup: {},
     tencentFaceFusion: {},
     video: {},
+    videoBackup: {},
     points: {},
     costs: {},
     generationQueue: generationQueueDefaults
@@ -8419,6 +8604,7 @@ function adminConfigView(configs, runtime, metadata = {}) {
       imageBackup: imageBackupDefaults,
       tencentFaceFusion: tencentFaceFusionDefaults,
       video: videoDefaults,
+      videoBackup: videoBackupDefaults,
       points: pointDefaults,
       costs: costDefaults,
       generationQueue: generationQueueDefaults
@@ -8430,6 +8616,7 @@ function adminConfigView(configs, runtime, metadata = {}) {
       imageBackup: imageBackupDefaults,
       tencentFaceFusion: tencentFaceFusionDefaults,
       video: videoDefaults,
+      videoBackup: videoBackupDefaults,
       points: pointDefaults,
       costs: costDefaults,
       generationQueue: generationQueueDefaults
@@ -8442,6 +8629,7 @@ function adminConfigView(configs, runtime, metadata = {}) {
       imageBackup: imageBackupDefaults,
       tencentFaceFusion: tencentFaceFusionDefaults,
       video: videoDefaults,
+      videoBackup: videoBackupDefaults,
       points: pointDefaults,
       costs: costDefaults
     }),
@@ -8454,6 +8642,7 @@ function adminConfigView(configs, runtime, metadata = {}) {
       imageBackup: configs.imageBackup,
       tencentFaceFusion: configs.tencentFaceFusion,
       video: configs.video,
+      videoBackup: configs.videoBackup,
       points: configs.points,
       costs: configs.costs,
       generationQueue: configs.generationQueue
@@ -8465,6 +8654,7 @@ function adminConfigView(configs, runtime, metadata = {}) {
       imageBackup: configs.imageBackup,
       tencentFaceFusion: configs.tencentFaceFusion,
       video: configs.video,
+      videoBackup: configs.videoBackup,
       points: configs.points,
       costs: configs.costs,
       generationQueue: configs.generationQueue
@@ -8548,6 +8738,13 @@ async function getAdminImageApiKeys(context) {
     },
     video: {
       apiKey: String(configs.video && configs.video.apiKey || "")
+    },
+    videoBackup: {
+      apiKey: String(
+        configs.videoBackup
+        && configs.videoBackup.apiKey
+        || ""
+      )
     },
     providerProfiles: providerProfileKeys
   });
@@ -9157,7 +9354,7 @@ async function initializeDatabase(context) {
 }
 
 function dropBlankRuntimeApiKeys(patch = {}) {
-  ["face", "analysis", "image", "imageBackup", "video"].forEach((section) => {
+  ["face", "analysis", "image", "imageBackup", "video", "videoBackup"].forEach((section) => {
     if (
       patch[section]
       && hasOwn(patch[section], "apiKey")
@@ -9198,6 +9395,9 @@ function dropBlankRuntimeApiKeys(patch = {}) {
   }
   if (patch.video && hasOwn(patch.video, "apiKey")) {
     delete patch.video.apiKey;
+  }
+  if (patch.videoBackup && hasOwn(patch.videoBackup, "apiKey")) {
+    delete patch.videoBackup.apiKey;
   }
   return patch;
 }
@@ -9279,6 +9479,7 @@ async function saveAdminConfig(event, context) {
     imageBackup: next.imageBackup,
     tencentFaceFusion: next.tencentFaceFusion,
     video: next.video,
+    videoBackup: next.videoBackup,
     points: next.points,
     costs: next.costs,
     generationQueue: next.generationQueue,
@@ -9313,6 +9514,7 @@ async function saveAdminConfig(event, context) {
       imageBackup: next.imageBackup,
       tencentFaceFusion: next.tencentFaceFusion,
       video: next.video,
+      videoBackup: next.videoBackup,
       points: next.points,
       costs: next.costs,
       generationQueue: next.generationQueue,
@@ -9334,6 +9536,7 @@ async function saveAdminConfig(event, context) {
     imageBackupFields: Object.keys(patch.imageBackup),
     tencentFaceFusionFields: Object.keys(patch.tencentFaceFusion),
     videoFields: Object.keys(patch.video),
+    videoBackupFields: Object.keys(patch.videoBackup),
     pointsFields: Object.keys(patch.points),
     costFields: Object.keys(patch.costs),
     generationQueueFields: Object.keys(patch.generationQueue)
@@ -9926,13 +10129,14 @@ function temporaryModelConfig(configs, type, input) {
   const requestedTarget = String(
     input && input.configTarget || type
   ).trim();
-  const configTarget = type === "image" && requestedTarget === "imageBackup"
-    ? "imageBackup"
-    : type;
+  const configTarget = (
+    type === "image" && requestedTarget === "imageBackup"
+    || type === "video" && requestedTarget === "videoBackup"
+  ) ? requestedTarget : type;
   const current = configs && configs[configTarget] ? configs[configTarget] : {};
   const patch = normalizeRuntimePatch({
-    [type]: input && typeof input === "object" ? input : {}
-  })[type] || {};
+    [configTarget]: input && typeof input === "object" ? input : {}
+  })[configTarget] || {};
   return Object.assign({}, current, patch, {
     // 空字符串表示沿用后台已有密钥，避免无意中把可用密钥覆盖掉。
     apiKey: String(patch.apiKey || "").trim() || current.apiKey || ""
@@ -9981,6 +10185,9 @@ function adminProviderConnectionConfig(section, profile) {
   if (section === "imageBackup") {
     return resolveImageBackupConfig({ imageBackup: value });
   }
+  if (section === "videoBackup") {
+    return resolveVideoBackupConfig({ videoBackup: value });
+  }
   return resolveVideoConfig({ video: value });
 }
 
@@ -10020,15 +10227,17 @@ async function testAdminProviderConnection(event, context) {
     runtime,
     runtime.providerProfiles
   );
-  const profile = providerProfiles[section]
-    && providerProfiles[section][providerId]
+  const profileSection = section === "videoBackup" ? "video" : section;
+  const profile = providerProfiles[profileSection]
+    && providerProfiles[profileSection][providerId]
     || null;
   const activeConfig = configs && configs[section] && typeof configs[section] === "object"
     ? configs[section]
     : {};
   const activeProviderId = normalizeAdminProviderId(activeConfig.provider);
-  const selectedProfile = profile
-    || (activeProviderId === providerId ? activeConfig : null);
+  const selectedProfile = activeProviderId === providerId
+    ? Object.assign({}, profile || {}, activeConfig)
+    : profile;
   if (!selectedProfile) {
     return fail(
       `没有找到“${providerId}”在${section}区域的已保存配置，请先保存后再测试。`,
@@ -10040,7 +10249,11 @@ async function testAdminProviderConnection(event, context) {
     );
   }
 
-  const probeType = section === "imageBackup" ? "image" : section;
+  const probeType = section === "imageBackup"
+    ? "image"
+    : section === "videoBackup"
+      ? "video"
+      : section;
   const config = adminProviderConnectionConfig(section, selectedProfile);
   const result = await probeOneModel(probeType, config);
   const response = {

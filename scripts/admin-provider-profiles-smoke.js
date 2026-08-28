@@ -26,7 +26,8 @@ const PICKER_STATE = {
   analysis: "analysisProviderProfileOptions",
   image: "imageProviderProfileOptions",
   imageBackup: "imageBackupProviderProfileOptions",
-  video: "videoProviderProfileOptions"
+  video: "videoProviderProfileOptions",
+  videoBackup: "videoBackupProviderProfileOptions"
 };
 
 assert.ok(test, "云函数没有暴露测试接口");
@@ -574,11 +575,22 @@ async function verifyPageSwitchAndReload() {
   });
 
   SECTIONS.forEach((section) => {
-    assert.strictEqual(
-      page.data.form.providerProfiles[section][PROVIDER_B].apiKey,
-      section === "video" ? VIDEO_ENV_KEY : bKeys[section],
-      `${section} 的乙服务商草稿没有写入独立档案`
-    );
+    if (section === "video") {
+      assert.strictEqual(
+        Object.prototype.hasOwnProperty.call(
+          page.data.form.providerProfiles[section][PROVIDER_B],
+          "apiKey"
+        ),
+        false,
+        "视频服务商档案不能保存云函数环境变量 Key"
+      );
+    } else {
+      assert.strictEqual(
+        page.data.form.providerProfiles[section][PROVIDER_B].apiKey,
+        bKeys[section],
+        `${section} 的乙服务商草稿没有写入独立档案`
+      );
+    }
   });
   assert.notStrictEqual(
     page.data.form.providerProfiles.image[PROVIDER_B].apiKey,
@@ -657,8 +669,8 @@ function verifyMarkup() {
   );
   assert.strictEqual(
     (wxml.match(/bindchange="onProviderProfileChange"/g) || []).length,
-    5,
-    "五组服务商都必须使用档案下拉框"
+    6,
+    "六组主备配置都必须使用服务商档案下拉框"
   );
   Object.keys(PICKER_STATE).forEach((section) => {
     assert.ok(

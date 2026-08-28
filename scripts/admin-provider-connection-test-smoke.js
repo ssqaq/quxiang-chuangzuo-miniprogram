@@ -10,6 +10,7 @@ process.env.WECHAT_MINIAPP_TEST = "1";
 process.env.ADMIN_RUNTIME_CONFIG_SMOKE = "1";
 process.env.ADMIN_OPENIDS = "admin-provider-connection-smoke";
 process.env.AI_VIDEO_API_KEY = "video-saved-key";
+process.env.AI_VIDEO_BACKUP_API_KEY = "video-backup-saved-key";
 
 const api = require("../cloudfunctions/api/index.js");
 const helpers = api.__test;
@@ -30,7 +31,8 @@ const API_KEYS = {
   analysis: "analysis-saved-key",
   image: "image-saved-key",
   imageBackup: "image-backup-saved-key",
-  video: "video-saved-key"
+  video: "video-saved-key",
+  videoBackup: "video-backup-saved-key"
 };
 
 function clone(value) {
@@ -88,6 +90,10 @@ function buildRuntime(baseUrl) {
       [PROVIDER_ID]: clone(profile)
     };
   });
+  runtime.videoBackup = Object.assign(
+    { enabled: true },
+    sectionProfile("video", baseUrl, API_KEYS.videoBackup)
+  );
   return runtime;
 }
 
@@ -139,6 +145,7 @@ function fullApiKeys(runtime) {
     image: { apiKey: API_KEYS.image },
     imageBackup: { apiKey: API_KEYS.imageBackup },
     video: { apiKey: API_KEYS.video }
+    ,videoBackup: { apiKey: API_KEYS.videoBackup }
   };
 }
 
@@ -330,11 +337,22 @@ async function verifyBackend() {
         assert.ok(result.durationMs >= 0);
         successful.push(result);
       }
-      assert.strictEqual(successful.length, 5);
+      const backupResult = await api.main(
+        {
+          action: "testAdminProviderConnection",
+          section: "videoBackup",
+          providerId: PROVIDER_ID,
+          requestId: "connection-videoBackup"
+        },
+        { OPENID: ADMIN_OPENID }
+      );
+      assert.strictEqual(backupResult.ok, true, "备用视频真实连接测试应该成功");
+      successful.push(backupResult);
+      assert.strictEqual(successful.length, 6);
       assert.strictEqual(
         requests.length,
-        5,
-        "五个配置区域都应该只发出一次上游模型探测"
+        6,
+        "六个配置区域都应该只发出一次上游模型探测"
       );
       SECTIONS.forEach((section) => {
         const request = requests.find((item) => (
@@ -343,6 +361,12 @@ async function verifyBackend() {
         assert.ok(request, `${section} 没有使用已保存的 Key 调用上游`);
         assert.strictEqual(request.path, "/v1/models");
       });
+      assert.ok(
+        requests.some((item) => (
+          item.authorization === `Bearer ${API_KEYS.videoBackup}`
+        )),
+        "备用视频没有使用独立环境变量 Key 调用上游"
+      );
       assert.strictEqual(
         helpers.getModelUsageTestEvents().length,
         beforeUsage,
@@ -526,13 +550,12 @@ function verifySourceContracts() {
   assert.ok(cloudSource.includes('action: "testAdminProviderConnection"'));
   assert.strictEqual(
     (wxml.match(/aria-label="测试[^"]+模型连接"/g) || []).length,
-    5,
-    "五个配置区域必须保留连接测试入口"
+    6,
+    "六个配置区域必须保留连接测试入口"
   );
-  assert.strictEqual(
-    (wxml.match(/测试使用当前已保存的/g) || []).length,
-    5,
-    "五个配置区域都要说明测试使用已保存配置"
+  assert.ok(
+    wxml.includes('data-model-config="videoBackup"'),
+    "备用视频连接测试没有指向独立配置"
   );
 }
 

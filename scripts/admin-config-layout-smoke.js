@@ -209,8 +209,8 @@ const apiKeyInputBySection = apiKeyInputs.reduce((result, input) => {
 }, {});
 assert.strictEqual(
   apiKeyInputs.length,
-  5,
-  "普通配置加图片主备配置共五个 API Key 输入框必须完整"
+  6,
+  "普通配置加图片主备、视频主备共六个 API Key 输入框必须完整"
 );
 assert.ok(
   ["face", "analysis", "image", "imageBackup"].every((section) => (
@@ -224,6 +224,12 @@ assert.ok(
     && /\bdisabled\b/.test(apiKeyInputBySection.video)
     && !/\bpassword\b/.test(apiKeyInputBySection.video),
   "视频 API Key 必须只读显示，不能再用密码输入"
+);
+assert.ok(
+  apiKeyInputBySection.videoBackup
+    && /\bdisabled\b/.test(apiKeyInputBySection.videoBackup)
+    && !/\bpassword\b/.test(apiKeyInputBySection.videoBackup),
+  "备用视频 API Key 必须只读显示，不能再用密码输入"
 );
 assert.ok(
   (wxml.match(/data-section="image" data-(?:key|field-key)="apiKey"/g) || []).length >= 1

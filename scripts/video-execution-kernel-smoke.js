@@ -15,7 +15,9 @@ function createHarness() {
     fail: 0,
     prepare: 0,
     create: 0,
+    createProviders: [],
     query: 0,
+    queryProviders: [],
     materialize: 0,
     delete: [],
     log: []
@@ -33,6 +35,19 @@ function createHarness() {
       videoURL: "",
       error: ""
     },
+    configs: {
+      video: {
+        configured: true,
+        provider: "lingyun",
+        apiKey: "primary-video-secret",
+        model: "video-model",
+        resolution: "720p"
+      },
+      videoBackup: { configured: false },
+      costs: {}
+    },
+    createHandler: null,
+    queryHandler: null,
     reserveErrorWhenRefunded: true,
     now: new Date("2026-08-26T12:00:00.000Z")
   };
@@ -65,15 +80,7 @@ function createHarness() {
       getOpenId: (context) => String(context && context.OPENID || "anonymous")
     },
     config: {
-      resolve: async () => ({
-        video: {
-          configured: true,
-          provider: "lingyun",
-          model: "video-model",
-          resolution: "720p"
-        },
-        costs: {}
-      })
+      resolve: async () => state.configs
     },
     billing: {
       reserve: async (openid, requestId, kind) => {
@@ -207,12 +214,20 @@ function createHarness() {
         resolution: payload.resolution || "720p",
         duration: payload.durationSeconds || 3
       }),
-      create: async () => {
+      create: async (input) => {
         calls.create += 1;
+        calls.createProviders.push(input && input.video && input.video.provider || "");
+        if (typeof state.createHandler === "function") {
+          return state.createHandler(input);
+        }
         return Object.assign({}, state.createResult);
       },
-      query: async () => {
+      query: async (input) => {
         calls.query += 1;
+        calls.queryProviders.push(input && input.video && input.video.provider || "");
+        if (typeof state.queryHandler === "function") {
+          return state.queryHandler(input);
+        }
         return Object.assign({}, state.queryResult);
       }
     },
@@ -256,6 +271,28 @@ function createHarness() {
     services,
     kernel: createVideoExecutionKernel(services)
   };
+}
+
+function enableBackup(harness, options = {}) {
+  harness.state.configs = {
+    video: Object.assign({}, harness.state.configs.video, options.primary || {}),
+    videoBackup: Object.assign({
+      enabled: true,
+      configured: true,
+      provider: "xingju",
+      apiKey: "backup-video-secret",
+      model: "backup-video-model",
+      resolution: "720p"
+    }, options.backup || {}),
+    costs: {}
+  };
+}
+
+function providerHttpError(status, message = "上游创建失败") {
+  const error = new Error(message);
+  error.code = `HTTP_${status}`;
+  error.status = status;
+  return error;
 }
 
 async function createTask(harness, requestId = "video-request-001") {
@@ -303,6 +340,94 @@ async function main() {
     assert.strictEqual(second.deduplicated, true);
     assert.strictEqual(harness.calls.create, 1, "重复创建不能重复请求上游");
     assert.strictEqual(harness.calls.prepare, 1, "重复创建不能重复处理源图");
+  }
+
+  {
+    const harness = createHarness();
+    enableBackup(harness);
+    const result = await createTask(harness, "primary-success-no-backup");
+    assert.strictEqual(result.ok, true);
+    assert.deepStrictEqual(harness.calls.createProviders, ["lingyun"]);
+    assert.strictEqual(result.providerRole, "primary");
+    assert.strictEqual(result.providerFallbackUsed, false);
+  }
+
+  for (const status of [403, 500]) {
+    const harness = createHarness();
+    enableBackup(harness);
+    harness.state.createHandler = ({ video }) => {
+      if (video.provider === "lingyun") throw providerHttpError(status);
+      return {
+        taskId: `backup-task-${status}`,
+        status: "processing",
+        providerStatus: "queued"
+      };
+    };
+    const result = await createTask(harness, `fallback-${status}`);
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.provider, "xingju");
+    assert.strictEqual(result.providerRole, "backup");
+    assert.strictEqual(result.providerFallbackUsed, true);
+    assert.deepStrictEqual(harness.calls.createProviders, ["lingyun", "xingju"]);
+    assert.strictEqual(harness.state.operation.provider, "xingju");
+    assert.strictEqual(harness.state.operation.providerRole, "backup");
+    const persisted = JSON.stringify(harness.state.operation);
+    assert.strictEqual(persisted.includes("primary-video-secret"), false);
+    assert.strictEqual(persisted.includes("backup-video-secret"), false);
+    const logged = JSON.stringify(harness.calls.log);
+    assert.strictEqual(logged.includes("primary-video-secret"), false);
+    assert.strictEqual(logged.includes("backup-video-secret"), false);
+  }
+
+  {
+    const harness = createHarness();
+    enableBackup(harness);
+    harness.state.createHandler = ({ video }) => {
+      if (video.provider === "lingyun") throw providerHttpError(500);
+      return {
+        taskId: "fallback-deduplicated-task",
+        status: "processing",
+        providerStatus: "queued"
+      };
+    };
+    const first = await createTask(harness, "fallback-deduplicated-request");
+    const second = await createTask(harness, "fallback-deduplicated-request");
+    assert.strictEqual(first.provider, "xingju");
+    assert.strictEqual(second.taskId, first.taskId);
+    assert.strictEqual(second.deduplicated, true);
+    assert.strictEqual(harness.calls.reserve, 2);
+    assert.strictEqual(harness.calls.create, 2, "重复 requestId 不能再次请求主备服务商");
+  }
+
+  {
+    const harness = createHarness();
+    enableBackup(harness, { backup: { configured: false, enabled: false } });
+    harness.state.createHandler = () => {
+      throw providerHttpError(500);
+    };
+    const kernel = createVideoExecutionKernel(harness.services);
+    await assert.rejects(
+      () => createTask(Object.assign({}, harness, { kernel }), "backup-disabled"),
+      (error) => error && error.status === 500
+    );
+    assert.deepStrictEqual(harness.calls.createProviders, ["lingyun"]);
+    assert.strictEqual(harness.calls.refund, 1);
+  }
+
+  {
+    const harness = createHarness();
+    enableBackup(harness);
+    harness.state.createHandler = () => {
+      throw providerHttpError(500);
+    };
+    const kernel = createVideoExecutionKernel(harness.services);
+    await assert.rejects(
+      () => createTask(Object.assign({}, harness, { kernel }), "both-providers-fail"),
+      (error) => error && error.status === 500
+    );
+    assert.deepStrictEqual(harness.calls.createProviders, ["lingyun", "xingju"]);
+    assert.strictEqual(harness.calls.refund, 1, "主备都失败只能退款一次");
+    assert.strictEqual(harness.calls.fail, 1, "主备都失败只能落一条失败状态");
   }
 
   {
@@ -400,6 +525,64 @@ async function main() {
       (error) => error && error.code === "state-refunded"
     );
     assert.strictEqual(harness.calls.refund, 1, "失败轮询也只能退款一次");
+  }
+
+  {
+    const harness = createHarness();
+    enableBackup(harness);
+    const created = await createTask(harness, "query-does-not-fallback");
+    harness.state.queryHandler = ({ video }) => {
+      assert.strictEqual(video.provider, "lingyun");
+      const error = providerHttpError(500, "主服务商查询失败");
+      throw error;
+    };
+    await assert.rejects(
+      () => harness.kernel.queryVideoTask({
+        requestId: "query-does-not-fallback",
+        taskId: created.taskId
+      }, { OPENID: "video-user" }),
+      (error) => error && error.status === 500
+    );
+    assert.deepStrictEqual(harness.calls.createProviders, ["lingyun"]);
+    assert.deepStrictEqual(harness.calls.queryProviders, ["lingyun"]);
+  }
+
+  {
+    const harness = createHarness();
+    enableBackup(harness);
+    harness.state.createHandler = ({ video }) => {
+      if (video.provider === "lingyun") throw providerHttpError(403);
+      return {
+        taskId: "backup-query-sticky-task",
+        status: "processing",
+        providerStatus: "queued"
+      };
+    };
+    const created = await createTask(harness, "backup-query-sticky");
+    harness.state.queryResult = {
+      status: "processing",
+      providerStatus: "running",
+      videoURL: "",
+      error: ""
+    };
+    await harness.kernel.queryVideoTask({
+      requestId: "backup-query-sticky",
+      taskId: created.taskId
+    }, { OPENID: "video-user" });
+    assert.deepStrictEqual(harness.calls.queryProviders, ["xingju"]);
+
+    harness.state.configs.videoBackup = { configured: false, enabled: false };
+    const unavailable = await harness.kernel.queryVideoTask({
+      requestId: "backup-query-sticky",
+      taskId: created.taskId
+    }, { OPENID: "video-user" });
+    assert.strictEqual(unavailable.ok, false);
+    assert.strictEqual(unavailable.errorCode, "VIDEO_PROVIDER_NOT_CONFIGURED");
+    assert.deepStrictEqual(
+      harness.calls.queryProviders,
+      ["xingju"],
+      "备用任务配置失效后不能静默改查主服务商"
+    );
   }
 
   {

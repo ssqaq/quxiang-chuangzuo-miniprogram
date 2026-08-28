@@ -71,6 +71,11 @@ assert.strictEqual(
 );
 assert.strictEqual(migrated.value.imageBackup.provider, "lingyun");
 assert.strictEqual(migrated.value.imageBackup.model, "gpt-image-2");
+assert.strictEqual(
+  migrated.value.imageBackup.enabled,
+  true,
+  "旧配置中已有完整备用 Key 时必须自动启用兼容开关"
+);
 assert.strictEqual(migrated.value.imageBackup.timeoutMs, 150000);
 assert.strictEqual(migrated.value.imageBackup.maxRetries, 0);
 

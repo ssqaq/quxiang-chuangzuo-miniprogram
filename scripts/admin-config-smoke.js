@@ -234,6 +234,35 @@ assert.strictEqual(independentBackupConfig.size, "1242x1660");
 assert.strictEqual(independentBackupConfig.resolution, "4K");
 assert.strictEqual(independentBackupConfig.timeoutMs, 60000);
 assert.strictEqual(independentBackupConfig.model, "backup-image-model");
+assert.strictEqual(
+  independentBackupConfig.enabled,
+  false,
+  "没有备用 API Key 的旧配置不能被默认当成已启用"
+);
+const explicitEnabledBackupConfig = test.resolveImageBackupConfig({
+  imageBackup: {
+    enabled: true,
+    provider: "lingyun",
+    baseUrl: "https://api.lingyunapi.xyz/v1",
+    model: "backup-image-model",
+    apiKey: "backup-key"
+  }
+});
+assert.strictEqual(
+  explicitEnabledBackupConfig.enabled,
+  true,
+  "备用开关打开后必须保留启用状态"
+);
+assert.strictEqual(
+  test.normalizeRuntimePatch({ imageBackup: { enabled: "false" } }).imageBackup.enabled,
+  false,
+  "备用开关保存前必须归一化为布尔值"
+);
+assert.ok(
+  test.validateRuntimePatch({ imageBackup: { enabled: "false" } })
+    .some((item) => item.includes("imageBackup.enabled")),
+  "运行时配置必须拒绝未归一化的备用开关"
+);
 assert.ok(test.validateRuntimePatch({
   video: { baseUrl: "javascript:alert(1)" }
 }).length > 0);

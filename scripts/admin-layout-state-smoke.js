@@ -196,6 +196,11 @@ firstPage.toggleConfigSection({
 assert.strictEqual(firstPage.data.activeConfigSection, "image");
 assert.strictEqual(firstPage.data.activeConfigTitle, "生图模型");
 assert.strictEqual(firstPage.data.tencentImageTab, "image");
+assert.strictEqual(firstPage.data.imageWizardStep, 1);
+firstPage.onImageBackupEnabledChange({ detail: { value: true } });
+assert.strictEqual(firstPage.data.form.imageBackup.enabled, true);
+firstPage.onImageBackupEnabledChange({ detail: { value: false } });
+assert.strictEqual(firstPage.data.form.imageBackup.enabled, false);
 firstPage.switchTencentImageTab({
   currentTarget: { dataset: { tab: "fusion" } }
 });

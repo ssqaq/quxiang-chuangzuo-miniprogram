@@ -594,13 +594,13 @@
           <view wx:if="{{imageWizardStep === 4}}" class="image-wizard-step">
             <view class="image-wizard-step-head"><view><view class="image-wizard-step-title">第 4 步：测试并保存</view><view class="image-wizard-step-desc">主模型失败后自动再试几次？范围 0～5 次。0 表示不重试。</view></view></view>
             <view class="image-wizard-retry-card">
-              <view class="image-wizard-retry-copy"><text>主模型重试次数</text><text>每次失败最多再请求一次主模型</text></view>
+              <view class="image-wizard-retry-copy"><text>主模型重试次数</text><text>失败后继续尝试主模型，最多再试 5 次</text></view>
               <input class="image-wizard-retry-input" type="number" min="0" max="5" value="{{form.image.maxRetries}}" data-section="image" data-key="maxRetries" bindinput="onInput" />
               <text class="image-wizard-retry-unit">次</text>
             </view>
             <view class="image-wizard-run-summary">
               <view><text>主模型</text><text>{{form.image.provider || '未选择'}} · {{form.image.model || '未填写'}}</text></view>
-              <view><text>备用模型</text><text>{{form.imageBackup.enabled ? form.imageBackup.provider + ' · ' + form.imageBackup.model : '未启用'}}</text></view>
+              <view><text>备用模型</text><text wx:if="{{form.imageBackup.enabled}}">{{form.imageBackup.provider}} · {{form.imageBackup.model}}</text><text wx:else>未启用</text></view>
               <view><text>执行顺序</text><text>主模型失败 → 重试 {{form.image.maxRetries || 0 }} 次 → {{form.imageBackup.enabled ? '切换备用一次' : '结束'}}</text></view>
             </view>
             <view class="config-model-actions image-wizard-actions">

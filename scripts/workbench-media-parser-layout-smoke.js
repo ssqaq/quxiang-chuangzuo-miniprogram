@@ -36,10 +36,16 @@ assert.ok(wxml.includes('class="recent-list"'));
 assert.ok(wxml.includes('class="recent-item"'));
 assert.ok(wxml.includes('class="recent-image"'));
 assert.match(workbenchJs, /\.slice\(\s*0\s*,\s*1\s*\)/);
-assert.ok(!wxml.includes('class="recent-info"'));
-assert.ok(!wxml.includes('class="recent-name"'));
-assert.ok(!wxml.includes('class="recent-time"'));
-assert.ok(!wxml.includes('class="recent-arrow"'));
+assert.ok(wxml.includes('class="recent-info"'));
+assert.ok(wxml.includes('class="recent-name"'));
+assert.ok(wxml.includes('class="recent-time"'));
+assert.ok(wxml.includes('class="recent-arrow"'));
+assert.ok(wxml.includes('binderror="onRecordImageError"'));
+assert.ok(wxml.includes('data-id="{{item.id}}"'));
+assert.ok(workbenchJs.includes("fileID: item.fileID || item.fileId || \"\""));
+assert.ok(workbenchJs.includes("cloud.listRecords()"));
+assert.ok(workbenchJs.includes("storage.saveRecords(remoteRecords)"));
+assert.ok(workbenchJs.includes("cloud.getTempUrl(record.fileID)"));
 
 const recentCardRules = [
   ...wxss.matchAll(/\.common-feature-panel \.recent-card-filled\s*\{([^}]*)\}/g),

@@ -37,10 +37,12 @@ function hasDraft(project) {
 function normalizeRecord(record) {
   const item = record && typeof record === "object" ? record : {};
   return {
-    id: item.id || `record-${Date.now()}`,
+    id: item.id || item._id || `record-${Date.now()}`,
+    fileID: item.fileID || item.fileId || "",
     projectName: item.projectName || "未命名项目",
     createdAt: item.createdAt || "刚刚生成",
-    imagePath: item.tempFileURL || item.path || "",
+    tempFileURL: item.tempFileURL || "",
+    imagePath: item.tempFileURL || item.path || item.imagePath || "",
     prompt: item.prompt || ""
   };
 }
@@ -171,6 +173,7 @@ Page({
   },
 
   onShow() {
+    this._pageUnloaded = false;
     this.clearNavigationWatchdog();
     this._navigating = false;
     this.refreshWorkbench();
@@ -192,24 +195,89 @@ Page({
   },
 
   onUnload() {
+    this._pageUnloaded = true;
     this.clearPromoRefreshTimer();
     this.clearNavigationWatchdog();
     this.clearAdminAccessRetry();
+    this._recordsRefreshToken = (this._recordsRefreshToken || 0) + 1;
   },
 
   refreshWorkbench() {
     const project = storage.loadProject();
     const draftExists = hasDraft(project);
-    const records = (storage.loadRecords() || [])
+    const cloudReady = cloud.isCloudReady();
+    const localRecords = (storage.loadRecords() || [])
       .slice(0, 1)
       .map(normalizeRecord);
 
     this.setData({
-      cloudReady: cloud.isCloudReady(),
+      cloudReady,
       hasDraft: draftExists,
-      records
+      records: localRecords
     });
+    if (cloudReady) this.refreshRemoteRecords();
     return draftExists;
+  },
+
+  async refreshRemoteRecords() {
+    if (!cloud.isCloudReady() || typeof cloud.listRecords !== "function") return;
+    const token = (this._recordsRefreshToken || 0) + 1;
+    this._recordsRefreshToken = token;
+    try {
+      const result = await cloud.listRecords();
+      if (token !== this._recordsRefreshToken) return;
+      const remoteRecords = Array.isArray(result && result.records)
+        ? result.records
+        : [];
+      if (!remoteRecords.length) return;
+      storage.saveRecords(remoteRecords);
+      this.setData({
+        records: remoteRecords.slice(0, 1).map(normalizeRecord)
+      });
+    } catch (error) {
+      diagnosticLog.warn("records", "workbench-refresh-failed", "工作台记录缩略图刷新失败", {
+        error
+      });
+    }
+  },
+
+  async onRecordImageError(event = {}) {
+    const id = String(
+      event.currentTarget
+      && event.currentTarget.dataset
+      && event.currentTarget.dataset.id
+      || ""
+    );
+    const record = (this.data.records || []).find(
+      (item) => String(item && item.id) === id
+    );
+    if (!record || !record.fileID || !cloud.isCloudReady()) return;
+    if (!this._recordImageRetryIds) this._recordImageRetryIds = new Set();
+    if (this._recordImageRetryIds.has(id)) return;
+    this._recordImageRetryIds.add(id);
+    try {
+      const tempFileURL = await cloud.getTempUrl(record.fileID);
+      if (!tempFileURL || this._pageUnloaded) return;
+      const records = (this.data.records || []).map((item) => (
+        String(item && item.id) === id
+          ? Object.assign({}, item, { tempFileURL, imagePath: tempFileURL })
+          : item
+      ));
+      this.setData({ records });
+      const cachedRecords = storage.loadRecords() || [];
+      storage.saveRecords(cachedRecords.map((item) => (
+        String(item && (item.id || item._id)) === id
+          ? Object.assign({}, item, { tempFileURL })
+          : item
+      )));
+    } catch (error) {
+      diagnosticLog.warn("records", "workbench-image-retry-failed", "工作台缩略图重试失败", {
+        recordId: id,
+        error
+      });
+    } finally {
+      this._recordImageRetryIds.delete(id);
+    }
   },
 
   normalizePoints(result = {}) {

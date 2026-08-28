@@ -1,9 +1,9 @@
 <view class="page">
   <view class="card records-head">
-    <view class="records-head-main">
-      <view class="section-title">结果归档</view>
-      <view class="section-subtitle">云端记录会跟随当前微信账号保存。</view>
-    </view>
+    <view class="records-head-top">
+      <view class="records-head-main">
+        <view class="section-title">结果归档</view>
+      </view>
       <view class="records-head-actions">
         <text class="badge">{{cloudReady ? '云端' : '本地'}}</text>
         <button
@@ -13,13 +13,15 @@
           loading="{{clearing}}"
           disabled="{{clearing || removingId}}"
         >{{clearing ? '清理中...' : '清空全部'}}</button>
-        <button class="small-btn secondary-btn records-back-button" bindtap="backToCreate">返回制作</button>
       </view>
+    </view>
+    <view class="section-subtitle records-head-subtitle">云端记录会跟随当前微信账号保存。</view>
+    <button class="small-btn secondary-btn records-back-button" bindtap="backToCreate">返回工作台</button>
   </view>
 
   <view wx:if="{{loading}}" class="card empty">正在读取记录...</view>
   <view wx:elif="{{!records.length}}" class="card empty">
-    还没有生成结果。<br />点击上方“返回制作”上传主图并生成。
+    还没有生成结果。<br />点击上方“返回工作台”上传主图并生成。
   </view>
   <view wx:else class="record-list">
     <view wx:for="{{records}}" wx:key="id" class="record-card card">

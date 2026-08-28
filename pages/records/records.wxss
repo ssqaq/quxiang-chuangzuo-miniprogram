@@ -1,6 +1,10 @@
 .records-head {
+  display: block;
+}
+
+.records-head-top {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 18rpx;
 }
@@ -13,15 +17,31 @@
 .records-head-actions {
   display: flex;
   flex: none;
-  flex-direction: column;
-  align-items: flex-end;
+  flex-direction: row;
+  align-items: center;
   gap: 14rpx;
 }
 
+.records-head-subtitle {
+  display: block;
+  min-width: 0;
+  margin-top: 8rpx;
+  margin-bottom: 0;
+  overflow: hidden;
+  font-size: 20rpx;
+  line-height: 30rpx;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .records-back-button {
+  display: block;
   min-width: 156rpx;
   height: 68rpx;
   min-height: 68rpx;
+  margin-top: 14rpx;
+  margin-right: 0;
+  margin-left: 0;
   font-size: 25rpx;
   line-height: 68rpx;
 }
@@ -100,6 +120,10 @@
 
 @media (min-width: 360px) and (max-width: 389px) {
   .records-head {
+    gap: 0;
+  }
+
+  .records-head-top {
     gap: 10rpx;
   }
 

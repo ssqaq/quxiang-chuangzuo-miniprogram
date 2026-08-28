@@ -29,7 +29,7 @@ Page({
   backToCreate() {
     wx.navigateBack({
       delta: 1,
-      fail: () => wx.reLaunch({ url: "/pages/index/index" })
+      fail: () => wx.reLaunch({ url: "/pages/workbench/workbench" })
     });
   },
 

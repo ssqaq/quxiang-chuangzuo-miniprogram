@@ -142,6 +142,8 @@ const jsFiles = [
   "scripts/repair-smoke.js",
   "scripts/workbench-interaction-smoke.js",
   "scripts/workbench-media-parser-layout-smoke.js",
+  "scripts/workbench-record-thumbnail-smoke.js",
+  "scripts/records-head-layout-smoke.js",
   "scripts/watermark-m0-smoke.js",
   "scripts/watermark-transfer-smoke.js",
   "scripts/model-usage-stats-smoke.js",
@@ -356,6 +358,8 @@ const required = [
   "cloudfunctions/watermark-gateway/.env.example",
   "docs/superpowers/specs/2026-08-25-zhuceka-watermark-provider-design.md",
   "scripts/workbench-media-parser-layout-smoke.js",
+  "scripts/workbench-record-thumbnail-smoke.js",
+  "scripts/records-head-layout-smoke.js",
   "scripts/photo-to-video-cleanup-smoke.js",
   "scripts/photo-to-video-session-smoke.js",
   "scripts/watermark-transfer-smoke.js",
@@ -2284,9 +2288,13 @@ if (
   || indexJs.includes("wx.switchTab")
   || !indexJs.includes('wx.navigateTo({ url: "/pages/records/records" })')
   || !recordsWxml.includes('bindtap="backToCreate"')
-  || !recordsWxml.includes("返回制作")
+  || !recordsWxml.includes("返回工作台")
+  || recordsWxml.includes("返回制作")
   || !recordsJs.includes("backToCreate()")
-  || !recordsJs.includes('wx.reLaunch({ url: "/pages/index/index" })')
+  || !recordsJs.includes('wx.reLaunch({ url: "/pages/workbench/workbench" })')
+  || !recordsWxml.includes('class="records-head-top"')
+  || !recordsWxml.includes('class="section-subtitle records-head-subtitle"')
+  || !recordsWxss.includes("white-space: nowrap")
   || !recordsWxml.includes('bindtap="clearAll"')
   || !recordsWxml.includes("清空全部")
   || !recordsJs.includes("async clearAll()")

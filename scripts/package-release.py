@@ -15,6 +15,15 @@ from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 
+def _configure_stdio() -> None:
+    """Windows CI 默认可能是 cp1252，发布诊断必须稳定输出 UTF-8。"""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8", errors="replace")
+
+
+_configure_stdio()
 sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parent.parent
 CONTEXT_SCHEMA_VERSION = 1

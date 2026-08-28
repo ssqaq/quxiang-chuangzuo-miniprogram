@@ -77,6 +77,7 @@ function testStaticContracts() {
     "Invoke-ReleasePullRequest",
     "FileSnapshotStable",
     "release/$target-$operationId",
+    "refs/heads/$Branch",
   ]) {
     assert.ok(gate.includes(marker) || entry.includes(marker), `发布闸门缺少 ${marker}`);
   }

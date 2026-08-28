@@ -65,6 +65,7 @@ function testStaticContracts() {
   assertFileIncludes(preCommitHook, "禁止直接在 main 提交", "main 提交保护");
   assertFileIncludes(postCommitHook, "main 只能由受控同步脚本提交", "main 推送保护");
   assertFileIncludes(packageScript, "源码内容 SHA256", "发布清单源码指纹");
+  assertFileIncludes(packageScript, "reconfigure", "Windows CI UTF-8 输出");
   assertFileIncludes(packageScript, "scripts/install-git-hooks.ps1", "发布包包含 hooks 安装器");
 }
 

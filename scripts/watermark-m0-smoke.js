@@ -624,6 +624,26 @@ function testPageMarkup() {
   assert.ok(!wxss.includes(".media-parser-kicker"));
   assert.ok(!wxss.includes(".provider-card"));
   assert.ok(!wxss.includes(".compliance-note"));
+  const inputCardRule = wxss.match(/\.input-card\s*\{([\s\S]*?)\}/);
+  assert.ok(inputCardRule, "输入卡片样式规则缺失");
+  assert.ok(/padding:\s*22rpx\s*;/.test(inputCardRule[1]));
+  assert.ok(!/122rpx/.test(inputCardRule[1]), "输入卡片不能保留多余底部留白");
+
+  const featureOptionRule = wxss.match(/\.feature-option\s*\{([\s\S]*?)\}/);
+  assert.ok(featureOptionRule, "功能块样式规则缺失");
+  assert.ok(/min-height:\s*84rpx\s*;/.test(featureOptionRule[1]));
+  assert.ok(/padding:\s*12rpx\s*;/.test(featureOptionRule[1]));
+
+  const featureTitleRule = wxss.match(/\.feature-title\s*\{([\s\S]*?)\}/);
+  assert.ok(featureTitleRule, "功能块标题样式规则缺失");
+  assert.ok(/font-size:\s*22rpx\s*;/.test(featureTitleRule[1]));
+  assert.ok(/line-height:\s*30rpx\s*;/.test(featureTitleRule[1]));
+
+  const featureSubtitleRule = wxss.match(/\.feature-subtitle\s*\{([\s\S]*?)\}/);
+  assert.ok(featureSubtitleRule, "功能块副标题样式规则缺失");
+  assert.ok(/font-size:\s*18rpx\s*;/.test(featureSubtitleRule[1]));
+  assert.ok(/line-height:\s*26rpx\s*;/.test(featureSubtitleRule[1]));
+
   assert.ok(wxss.includes(".feature-option"));
   assert.ok(wxss.includes(".copywriting-card"));
   assert.ok(wxss.includes(".copywriting-action"));

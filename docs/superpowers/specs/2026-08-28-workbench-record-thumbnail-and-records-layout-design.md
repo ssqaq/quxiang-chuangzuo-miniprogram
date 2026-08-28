@@ -14,7 +14,7 @@
 
 ## 实现
 
-`pages/workbench/workbench.js` 的记录规范化保留 `fileID`，`refreshWorkbench` 先设置本地记录，再异步调用现有 `cloud.listRecords`。服务端会按 `fileID` 刷新 `tempFileURL`，成功后更新首条记录和本地缓存；图片节点增加 `binderror`，作为临时地址失效时的单次 `cloud.getTempUrl` 兜底。
+`pages/workbench/workbench.js` 的记录规范化保留 `fileID`，`refreshWorkbench` 先设置本地记录，再异步调用现有 `cloud.listRecords`。服务端会按 `fileID` 刷新 `tempFileURL`，成功后更新首条记录和本地缓存；如果旧记录只有 `fileID` 或服务端暂时没有返回临时地址，客户端会主动调用 `cloud.getTempUrl` 补齐缩略图。相同 `fileID` 的并发请求复用同一个 Promise，页面刷新或卸载后过期结果不会回写；图片节点增加 `binderror`，作为临时地址失效时的单次兜底。
 
 `pages/workbench/workbench.wxml` 恢复最近记录的项目名、时间和箭头，并把记录 ID 传给图片错误回调。`pages/records/records.wxml/.wxss` 将标题与操作区放到同一行，说明单独占一行，返回按钮紧随其后；无记录提示同步改为“返回工作台”。
 
@@ -25,3 +25,4 @@
 - `node scripts/validate.js`
 - `git diff --check`
 - 微信开发者工具检查 375、390、430 宽度下的卡片高度、单行说明、按钮位置、缩略图和长文本适配。
+- 记录只有 `fileID`、临时地址过期、接口返回空记录、页面卸载等场景均不显示灰色假缩略图，也不产生重复云请求。

@@ -1,6 +1,6 @@
 {
   "name": "watermark-gateway",
-  "version": "0.57.40",
+  "version": "0.57.45",
   "private": true,
   "main": "index.js"
 }

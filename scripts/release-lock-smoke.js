@@ -50,7 +50,11 @@ try {
     `$b = Get-ReleaseLockPaths -ProjectPath ${psQuote(projectB)}`,
     `if ($a.LockPath -ne $b.LockPath) { throw "默认锁不统一：$($a.LockPath) / $($b.LockPath)" }`,
     `$c = Get-ReleaseLockPaths -ProjectPath ${psQuote(projectA)} -LockPath ${psQuote(explicitLock)}`,
-    `if ($c.LockPath -ne ${psQuote(explicitLock)}) { throw '显式锁路径没有优先使用' }`,
+    // Windows runners can return an equivalent path with different casing,
+    // separator style, or a trailing separator.  Compare canonical paths so
+    // this smoke tests the lock contract instead of PowerShell formatting.
+    "function Normalize-TestPath([string]$value) { return (([IO.Path]::GetFullPath($value) -replace '[\\/]+$','').ToLowerInvariant()) }",
+    `if ((Normalize-TestPath $c.LockPath) -ne (Normalize-TestPath ${psQuote(explicitLock)})) { throw "显式锁路径没有优先使用：$($c.LockPath) / ${explicitLock}" }`,
     "Write-Output 'PATHS_OK'",
   ].join("; "));
   assert.strictEqual(

@@ -18,6 +18,7 @@ $releaseScript = Join-Path $PSScriptRoot "release.ps1"
 if (-not (Test-Path -LiteralPath $releaseScript -PathType Leaf)) {
   throw "缺少统一预览发布入口：$releaseScript"
 }
+. (Join-Path $PSScriptRoot "release-gate.ps1")
 if ([string]::IsNullOrWhiteSpace($SourcePath)) {
   throw "预览必须提供 -SourcePath；请从发布源明确选择文件，避免把其他 worktree 脏改动带入。"
 }
@@ -25,13 +26,10 @@ if (@($IncludePath).Count -eq 0) {
   throw "预览必须提供 -IncludePath；不允许从当前工作区隐式打包。"
 }
 if ([string]::IsNullOrWhiteSpace($CliPath)) {
-  $CliPath = $env:WECHAT_DEVTOOLS_CLI
+  $CliPath = Resolve-ReleaseDevToolsCli
 }
-if ([string]::IsNullOrWhiteSpace($CliPath)) {
-  throw "预览需要微信开发者工具 CLI，请通过 -CliPath 或 WECHAT_DEVTOOLS_CLI 指定。"
-}
-if (-not (Test-Path -LiteralPath $CliPath -PathType Leaf)) {
-  throw "找不到微信开发者工具 CLI：$CliPath；闸门尚未分配版本。"
+else {
+  $CliPath = Resolve-ReleaseDevToolsCli -CliPath $CliPath
 }
 
 $invoke = @{
@@ -41,6 +39,7 @@ $invoke = @{
   PreviewCliPath = $CliPath
   PreviewClientName = $ClientName
   Publish = $Publish.IsPresent
+  PrepareOnly = -not $Publish.IsPresent
 }
 if (-not [string]::IsNullOrWhiteSpace($TargetVersion)) {
   $invoke.TargetVersion = $TargetVersion

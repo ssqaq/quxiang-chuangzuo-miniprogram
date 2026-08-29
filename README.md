@@ -295,13 +295,24 @@ node .\scripts\check-deployment.js --strict
 
 不填 `cloudEnvId` 时，普通检查会给出警告；`--strict` 适合正式发布前使用。
 
-不要只看开发者工具弹出的“部署成功”。部署 `api` 时，直接运行下面这个脚本：
+不要只看开发者工具弹出的“部署成功”。正式部署必须从 canonical 仓库通过统一发布闸门执行；闸门会锁住来源、版本、ZIP、二维码、CloudBase 和 PR，禁止直接从脏工作区上传：
 
 ```powershell
-PowerShell -NoProfile -ExecutionPolicy Bypass -File .\scripts\deploy-and-verify-api.ps1
+PowerShell -NoProfile -ExecutionPolicy Bypass -File .\scripts\release.ps1 `
+  -SourcePath "D:\aips小程序\wechat-miniapp-publish-0578" `
+  -IncludePath @(
+    "pages/watermark-remover/watermark-remover.js",
+    "pages/watermark-remover/watermark-remover.wxml",
+    "pages/watermark-remover/watermark-remover.wxss"
+  ) `
+  -DeployCloud
 ```
 
-脚本默认使用 `auto` 部署方式：
+发布入口现在默认完成只读检查、不可变 ZIP 和 release context，然后自动推送
+`release/<version>-<operationId>` 分支、创建并合并 PR；PR 合并后还会自动把同一
+隔离工作树导入微信开发者工具、打开模拟器并触发重新编译。需要只生成 ZIP/context
+而不改远端时，显式加 `-PrepareOnly`；需要跳过开发者工具同步时，显式加
+`-SkipDevTools`。脚本默认使用 `auto` 部署方式：
 
 1. 本机能找到 `npx` 时，优先走 CloudBase CLI 直部署，不等待微信开发者工具确认弹窗；
 2. 本机没有可用的 CloudBase CLI 时，才退回微信开发者工具部署；
@@ -311,20 +322,26 @@ PowerShell -NoProfile -ExecutionPolicy Bypass -File .\scripts\deploy-and-verify-
 只有线上返回完全一致才会显示通过；如果线上还是旧版本，脚本会报错并停止。
 运行前要在微信开发者工具里登录管理员微信，并打开服务端口。
 
-如果要强制指定部署方式，可以使用：
+只有需要恢复同一个已生成的 release context 时，才直接调用部署核验脚本，并且必须显式传入 context；没有 context 的直接部署会被拦截：
 
 ```powershell
-# 强制使用 CloudBase CLI；本机没有 npx 时立即报错，不会改走微信弹窗
-PowerShell -NoProfile -ExecutionPolicy Bypass -File .\scripts\deploy-and-verify-api.ps1 -DeployTransport cloudbase
+# 仅使用 CloudBase CLI 恢复同一个 context
+PowerShell -NoProfile -ExecutionPolicy Bypass -File .\scripts\deploy-and-verify-api.ps1 `
+  -ReleaseContext "D:\aips小程序\wechat-miniapp-release-contexts\release-op-<operationId>.json" `
+  -DeployTransport cloudbase
 
-# 强制使用微信开发者工具
-PowerShell -NoProfile -ExecutionPolicy Bypass -File .\scripts\deploy-and-verify-api.ps1 -DeployTransport wechat
+# 仅使用微信开发者工具恢复同一个 context
+PowerShell -NoProfile -ExecutionPolicy Bypass -File .\scripts\deploy-and-verify-api.ps1 `
+  -ReleaseContext "D:\aips小程序\wechat-miniapp-release-contexts\release-op-<operationId>.json" `
+  -DeployTransport wechat
 ```
 
 微信开发者工具产生的“等待确认”任务只能用下面的参数继续原任务：
 
 ```powershell
-PowerShell -NoProfile -ExecutionPolicy Bypass -File .\scripts\deploy-and-verify-api.ps1 -ResumePendingDeploy
+PowerShell -NoProfile -ExecutionPolicy Bypass -File .\scripts\deploy-and-verify-api.ps1 `
+  -ReleaseContext "D:\aips小程序\wechat-miniapp-release-contexts\release-op-<operationId>.json" `
+  -ResumePendingDeploy
 ```
 
 `-ResumePendingDeploy` 不会重新上传，也不能和 `-DeployTransport cloudbase` 一起使用。
@@ -341,8 +358,8 @@ PowerShell -ExecutionPolicy Bypass -File .\scripts\check-devtools.ps1
 设置 → 安全设置 → 开启服务端口
 ```
 
-当前这台电脑的检查结果是：开发者工具已安装，CLI 已找到，但服务端口仍关闭。
-需要在开发者工具界面手动打开一次，之后才能使用 `cli.bat` 自动打开、预览或上传项目。
+当前这台电脑的检查结果是：开发者工具已安装，自动化 CLI 使用新版 `wechatide.cmd`。
+首次使用前仍需在开发者工具的“设置 → 安全设置”开启服务端口；之后发布入口会自动导入新隔离项目、打开窗口并触发重新编译。
 
 ### 6. 创建数据库集合
 
@@ -589,29 +606,37 @@ https://github.com/ssqaq/quxiang-chuangzuo-miniprogram
 
 ### 手动立即同步
 
-在 PowerShell 执行，必须显式列出本次要同步的文件：
+旧命令名仍兼容，但现在只能转发到统一发布闸门。正式操作必须从 canonical 仓库执行，且必须显式列出本次要发布的文件：
 
 ```powershell
 Set-Location "D:\aips小程序\wechat-miniapp"
-& .\scripts\sync-to-github.ps1 -IncludePath @(
+PowerShell -NoProfile -ExecutionPolicy Bypass -File .\scripts\release.ps1 `
+  -SourcePath "D:\aips小程序\wechat-miniapp-publish-0578" `
+  -IncludePath @(
   "scripts\example.js",
   "README.md"
 )
 ```
 
-脚本会先获取独占发布锁并拉取远端更新；有变化时只暂存 `-IncludePath` 指定的文件，
-从暂存 Git tree 生成提交前检查包，提交后再从最终 commit SHA 生成正式发布 ZIP，
-最后推送到 `main`。没有变化时不会创建空提交。
+默认会自动完成隔离 worktree、版本 reservation、不可变 ZIP、GitHub release 分支/PR
+以及合并后的开发者工具导入和重新编译。若只想准备而不推送，使用
+`-PrepareOnly`；已有 context 恢复时直接执行 `-ResumeOperation <operationId>` 即可，
+发布器会在共享锁内重新拉取 `origin/main`，按 FIFO 分配唯一版本，只推送
+`release/<version>-<operationId>` 分支并创建 PR，绝不直推 `main`。
 
-发布包默认生成在小程序目录旁边：
-
-```text
-D:\aips小程序\wechat-miniapp-release-v版本.zip
+```powershell
+# 只恢复同一个 context，不重新占用版本
+PowerShell -NoProfile -ExecutionPolicy Bypass -File .\scripts\release.ps1 `
+  -ResumeOperation "op-<operationId>"
 ```
 
-如果发布包检查失败，脚本会停止提交和推送，避免把未通过检查的版本同步到 GitHub。
-打包前后如果 HEAD、tree SHA 或工作区状态变化，脚本会判定有并行任务插入并立即停止。
-发布包里的 `RELEASE-MANIFEST.txt` 会记录最终 commit SHA、Git tree SHA 和源码内容 SHA256。
+发布包使用不可变文件名，默认生成在小程序目录旁边：
+
+```text
+D:\aips小程序\wechat-miniapp-release-v版本-提交号.zip
+```
+
+同名 ZIP 只有在 SHA 完全相同才允许幂等复用，内容不同一律拒绝覆盖。发布包检查、版本组、context、二维码和 CloudBase 核验失败时会保留现场，不能另起版本掩盖失败。发布包里的 `RELEASE-MANIFEST.txt` 会记录 operationId、最终 commit SHA、Git tree SHA 和源码内容 SHA256。
 
 ### 一键安装 Git hooks
 

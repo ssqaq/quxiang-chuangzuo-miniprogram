@@ -15,15 +15,29 @@ if (-not (Test-Path -LiteralPath (Join-Path $project "app.json"))) {
 Write-Host "OK: app.json found" -ForegroundColor Green
 
 $searchRoots = @("D:\", "C:\Program Files", "C:\Program Files (x86)")
-$cliCandidates = foreach ($root in $searchRoots) {
+$cliCandidates = New-Object System.Collections.Generic.List[string]
+foreach ($configured in @($env:WECHAT_DEVTOOLS_CLI, $env:WECHATIDE_CLI)) {
+  if (-not [string]::IsNullOrWhiteSpace($configured)) {
+    [void]$cliCandidates.Add($configured)
+  }
+}
+$pathCommand = Get-Command "wechatide.cmd" -ErrorAction SilentlyContinue
+if ($pathCommand -and $pathCommand.Source) {
+  [void]$cliCandidates.Add([string]$pathCommand.Source)
+}
+foreach ($root in $searchRoots) {
   if (-not (Test-Path -LiteralPath $root)) {
     continue
   }
   Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue |
     ForEach-Object {
+      $newCandidate = Join-Path $_.FullName "wechatide.cmd"
+      if (Test-Path -LiteralPath $newCandidate) {
+        [void]$cliCandidates.Add($newCandidate)
+      }
       $candidate = Join-Path $_.FullName "cli.bat"
       if (Test-Path -LiteralPath $candidate) {
-        $candidate
+        [void]$cliCandidates.Add($candidate)
       }
     }
 }
@@ -44,16 +58,27 @@ if ($exe) {
   Write-Host "WARN: DevTools executable was not found" -ForegroundColor Yellow
 }
 if (-not $cli) {
-  Write-Host "WARN: cli.bat was not found; CLI check skipped" -ForegroundColor Yellow
+  Write-Host "WARN: wechatide.cmd/cli.bat was not found; CLI check skipped" -ForegroundColor Yellow
   exit 0
 }
 
 Write-Host "CLI: $cli"
-$result = (& $cli islogin 2>&1 | Out-String)
-if ($result -match "service port disabled") {
-  Write-Host "WARN: IDE service port is disabled. Enable it in IDE Settings > Security Settings." -ForegroundColor Yellow
-} elseif ($result -match "login|success") {
-  Write-Host "OK: CLI can access DevTools" -ForegroundColor Green
+if ([IO.Path]::GetFileName($cli).ToLowerInvariant() -eq "wechatide.cmd") {
+  $result = (& $cli -c default check_wechatide_status --skill-version 0.3.9 2>&1 | Out-String)
+  if ($result -match '"ok"\s*:\s*true' -and $result -match '"success"\s*:\s*true') {
+    Write-Host "OK: wechatide.cmd can access DevTools" -ForegroundColor Green
+  } elseif ($result -match "service port disabled") {
+    Write-Host "WARN: IDE service port is disabled. Enable it in IDE Settings > Security Settings." -ForegroundColor Yellow
+  } else {
+    Write-Host $result.Trim()
+  }
 } else {
-  Write-Host $result.Trim()
+  $result = (& $cli islogin 2>&1 | Out-String)
+  if ($result -match "service port disabled") {
+    Write-Host "WARN: IDE service port is disabled. Enable it in IDE Settings > Security Settings." -ForegroundColor Yellow
+  } elseif ($result -match "login|success") {
+    Write-Host "OK: legacy CLI can access DevTools" -ForegroundColor Green
+  } else {
+    Write-Host $result.Trim()
+  }
 }

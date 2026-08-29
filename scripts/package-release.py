@@ -26,7 +26,10 @@ def _configure_stdio() -> None:
 _configure_stdio()
 sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parent.parent
-CONTEXT_SCHEMA_VERSION = 1
+# v1 contexts remain readable for idempotent rechecks; v2 adds the durable
+# queue/base-head/phase fields emitted by the unified release gate.
+CONTEXT_SCHEMA_VERSION = 2
+SUPPORTED_CONTEXT_SCHEMA_VERSIONS = {1, 2}
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$", re.IGNORECASE)
 COMMIT_PATTERN = re.compile(r"^[0-9a-f]{7,64}$", re.IGNORECASE)
 ARTIFACT_PATTERN = re.compile(r"^wechat-miniapp-release-v(?P<version>[^/\\]+)-(?P<commit>[^/\\]+)\.zip$")
@@ -68,10 +71,16 @@ def load_release_context(path: Path) -> dict:
     missing = [key for key in required if key not in context]
     if missing:
         raise _error(f"release context 缺少字段：{', '.join(missing)}")
-    if context.get("schemaVersion") != CONTEXT_SCHEMA_VERSION:
+    if context.get("schemaVersion") not in SUPPORTED_CONTEXT_SCHEMA_VERSIONS:
         raise _error(
             f"不支持的 release context schemaVersion：{context.get('schemaVersion')}"
         )
+    if context.get("schemaVersion") == 2:
+        for key in ("baseHead", "phase"):
+            if not isinstance(context.get(key), str) or not context[key].strip():
+                raise _error(f"release context v2 字段 {key} 必须是非空字符串")
+        if not COMMIT_PATTERN.fullmatch(context["baseHead"].strip()):
+            raise _error("release context v2 baseHead 必须是至少 7 位十六进制 SHA")
     required_strings = (
         "operationId", "canonicalRepo", "version", "sourceCommit",
         "releaseCommit", "treeSha", "sourceSha256", "artifactPath", "expiresAt",

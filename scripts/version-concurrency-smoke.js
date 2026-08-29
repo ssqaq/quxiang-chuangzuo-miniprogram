@@ -6,6 +6,9 @@ const cp = require("child_process");
 const root = path.resolve(__dirname, "..");
 const versionScript = path.join(root, "scripts", "release-version.ps1");
 const syncScript = path.join(root, "scripts", "sync-to-github.ps1");
+const gateScript = path.join(root, "scripts", "release-gate.ps1");
+const entryScript = path.join(root, "scripts", "release.ps1");
+const queueScript = path.join(root, "scripts", "release-queue.ps1");
 
 function runPowerShell(script) {
   const encoded = Buffer.from(script, "utf16le").toString("base64");
@@ -63,45 +66,39 @@ Write-Output ($paths -join '|')
 
 function testSyncConcurrencyContracts() {
   const content = fs.readFileSync(syncScript, "utf8");
+  const gate = fs.readFileSync(gateScript, "utf8");
+  const entry = fs.readFileSync(entryScript, "utf8");
+  const queue = fs.readFileSync(queueScript, "utf8");
   const required = [
-    "worktree",
-    "Get-NextPatchVersion",
-    "New-VersionReservation",
-    "Get-FileSnapshot",
-    "Assert-FileSnapshotStable",
-    'Invoke-NodeScriptAt -WorkingDirectory $repoRoot -RelativeScript "scripts/validate.js"',
-    "主工作区在临时发布准备期间发生变化",
-    "retryRemote",
-    "MaxAttempts",
-    "update-ref",
-    "read-tree",
-    "origin/$branch",
-    "Start-Sleep -Milliseconds 250",
-    "release-reservations",
+    "release.ps1",
+    "Publish = $true",
+    "SourcePath = $repoRoot",
+    "统一发布队列策略",
   ];
   for (const marker of required) {
     assert.ok(content.includes(marker), `同步脚本缺少并发保护：${marker}`);
   }
-  assert.ok(
-    !/Invoke-Git(?:At)?[\s\S]{0,160}"add"\s*,\s*"-A"/.test(content),
-    "同步脚本不能使用 git add -A"
-  );
-  assert.ok(
-    content.includes('push origin "HEAD:$branch"'),
-    "推送必须从临时发布工作树快进到 main"
-  );
-  assert.ok(
-    !content.includes("采用工作区已明确升级版本"),
-    "版本必须严格从 origin/main 自动递增，不能采用工作区手写版本"
-  );
-  assert.ok(
-    !/currentVersion\s*-\s*gt\s*baseVersion/.test(content),
-    "版本分配不能被工作区版本覆盖"
-  );
-  assert.ok(
-    /update-ref[\s\S]{0,500}Copy-GeneratedVersionFilesToMain[\s\S]{0,300}"read-tree"/.test(content),
-    "推送成功后必须同步主工作区索引，且不能覆盖工作文件"
-  );
+  assert.ok(!/^\s*(?:&\s*)?git\s+.*\b(push|commit|add|reset|read-tree)\b/im.test(content),
+    "旧同步脚本不能保留独立 Git 写操作");
+  for (const marker of [
+    "Get-ReleaseUsedVersions",
+    "New-ReleaseReservation",
+    "Invoke-ReleasePullRequest",
+    "refs/heads/$Branch",
+    "release/$target-$operationId",
+    "origin/main",
+  ]) {
+    assert.ok(gate.includes(marker) || entry.includes(marker), `统一闸门缺少版本仲裁：${marker}`);
+  }
+  for (const marker of [
+    "requestFingerprintVersion",
+    "Assert-ReleaseQueueTurn",
+    "Claim-ReleaseQueueTicket",
+    "AllowPrepared",
+    "expiresAt",
+  ]) {
+    assert.ok(queue.includes(marker), `发布队列缺少并发恢复保护：${marker}`);
+  }
 }
 
 function main() {

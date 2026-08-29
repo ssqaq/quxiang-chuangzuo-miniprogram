@@ -19,16 +19,21 @@
 
 ## 发布状态机
 
+持久队列记录顺序、租约、尝试次数和每个阶段：
+
 `queued -> reserved -> prepared -> committed -> packaged -> pushed -> merged -> previewed -> deployed -> verified`
 
-失败时记录 `failedStage` 和原 context。恢复只能继续同一个 `operationId`，不得重新占用版本；提交前失败可释放 reservation，提交后失败保留 reservation 和分支供恢复。
+最终完成采用两阶段写入：先把 context、reservation、record 写成 `finalizing`，最后才把队列票据写成 `succeeded`。这样进程在任意中间点崩溃，都能用原 `operationId` 恢复，不能重新占用版本。准备包会保持 FIFO 队头，普通 worker 不能越过；只有 `resume-release.ps1 -Publish` 能继续它。context 过期会被恢复扫描标成 `expired`，解除队列阻塞。
+
+失败时记录 `failedStage` 和原 context。提交前失败可释放 reservation；提交后失败保留 reservation、不可变 ZIP、隔离 worktree 和发布分支供恢复。队列租约由独立 heartbeat 续期，并同时核对进程 PID 与启动时间，避免 PID 复用把死任务误判为存活。
 
 ## 路径与来源校验
 
 - `IncludePath` 先展开为真正的字符串数组；只兼容一次旧逗号格式。
 - 拒绝空项、绝对路径、`..`、`.git`、`.worktrees`、密钥文件、逗号文件名和不存在的来源文件。
 - 发布工作树始终从刚 fetch 的 `origin/main` 创建，再逐项复制来源快照。
-- 旧 clone/worktree 不删除，通过封存清单标记为不可发布；其中的旧脚本也会因 canonical 路径校验而拒绝执行。
+- 策略文件、锁、队列、产物、reservation、context、record、日志和封存清单都必须是 canonical 仓库父目录下的固定绝对路径；同名目录搬到别处也会被拒绝。
+- 旧 clone/worktree 不删除，通过封存清单标记为不可发布；其中的旧脚本也会因 canonical 路径校验而拒绝执行。旧 `sync-to-github.ps1` 只保留兼容转发，不再含独立的 Git 写操作。
 
 ## 产物与一致性
 
@@ -53,10 +58,12 @@ ZIP 先写到目标目录中的随机临时文件，完整性校验通过后再�
 
 ## 日志与审计
 
-每个操作写独立日志 `wechat-miniapp-sync-logs/<operationId>.log`，并在外部状态目录保存 reservation/context/record。日志不得输出 token、AppSecret、环境变量或 CloudBase 原始敏感响应。
+每个操作写独立日志 `wechat-miniapp-release-logs/<operationId>.log`，并在外部状态目录保存 reservation/context/record。日志不得输出 token、AppSecret、环境变量或 CloudBase 原始敏感响应。
 
 ## 本次迁移
 
-远端基线为 `0.57.7`。首次通过新闸门的发布为 `0.57.8`，业务文件只包含已确认的解析页修改和对应 smoke；同时带上本设计的发布链修复。历史 ZIP、clone 和 worktree 保留，只读封存。
+版本不写死在脚本里：每次在锁内重新 fetch `origin/main`，从远端基线和所有本地/远端 reservation、record、context、tag、release 分支中选出全局未占用的下一个 patch。当前核对到的远端基线是 `0.57.40`，所以新的候选应为 `0.57.41`；历史 `0.57.39/0.57.40` 绝不复用或覆盖。业务文件只带明确列出的解析页修复和发布链修复，历史 ZIP、clone 和 worktree 保留并只读封存。
 
-执行核对时远端已被并发任务推进到 `0.57.8`，且已有对应 record；闸门拒绝重用或覆盖该版本，并把后续准备操作自动分配到全局未占用的 patch 版本。实际远端发布仍必须通过 `gh` 创建 PR，不能直接 push `main`。
+实际远端发布仍必须通过 `gh` 创建并确认合并 PR，PR 的 base 也必须持续是 `main`，不能直接 push `main`。保护规则只要求 `release-gate` 检查，不强制人工审批，这样闸门可以在检查通过后自动合并；强推和删除仍被禁止。封存清单在共享发布锁内更新，恢复时会把 `-Publish/-Preview/-DeployCloud` 意图写回持久票据。如果 GitHub 主分支保护 API 因私有仓库套餐返回 403，发布器会在推送前失败关闭，保留原 context，不生成第二个版本。
+
+正式发布和恢复都会在创建/领取队列票据之前先做一次只读主线保护预检；套餐或认证失败不会消耗 attempt，也不会留下新的 FIFO 阻塞票据。真正推送前仍在共享锁内重复校验，防止预检后保护设置被改动。

@@ -677,19 +677,19 @@ if ($ReleaseGateLockHeld -and [string]::IsNullOrWhiteSpace($DeployLockPath)) {
 if ($ReleaseGateLockHeld -and [string]::IsNullOrWhiteSpace($ReleaseGateLockToken)) {
   throw "-ReleaseGateLockHeld 必须同时提供外层锁交接 token。"
 }
-$releaseContext = $null
+$releaseContextObject = $null
 $releaseContextPathResolved = ""
 $idempotencyKey = ""
 if (-not [string]::IsNullOrWhiteSpace($releaseContextPath)) {
   $expectedRemote = (& git -C $project remote get-url origin 2>$null | Out-String).Trim()
   $releaseContextPathResolved = [IO.Path]::GetFullPath($releaseContextPath)
-  $releaseContext = Assert-CloudDeployReleaseContext `
+  $releaseContextObject = Assert-CloudDeployReleaseContext `
     -ContextPath $releaseContextPathResolved `
     -ProjectPath $project `
     -ExpectedVersion $appVersion `
     -ExpectedRemoteUrl $expectedRemote `
     -AllowPostMergeRecovery:$AllowPostMergeRecovery
-  $idempotencyKey = New-CloudDeployIdempotencyKey -Context $releaseContext
+  $idempotencyKey = New-CloudDeployIdempotencyKey -Context $releaseContextObject
   Write-Host "Release context: $releaseContextPath"
 }
 $imageMode = Get-ConfigValue -Text $configText -Name "imageMode"
@@ -765,7 +765,7 @@ function Save-CloudDeploymentEffect {
     [string]$ErrorMessage = "",
     [string]$Transport = ""
   )
-  if ($null -eq $releaseContext -or [string]::IsNullOrWhiteSpace($releaseContextPathResolved)) {
+  if ($null -eq $releaseContextObject -or [string]::IsNullOrWhiteSpace($releaseContextPathResolved)) {
     return
   }
   try {
@@ -806,7 +806,7 @@ try {
     $lockPaths = Get-CloudDeployLockPaths -ProjectPath $project -LockPath $DeployLockPath
     if ($ReleaseGateLockHeld) {
       Write-Host "Use release gate's exclusive cloud deployment lock"
-      Assert-ReleaseLockHandoff -LockPath $DeployLockPath -HandoffToken $ReleaseGateLockToken -OperationId $(if ($null -ne $releaseContext) { [string]$releaseContext.operationId } else { "" }) | Out-Null
+      Assert-ReleaseLockHandoff -LockPath $DeployLockPath -HandoffToken $ReleaseGateLockToken -OperationId $(if ($null -ne $releaseContextObject) { [string]$releaseContextObject.operationId } else { "" }) | Out-Null
       $pendingPath = $lockPaths.PendingPath
     }
     else {
@@ -829,13 +829,13 @@ try {
         throw "No pending cloud deployment record was found to resume."
       }
       if (
-        [string]$pendingDeployment.operationId -ne [string](if ($null -ne $releaseContext) { $releaseContext.operationId } else { "" }) -or
+        [string]$pendingDeployment.operationId -ne [string](if ($null -ne $releaseContextObject) { $releaseContextObject.operationId } else { "" }) -or
         [string]$pendingDeployment.targetVersion -ne $appVersion -or
         [string]$pendingDeployment.version -ne $appVersion -or
-        [string]$pendingDeployment.releaseCommit -ne [string](if ($null -ne $releaseContext) { $releaseContext.releaseCommit } else { "" }) -or
-        [string]$pendingDeployment.treeSha -ne [string](if ($null -ne $releaseContext) { $releaseContext.treeSha } else { "" }) -or
-        [string]$pendingDeployment.sourceSha256 -ne [string](if ($null -ne $releaseContext) { $releaseContext.sourceSha256 } else { "" }) -or
-        [string]$pendingDeployment.packageSha256 -ne [string](if ($null -ne $releaseContext -and $releaseContext.PSObject.Properties["packageSha256"]) { $releaseContext.packageSha256 } else { "" }) -or
+        [string]$pendingDeployment.releaseCommit -ne [string](if ($null -ne $releaseContextObject) { $releaseContextObject.releaseCommit } else { "" }) -or
+        [string]$pendingDeployment.treeSha -ne [string](if ($null -ne $releaseContextObject) { $releaseContextObject.treeSha } else { "" }) -or
+        [string]$pendingDeployment.sourceSha256 -ne [string](if ($null -ne $releaseContextObject) { $releaseContextObject.sourceSha256 } else { "" }) -or
+        [string]$pendingDeployment.packageSha256 -ne [string](if ($null -ne $releaseContextObject -and $releaseContextObject.PSObject.Properties["packageSha256"]) { $releaseContextObject.packageSha256 } else { "" }) -or
         [string]$pendingDeployment.idempotencyKey -ne $idempotencyKey -or
         [string]$pendingDeployment.functionName -ne $functionName -or
         [string]$pendingDeployment.environmentId -ne $cloudEnvId -or
@@ -1047,8 +1047,8 @@ try {
     -LocalVersion $appVersion `
     -OnlineVersion $onlineVersionBeforeUpload
   Write-Host "Version guard passed: local=$($versionDecision.LocalVersion), online=$($versionDecision.OnlineVersion), relation=$($versionDecision.Relation)"
-  if ($null -ne $releaseContext -and [string]::IsNullOrWhiteSpace($idempotencyKey)) {
-    $idempotencyKey = New-CloudDeployIdempotencyKey -Context $releaseContext
+  if ($null -ne $releaseContextObject -and [string]::IsNullOrWhiteSpace($idempotencyKey)) {
+    $idempotencyKey = New-CloudDeployIdempotencyKey -Context $releaseContextObject
   }
   # A process can die after CloudBase accepted the upload but before the
   # context receipt was written.  If the online code already carries this
@@ -1130,14 +1130,14 @@ try {
             schemaVersion = 1
             taskId = $taskId
             toolName = "cloud_fn_deploy"
-            operationId = if ($null -ne $releaseContext) { [string]$releaseContext.operationId } else { "" }
+            operationId = if ($null -ne $releaseContextObject) { [string]$releaseContextObject.operationId } else { "" }
             version = $appVersion
             targetVersion = $appVersion
             buildMarker = $expectedMarker
-            releaseCommit = if ($null -ne $releaseContext) { [string]$releaseContext.releaseCommit } else { "" }
-            treeSha = if ($null -ne $releaseContext) { [string]$releaseContext.treeSha } else { "" }
-            sourceSha256 = if ($null -ne $releaseContext) { [string]$releaseContext.sourceSha256 } else { "" }
-            packageSha256 = if ($null -ne $releaseContext -and $releaseContext.PSObject.Properties["packageSha256"]) { [string]$releaseContext.packageSha256 } else { "" }
+            releaseCommit = if ($null -ne $releaseContextObject) { [string]$releaseContextObject.releaseCommit } else { "" }
+            treeSha = if ($null -ne $releaseContextObject) { [string]$releaseContextObject.treeSha } else { "" }
+            sourceSha256 = if ($null -ne $releaseContextObject) { [string]$releaseContextObject.sourceSha256 } else { "" }
+            packageSha256 = if ($null -ne $releaseContextObject -and $releaseContextObject.PSObject.Properties["packageSha256"]) { [string]$releaseContextObject.packageSha256 } else { "" }
             idempotencyKey = $idempotencyKey
             functionName = $functionName
             environmentId = $cloudEnvId
@@ -1197,7 +1197,7 @@ try {
       -Health $runtimeHealth `
       -ExpectedVersion $appVersion `
       -ExpectedMarker $expectedMarker
-    if ($null -ne $releaseContext) {
+    if ($null -ne $releaseContextObject) {
       Save-CloudDeploymentEffect -State "verified" -Transport $resolvedDeployTransport
     }
     Write-Host "CloudBase function deployment verified successfully." -ForegroundColor Green
@@ -1296,7 +1296,7 @@ try {
     -ProjectPath $project `
     -ApiPath $apiPath `
     -Stage "online verification"
-  if ($null -ne $releaseContext) {
+  if ($null -ne $releaseContextObject) {
     Save-CloudDeploymentEffect -State "verified" -Transport $resolvedDeployTransport
   }
   Write-Host "Cloud function deployment verified successfully." -ForegroundColor Green

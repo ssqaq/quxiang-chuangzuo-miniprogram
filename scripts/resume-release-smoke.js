@@ -258,7 +258,7 @@ function testStaticContracts() {
   );
   assertOrdered(
     deploy,
-    "$releaseContext = Assert-CloudDeployReleaseContext",
+    "$releaseContextObject = Assert-CloudDeployReleaseContext",
     "Mode: resume existing confirmed cloud deployment task",
     "Cloud context 必须先于 pending 恢复"
   );

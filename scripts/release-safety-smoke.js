@@ -42,22 +42,19 @@ function assertFileIncludes(file, text, label) {
 function testStaticContracts() {
   const syncContent = fs.readFileSync(syncScript, "utf8");
   assertFileIncludes(syncScript, "[string[]]$IncludePath", "同步脚本参数");
-  assertFileIncludes(syncScript, "release-lock.ps1", "发布锁接入");
+  assertFileIncludes(syncScript, "release.ps1", "统一发布入口");
+  assertFileIncludes(syncScript, "Publish = $true", "旧入口必须走正式发布模式");
+  assertFileIncludes(syncScript, "SourcePath = $repoRoot", "旧入口必须固定 canonical 来源");
+  assertFileIncludes(syncScript, "LockWaitSeconds", "旧入口必须传递统一等待时间");
   assertFileIncludes(releaseLockScript, "FileShare]::None", "发布锁实现");
-  assertFileIncludes(syncScript, "write-tree", "Git tree 校验");
-  assertFileIncludes(syncScript, "Assert-FileSnapshotStable", "SHA/工作区校验");
-  assertFileIncludes(syncScript, "Get-WorktreeSignature", "工作区指纹校验");
-  assertFileIncludes(syncScript, "--source-tree", "从 Git tree 打包");
-  assertFileIncludes(syncScript, "write-release-record.ps1", "自动发布记录");
-  assertFileIncludes(syncScript, "Get-NextPatchVersion", "自动补丁版本");
-  assertFileIncludes(syncScript, "worktree", "临时发布工作树");
-  assertFileIncludes(syncScript, "retryRemote", "远端并发重试");
+  assertFileIncludes(syncScript, "旧 clone/worktree", "旧 clone/worktree 拒绝提示");
+  assertFileIncludes(syncScript, "统一发布队列策略", "旧入口不能覆盖重试策略");
+  assert.ok(!/^[ \t]*(?:&\s*)?git\s+.*\b(push|commit|add|reset|read-tree)\b/im.test(syncContent),
+    "旧同步入口不能包含独立 Git 写操作");
+  assert.ok(!syncContent.includes("Start-Transcript"), "旧入口不能合并日 transcript");
+  assert.ok(!syncContent.includes("write-tree"), "旧入口不能自行计算/写整棵 tree");
   assertFileIncludes(versionScript, "Get-VersionGroupPaths", "版本组处理器");
   assertFileIncludes(versionConcurrencySmoke, "version concurrency smoke", "版本并发专项 smoke");
-  assert.ok(
-    !/Invoke-Git\s+-Arguments\s+@\(\s*"add"\s*,\s*"-A"/.test(syncContent),
-    "同步脚本不能继续使用 git add -A"
-  );
   assertFileIncludes(installHooksScript, "core.hooksPath", "hooks 一键安装");
   assertFileIncludes(installHooksScript, ".githooks", "hooks 目录校验");
   assertFileIncludes(installHooksCmd, "install-git-hooks.ps1", "hooks 一键入口");
@@ -272,8 +269,8 @@ function testWorktreeCannotPublishMain() {
     );
     assert.notStrictEqual(result.status, 0, "独立分支/worktree 不允许发布 main");
     assert.ok(
-      `${result.stdout}\n${result.stderr}`.includes("发布同步只允许在 main"),
-      "worktree 拒绝信息不明确"
+      `${result.stdout}\n${result.stderr}`.includes("缺少统一发布闸门"),
+      "旧入口拒绝信息不明确"
     );
   } finally {
     run("git", ["worktree", "remove", "--force", worktreeRoot], { cwd: mainRoot });

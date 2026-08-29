@@ -5,6 +5,9 @@
 
 $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+$gateScript = Join-Path $PSScriptRoot "release-gate.ps1"
+if (-not (Test-Path -LiteralPath $gateScript -PathType Leaf)) { throw "缺少统一发布闸门：$gateScript" }
+. $gateScript
 $policyFile = if ([string]::IsNullOrWhiteSpace($PolicyPath)) {
   Join-Path (Split-Path $repoRoot -Parent) "wechat-miniapp-release-policy.json"
 } else {
@@ -13,7 +16,8 @@ $policyFile = if ([string]::IsNullOrWhiteSpace($PolicyPath)) {
 if (-not (Test-Path -LiteralPath $policyFile -PathType Leaf)) {
   throw "缺少发布策略文件：$policyFile"
 }
-$policy = Get-Content -LiteralPath $policyFile -Raw -Encoding UTF8 | ConvertFrom-Json
+$policy = Get-ReleaseGatePolicy -PolicyPath $policyFile -RepositoryRoot $repoRoot
+Assert-ReleaseCanonicalPolicy -Policy $policy -RepositoryRoot $repoRoot | Out-Null
 $canonical = [IO.Path]::GetFullPath([string]$policy.canonicalRepo)
 if (-not [string]::Equals($canonical.TrimEnd('\', '/'), $repoRoot.TrimEnd('\', '/'), [StringComparison]::OrdinalIgnoreCase)) {
   throw "只能从 canonical 仓库配置主分支保护：$canonical"
@@ -41,7 +45,11 @@ $protection = [ordered]@{
   required_pull_request_reviews = [ordered]@{
     dismiss_stale_reviews = $true
     require_code_owner_reviews = $false
-    required_approving_review_count = 1
+    # The release gate uses GitHub auto-merge after the required CI check.
+    # Requiring a human approval here would leave every otherwise-valid
+    # release PR permanently open; PR-only is enforced by the branch rule
+    # itself, while release-gate remains the mandatory quality barrier.
+    required_approving_review_count = 0
   }
   restrictions = $null
   required_linear_history = $false

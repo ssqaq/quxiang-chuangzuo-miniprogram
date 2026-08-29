@@ -776,32 +776,89 @@ function Write-ReleaseImmutableFile {
     }
 }
 
+function Resolve-ReleaseDevToolsCli {
+    <# 优先使用传入/环境变量，其次查找新版 wechatide.cmd。旧 cli.bat
+       没有 project_import/open_project_window/simulator_refresh，不能用于自动编译。 #>
+    param([string]$CliPath = "")
+    $candidates = New-Object System.Collections.Generic.List[string]
+    if (-not [string]::IsNullOrWhiteSpace($CliPath)) { [void]$candidates.Add($CliPath) }
+    if (-not [string]::IsNullOrWhiteSpace($env:WECHAT_DEVTOOLS_CLI)) { [void]$candidates.Add($env:WECHAT_DEVTOOLS_CLI) }
+    $command = Get-Command wechatide.cmd -ErrorAction SilentlyContinue
+    if ($null -ne $command -and -not [string]::IsNullOrWhiteSpace([string]$command.Source)) { [void]$candidates.Add([string]$command.Source) }
+    foreach ($known in @("D:\微信web开发者工具\wechatide.cmd", "C:\Program Files\微信web开发者工具\wechatide.cmd", "C:\Program Files (x86)\微信web开发者工具\wechatide.cmd")) {
+        [void]$candidates.Add($known)
+    }
+    foreach ($candidate in $candidates) {
+        if ([string]::IsNullOrWhiteSpace($candidate)) { continue }
+        try {
+            if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+                return [IO.Path]::GetFullPath((Resolve-Path -LiteralPath $candidate).Path)
+            }
+        }
+        catch { }
+    }
+    throw "微信开发者工具 CLI 不存在。请安装新版开发者工具，或设置 WECHAT_DEVTOOLS_CLI 指向 wechatide.cmd。"
+}
+
+function Invoke-ReleaseDevToolsCommand {
+    param(
+        [Parameter(Mandatory = $true)][string]$CliPath,
+        [Parameter(Mandatory = $true)][string]$ClientName,
+        [Parameter(Mandatory = $true)][string]$ToolName,
+        [string[]]$Arguments = @(),
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+    $output = & $CliPath -c $ClientName $ToolName @Arguments 2>&1
+    $exitCode = $LASTEXITCODE
+    $text = ($output | ForEach-Object { [string]$_ }) -join "`n"
+    if ($exitCode -ne 0) { throw "$Label失败：$text" }
+    $response = $null
+    # wechatide prints a human-readable prefix followed by pretty-printed
+    # multi-line JSON, so parsing one line at a time silently loses ok:false.
+    $jsonStart = $text.IndexOf("{")
+    $jsonEnd = $text.LastIndexOf("}")
+    if ($jsonStart -ge 0 -and $jsonEnd -gt $jsonStart) {
+        try { $response = $text.Substring($jsonStart, $jsonEnd - $jsonStart + 1) | ConvertFrom-Json } catch { }
+    }
+    if ($null -ne $response -and $response.PSObject.Properties["ok"] -and -not [bool]$response.ok) {
+        throw "$Label被微信开发者工具拒绝：$([string]$response.message)"
+    }
+    if ($null -ne $response -and $response.PSObject.Properties["result"] -and
+        $response.result -and $response.result.PSObject.Properties["success"] -and
+        -not [bool]$response.result.success) {
+        throw "$Label未成功：$([string]$response.result.message)"
+    }
+    return [pscustomobject]@{ tool = $ToolName; text = $text; response = $response }
+}
+
 function Invoke-ReleasePreviewImport {
-    <# 将本次隔离发布工作树登记到微信开发者工具项目列表。这里只导入
-       当前 release context 对应的目录，不把开发工作区或旧 clone 混进去。 #>
+    <# 导入本次隔离发布工作树，打开模拟器并触发重新编译。这里只操作
+       当前 release context 对应的目录，不覆盖开发工作区或旧 clone。 #>
     param(
         [Parameter(Mandatory = $true)][string]$CliPath,
         [Parameter(Mandatory = $true)][string]$ClientName,
         [Parameter(Mandatory = $true)][string]$ProjectPath
     )
-    if (-not (Test-Path -LiteralPath $CliPath -PathType Leaf)) { throw "微信开发者工具 CLI 不存在：$CliPath" }
+    $CliPath = Resolve-ReleaseDevToolsCli -CliPath $CliPath
     if (-not (Test-Path -LiteralPath $ProjectPath -PathType Container)) { throw "待导入预览项目目录不存在：$ProjectPath" }
-    $output = & $CliPath -c $ClientName project_import --project ([IO.Path]::GetFullPath($ProjectPath)) 2>&1
-    $exitCode = $LASTEXITCODE
-    $text = ($output | ForEach-Object { [string]$_ }) -join "`n"
-    if ($exitCode -ne 0) { throw "微信开发者工具导入预览项目失败：$text" }
-    $response = $null
-    foreach ($line in @($text -split "`r?`n" | Where-Object { $_.Trim().StartsWith('{') -and $_.Trim().EndsWith('}') })) {
-        try { $response = $line | ConvertFrom-Json } catch { }
+    $resolvedProject = [IO.Path]::GetFullPath($ProjectPath)
+    if (-not (Test-Path -LiteralPath (Join-Path $resolvedProject "project.config.json") -PathType Leaf)) {
+        throw "待导入预览项目缺少 project.config.json：$resolvedProject"
     }
-    if ($null -ne $response -and $response.PSObject.Properties["ok"] -and -not [bool]$response.ok) {
-        throw "微信开发者工具拒绝导入预览项目：$([string]$response.message)"
-    }
+    $importStep = Invoke-ReleaseDevToolsCommand -CliPath $CliPath -ClientName $ClientName -ToolName "project_import" -Arguments @("--project", $resolvedProject) -Label "微信开发者工具导入预览项目"
+    $openStep = Invoke-ReleaseDevToolsCommand -CliPath $CliPath -ClientName $ClientName -ToolName "open_project_window" -Arguments @("--project", $resolvedProject, "--window-mode", "liteMode") -Label "微信开发者工具打开项目窗口"
+    $refreshStep = Invoke-ReleaseDevToolsCommand -CliPath $CliPath -ClientName $ClientName -ToolName "simulator_refresh" -Arguments @("--project", $resolvedProject) -Label "微信开发者工具重新编译模拟器"
     return [pscustomobject]@{
         status = "imported"
-        projectPath = [IO.Path]::GetFullPath($ProjectPath)
-        response = $response
+        projectPath = $resolvedProject
+        response = $importStep.response
         importedAt = [DateTimeOffset]::UtcNow.ToString("o")
+        openStatus = "opened"
+        openResponse = $openStep.response
+        compileStatus = "triggered"
+        compileTriggeredAt = [DateTimeOffset]::UtcNow.ToString("o")
+        compileResponse = $refreshStep.response
+        steps = @("project_import", "open_project_window", "simulator_refresh")
     }
 }
 
@@ -1351,7 +1408,10 @@ function Write-ReleaseAcceptanceReport {
         if ($null -ne $importReceipt) {
             $importPath = Get-ReleaseReceiptField $importReceipt "projectPath"
                 $worktreeRoot = (ConvertTo-ReleaseFullPath -Path ([string]$Policy.worktreeRoot)).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
+            $compileStatus = Get-ReleaseReceiptField $importReceipt "compileStatus"
             $importPass = (Get-ReleaseReceiptField $importReceipt "status") -eq "imported" -and
+                (Get-ReleaseReceiptField $importReceipt "openStatus") -eq "opened" -and
+                $compileStatus -eq "triggered" -and
                 (Get-ReleaseReceiptField $importReceipt "operationId") -eq $operationId -and
                 (Get-ReleaseReceiptField $importReceipt "version") -eq [string]$Context.version -and
                 [string]::Equals((Get-ReleaseReceiptField $importReceipt "releaseCommit"), [string]$Context.releaseCommit, [StringComparison]::OrdinalIgnoreCase) -and
@@ -1359,7 +1419,7 @@ function Write-ReleaseAcceptanceReport {
                 [string]::Equals((Get-ReleaseReceiptField $importReceipt "sourceSha256"), [string]$Context.sourceSha256, [StringComparison]::OrdinalIgnoreCase) -and
                 -not [string]::IsNullOrWhiteSpace($importPath) -and
                 $importPath.StartsWith($worktreeRoot, [StringComparison]::OrdinalIgnoreCase)
-            $importReason = if ($importPass) { "微信开发者工具已导入当前隔离工作树" } else { "预览导入回执与 context 不一致" }
+            $importReason = if ($importPass) { "微信开发者工具已导入、打开并触发重新编译" } else { "预览导入/打开/编译回执与 context 不一致" }
         }
     }
     $checks.previewImport = [ordered]@{ status = if (-not $importRequested) { "skipped" } elseif ($importPass) { "pass" } else { "fail" }; reason = $importReason; receipt = $importReceipt }

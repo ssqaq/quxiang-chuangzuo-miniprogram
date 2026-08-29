@@ -41,6 +41,7 @@ $invoke = @{
   PreviewCliPath = $CliPath
   PreviewClientName = $ClientName
   Publish = $Publish.IsPresent
+  PrepareOnly = -not $Publish.IsPresent
 }
 if (-not [string]::IsNullOrWhiteSpace($TargetVersion)) {
   $invoke.TargetVersion = $TargetVersion

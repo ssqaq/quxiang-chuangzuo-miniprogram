@@ -129,12 +129,17 @@ function testStaticContracts() {
     "no checks reported",
     "Start-Sleep -Seconds 5",
     "Invoke-ReleasePreviewImport",
+    "Resolve-ReleaseDevToolsCli",
+    "open_project_window",
+    "simulator_refresh",
     "project_import",
     "Write-ReleaseImmutableFile",
   ]) {
     assert.ok(gate.includes(marker) || entry.includes(marker), `发布闸门缺少 ${marker}`);
   }
-  assert.ok(entry.includes("[switch]$Publish"), "发布必须显式 -Publish");
+  assert.ok(entry.includes("[switch]$PrepareOnly"), "发布必须支持显式只准备模式");
+  assert.ok(entry.includes("$effectivePublish"), "发布默认行为必须计算自动发布状态");
+  assert.ok(entry.includes("$effectivePreview"), "发布默认行为必须计算自动开发者工具同步状态");
   assert.ok(entry.includes("--release-context"), "正式打包必须使用 release context");
   assert.ok(entry.includes('"scripts/release-lock-smoke.js"'), "发布工具快照必须包含锁 smoke");
   assert.ok(entry.includes('"scripts/version-concurrency-smoke.js"'), "发布工具快照必须包含版本并发 smoke");

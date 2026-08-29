@@ -16,6 +16,10 @@ const installHooksCmd = path.join(root, "scripts", "install-git-hooks.cmd");
 const releaseRecordScript = path.join(root, "scripts", "write-release-record.ps1");
 const preCommitHook = path.join(root, ".githooks", "pre-commit");
 const postCommitHook = path.join(root, ".githooks", "post-commit");
+const prePushHook = path.join(root, ".githooks", "pre-push");
+const postCheckoutHook = path.join(root, ".githooks", "post-checkout");
+const releaseHooksSmoke = path.join(root, "scripts", "release-hooks-smoke.js");
+const releaseWorkflow = path.join(root, ".github", "workflows", "release-gate.yml");
 
 function run(command, args, options = {}) {
   return cp.spawnSync(command, args, {
@@ -58,9 +62,21 @@ function testStaticContracts() {
   assertFileIncludes(installHooksScript, "core.hooksPath", "hooks 一键安装");
   assertFileIncludes(installHooksScript, ".githooks", "hooks 目录校验");
   assertFileIncludes(installHooksCmd, "install-git-hooks.ps1", "hooks 一键入口");
-  assertFileIncludes(releaseRecordScript, "packageSha256", "发布记录包指纹");
+  assertFileIncludes(releaseRecordScript, "旧入口 scripts/write-release-record.ps1 已封锁", "旧发布记录入口封锁");
   assertFileIncludes(preCommitHook, "禁止直接在 main 提交", "main 提交保护");
   assertFileIncludes(postCommitHook, "main 只能由受控同步脚本提交", "main 推送保护");
+  assertFileIncludes(prePushHook, "拒绝直接 push main", "main 推送前保护");
+  assertFileIncludes(prePushHook, "MINIPROGRAM_SYNC_ALLOW_MAIN_PUSH", "main 推送覆盖开关");
+  assertFileIncludes(postCheckoutHook, "git lfs post-checkout", "checkout hook 转发");
+  assertFileIncludes(installHooksScript, '"pre-push"', "安装 pre-push hook");
+  assertFileIncludes(installHooksScript, '"post-checkout"', "安装 post-checkout hook");
+  assert.ok(fs.existsSync(releaseHooksSmoke), "release hooks smoke 不存在");
+  assert.ok(fs.existsSync(releaseWorkflow), "release workflow 不存在");
+  assertFileIncludes(releaseWorkflow, "release-hooks-smoke.js", "CI 必须运行 hooks smoke");
+  const workflowText = fs.readFileSync(releaseWorkflow, "utf8");
+  const timeoutMatch = workflowText.match(/timeout-minutes:\s*(\d+)/);
+  assert.ok(timeoutMatch && Number(timeoutMatch[1]) >= 30, "CI 超时必须覆盖 30 分钟检查窗口");
+  assertFileIncludes(releaseWorkflow, "Public repository compatibility", "公开仓库兼容预检");
   assertFileIncludes(packageScript, "源码内容 SHA256", "发布清单源码指纹");
   assertFileIncludes(packageScript, "reconfigure", "Windows CI UTF-8 输出");
   assertFileIncludes(packageScript, "scripts/install-git-hooks.ps1", "发布包包含 hooks 安装器");
@@ -76,6 +92,8 @@ function testInstallHooks() {
     fs.mkdirSync(scriptsRoot, { recursive: true });
     fs.copyFileSync(preCommitHook, path.join(hooksRoot, "pre-commit"));
     fs.copyFileSync(postCommitHook, path.join(hooksRoot, "post-commit"));
+    fs.copyFileSync(prePushHook, path.join(hooksRoot, "pre-push"));
+    fs.copyFileSync(postCheckoutHook, path.join(hooksRoot, "post-checkout"));
     fs.copyFileSync(installHooksScript, path.join(scriptsRoot, "install-git-hooks.ps1"));
 
     const installer = path.join(scriptsRoot, "install-git-hooks.ps1");
@@ -92,6 +110,9 @@ function testInstallHooks() {
     });
     assertCommandOk(configured, "读取 hooks 配置");
     assert.strictEqual(configured.stdout.trim(), ".githooks", "hooks 路径配置错误");
+    for (const hook of ["pre-commit", "post-commit", "pre-push", "post-checkout"]) {
+      assert.ok(fs.statSync(path.join(hooksRoot, hook)).size > 0, `${hook} 未安装`);
+    }
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
@@ -99,13 +120,11 @@ function testInstallHooks() {
 
 function testReleaseRecord() {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "release-record-smoke-"));
-  const packagePath = path.join(tempRoot, "release.zip");
   const outputRoot = path.join(tempRoot, "records");
   const commitSha = "0123456789abcdef0123456789abcdef01234567";
   const treeSha = "abcdef0123456789abcdef0123456789abcdef01";
   const sourceSha = "a".repeat(64);
   try {
-    fs.writeFileSync(packagePath, Buffer.from("release record smoke\n"));
     const result = run(
       "pwsh",
       [
@@ -122,8 +141,8 @@ function testReleaseRecord() {
         treeSha,
         "-SourceSha256",
         sourceSha,
-        "-PackagePath",
-        packagePath,
+         "-PackagePath",
+         path.join(tempRoot, "release.zip"),
         "-OutputRoot",
         outputRoot,
         "-ChangedFile",
@@ -141,24 +160,12 @@ function testReleaseRecord() {
       ],
       { cwd: root }
     );
-    assertCommandOk(result, "生成发布记录");
-    const files = fs.readdirSync(outputRoot).filter((name) => name.endsWith(".json"));
-    assert.strictEqual(files.length, 1, "发布记录文件数量错误");
-    const record = JSON.parse(
-      fs.readFileSync(path.join(outputRoot, files[0]), "utf8")
+    assert.notStrictEqual(result.status, 0, "旧发布记录入口必须拒绝直接写入");
+    assert.ok(
+      `${result.stdout}\n${result.stderr}`.includes("旧入口 scripts/write-release-record.ps1 已封锁"),
+      "旧发布记录入口的拒绝信息不明确"
     );
-    assert.strictEqual(record.commitSha, commitSha);
-    assert.strictEqual(record.treeSha, treeSha);
-    assert.strictEqual(record.sourceSha256, sourceSha);
-    assert.strictEqual(record.packageSha256, crypto.createHash("sha256")
-      .update(fs.readFileSync(packagePath))
-      .digest("hex"));
-    assert.deepStrictEqual(record.changedFiles, ["README.md"]);
-    assert.strictEqual(record.baseHead, "fedcba9876543210fedcba9876543210fedcba98");
-    assert.strictEqual(record.attempt, 2);
-    assert.strictEqual(record.retryCount, 1);
-    assert.deepStrictEqual(record.generatedVersionPaths, ["config.js"]);
-    assert.strictEqual(record.releaseWorktree, "C:\\temp\\release-worktree");
+    assert.ok(!fs.existsSync(outputRoot), "旧入口拒绝时不能创建 records 目录");
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
@@ -196,6 +203,37 @@ function testMainHookRejectsDirectCommit() {
     assertCommandOk(run("git", ["commit", "-m", "feature commit"], { cwd: tempRoot }), "功能分支提交");
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+}
+
+function testMainPushHookRejectsDirectPush() {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "release-push-hook-smoke-"));
+  const hooksRoot = path.join(tempRoot, ".githooks");
+  const bareRoot = fs.mkdtempSync(path.join(os.tmpdir(), "release-push-bare-smoke-"));
+  const bare = path.join(bareRoot, "origin.git");
+  try {
+    assertCommandOk(run("git", ["init", "-b", "main", tempRoot]), "初始化 push hook 测试仓库");
+    assertCommandOk(run("git", ["config", "user.name", "release-smoke"], { cwd: tempRoot }), "配置 push hook 用户名");
+    assertCommandOk(run("git", ["config", "user.email", "release-smoke@example.invalid"], { cwd: tempRoot }), "配置 push hook 邮箱");
+    fs.mkdirSync(hooksRoot, { recursive: true });
+    const hookTarget = path.join(hooksRoot, "pre-push");
+    fs.copyFileSync(prePushHook, hookTarget);
+    fs.chmodSync(hookTarget, 0o755);
+    assertCommandOk(run("git", ["config", "core.hooksPath", ".githooks"], { cwd: tempRoot }), "配置 push hook");
+    fs.writeFileSync(path.join(tempRoot, "probe.txt"), "push blocked\n");
+    assertCommandOk(run("git", ["add", "probe.txt"], { cwd: tempRoot }), "暂存 push hook 文件");
+    assertCommandOk(run("git", ["commit", "-m", "push hook base"], { cwd: tempRoot }), "提交 push hook 基线");
+    assertCommandOk(run("git", ["init", "--bare", bare]), "初始化 push hook 远端");
+    assertCommandOk(run("git", ["remote", "add", "origin", bare], { cwd: tempRoot }), "配置 push hook 远端");
+    const blocked = run("git", ["push", "origin", "main"], {
+      cwd: tempRoot,
+      env: { MINIPROGRAM_SYNC_ALLOW_MAIN_PUSH: "", MINIPROGRAM_SYNC_SKIP_POST_COMMIT: "1" },
+    });
+    assert.notStrictEqual(blocked.status, 0, "pre-push 必须拒绝直接推送 main");
+    assert.ok(`${blocked.stdout}\n${blocked.stderr}`.includes("拒绝直接 push main"), "pre-push 拒绝信息不明确");
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+    fs.rmSync(bareRoot, { recursive: true, force: true });
   }
 }
 
@@ -321,6 +359,7 @@ function main() {
   testInstallHooks();
   testReleaseRecord();
   testMainHookRejectsDirectCommit();
+  testMainPushHookRejectsDirectPush();
   testExclusiveLockPrimitive();
   testWorktreeCannotPublishMain();
   testPackageManifest();

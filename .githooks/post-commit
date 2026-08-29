@@ -5,6 +5,14 @@ if [ "${MINIPROGRAM_SYNC_SKIP_POST_COMMIT:-}" = "1" ]; then
   exit 0
 fi
 
+# A commit hook must never become a hidden second release入口.  Pushing is
+# opt-in for an explicitly named maintenance action; normal commits only emit
+# a hint and leave network writes to scripts/release.ps1 (PR-only).
+if [ "${MINIPROGRAM_SYNC_ALLOW_AUTO_PUSH:-}" != "1" ]; then
+  echo "post-commit: 已跳过自动推送；请使用 scripts/release.ps1 进入发布队列。" >&2
+  exit 0
+fi
+
 branch="$(git symbolic-ref --quiet --short HEAD || true)"
 if [ -z "$branch" ]; then
   echo "post-commit: 当前不是分支，跳过自动推送。" >&2

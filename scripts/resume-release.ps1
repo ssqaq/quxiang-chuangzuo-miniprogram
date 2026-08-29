@@ -36,6 +36,10 @@ $contextPath = if ($ticket.PSObject.Properties["contextPath"] -and $ticket.conte
 else {
     Join-Path ([string]$policy.contextRoot) "release-$OperationId.json"
 }
+ $contextRoot = (ConvertTo-ReleaseFullPath -Path ([string]$policy.contextRoot)).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
+if (-not $contextPath.StartsWith($contextRoot, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "队列票据 contextPath 不在 canonical context 目录内，拒绝恢复：$contextPath"
+}
 if (-not (Test-Path -LiteralPath $contextPath -PathType Leaf)) { throw "发布操作没有可恢复的 context：$contextPath" }
 $context = Get-Content -LiteralPath $contextPath -Raw -Encoding UTF8 | ConvertFrom-Json
 Assert-ReleaseContextShape -Context $context -Policy $policy | Out-Null
@@ -66,27 +70,27 @@ if ($terminal -eq "succeeded" -and [string]$ticket.status -ne "succeeded") {
     throw "release context 已终态成功，但队列未终态成功；拒绝重新发布。"
 }
 
-$reservationPath = if ($ticket.PSObject.Properties["reservationPath"] -and $ticket.reservationPath) {
-    [IO.Path]::GetFullPath([string]$ticket.reservationPath)
+$reservationPath = if ($ticket.PSObject.Properties["reservationPath"] -and $ticket.reservationPath) { [IO.Path]::GetFullPath([string]$ticket.reservationPath) } else { "" }
+$reservationRoot = (ConvertTo-ReleaseFullPath -Path ([string]$policy.reservationRoot)).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
+if ([string]::IsNullOrWhiteSpace($reservationPath) -or -not $reservationPath.StartsWith($reservationRoot, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "恢复操作缺少 canonical reservationPath，拒绝恢复以避免重新占用版本。"
 }
-else { "" }
-if (-not [string]::IsNullOrWhiteSpace($reservationPath) -and -not (Test-Path -LiteralPath $reservationPath -PathType Leaf)) {
+if (-not (Test-Path -LiteralPath $reservationPath -PathType Leaf)) {
     throw "恢复操作 reservation 不存在：$reservationPath；为避免版本重新占用，已拒绝恢复。"
 }
-if (-not [string]::IsNullOrWhiteSpace($reservationPath)) {
-    try {
-        $reservationCheck = Get-Content -LiteralPath $reservationPath -Raw -Encoding UTF8 | ConvertFrom-Json
-        if ($reservationCheck.PSObject.Properties["operationId"] -and [string]$reservationCheck.operationId -ne $OperationId) {
-            throw "reservation operationId 与恢复请求不一致。"
-        }
-        $reservedVersion = if ($reservationCheck.PSObject.Properties["targetVersion"]) { [string]$reservationCheck.targetVersion } elseif ($reservationCheck.PSObject.Properties["version"]) { [string]$reservationCheck.version } else { "" }
-        if (-not [string]::IsNullOrWhiteSpace($reservedVersion) -and $reservedVersion -ne [string]$context.version) {
-            throw "reservation 版本与 release context 不一致：reservation=$reservedVersion，context=$($context.version)"
-        }
+try {
+    $reservationCheck = Get-Content -LiteralPath $reservationPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($null -eq $reservationCheck.PSObject.Properties["operationId"] -or [string]::IsNullOrWhiteSpace([string]$reservationCheck.operationId) -or [string]$reservationCheck.operationId -ne $OperationId) {
+        throw "reservation operationId 与恢复请求不一致（可能缺失）：reservation=$([string]$reservationCheck.operationId)，请求=$OperationId。"
     }
-    catch {
-        throw "reservation 校验失败：$($_.Exception.Message)"
+    $reservedVersion = if ($reservationCheck.PSObject.Properties["targetVersion"]) { [string]$reservationCheck.targetVersion } elseif ($reservationCheck.PSObject.Properties["version"]) { [string]$reservationCheck.version } else { "" }
+    if ([string]::IsNullOrWhiteSpace($reservedVersion) -or $reservedVersion -ne [string]$context.version) {
+        throw "reservation 版本缺失或与 release context 不一致：reservation=$reservedVersion，context=$($context.version)"
     }
+    if ($null -eq $reservationCheck.PSObject.Properties["status"] -or [string]::IsNullOrWhiteSpace([string]$reservationCheck.status)) { throw "reservation status 缺失。" }
+}
+catch {
+    throw "reservation 校验失败：$($_.Exception.Message)"
 }
 
 # Reject an accidental plain resume before touching the queue lease or attempt
@@ -119,7 +123,7 @@ function Write-ResumeReleaseRecord {
             $old = Get-Content -LiteralPath $recordPath -Raw -Encoding UTF8 | ConvertFrom-Json
             foreach ($property in $old.PSObject.Properties) { $record[$property.Name] = $property.Value }
         }
-        catch { $record = [ordered]@{} }
+        catch { throw "已有 release record 无法解析，拒绝用空记录覆盖：$recordPath。$($_.Exception.Message)" }
     }
     $record.schemaVersion = 2
     $record.operationId = $OperationId
@@ -132,8 +136,12 @@ function Write-ResumeReleaseRecord {
     $record.treeSha = [string]$context.treeSha
     $record.sourceSha256 = [string]$context.sourceSha256
     $record.packagePath = [string]$context.artifactPath
+    if ($context.PSObject.Properties["releaseWorktree"]) { $record.releaseWorktree = [string]$context.releaseWorktree }
     if ($context.PSObject.Properties["packageSha256"]) { $record.packageSha256 = [string]$context.packageSha256 }
     $record.contextPath = $contextPath
+    $record.logPath = $logPath
+    $record.reportPath = $reportPath
+    $record.backupPath = $backupPath
     $record.generatedAt = [DateTimeOffset]::UtcNow.ToString("o")
     $record.releaseBranch = if ($context.PSObject.Properties["releaseBranch"]) { [string]$context.releaseBranch } else { "release/$($context.version)-$OperationId" }
     $record.pullRequest = if ($context.PSObject.Properties["pullRequest"]) { [string]$context.pullRequest } else { "" }
@@ -147,7 +155,9 @@ function Write-ResumeReleaseRecord {
     return $recordPath
 }
 
-$logPath = New-ReleaseOperationLogPath -LogRoot ([string]$policy.logRoot) -OperationId $OperationId
+$logPath = if ($context.PSObject.Properties["logPath"] -and $context.logPath) { [string]$context.logPath } else { New-ReleaseOperationLogPath -LogRoot ([string]$policy.logRoot) -OperationId $OperationId }
+$reportPath = if ($context.PSObject.Properties["reportPath"] -and $context.reportPath) { [string]$context.reportPath } else { Join-Path ([string]$policy.reportRoot) "release-$OperationId.json" }
+$backupPath = if ($context.PSObject.Properties["backupPath"] -and $context.backupPath) { [string]$context.backupPath } else { Join-Path ([string]$policy.backupRoot) "backup-$OperationId.json" }
 $lock = $null
 $worktree = ""
 $completed = $false
@@ -241,6 +251,72 @@ function Assert-ResumeContextIdentity {
     return $Value
 }
 
+function Ensure-ResumeBackupManifest {
+    if (-not [string]::IsNullOrWhiteSpace([string](Get-ResumeProperty -Value $context -Name "backupPath" -Default "")) -and (Test-Path -LiteralPath ([string]$context.backupPath) -PathType Leaf)) {
+        return [string]$context.backupPath
+    }
+    $backup = Write-ReleaseBackupManifest -Policy $policy -OperationId $OperationId -Version ([string]$context.version)
+    $script:backupPath = [string]$backup.Path
+    $script:context = Save-ResumeContext -Values @{ backupPath = [string]$backup.Path; backupManifest = $backup.Manifest }
+    return [string]$backup.Path
+}
+
+function Ensure-ResumeAcceptanceReport {
+    <#
+      Re-check the four release endpoints with the original context.  This is
+      deliberately called before a normal resume marks the queue succeeded,
+      and it is also safe to call again after a terminal queue transition:
+      report/latest writers are idempotent and refuse different content.
+    #>
+    param(
+        [Parameter(Mandatory = $true)][object]$Value,
+        [switch]$RequireCloud,
+        [switch]$RequirePreview
+    )
+    $result = Write-ReleaseAcceptanceReport -Policy $policy -Context $Value -ContextPath $contextPath -RequireCloud:$RequireCloud -RequirePreview:$RequirePreview
+    if ($null -eq $result -or $null -eq $result.Report -or [string]$result.Report.status -ne "succeeded") {
+        $statusText = if ($null -eq $result -or $null -eq $result.Report) { "unknown" } else { [string]$result.Report.status }
+        throw "恢复发布验收未通过（$statusText），保留原 context。"
+    }
+    $script:reportPath = [string]$result.Path
+    $script:context = Save-ResumeContext -Values @{ reportPath = [string]$result.Path; reportMarkdownPath = [string]$result.MarkdownPath }
+    return $result
+}
+
+function Ensure-ResumePreviewImport {
+    param(
+        [Parameter(Mandatory = $true)][string]$WorktreePath,
+        [Parameter(Mandatory = $true)][object]$Value
+    )
+    if ([string]::IsNullOrWhiteSpace($PreviewCliPath)) { $script:PreviewCliPath = $env:WECHAT_DEVTOOLS_CLI }
+    if ([string]::IsNullOrWhiteSpace($PreviewCliPath) -or -not (Test-Path -LiteralPath $PreviewCliPath -PathType Leaf)) {
+        throw "需要导入预览项目，但找不到微信开发者工具 CLI。"
+    }
+    $existing = if ($Value.PSObject.Properties["previewImport"]) { $Value.previewImport } else { $null }
+    if ($null -ne $existing -and [string]$existing.status -eq "imported" -and
+        [string]$existing.operationId -eq [string]$Value.operationId -and
+        [string]$existing.version -eq [string]$Value.version -and
+        [string]$existing.releaseCommit -eq [string]$Value.releaseCommit -and
+        [string]$existing.treeSha -eq [string]$Value.treeSha -and
+        [string]$existing.projectPath -eq [IO.Path]::GetFullPath($WorktreePath)) {
+        return $Value
+    }
+    Write-ResumeLog "preview-import" "把原 context 对应的隔离工作树导入微信开发者工具。"
+    $receipt = Invoke-ReleasePreviewImport -CliPath $PreviewCliPath -ClientName $PreviewClientName -ProjectPath $WorktreePath
+    $import = [ordered]@{
+        status = [string]$receipt.status
+        projectPath = [string]$receipt.projectPath
+        operationId = [string]$Value.operationId
+        version = [string]$Value.version
+        releaseCommit = [string]$Value.releaseCommit
+        treeSha = [string]$Value.treeSha
+        sourceSha256 = [string]$Value.sourceSha256
+        importedAt = [string]$receipt.importedAt
+        response = $receipt.response
+    }
+    return Save-ResumeContext -Values @{ previewImport = $import }
+}
+
 function Test-ResumeFinalPreview {
     param([Parameter(Mandatory = $true)][object]$Value)
     $qrProperty = $Value.PSObject.Properties["previewQrPath"]
@@ -304,11 +380,15 @@ function Write-ResumeFinalPreview {
         artifactPath = [string]$Value.artifactPath
         mainCommit = $MainCommit
     }
+    if (-not (Test-Path -LiteralPath $qrPath -PathType Leaf) -and (Test-Path -LiteralPath $infoPath -PathType Leaf)) {
+        throw "已有二维码 info 但二维码文件缺失，拒绝重新生成或覆盖：$infoPath"
+    }
     if (Test-Path -LiteralPath $qrPath -PathType Leaf) {
         if (-not (Test-Path -LiteralPath $infoPath -PathType Leaf)) { throw "已有二维码但缺少 info，拒绝覆盖：$qrPath" }
+        if ((Get-Item -LiteralPath $qrPath).Length -le 0) { throw "已有二维码为空，拒绝覆盖：$qrPath" }
         $existingQrSha = (Get-FileHash -LiteralPath $qrPath -Algorithm SHA256).Hash.ToLowerInvariant()
         $existingInfo = Get-Content -LiteralPath $infoPath -Raw -Encoding UTF8 | ConvertFrom-Json
-        if ([string]$existingInfo.qrSha256 -ne $existingQrSha) { throw "已有二维码 SHA 与 info 不一致，拒绝覆盖：$qrPath" }
+        if ([int]$existingInfo.schemaVersion -ne 1 -or [string]::IsNullOrWhiteSpace([string]$existingInfo.qrSha256) -or [string]$existingInfo.qrSha256 -ne $existingQrSha) { throw "已有二维码 SHA/schema 与 info 不一致，拒绝覆盖：$qrPath" }
         foreach ($key in $identity.Keys) {
             if ([string]$existingInfo.$key -ne [string]$identity[$key]) { throw "已有二维码 info 与当前发布不一致，拒绝覆盖：$infoPath" }
         }
@@ -320,7 +400,7 @@ function Write-ResumeFinalPreview {
         & $PreviewCliPath -c $PreviewClientName create_preview_qrcode --project $WorktreePath --qr-format image --qr-output $tempQrPath 2>&1 | Out-Host
         if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $tempQrPath -PathType Leaf)) { throw "最终二维码生成失败。" }
         if ((Get-Item -LiteralPath $tempQrPath).Length -le 0) { throw "最终二维码为空。" }
-        Move-Item -LiteralPath $tempQrPath -Destination $qrPath
+        Write-ReleaseImmutableFile -SourcePath $tempQrPath -DestinationPath $qrPath | Out-Null
     }
     finally {
         if (Test-Path -LiteralPath $tempQrPath -PathType Leaf) { Remove-Item -LiteralPath $tempQrPath -Force -ErrorAction SilentlyContinue }
@@ -332,7 +412,7 @@ function Write-ResumeFinalPreview {
             if ([string]$existingInfo.$key -ne [string]$identity[$key]) { throw "二维码 info 并发冲突，拒绝覆盖：$infoPath" }
         }
     }
-    else { Write-ReleaseGateJsonAtomic -Path $infoPath -Value $identity }
+    else { Write-ReleaseImmutableJson -Path $infoPath -Value $identity | Out-Null }
     return [pscustomobject]@{ qrPath = $qrPath; infoPath = $infoPath; qrSha256 = [string]$identity.qrSha256 }
 }
 
@@ -343,15 +423,38 @@ function Ensure-ResumeReleaseWorktree {
         [Parameter(Mandatory = $true)][string]$Branch
     )
     $resolved = [IO.Path]::GetFullPath($WorktreePath)
+    $worktreeRoot = (ConvertTo-ReleaseFullPath -Path ([string]$policy.worktreeRoot)).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
+    if (-not $resolved.StartsWith($worktreeRoot, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "恢复工作树不在策略 worktreeRoot 内，拒绝使用：$resolved"
+    }
     if (-not (Test-Path -LiteralPath $resolved -PathType Container)) {
         New-Item -ItemType Directory -Path ([string]$policy.worktreeRoot) -Force | Out-Null
         Invoke-ReleaseGit -WorkingDirectory $canonicalRepo -Arguments @("fetch", "origin", "refs/heads/$Branch:refs/remotes/origin/$Branch") -AllowFailure | Out-Null
         Invoke-ReleaseGit -WorkingDirectory $canonicalRepo -Arguments @("worktree", "add", "--detach", $resolved, $ReleaseCommit) | Out-Null
     }
+    $registered = $false
+    try {
+        $worktreeList = Invoke-ReleaseGit -WorkingDirectory $canonicalRepo -Arguments @("worktree", "list", "--porcelain")
+        foreach ($line in $worktreeList) {
+            if ([string]$line -match '(?i)^worktree\s+(.+?)\s*$') {
+                try { if (Test-ReleasePathEqual -Left (ConvertTo-ReleaseFullPath -Path $Matches[1]) -Right $resolved) { $registered = $true; break } } catch { }
+            }
+        }
+    }
+    catch { $registered = $false }
+    if (-not $registered) { throw "恢复目录不是 canonical Git 注册的 worktree，拒绝使用：$resolved" }
     $head = (Invoke-ReleaseGit -WorkingDirectory $resolved -Arguments @("rev-parse", "HEAD") | Select-Object -Last 1).Trim()
     if (-not [string]::Equals($head, $ReleaseCommit, [StringComparison]::OrdinalIgnoreCase)) {
         throw "恢复工作树 HEAD=$head 与 context releaseCommit=$ReleaseCommit 不一致，拒绝继续。"
     }
+    $remote = (Invoke-ReleaseGit -WorkingDirectory $resolved -Arguments @("remote", "get-url", "origin") | Select-Object -Last 1).Trim()
+    if (-not [string]::Equals($remote.TrimEnd('/'), [string]$policy.remote.TrimEnd('/'), [StringComparison]::OrdinalIgnoreCase)) { throw "恢复工作树 origin 不符合发布策略，拒绝继续：$remote" }
+    $dirty = Invoke-ReleaseGit -WorkingDirectory $resolved -Arguments @("status", "--porcelain")
+    if (@($dirty | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }).Count -gt 0) { throw "恢复工作树不是干净状态，拒绝部署：$resolved" }
+    $tree = (Invoke-ReleaseGit -WorkingDirectory $resolved -Arguments @("rev-parse", "$ReleaseCommit^{tree}") | Select-Object -Last 1).Trim()
+    if (-not [string]::Equals($tree, [string]$context.treeSha, [StringComparison]::OrdinalIgnoreCase)) { throw "恢复工作树 tree SHA 与 context 不一致，拒绝继续。" }
+    $sourceSha = Get-ReleaseSourceSha256 -SourceRoot $resolved
+    if (-not [string]::Equals($sourceSha, [string]$context.sourceSha256, [StringComparison]::OrdinalIgnoreCase)) { throw "恢复工作树源码 SHA 与 context 不一致，拒绝继续。" }
     return $resolved
 }
 
@@ -383,10 +486,12 @@ try {
         $worktree = Ensure-ResumeReleaseWorktree -WorktreePath $worktree -ReleaseCommit $releaseCommit -Branch $branch
         $mergeCommit = if ($context.PSObject.Properties["mainCommit"]) { [string]$context.mainCommit } else { "" }
         $null = Assert-ReleaseMainContainsCommit -RepositoryRoot $worktree -ReleaseCommit $releaseCommit -MergeCommit $mergeCommit
+        Ensure-ResumeBackupManifest | Out-Null
         $phase = if ($context.PSObject.Properties["phase"]) { [string]$context.phase } else { "merged" }
         if ($phase -notin @("merged", "deployed", "previewed", "succeeded")) {
             throw "合并后 context 阶段无效：$phase"
         }
+        if ($Preview) { $context = Ensure-ResumePreviewImport -WorktreePath $worktree -Value $context }
 
         $cloudReceipt = Get-ResumeCloudReceipt -Context $context
         $cloudReceiptValid = $false
@@ -447,13 +552,15 @@ try {
         $packageScript = Join-Path $scriptRoot "package-release.py"
         $packageCheck = & python $packageScript --check-only --release-context $contextPath 2>&1
         if ($LASTEXITCODE -ne 0) { throw "合并后 package/context 校验失败：$($packageCheck -join "`n")" }
+        $acceptance = Ensure-ResumeAcceptanceReport -Value $context -RequireCloud:$DeployCloud -RequirePreview:$Preview
         $postCompletedAt = [DateTimeOffset]::UtcNow.ToString("o")
-        $context = Save-ResumeContext -Values @{ status = "succeeded"; terminalStatus = "succeeded"; postMergeStatus = "succeeded"; postMergeCompletedAt = $postCompletedAt; recovery = [ordered]@{ resumable = $true; lastFailureStage = "" } }
+        $context = Save-ResumeContext -Values @{ status = "succeeded"; terminalStatus = "succeeded"; postMergeStatus = "succeeded"; postMergeCompletedAt = $postCompletedAt; reportPath = [string]$acceptance.Path; reportMarkdownPath = [string]$acceptance.MarkdownPath; recovery = [ordered]@{ resumable = $true; lastFailureStage = "" } }
         $reservationExtra = @{ releaseCommit = $releaseCommit; treeSha = [string]$context.treeSha; contextPath = $contextPath; artifactPath = [string]$context.artifactPath; postMergeCompletedAt = $postCompletedAt }
         if ($context.PSObject.Properties["mainCommit"]) { $reservationExtra.mainCommit = [string]$context.mainCommit }
         if ($context.PSObject.Properties["cloudReceipt"]) { $reservationExtra.cloudReceipt = $context.cloudReceipt }
         if (-not [string]::IsNullOrWhiteSpace($reservationPath)) { Set-ReleaseReservationStatus -ReservationPath $reservationPath -Status "succeeded" -Extra $reservationExtra }
         [void](Write-ResumeReleaseRecord -Status "succeeded" -TerminalStatus "succeeded" -Phase ([string]$context.phase) -MainCommit $(if ($context.PSObject.Properties["mainCommit"]) { [string]$context.mainCommit } else { "" }) -MergedAt $(if ($context.PSObject.Properties["mergedAt"]) { [string]$context.mergedAt } else { "" }))
+        Write-ReleaseLatestManifest -Policy $policy -Context $context -ReportPath ([string]$acceptance.Path) -Report $acceptance.Report | Out-Null
         $completed = $true
         Write-ResumeLog "done" "合并后补充步骤已完成：$OperationId（队列保持 succeeded）。"
         Write-Host "Context: $contextPath"
@@ -499,11 +606,7 @@ try {
     $releaseCommit = [string]$context.releaseCommit
     $branch = if ($context.PSObject.Properties["releaseBranch"] -and $context.releaseBranch) { [string]$context.releaseBranch } else { "release/$($context.version)-$OperationId" }
     $worktree = if ($context.PSObject.Properties["releaseWorktree"] -and $context.releaseWorktree) { [string]$context.releaseWorktree } else { Join-Path ([string]$policy.worktreeRoot) "release-$OperationId" }
-    if (-not (Test-Path -LiteralPath $worktree -PathType Container)) {
-        New-Item -ItemType Directory -Path ([string]$policy.worktreeRoot) -Force | Out-Null
-        Invoke-ReleaseGit -WorkingDirectory $canonicalRepo -Arguments @("fetch", "origin", "refs/heads/$branch:refs/remotes/origin/$branch") -AllowFailure | Out-Null
-        Invoke-ReleaseGit -WorkingDirectory $canonicalRepo -Arguments @("worktree", "add", "--detach", $worktree, $releaseCommit) | Out-Null
-    }
+    $worktree = Ensure-ResumeReleaseWorktree -WorktreePath $worktree -ReleaseCommit $releaseCommit -Branch $branch
 
     $phase = if ($context.PSObject.Properties["phase"]) { [string]$context.phase } else { [string]$context.status }
     if ($Publish -and $phase -notin @("merged", "deployed", "previewed")) {
@@ -516,6 +619,15 @@ try {
         $context = Save-ResumeContext -Values $changes
         Set-ReleaseQueuePhase -QueueRoot $queueRoot -OperationId $OperationId -Phase "merged" -Status "running" -Version ([string]$context.version) -BaseHead ([string]$context.baseHead) -ContextPath $contextPath -Lease $queueLease | Out-Null
         $phase = "merged"
+    }
+
+    Ensure-ResumeBackupManifest | Out-Null
+
+    # Import only after the PR is confirmed merged.  This is deliberately
+    # before the final QR/acceptance step so every update has a fresh DevTools
+    # project entry tied to this exact context.
+    if ($Preview -and $phase -in @("merged", "deployed", "previewed", "succeeded")) {
+        $context = Ensure-ResumePreviewImport -WorktreePath $worktree -Value $context
     }
 
     if ($DeployCloud) {
@@ -603,8 +715,13 @@ try {
     }
     [void](Write-ResumeReleaseRecord -Status "finalizing" -TerminalStatus "pending" -Phase ([string]$context.phase) -MainCommit $(if ($context.PSObject.Properties["mainCommit"]) { [string]$context.mainCommit } else { "" }) -MergedAt $(if ($context.PSObject.Properties["mergedAt"]) { [string]$context.mergedAt } else { "" }))
 
+    # Do the same acceptance gate as the first publish attempt.  A resumed
+    # operation must prove the original context still matches main/ZIP/QR/
+    # CloudBase before it can become terminal; it must never silently turn a
+    # repaired sidecar into a claimed new version.
+    $acceptance = Ensure-ResumeAcceptanceReport -Value $context -RequireCloud:$DeployCloud -RequirePreview:$Preview
     $completedAt = [DateTimeOffset]::UtcNow.ToString("o")
-    $context = Save-ResumeContext -Values @{ status = "succeeded"; terminalStatus = "succeeded"; completedAt = $completedAt; finalization = [ordered]@{ state = "committed"; completedAt = $completedAt } }
+    $context = Save-ResumeContext -Values @{ status = "succeeded"; terminalStatus = "succeeded"; completedAt = $completedAt; reportPath = [string]$acceptance.Path; reportMarkdownPath = [string]$acceptance.MarkdownPath; finalization = [ordered]@{ state = "committed"; completedAt = $completedAt } }
     if (-not [string]::IsNullOrWhiteSpace($reservationPath)) {
         Set-ReleaseReservationStatus -ReservationPath $reservationPath -Status "succeeded" -Extra $reservationExtra
     }
@@ -615,6 +732,7 @@ try {
     if ($null -eq $terminalQueue -or [string]$terminalQueue.status -ne "succeeded") {
         throw "恢复后发布队列未确认 succeeded，保留原 context。"
     }
+    Write-ReleaseLatestManifest -Policy $policy -Context $context -ReportPath ([string]$acceptance.Path) -Report $acceptance.Report | Out-Null
     $completed = $true
     Write-ResumeLog "done" "原发布操作已恢复完成：$OperationId"
     Write-Host "Context: $contextPath"
@@ -622,6 +740,12 @@ try {
 catch {
     $message = $_.Exception.Message
     try { Write-ResumeLog "failed" $message } catch { Write-Host "失败日志写入失败：$($_.Exception.Message)" -ForegroundColor Yellow }
+    try {
+        $alertVersion = if ($null -ne $context -and $context.PSObject.Properties["version"]) { [string]$context.version } else { "" }
+        $alertPath = Write-ReleaseFailureAlert -Policy $policy -OperationId $OperationId -Version $alertVersion -Stage "resume" -Message $message -ContextPath $contextPath -LogPath $logPath
+        Write-Host "恢复失败告警已记录：$alertPath" -ForegroundColor Yellow
+    }
+    catch { Write-Host "恢复失败告警处理失败：$($_.Exception.Message)" -ForegroundColor Yellow }
     $recoverable = -not [string]::IsNullOrWhiteSpace([string]$context.releaseCommit)
 
     if ($postMergeOnly) {
@@ -670,6 +794,13 @@ catch {
                     $context = Save-ResumeContext -Values @{ status = "succeeded"; terminalStatus = "succeeded"; completedAt = $completedAt; finalization = [ordered]@{ state = "committed"; completedAt = $completedAt } }
                 }
                 [void](Write-ResumeReleaseRecord -Status "succeeded" -TerminalStatus "succeeded" -Phase ([string]$context.phase) -MainCommit $(if ($context.PSObject.Properties["mainCommit"]) { [string]$context.mainCommit } else { "" }) -MergedAt $(if ($context.PSObject.Properties["mergedAt"]) { [string]$context.mergedAt } else { "" }))
+                $repairReportPath = if ($context.PSObject.Properties["reportPath"]) { [string]$context.reportPath } else { Join-Path ([string]$policy.reportRoot) "release-$OperationId.json" }
+                if (Test-Path -LiteralPath $repairReportPath -PathType Leaf) {
+                    $repairReport = Get-Content -LiteralPath $repairReportPath -Raw -Encoding UTF8 | ConvertFrom-Json
+                    if ([string]$repairReport.status -eq "succeeded") {
+                        Write-ReleaseLatestManifest -Policy $policy -Context $context -ReportPath $repairReportPath -Report $repairReport | Out-Null
+                    }
+                }
             }
             catch { Write-Host "成功 sidecar 补写失败：$($_.Exception.Message)" -ForegroundColor Yellow }
         }

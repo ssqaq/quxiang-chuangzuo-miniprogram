@@ -557,6 +557,60 @@ def _verify_zip(path: Path, expected: dict, required: set[str]) -> set[str]:
     return names
 
 
+def _verify_existing_context_artifact(
+    artifact: Path,
+    context: dict,
+    required: set[str],
+) -> tuple[str, int, set[str]]:
+    """恢复/只读检查时验证已有 ZIP，而不是只看文件是否存在。
+
+    以前恢复入口只判断 ``Path.exists()``，损坏、被替换或清单错绑的 ZIP
+    也会被当成可恢复产物。这里复用正式写包的完整 ZIP 校验，并把
+    context 中记录的 SHA/大小当作不可变证据。
+    """
+    if not artifact.is_file():
+        raise _error(f"release context 指向的产物不存在：{artifact}")
+    size = artifact.stat().st_size
+    if size <= 0:
+        raise _error(f"release context 指向的产物为空：{artifact}")
+    actual_sha = _sha256_file(artifact)
+    expected_sha = context.get("packageSha256")
+    if expected_sha is not None and str(expected_sha).strip():
+        expected_sha = str(expected_sha).strip().lower()
+        if not SHA256_PATTERN.fullmatch(expected_sha):
+            raise _error("release context.packageSha256 不是有效 SHA256")
+        if actual_sha.lower() != expected_sha:
+            raise _error(
+                f"已有 ZIP SHA 与 release context 不一致：{actual_sha} / {expected_sha}"
+            )
+    expected_size = context.get("packageSizeBytes")
+    if expected_size is not None and str(expected_size).strip():
+        try:
+            expected_size_int = int(expected_size)
+        except (TypeError, ValueError) as exc:
+            raise _error("release context.packageSizeBytes 不是有效整数") from exc
+        if expected_size_int != size:
+            raise _error(
+                f"已有 ZIP 大小与 release context 不一致：{size} / {expected_size_int}"
+            )
+
+    expected = {
+        "operationId": context["operationId"],
+        "version": context["version"],
+        "sourceCommit": context["sourceCommit"],
+        "releaseCommit": context["releaseCommit"],
+        "treeSha": context["treeSha"],
+        "sourceSha256": context["sourceSha256"],
+        "artifactName": artifact.name,
+    }
+    names = _verify_zip(artifact, expected, required)
+    # Keep the public helper's filename/manifest checks as a second, concise
+    # assertion.  This catches future changes that accidentally weaken
+    # _verify_zip's expected-field set.
+    assert_zip_version_consistency(artifact, str(context["version"]))
+    return actual_sha, size, names
+
+
 def assert_zip_version_consistency(path: Path, expected_version: str) -> None:
     """只读断言 ZIP 清单、不可变文件名和指定版本一致，供 CI/smoke 复用。"""
     try:
@@ -695,6 +749,17 @@ def main() -> None:
             output = args.output.expanduser().resolve() if args.output else None
             operation_id = "只读检查"
 
+        artifact_sha256 = None
+        artifact_size_bytes = None
+        artifact_file_count = None
+        artifact_verified = False
+        if args.check_only and context:
+            artifact_sha256, artifact_size_bytes, artifact_names = _verify_existing_context_artifact(
+                output, context, required
+            )
+            artifact_file_count = len(artifact_names)
+            artifact_verified = True
+
         if args.check_only:
             print("发布包检查通过（未写入 ZIP）")
             print(f"版本：{version}")
@@ -709,6 +774,10 @@ def main() -> None:
                 "sourceSha256": source_sha256,
                 "operationId": operation_id,
                 "artifactPath": str(output) if output else None,
+                "artifactSha256": artifact_sha256,
+                "artifactSizeBytes": artifact_size_bytes,
+                "artifactFileCount": artifact_file_count,
+                "artifactVerified": artifact_verified,
             }, ensure_ascii=False, separators=(",", ":")))
             return
 

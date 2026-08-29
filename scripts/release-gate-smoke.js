@@ -129,12 +129,19 @@ function testStaticContracts() {
     "no checks reported",
     "Start-Sleep -Seconds 5",
     "Invoke-ReleasePreviewImport",
+    "Resolve-ReleaseDevToolsCli",
+    "open_project_window",
+    "simulator_refresh",
     "project_import",
+    "未返回可解析的 JSON",
+    "返回待确认任务",
     "Write-ReleaseImmutableFile",
   ]) {
     assert.ok(gate.includes(marker) || entry.includes(marker), `发布闸门缺少 ${marker}`);
   }
-  assert.ok(entry.includes("[switch]$Publish"), "发布必须显式 -Publish");
+  assert.ok(entry.includes("[switch]$PrepareOnly"), "发布必须支持显式只准备模式");
+  assert.ok(entry.includes("$effectivePublish"), "发布默认行为必须计算自动发布状态");
+  assert.ok(entry.includes("$effectivePreview"), "发布默认行为必须计算自动开发者工具同步状态");
   assert.ok(entry.includes("--release-context"), "正式打包必须使用 release context");
   assert.ok(entry.includes('"scripts/release-lock-smoke.js"'), "发布工具快照必须包含锁 smoke");
   assert.ok(entry.includes('"scripts/version-concurrency-smoke.js"'), "发布工具快照必须包含版本并发 smoke");
@@ -146,6 +153,7 @@ function testStaticContracts() {
   assert.ok(entry.includes('"scripts/release-maintenance.ps1"'), "发布工具快照必须包含 reservation 维护");
   assert.ok(entry.includes('"scripts/install-git-hooks.ps1"'), "发布工具快照必须包含 Git hooks 安装器");
   assert.ok(entry.includes('"scripts/write-release-record.ps1"'), "发布工具快照必须包含旧记录入口封锁");
+  assert.ok(entry.includes('"一键刷新预览.cmd"'), "发布工具快照必须包含一键预览入口");
   assert.ok(entry.includes('preview-import'), "正式预览必须先导入微信开发者工具");
   assert.ok(!entry.includes("push origin \"HEAD:main\""), "闸门不能直接 push main");
   assert.ok(gate.indexOf("auth status") < gate.indexOf("push origin"), "GitHub 认证检查必须先于推送 release 分支");
@@ -153,7 +161,7 @@ function testStaticContracts() {
   assert.ok(resume.indexOf("Test-ReleaseGitHubProtection") < resume.indexOf("Claim-ReleaseQueueTicket"), "恢复发布保护预检必须先于领取队列租约");
   assert.ok(preview.includes("release.ps1"), "预览入口必须转发到统一闸门");
   assert.ok(!preview.includes("package-release.py"), "预览入口不能直接调用打包器");
-  assert.ok(preview.includes("闸门尚未分配版本"), "预览 CLI 失败必须在版本分配前拦截");
+  assert.ok(preview.includes("PrepareOnly"), "预览入口必须显式使用只准备模式，避免失败时分配版本");
   assert.ok(deploy.includes("ReleaseContext") && deploy.includes("ReleaseGateLockHeld"), "云部署必须接收 release context 和外层锁");
   assert.ok(entry.includes("DeployLockPath"), "闸门调用云部署时必须传递共享锁路径");
   assert.ok(entry.includes("旧 clone/worktree"), "旧 clone/worktree 必须被发布入口拒绝");

@@ -151,6 +151,7 @@ function Write-ResumeReleaseRecord {
     elseif ($context.PSObject.Properties["mergedAt"]) { $record.mergedAt = [string]$context.mergedAt }
     $record.phase = if (-not [string]::IsNullOrWhiteSpace($Phase)) { $Phase } elseif ($context.PSObject.Properties["phase"]) { [string]$context.phase } else { "" }
     if ($context.PSObject.Properties["cloudReceipt"]) { $record.cloudReceipt = $context.cloudReceipt }
+    if ($Status -eq "succeeded" -and $record.Contains("lastError")) { $record.Remove("lastError") }
     Write-ReleaseGateJsonAtomic -Path $recordPath -Value $record
     return $recordPath
 }
@@ -181,6 +182,13 @@ function Save-ResumeContext {
     foreach ($key in $Values.Keys) { $hash[$key] = $Values[$key] }
     foreach ($key in @($RemoveKeys)) {
         if ($hash.Contains($key)) { $hash.Remove($key) }
+    }
+    if ($Values.ContainsKey("status") -and [string]$Values.status -eq "succeeded") {
+        if ($hash.Contains("lastError")) { $hash.Remove("lastError") }
+        if ($hash.Contains("recovery") -and $null -ne $hash.recovery) {
+            $hash.recovery.resumable = $true
+            $hash.recovery.lastFailureStage = ""
+        }
     }
     Write-ReleaseGateJsonAtomic -Path $contextPath -Value $hash
     $script:context = [pscustomobject]$hash
@@ -416,6 +424,61 @@ function Write-ResumeFinalPreview {
     return [pscustomobject]@{ qrPath = $qrPath; infoPath = $infoPath; qrSha256 = [string]$identity.qrSha256 }
 }
 
+function ConvertTo-ResumeComparableValue {
+    <# WeChat DevTools rewrites project.config.json with a different key order
+       and newline style when importing a project.  Compare JSON values rather
+       than bytes so that this harmless preview-side formatting does not look
+       like a source edit. #>
+    param([object]$Value)
+    if ($null -eq $Value) { return $null }
+    if ($Value -is [System.Collections.IDictionary]) {
+        $ordered = [ordered]@{}
+        foreach ($key in @($Value.Keys | Sort-Object)) {
+            $ordered[[string]$key] = ConvertTo-ResumeComparableValue -Value $Value[$key]
+        }
+        return [pscustomobject]$ordered
+    }
+    if ($Value -is [System.Collections.IEnumerable] -and $Value -isnot [string]) {
+        $items = @()
+        foreach ($item in $Value) { $items += ,(ConvertTo-ResumeComparableValue -Value $item) }
+        return ,$items
+    }
+    $properties = @($Value.PSObject.Properties)
+    if ($properties.Count -gt 0 -and $Value -isnot [ValueType] -and $Value -isnot [string]) {
+        $ordered = [ordered]@{}
+        foreach ($property in @($properties | Sort-Object Name)) {
+            $ordered[$property.Name] = ConvertTo-ResumeComparableValue -Value $property.Value
+        }
+        return [pscustomobject]$ordered
+    }
+    return $Value
+}
+
+function Test-ResumePreviewOnlyDirty {
+    param(
+        [Parameter(Mandatory = $true)][string]$WorktreePath,
+        [Parameter(Mandatory = $true)][object[]]$DirtyLines
+    )
+    $lines = @($DirtyLines | ForEach-Object { [string]$_ } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    if ($lines.Count -ne 1) { return $false }
+    $line = $lines[0]
+    # Porcelain v1 has two status columns followed by a space.  Reject
+    # renames/untracked files and any path other than the DevTools metadata.
+    if ($line.Length -lt 4 -or $line.Substring(0, 2) -notmatch '^[ MARCUD?!]{2}$') { return $false }
+    $relative = $line.Substring(3).Trim()
+    if (-not [string]::Equals($relative, "project.config.json", [StringComparison]::OrdinalIgnoreCase)) { return $false }
+    try {
+        $headText = (Invoke-ReleaseGit -WorkingDirectory $WorktreePath -Arguments @("show", "HEAD:project.config.json")) -join "`n"
+        $workText = Get-Content -LiteralPath (Join-Path $WorktreePath "project.config.json") -Raw -Encoding UTF8
+        $headJson = $headText | ConvertFrom-Json
+        $workJson = $workText | ConvertFrom-Json
+        $headNormalized = ConvertTo-ResumeComparableValue -Value $headJson | ConvertTo-Json -Depth 100 -Compress
+        $workNormalized = ConvertTo-ResumeComparableValue -Value $workJson | ConvertTo-Json -Depth 100 -Compress
+        return [string]::Equals($headNormalized, $workNormalized, [StringComparison]::Ordinal)
+    }
+    catch { return $false }
+}
+
 function Ensure-ResumeReleaseWorktree {
     param(
         [Parameter(Mandatory = $true)][string]$WorktreePath,
@@ -450,11 +513,15 @@ function Ensure-ResumeReleaseWorktree {
     $remote = (Invoke-ReleaseGit -WorkingDirectory $resolved -Arguments @("remote", "get-url", "origin") | Select-Object -Last 1).Trim()
     if (-not [string]::Equals($remote.TrimEnd('/'), [string]$policy.remote.TrimEnd('/'), [StringComparison]::OrdinalIgnoreCase)) { throw "恢复工作树 origin 不符合发布策略，拒绝继续：$remote" }
     $dirty = Invoke-ReleaseGit -WorkingDirectory $resolved -Arguments @("status", "--porcelain")
-    if (@($dirty | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }).Count -gt 0) { throw "恢复工作树不是干净状态，拒绝部署：$resolved" }
+    $dirtyLines = @($dirty | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+    $previewOnlyDirty = $dirtyLines.Count -gt 0 -and (Test-ResumePreviewOnlyDirty -WorktreePath $resolved -DirtyLines $dirtyLines)
+    if ($dirtyLines.Count -gt 0 -and -not $previewOnlyDirty) { throw "恢复工作树不是干净状态，拒绝部署：$resolved" }
     $tree = (Invoke-ReleaseGit -WorkingDirectory $resolved -Arguments @("rev-parse", "$ReleaseCommit^{tree}") | Select-Object -Last 1).Trim()
     if (-not [string]::Equals($tree, [string]$context.treeSha, [StringComparison]::OrdinalIgnoreCase)) { throw "恢复工作树 tree SHA 与 context 不一致，拒绝继续。" }
     $sourceSha = Get-ReleaseSourceSha256 -SourceRoot $resolved
-    if (-not [string]::Equals($sourceSha, [string]$context.sourceSha256, [StringComparison]::OrdinalIgnoreCase)) { throw "恢复工作树源码 SHA 与 context 不一致，拒绝继续。" }
+    if (-not [string]::Equals($sourceSha, [string]$context.sourceSha256, [StringComparison]::OrdinalIgnoreCase) -and -not $previewOnlyDirty) {
+        throw "恢复工作树源码 SHA 与 context 不一致，拒绝继续。"
+    }
     return $resolved
 }
 

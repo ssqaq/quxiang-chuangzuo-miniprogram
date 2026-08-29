@@ -631,6 +631,7 @@ function Write-ReleaseQueueStateAtomic {
     $State.updatedAt = Get-ReleaseQueueNowText
     $json = $State | ConvertTo-Json -Depth 40
     $temp = Join-Path $parent (".{0}.{1}.{2}.tmp" -f (Split-Path $Paths.QueuePath -Leaf), $PID, [guid]::NewGuid().ToString('N'))
+    $backup = Join-Path $parent (".{0}.{1}.{2}.replace.bak" -f (Split-Path $Paths.QueuePath -Leaf), $PID, [guid]::NewGuid().ToString('N'))
     $encoding = [Text.UTF8Encoding]::new($false)
     $stream = $null
     try {
@@ -647,12 +648,13 @@ function Write-ReleaseQueueStateAtomic {
     try {
         if (Test-Path -LiteralPath $Paths.QueuePath -PathType Leaf) {
             try {
-                [IO.File]::Replace($temp, $Paths.QueuePath, $null, $true)
+                [IO.File]::Replace($temp, $Paths.QueuePath, $backup, $true)
             }
-            catch {
-                # 某些文件系统不支持 Replace；同卷 Move 仍是原子重命名。
+            catch [PlatformNotSupportedException] {
+                # 某些文件系统不支持 Replace；同卷 Move 仍在队列互斥锁内完成。
                 [IO.File]::Move($temp, $Paths.QueuePath, $true)
             }
+            catch [NotSupportedException] { [IO.File]::Move($temp, $Paths.QueuePath, $true) }
         }
         else {
             [IO.File]::Move($temp, $Paths.QueuePath)
@@ -661,6 +663,9 @@ function Write-ReleaseQueueStateAtomic {
     finally {
         if (Test-Path -LiteralPath $temp -PathType Leaf) {
             Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue
+        }
+        if (Test-Path -LiteralPath $backup -PathType Leaf) {
+            Remove-Item -LiteralPath $backup -Force -ErrorAction SilentlyContinue
         }
     }
 }
@@ -1190,6 +1195,19 @@ function Assert-ReleaseQueueLeaseOwner {
     }
 }
 
+function Clear-ReleaseQueueRecoveryMetadata {
+    param([object]$Metadata)
+    if ($null -eq $Metadata) { return }
+    foreach ($name in @("lastError", "recoveryStatus")) {
+        if ($Metadata -is [System.Collections.IDictionary]) {
+            if ($Metadata.Contains($name)) { [void]$Metadata.Remove($name) }
+        }
+        elseif ($null -ne $Metadata.PSObject.Properties[$name]) {
+            $Metadata.PSObject.Properties.Remove($name)
+        }
+    }
+}
+
 function Set-ReleaseQueueTicketStatus {
     [CmdletBinding()]
     param(
@@ -1246,8 +1264,10 @@ function Set-ReleaseQueueTicketStatus {
             if (-not [string]::IsNullOrWhiteSpace($ContextPath)) { $ticket.contextPath = $ContextPath }
             if (-not [string]::IsNullOrWhiteSpace($ReservationPath)) { $ticket.reservationPath = $ReservationPath }
             if (-not [string]::IsNullOrWhiteSpace($ErrorMessage)) { $ticket.lastError = $ErrorMessage }
+            elseif ($targetStatus -eq "succeeded") { $ticket.lastError = "" }
             if ($ClearMetadata) { $ticket.metadata = $null }
             elseif ($hasMetadata) { $ticket.metadata = $Metadata }
+            if ($targetStatus -eq "succeeded") { Clear-ReleaseQueueRecoveryMetadata -Metadata $ticket.metadata }
             $ticket.updatedAt = Get-ReleaseQueueNowText
             [void](Sync-ReleaseQueueLeaseObject -Ticket $ticket)
             $state.tickets[$index] = $ticket
@@ -1272,8 +1292,10 @@ function Set-ReleaseQueueTicketStatus {
         if (-not [string]::IsNullOrWhiteSpace($ContextPath)) { $ticket.contextPath = $ContextPath }
         if (-not [string]::IsNullOrWhiteSpace($ReservationPath)) { $ticket.reservationPath = $ReservationPath }
         if (-not [string]::IsNullOrWhiteSpace($ErrorMessage)) { $ticket.lastError = $ErrorMessage }
+        elseif ($targetStatus -eq "succeeded") { $ticket.lastError = "" }
         if ($ClearMetadata) { $ticket.metadata = $null }
         elseif ($hasMetadata) { $ticket.metadata = $Metadata }
+        if ($targetStatus -eq "succeeded") { Clear-ReleaseQueueRecoveryMetadata -Metadata $ticket.metadata }
         $ticket.updatedAt = Get-ReleaseQueueNowText
         if ($targetStatus -notin @("leased", "running")) {
             $ticket.leaseId = ""

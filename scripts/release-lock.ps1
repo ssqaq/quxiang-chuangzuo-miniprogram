@@ -86,7 +86,10 @@ function Get-ReleaseLockOwnerMutexName {
       heartbeat cannot write an older snapshot over a newer stage/version.
     #>
     param([Parameter(Mandatory = $true)][string]$OwnerPath)
-    $full = [IO.Path]::GetFullPath($OwnerPath)
+    # Windows paths are case-insensitive.  Normalize before hashing so two
+    # callers spelling the same sidecar with different case/separators cannot
+    # accidentally create two independent metadata mutexes.
+    $full = [IO.Path]::GetFullPath($OwnerPath).TrimEnd('\', '/').ToLowerInvariant()
     $hash = [Security.Cryptography.SHA256]::Create()
     try {
         $bytes = [Text.UTF8Encoding]::new($false).GetBytes($full)
@@ -291,6 +294,7 @@ function Start-ReleaseLockHeartbeat {
             $path = [IO.Path]::GetFullPath([string]$message.OwnerPath)
             $nameHash = [Security.Cryptography.SHA256]::Create()
             try {
+                $path = $path.TrimEnd('\', '/').ToLowerInvariant()
                 $nameBytes = [Text.UTF8Encoding]::new($false).GetBytes($path)
                 $mutexName = "Global\wechat-miniapp-release-owner-" + (([BitConverter]::ToString($nameHash.ComputeHash($nameBytes)) -replace '-', '').ToLowerInvariant())
             }
@@ -659,16 +663,30 @@ function Exit-ReleaseLock {
     if ($null -eq $LockHandle) {
         return
     }
+    # Stop the timer before touching the sidecar.  Then take the same owner
+    # mutex used by heartbeat/stage writers and compare both PID and the unique
+    # handoffToken.  A PID-only delete could remove a newer owner's metadata if
+    # a handle is released late or the OS reuses a process id.
+    try { Stop-ReleaseLockHeartbeat -LockHandle $LockHandle } catch { }
+    $guard = $null
     try {
-        $owner = Read-ReleaseLockOwner -OwnerPath $LockHandle.OwnerPath
-        if ($null -eq $owner -or [int]$owner.pid -eq $PID) {
-            Remove-Item -LiteralPath $LockHandle.OwnerPath -Force -ErrorAction SilentlyContinue
+        $guard = Enter-ReleaseLockOwnerGuard -OwnerPath ([string]$LockHandle.OwnerPath)
+        $owner = Read-ReleaseLockOwner -OwnerPath ([string]$LockHandle.OwnerPath)
+        $expectedPid = if ($LockHandle.Owner.PSObject.Properties["pid"]) { [int]$LockHandle.Owner.pid } else { [int]$PID }
+        $expectedToken = if ($LockHandle.Owner.PSObject.Properties["handoffToken"]) { [string]$LockHandle.Owner.handoffToken } else { "" }
+        $ownerToken = if ($null -ne $owner -and $owner.PSObject.Properties["handoffToken"]) { [string]$owner.handoffToken } else { "" }
+        $sameOwner = $null -ne $owner -and [int]$owner.pid -eq $expectedPid -and
+            -not [string]::IsNullOrWhiteSpace($expectedToken) -and
+            [string]::Equals($ownerToken, $expectedToken, [StringComparison]::Ordinal)
+        if ($sameOwner) {
+            Remove-Item -LiteralPath ([string]$LockHandle.OwnerPath) -Force -ErrorAction SilentlyContinue
         }
     }
+    catch { }
     finally {
-        Stop-ReleaseLockHeartbeat -LockHandle $LockHandle
+        if ($null -ne $guard) { try { Exit-ReleaseLockOwnerGuard -Guard $guard } catch { } }
         if ($null -ne $LockHandle.Stream) {
-            $LockHandle.Stream.Dispose()
+            try { $LockHandle.Stream.Dispose() } catch { }
         }
     }
 }

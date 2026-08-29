@@ -131,6 +131,9 @@ function testStaticContracts() {
   assert.ok(entry.includes("--release-context"), "正式打包必须使用 release context");
   assert.ok(entry.includes('"scripts/release-lock-smoke.js"'), "发布工具快照必须包含锁 smoke");
   assert.ok(entry.includes('"scripts/version-concurrency-smoke.js"'), "发布工具快照必须包含版本并发 smoke");
+  assert.ok(entry.includes('"scripts/resume-release-smoke.js"'), "发布工具快照必须包含恢复 smoke");
+  assert.ok(entry.includes('"scripts/cloud-deploy-safety-smoke.js"'), "发布工具快照必须包含 Cloud 快照 smoke");
+  assert.ok(entry.includes('"scripts/deployment-script-smoke.js"'), "发布工具快照必须包含部署 smoke");
   assert.ok(!entry.includes("push origin \"HEAD:main\""), "闸门不能直接 push main");
   assert.ok(gate.indexOf("auth status") < gate.indexOf("push origin"), "GitHub 认证检查必须先于推送 release 分支");
   assert.ok(entry.indexOf("Test-ReleaseGitHubProtection") < entry.indexOf("New-ReleaseQueueTicket"), "正式发布保护预检必须先于创建队列票据");

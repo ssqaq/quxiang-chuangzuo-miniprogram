@@ -97,6 +97,7 @@ function testWorkflowContract(workflow) {
     "Version concurrency smoke",
     "Release gate smoke",
     "Release failure-stage contract smoke",
+    "Resume release recovery smoke",
     "Cloud deploy safety smoke",
     "Cloud deploy entry smoke",
     "Package smoke",

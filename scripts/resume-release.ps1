@@ -6,6 +6,7 @@ param(
     [string]$PreviewCliPath = "",
     [string]$PreviewClientName = "default",
     [switch]$DeployCloud,
+    [switch]$ResumePendingDeploy,
     [ValidateRange(1, 7200)][int]$LockWaitSeconds = 1800,
     [switch]$KeepWorktree
 )
@@ -14,6 +15,7 @@ $ErrorActionPreference = "Stop"
 $scriptRoot = $PSScriptRoot
 . (Join-Path $scriptRoot "release-gate.ps1")
 . (Join-Path $scriptRoot "release-lock.ps1")
+. (Join-Path $scriptRoot "cloud-deploy-safety.ps1")
 $queueScript = Join-Path $scriptRoot "release-queue.ps1"
 if (-not (Test-Path -LiteralPath $queueScript -PathType Leaf)) { throw "缺少发布队列工具：$queueScript" }
 . $queueScript
@@ -47,10 +49,21 @@ if ($ticket.PSObject.Properties["contextPath"] -and -not [string]::IsNullOrWhite
     throw "队列票据 contextPath 与恢复文件不一致，拒绝跨操作恢复。"
 }
 $terminal = if ($context.PSObject.Properties["terminalStatus"]) { [string]$context.terminalStatus } else { "" }
-if ($terminal -eq "succeeded" -and [string]$ticket.status -eq "succeeded") {
+# A publish can intentionally finish before the optional CloudBase/preview
+# phase.  Keep the queue terminal state immutable, but allow an explicit
+# post-merge request to complete the missing side effect with the same context.
+$postMergeRequested = [bool]($DeployCloud -or $Preview)
+$postMergeOnly = $terminal -eq "succeeded" -and [string]$ticket.status -eq "succeeded" -and $postMergeRequested
+if ($terminal -eq "succeeded" -and [string]$ticket.status -eq "succeeded" -and -not $postMergeRequested) {
     Write-Host "发布操作已经完成，无需重复执行：$OperationId"
     Write-Host "Context: $contextPath"
     exit 0
+}
+if ([string]$ticket.status -eq "succeeded" -and $terminal -ne "succeeded") {
+    throw "队列已是 succeeded，但 release context 未终态成功；拒绝重新领取或执行副作用。"
+}
+if ($terminal -eq "succeeded" -and [string]$ticket.status -ne "succeeded") {
+    throw "release context 已终态成功，但队列未终态成功；拒绝重新发布。"
 }
 
 $reservationPath = if ($ticket.PSObject.Properties["reservationPath"] -and $ticket.reservationPath) {
@@ -87,7 +100,7 @@ $initialPhase = if ($context.PSObject.Properties["phase"]) { [string]$context.ph
 if ($Publish -and $initialPhase -notin @("merged", "deployed", "previewed") -and [bool]$policy.mainProtection.enforceOnPublish) {
     Test-ReleaseGitHubProtection -RepositoryRoot $canonicalRepo -Policy $policy | Out-Null
 }
-if (-not $Publish -and $initialPhase -notin @("merged", "deployed", "previewed")) {
+if (-not $Publish -and $initialPhase -notin @("merged", "deployed", "previewed", "succeeded") -and -not $postMergeOnly) {
     throw "该 context 仍未完成 PR 合并；恢复发布必须显式带 -Publish，不能把准备状态误标为成功。"
 }
 
@@ -164,7 +177,289 @@ function Save-ResumeContext {
     return $script:context
 }
 
+function Get-ResumeProperty {
+    param(
+        [object]$Value,
+        [Parameter(Mandatory = $true)][string]$Name,
+        [object]$Default = $null
+    )
+    if ($null -eq $Value) { return $Default }
+    $property = $Value.PSObject.Properties[$Name]
+    if ($null -eq $property -or $null -eq $property.Value) { return $Default }
+    return $property.Value
+}
+
+function Assert-ResumeCloudReceipt {
+    <# A receipt is evidence, not a boolean flag.  Every identity field must
+       bind back to the same context before a retry is allowed to skip upload. #>
+    param(
+        [Parameter(Mandatory = $true)][object]$Receipt,
+        [Parameter(Mandatory = $true)][object]$Context
+    )
+    Assert-CloudDeployReceipt `
+        -Receipt $Receipt `
+        -Context $Context `
+        -ExpectedMainCommit ([string](Get-ResumeProperty -Value $Context -Name "mainCommit" -Default "")) | Out-Null
+    return $true
+}
+
+function Get-ResumeCloudReceipt {
+    param([Parameter(Mandatory = $true)][object]$Context)
+    $property = $Context.PSObject.Properties["cloudReceipt"]
+    if ($null -eq $property -or $null -eq $property.Value) { return $null }
+    return $property.Value
+}
+
+function Get-ResumeCloudOnlineMatch {
+    param(
+        [Parameter(Mandatory = $true)][string]$WorktreePath,
+        [Parameter(Mandatory = $true)][object]$Context
+    )
+    try {
+        $configText = Get-Content -LiteralPath (Join-Path $WorktreePath "config.js") -Raw -Encoding UTF8
+        $envMatch = [regex]::Match($configText, 'cloudEnvId:\s*"([^"]+)"')
+        $functionMatch = [regex]::Match($configText, 'cloudFunctionName:\s*"([^"]+)"')
+        if (-not $envMatch.Success -or -not $functionMatch.Success) { return $false }
+        $markerText = Get-Content -LiteralPath (Join-Path $WorktreePath "cloudfunctions/api/index.js") -Raw -Encoding UTF8
+        $markerMatch = [regex]::Match($markerText, 'const API_BUILD_MARKER = "([^"]+)"')
+        $snapshot = Get-CloudBaseFunctionSnapshot -EnvironmentId $envMatch.Groups[1].Value -FunctionName $functionMatch.Groups[1].Value
+        return [string]$snapshot.BuildVersion -eq [string]$Context.version -and
+            $markerMatch.Success -and [string]$snapshot.BuildMarker -eq $markerMatch.Groups[1].Value
+    }
+    catch {
+        return $false
+    }
+}
+
+function Assert-ResumeContextIdentity {
+    param([Parameter(Mandatory = $true)][object]$Value)
+    Assert-ReleaseContextShape -Context $Value -Policy $policy | Out-Null
+    if ([string]$Value.operationId -ne $OperationId) { throw "锁内重读的 release context operationId 不一致。" }
+    if ([string]$Value.releaseCommit -notmatch '^[0-9a-fA-F]{7,64}$' -or [string]$Value.treeSha -notmatch '^[0-9a-fA-F]{7,64}$') {
+        throw "锁内重读的 release context 提交身份无效。"
+    }
+    return $Value
+}
+
+function Test-ResumeFinalPreview {
+    param([Parameter(Mandatory = $true)][object]$Value)
+    $qrProperty = $Value.PSObject.Properties["previewQrPath"]
+    $infoProperty = $Value.PSObject.Properties["previewInfoPath"]
+    if ($null -eq $qrProperty -or $null -eq $infoProperty -or
+        [string]::IsNullOrWhiteSpace([string]$qrProperty.Value) -or
+        [string]::IsNullOrWhiteSpace([string]$infoProperty.Value) -or
+        -not (Test-Path -LiteralPath ([string]$qrProperty.Value) -PathType Leaf) -or
+        -not (Test-Path -LiteralPath ([string]$infoProperty.Value) -PathType Leaf)) {
+        return $false
+    }
+    try {
+        $artifactRoot = [IO.Path]::GetFullPath([string]$policy.artifactRoot).TrimEnd("\", "/")
+        $qrPath = [IO.Path]::GetFullPath([string]$qrProperty.Value)
+        $infoPath = [IO.Path]::GetFullPath([string]$infoProperty.Value)
+        if (-not $qrPath.StartsWith($artifactRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase) -or
+            -not $infoPath.StartsWith($artifactRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { return $false }
+        $expectedQrName = "wechat-miniapp-preview-v$($Value.version)-$($Value.releaseCommit)-qr.png"
+        $expectedInfoName = "wechat-miniapp-preview-v$($Value.version)-$($Value.releaseCommit)-info.json"
+        if ([IO.Path]::GetFileName($qrPath) -ne $expectedQrName -or [IO.Path]::GetFileName($infoPath) -ne $expectedInfoName) { return $false }
+        $qrHash = (Get-FileHash -LiteralPath $qrPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        $receipt = Get-Content -LiteralPath ([string]$infoProperty.Value) -Raw -Encoding UTF8 | ConvertFrom-Json
+        $mainCommit = if ($Value.PSObject.Properties["mainCommit"]) { [string]$Value.mainCommit } else { "" }
+        $receiptMain = if ($receipt.PSObject.Properties["mainCommit"]) { [string]$receipt.mainCommit } else { "" }
+        return [int]$receipt.schemaVersion -eq 1 -and
+            -not [string]::IsNullOrWhiteSpace([string]$receipt.qrSha256) -and
+            [string]$receipt.qrSha256 -eq $qrHash -and
+            -not [string]::IsNullOrWhiteSpace($mainCommit) -and
+            [string]::Equals($receiptMain, $mainCommit, [StringComparison]::OrdinalIgnoreCase) -and
+            [string]$receipt.operationId -eq [string]$Value.operationId -and
+            [string]$receipt.appVersion -eq [string]$Value.version -and
+            [string]$receipt.gitCommit -eq [string]$Value.releaseCommit -and
+            [string]$receipt.treeSha -eq [string]$Value.treeSha -and
+            [string]$receipt.sourceSha256 -eq [string]$Value.sourceSha256
+    }
+    catch {
+        return $false
+    }
+}
+
+function Write-ResumeFinalPreview {
+    param(
+        [Parameter(Mandatory = $true)][string]$WorktreePath,
+        [Parameter(Mandatory = $true)][object]$Value,
+        [Parameter(Mandatory = $true)][string]$ReleaseCommit,
+        [Parameter(Mandatory = $true)][string]$MainCommit
+    )
+    if ([string]::IsNullOrWhiteSpace($PreviewCliPath)) { $PreviewCliPath = $env:WECHAT_DEVTOOLS_CLI }
+    if ([string]::IsNullOrWhiteSpace($PreviewCliPath) -or -not (Test-Path -LiteralPath $PreviewCliPath -PathType Leaf)) {
+        throw "找不到微信开发者工具 CLI，无法生成最终二维码。"
+    }
+    $qrPath = Join-Path ([string]$policy.artifactRoot) "wechat-miniapp-preview-v$($Value.version)-$ReleaseCommit-qr.png"
+    $infoPath = Join-Path ([string]$policy.artifactRoot) "wechat-miniapp-preview-v$($Value.version)-$ReleaseCommit-info.json"
+    $identity = [ordered]@{
+        schemaVersion = 1
+        operationId = [string]$Value.operationId
+        appVersion = [string]$Value.version
+        gitCommit = $ReleaseCommit
+        treeSha = [string]$Value.treeSha
+        sourceSha256 = [string]$Value.sourceSha256
+        artifactPath = [string]$Value.artifactPath
+        mainCommit = $MainCommit
+    }
+    if (Test-Path -LiteralPath $qrPath -PathType Leaf) {
+        if (-not (Test-Path -LiteralPath $infoPath -PathType Leaf)) { throw "已有二维码但缺少 info，拒绝覆盖：$qrPath" }
+        $existingQrSha = (Get-FileHash -LiteralPath $qrPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        $existingInfo = Get-Content -LiteralPath $infoPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ([string]$existingInfo.qrSha256 -ne $existingQrSha) { throw "已有二维码 SHA 与 info 不一致，拒绝覆盖：$qrPath" }
+        foreach ($key in $identity.Keys) {
+            if ([string]$existingInfo.$key -ne [string]$identity[$key]) { throw "已有二维码 info 与当前发布不一致，拒绝覆盖：$infoPath" }
+        }
+        return [pscustomobject]@{ qrPath = $qrPath; infoPath = $infoPath; qrSha256 = $existingQrSha }
+    }
+    $tempQrPath = "$qrPath.$PID.$([guid]::NewGuid().ToString('N')).tmp.png"
+    try {
+        Write-ResumeLog "preview-atomic" "生成最终二维码（临时文件，完成后原子落盘）。"
+        & $PreviewCliPath -c $PreviewClientName create_preview_qrcode --project $WorktreePath --qr-format image --qr-output $tempQrPath 2>&1 | Out-Host
+        if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $tempQrPath -PathType Leaf)) { throw "最终二维码生成失败。" }
+        if ((Get-Item -LiteralPath $tempQrPath).Length -le 0) { throw "最终二维码为空。" }
+        Move-Item -LiteralPath $tempQrPath -Destination $qrPath
+    }
+    finally {
+        if (Test-Path -LiteralPath $tempQrPath -PathType Leaf) { Remove-Item -LiteralPath $tempQrPath -Force -ErrorAction SilentlyContinue }
+    }
+    $identity.qrSha256 = (Get-FileHash -LiteralPath $qrPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if (Test-Path -LiteralPath $infoPath -PathType Leaf) {
+        $existingInfo = Get-Content -LiteralPath $infoPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        foreach ($key in $identity.Keys) {
+            if ([string]$existingInfo.$key -ne [string]$identity[$key]) { throw "二维码 info 并发冲突，拒绝覆盖：$infoPath" }
+        }
+    }
+    else { Write-ReleaseGateJsonAtomic -Path $infoPath -Value $identity }
+    return [pscustomobject]@{ qrPath = $qrPath; infoPath = $infoPath; qrSha256 = [string]$identity.qrSha256 }
+}
+
+function Ensure-ResumeReleaseWorktree {
+    param(
+        [Parameter(Mandatory = $true)][string]$WorktreePath,
+        [Parameter(Mandatory = $true)][string]$ReleaseCommit,
+        [Parameter(Mandatory = $true)][string]$Branch
+    )
+    $resolved = [IO.Path]::GetFullPath($WorktreePath)
+    if (-not (Test-Path -LiteralPath $resolved -PathType Container)) {
+        New-Item -ItemType Directory -Path ([string]$policy.worktreeRoot) -Force | Out-Null
+        Invoke-ReleaseGit -WorkingDirectory $canonicalRepo -Arguments @("fetch", "origin", "refs/heads/$Branch:refs/remotes/origin/$Branch") -AllowFailure | Out-Null
+        Invoke-ReleaseGit -WorkingDirectory $canonicalRepo -Arguments @("worktree", "add", "--detach", $resolved, $ReleaseCommit) | Out-Null
+    }
+    $head = (Invoke-ReleaseGit -WorkingDirectory $resolved -Arguments @("rev-parse", "HEAD") | Select-Object -Last 1).Trim()
+    if (-not [string]::Equals($head, $ReleaseCommit, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "恢复工作树 HEAD=$head 与 context releaseCommit=$ReleaseCommit 不一致，拒绝继续。"
+    }
+    return $resolved
+}
+
 try {
+    if ($postMergeOnly) {
+        # The queue ticket is already terminal after a successful PR merge.
+        # Optional CloudBase/preview work is a post-merge side effect: hold the
+        # same release lock, reuse the immutable worktree/context, and leave
+        # queue=succeeded instead of trying to reopen a terminal ticket.
+        $releaseCommit = [string]$context.releaseCommit
+        $branch = if ($context.PSObject.Properties["releaseBranch"] -and $context.releaseBranch) { [string]$context.releaseBranch } else { "release/$($context.version)-$OperationId" }
+        $worktree = if ($context.PSObject.Properties["releaseWorktree"] -and $context.releaseWorktree) { [string]$context.releaseWorktree } else { Join-Path ([string]$policy.worktreeRoot) "release-$OperationId" }
+        $lock = Enter-ReleaseLock -ProjectPath $canonicalRepo -TargetVersion ([string]$context.version) -TargetType "release-post-merge" -WaitSeconds $LockWaitSeconds -LockPath ([string]$policy.lockPath) -ProjectId $OperationId -LeaseSeconds ([int]$policy.queue.leaseSeconds) -Stage "post-merge"
+        Update-ReleaseLockOwner -LockHandle $lock -TargetVersion ([string]$context.version) -Stage "post-merge"
+        # Re-read both durable records after acquiring the lock.  Two resume
+        # processes may have observed the same terminal ticket before either
+        # entered the critical section; only the locked snapshot decides which
+        # effects remain outstanding.
+        $ticket = Get-ReleaseQueueTicket -QueueRoot $queueRoot -OperationId $OperationId -WaitSeconds $LockWaitSeconds -PollMilliseconds $queuePollMilliseconds
+        if ($null -eq $ticket -or [string]$ticket.status -ne "succeeded") {
+            throw "锁内重读发布队列已不是 succeeded，拒绝执行合并后副作用。"
+        }
+        $context = Get-Content -LiteralPath $contextPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        $context = Assert-ResumeContextIdentity -Value $context
+        $terminal = [string](Get-ResumeProperty -Value $context -Name "terminalStatus" -Default "")
+        if ($terminal -ne "succeeded") { throw "锁内重读 release context 尚未终态成功，拒绝执行合并后副作用。" }
+        $postMergeRequested = [bool]($DeployCloud -or $Preview)
+        if (-not $postMergeRequested) { Write-Host "发布操作已经完成，无需重复执行：$OperationId"; return }
+        $worktree = Ensure-ResumeReleaseWorktree -WorktreePath $worktree -ReleaseCommit $releaseCommit -Branch $branch
+        $mergeCommit = if ($context.PSObject.Properties["mainCommit"]) { [string]$context.mainCommit } else { "" }
+        $null = Assert-ReleaseMainContainsCommit -RepositoryRoot $worktree -ReleaseCommit $releaseCommit -MergeCommit $mergeCommit
+        $phase = if ($context.PSObject.Properties["phase"]) { [string]$context.phase } else { "merged" }
+        if ($phase -notin @("merged", "deployed", "previewed", "succeeded")) {
+            throw "合并后 context 阶段无效：$phase"
+        }
+
+        $cloudReceipt = Get-ResumeCloudReceipt -Context $context
+        $cloudReceiptValid = $false
+        if ($null -ne $cloudReceipt) {
+            try { Assert-ResumeCloudReceipt -Receipt $cloudReceipt -Context $context | Out-Null; $cloudReceiptValid = $true } catch { $cloudReceiptValid = $false }
+        }
+        if ($DeployCloud -and -not $cloudReceiptValid) {
+            $deployScript = Join-Path $worktree "scripts/deploy-and-verify-api.ps1"
+            if (-not (Test-Path -LiteralPath $deployScript -PathType Leaf)) { throw "缺少 CloudBase 部署入口：$deployScript" }
+            Write-ResumeLog "cloud" "为已合并 context 补做 CloudBase 部署。"
+            $env:RELEASE_GATE_CONTEXT = $contextPath
+            & pwsh -NoProfile -ExecutionPolicy Bypass -File $deployScript -ProjectPath $worktree -ReleaseContext $contextPath -ReleaseGateLockHeld -ReleaseGateLockToken ([string]$lock.Owner.handoffToken) -AllowPostMergeRecovery -DeployLockPath ([string]$policy.lockPath) -DeployTransport "auto" -LockWaitSeconds $LockWaitSeconds
+            if ($LASTEXITCODE -ne 0) { throw "CloudBase 补部署失败；保留原 context，可用同一 operationId 重试。" }
+            $context = Get-Content -LiteralPath $contextPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            $context = Assert-ResumeContextIdentity -Value $context
+            $onlineBuildVersion = [string]$context.version
+            $onlineBuildMarker = ""
+            try {
+                $markerText = Get-Content -LiteralPath (Join-Path $worktree "cloudfunctions/api/index.js") -Raw -Encoding UTF8
+                $markerMatch = [regex]::Match($markerText, 'const API_BUILD_MARKER = "([^"]+)"')
+                if ($markerMatch.Success) { $onlineBuildMarker = $markerMatch.Groups[1].Value }
+            } catch { }
+            $receipt = [ordered]@{
+                schemaVersion = 1
+                operationId = $OperationId
+                version = [string]$context.version
+                releaseCommit = $releaseCommit
+                treeSha = [string]$context.treeSha
+                sourceSha256 = [string]$context.sourceSha256
+                packageSha256 = if ($context.PSObject.Properties["packageSha256"]) { [string]$context.packageSha256 } else { "" }
+                mainCommit = $mergeCommit
+                idempotencyKey = New-CloudDeployIdempotencyKey -Context $context
+                onlineBuildVersion = $onlineBuildVersion
+                onlineBuildMarker = $onlineBuildMarker
+                verifiedAt = [DateTimeOffset]::UtcNow.ToString("o")
+                status = "verified"
+            }
+            $context = Save-ResumeContext -Values @{ phase = "deployed"; cloudReceipt = $receipt; cloudDeployment = [ordered]@{ state = "verified"; idempotencyKey = $receipt.idempotencyKey; receipt = $receipt; updatedAt = [DateTimeOffset]::UtcNow.ToString("o") }; postMergeStatus = "running" }
+            $phase = "deployed"
+            $cloudReceiptValid = $true
+        }
+        elseif ($DeployCloud -and $cloudReceiptValid -and -not (Get-ResumeCloudOnlineMatch -WorktreePath $worktree -Context $context)) {
+            throw "已有 CloudBase receipt 但线上构建身份不匹配，拒绝假设成功；请保留 context 现场审计。"
+        }
+
+        if ($Preview -and -not (Test-ResumeFinalPreview -Value $context)) {
+            Write-ResumeLog "preview" "为已合并 context 生成或幂等复用最终二维码。"
+            $preview = Write-ResumeFinalPreview -WorktreePath $worktree -Value $context -ReleaseCommit $releaseCommit -MainCommit $mergeCommit
+            $qrPath = [string]$preview.qrPath
+            $infoPath = [string]$preview.infoPath
+            $context = Save-ResumeContext -Values @{ phase = "previewed"; previewQrPath = $qrPath; previewInfoPath = $infoPath; postMergeStatus = "running" }
+            $phase = "previewed"
+        }
+
+        if (-not (Test-Path -LiteralPath ([string]$context.artifactPath) -PathType Leaf)) {
+            throw "补做合并后步骤时找不到不可变发布包：$($context.artifactPath)"
+        }
+        $packageScript = Join-Path $scriptRoot "package-release.py"
+        $packageCheck = & python $packageScript --check-only --release-context $contextPath 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "合并后 package/context 校验失败：$($packageCheck -join "`n")" }
+        $postCompletedAt = [DateTimeOffset]::UtcNow.ToString("o")
+        $context = Save-ResumeContext -Values @{ status = "succeeded"; terminalStatus = "succeeded"; postMergeStatus = "succeeded"; postMergeCompletedAt = $postCompletedAt; recovery = [ordered]@{ resumable = $true; lastFailureStage = "" } }
+        $reservationExtra = @{ releaseCommit = $releaseCommit; treeSha = [string]$context.treeSha; contextPath = $contextPath; artifactPath = [string]$context.artifactPath; postMergeCompletedAt = $postCompletedAt }
+        if ($context.PSObject.Properties["mainCommit"]) { $reservationExtra.mainCommit = [string]$context.mainCommit }
+        if ($context.PSObject.Properties["cloudReceipt"]) { $reservationExtra.cloudReceipt = $context.cloudReceipt }
+        if (-not [string]::IsNullOrWhiteSpace($reservationPath)) { Set-ReleaseReservationStatus -ReservationPath $reservationPath -Status "succeeded" -Extra $reservationExtra }
+        [void](Write-ResumeReleaseRecord -Status "succeeded" -TerminalStatus "succeeded" -Phase ([string]$context.phase) -MainCommit $(if ($context.PSObject.Properties["mainCommit"]) { [string]$context.mainCommit } else { "" }) -MergedAt $(if ($context.PSObject.Properties["mergedAt"]) { [string]$context.mergedAt } else { "" }))
+        $completed = $true
+        Write-ResumeLog "done" "合并后补充步骤已完成：$OperationId（队列保持 succeeded）。"
+        Write-Host "Context: $contextPath"
+        return
+    }
+
     Recover-ReleaseQueueTickets -QueueRoot $queueRoot -WaitSeconds $LockWaitSeconds -PollMilliseconds $queuePollMilliseconds | Out-Null
     $ticket = Get-ReleaseQueueTicket -QueueRoot $queueRoot -OperationId $OperationId -WaitSeconds $LockWaitSeconds -PollMilliseconds $queuePollMilliseconds
     if ($null -eq $ticket) { throw "恢复时找不到发布队列票据：$OperationId" }
@@ -229,10 +524,29 @@ try {
             $deployScript = Join-Path $worktree "scripts/deploy-and-verify-api.ps1"
             if (-not (Test-Path -LiteralPath $deployScript -PathType Leaf)) { throw "缺少 CloudBase 部署入口：$deployScript" }
             Write-ResumeLog "cloud" "继续原 context 的 CloudBase 部署。"
-            & pwsh -NoProfile -ExecutionPolicy Bypass -File $deployScript -ProjectPath $worktree -ReleaseContext $contextPath -ReleaseGateLockHeld -DeployLockPath ([string]$policy.lockPath) -DeployTransport "auto" -LockWaitSeconds $LockWaitSeconds
+            & pwsh -NoProfile -ExecutionPolicy Bypass -File $deployScript -ProjectPath $worktree -ReleaseContext $contextPath -ReleaseGateLockHeld -ReleaseGateLockToken ([string]$lock.Owner.handoffToken) -AllowPostMergeRecovery:$false -ResumePendingDeploy:$ResumePendingDeploy -DeployLockPath ([string]$policy.lockPath) -DeployTransport $(if ($ResumePendingDeploy) { "wechat" } else { "auto" }) -LockWaitSeconds $LockWaitSeconds
             if ($LASTEXITCODE -ne 0) { throw "CloudBase 恢复部署失败；保留原 context。" }
-            $receipt = [ordered]@{ operationId = $OperationId; version = [string]$context.version; releaseCommit = $releaseCommit; mainCommit = if ($context.PSObject.Properties["mainCommit"]) { [string]$context.mainCommit } else { "" }; verifiedAt = [DateTimeOffset]::UtcNow.ToString("o"); status = "verified" }
-            $context = Save-ResumeContext -Values @{ phase = "deployed"; cloudReceipt = $receipt }
+            $context = Get-Content -LiteralPath $contextPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            $context = Assert-ResumeContextIdentity -Value $context
+            $markerText = Get-Content -LiteralPath (Join-Path $worktree "cloudfunctions/api/index.js") -Raw -Encoding UTF8
+            $markerMatch = [regex]::Match($markerText, 'const API_BUILD_MARKER = "([^"]+)"')
+            $receipt = [ordered]@{
+                schemaVersion = 1
+                operationId = $OperationId
+                version = [string]$context.version
+                releaseCommit = $releaseCommit
+                treeSha = [string]$context.treeSha
+                sourceSha256 = [string]$context.sourceSha256
+                packageSha256 = if ($context.PSObject.Properties["packageSha256"]) { [string]$context.packageSha256 } else { "" }
+                mainCommit = if ($context.PSObject.Properties["mainCommit"]) { [string]$context.mainCommit } else { "" }
+                idempotencyKey = New-CloudDeployIdempotencyKey -Context $context
+                onlineBuildVersion = [string]$context.version
+                onlineBuildMarker = if ($markerMatch.Success) { $markerMatch.Groups[1].Value } else { "" }
+                verifiedAt = [DateTimeOffset]::UtcNow.ToString("o")
+                status = "verified"
+            }
+            Assert-ResumeCloudReceipt -Receipt $receipt -Context $context | Out-Null
+            $context = Save-ResumeContext -Values @{ phase = "deployed"; cloudReceipt = $receipt; cloudDeployment = [ordered]@{ state = "verified"; idempotencyKey = $receipt.idempotencyKey; receipt = $receipt; updatedAt = [DateTimeOffset]::UtcNow.ToString("o") } }
             Set-ReleaseQueuePhase -QueueRoot $queueRoot -OperationId $OperationId -Phase "deployed" -Status "running" -Version ([string]$context.version) -BaseHead ([string]$context.baseHead) -ContextPath $contextPath -Lease $queueLease | Out-Null
             $phase = "deployed"
         }
@@ -258,13 +572,11 @@ try {
         catch { $hasFinalPreview = $false }
     }
     if ($Preview -and -not $hasFinalPreview) {
-        if ([string]::IsNullOrWhiteSpace($PreviewCliPath)) { $PreviewCliPath = $env:WECHAT_DEVTOOLS_CLI }
-        if ([string]::IsNullOrWhiteSpace($PreviewCliPath) -or -not (Test-Path -LiteralPath $PreviewCliPath -PathType Leaf)) { throw "找不到微信开发者工具 CLI，无法恢复二维码。" }
-        $qrPath = Join-Path ([string]$policy.artifactRoot) "wechat-miniapp-preview-v$($context.version)-$releaseCommit-qr.png"
-        $infoPath = Join-Path ([string]$policy.artifactRoot) "wechat-miniapp-preview-v$($context.version)-$releaseCommit-info.json"
-        & $PreviewCliPath -c $PreviewClientName create_preview_qrcode --project $worktree --qr-format image --qr-output $qrPath 2>&1 | Out-Host
-        if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $qrPath -PathType Leaf)) { throw "二维码恢复生成失败。" }
-        Write-ReleaseGateJsonAtomic -Path $infoPath -Value ([ordered]@{ operationId = $OperationId; appVersion = [string]$context.version; gitCommit = $releaseCommit; treeSha = [string]$context.treeSha; sourceSha256 = [string]$context.sourceSha256; artifactPath = [string]$context.artifactPath; mainCommit = if ($context.PSObject.Properties["mainCommit"]) { [string]$context.mainCommit } else { "" } })
+        Write-ResumeLog "preview" "生成或幂等复用最终二维码。"
+        $mergeCommit = if ($context.PSObject.Properties["mainCommit"]) { [string]$context.mainCommit } else { "" }
+        $preview = Write-ResumeFinalPreview -WorktreePath $worktree -Value $context -ReleaseCommit $releaseCommit -MainCommit $mergeCommit
+        $qrPath = [string]$preview.qrPath
+        $infoPath = [string]$preview.infoPath
         $context = Save-ResumeContext -Values @{ phase = "previewed"; previewQrPath = $qrPath; previewInfoPath = $infoPath }
         Set-ReleaseQueuePhase -QueueRoot $queueRoot -OperationId $OperationId -Phase "previewed" -Status "running" -Version ([string]$context.version) -BaseHead ([string]$context.baseHead) -ContextPath $contextPath -Lease $queueLease | Out-Null
         $phase = "previewed"
@@ -311,6 +623,27 @@ catch {
     $message = $_.Exception.Message
     try { Write-ResumeLog "failed" $message } catch { Write-Host "失败日志写入失败：$($_.Exception.Message)" -ForegroundColor Yellow }
     $recoverable = -not [string]::IsNullOrWhiteSpace([string]$context.releaseCommit)
+
+    if ($postMergeOnly) {
+        # The main/queue release is already terminal.  A failed optional
+        # side-effect must remain retryable without downgrading that terminal
+        # release or allocating another version.
+        try {
+            $context = Save-ResumeContext -Values @{
+                status = "succeeded"
+                terminalStatus = "succeeded"
+                postMergeStatus = "recoverable"
+                postMergeRecovery = [ordered]@{ resumable = $true; lastFailureStage = $message; at = [DateTimeOffset]::UtcNow.ToString("o") }
+            }
+            if (-not [string]::IsNullOrWhiteSpace($reservationPath)) {
+                Set-ReleaseReservationStatus -ReservationPath $reservationPath -Status "succeeded" -Extra @{ lastError = $message; postMergeStatus = "recoverable" }
+            }
+            [void](Write-ResumeReleaseRecord -Status "succeeded" -TerminalStatus "succeeded" -Phase ([string]$context.phase))
+        }
+        catch { Write-Host "合并后失败状态写入失败：$($_.Exception.Message)" -ForegroundColor Yellow }
+        throw
+    }
+
     $queueSucceeded = $false
     try {
         $observedTicket = Get-ReleaseQueueTicket -QueueRoot $queueRoot -OperationId $OperationId -WaitSeconds $LockWaitSeconds -PollMilliseconds $queuePollMilliseconds

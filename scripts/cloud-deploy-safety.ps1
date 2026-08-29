@@ -1,4 +1,4 @@
-﻿Set-StrictMode -Version Latest
+Set-StrictMode -Version Latest
 
 $releaseLockScript = Join-Path $PSScriptRoot "release-lock.ps1"
 if (-not (Test-Path -LiteralPath $releaseLockScript -PathType Leaf)) {
@@ -64,7 +64,8 @@ function Assert-CloudDeployReleaseContext {
         [Parameter(Mandatory = $true)][string]$ContextPath,
         [Parameter(Mandatory = $true)][string]$ProjectPath,
         [Parameter(Mandatory = $true)][string]$ExpectedVersion,
-        [string]$ExpectedRemoteUrl = ""
+        [string]$ExpectedRemoteUrl = "",
+        [switch]$AllowPostMergeRecovery
     )
     if (-not (Test-Path -LiteralPath $ContextPath -PathType Leaf)) {
         throw "缺少 release context：$ContextPath"
@@ -91,6 +92,9 @@ function Assert-CloudDeployReleaseContext {
             throw "release context v2 baseHead 无效。"
         }
         $allowedDeployPhases = @("merged", "deployed", "previewed", "verified")
+        if ($AllowPostMergeRecovery) {
+            $allowedDeployPhases += "succeeded"
+        }
         if ($allowedDeployPhases -notcontains [string]$context.phase) {
             throw "CloudBase 部署只允许消费 PR 已合并后的 context；当前 phase=$($context.phase)。"
         }
@@ -151,6 +155,110 @@ function Assert-CloudDeployReleaseContext {
         }
     }
     return $context
+}
+
+function Get-CloudDeployContextProperty {
+    param(
+        [Parameter(Mandatory = $true)][object]$Context,
+        [Parameter(Mandatory = $true)][string]$Name,
+        [object]$Default = $null
+    )
+    if ($null -eq $Context) { return $Default }
+    $property = $Context.PSObject.Properties[$Name]
+    if ($null -eq $property -or $null -eq $property.Value) { return $Default }
+    return $property.Value
+}
+
+function Write-CloudDeployContextAtomic {
+    <#
+      Cloud deployment is a side effect of a release context.  Persisting its
+      state beside the context lets a retry distinguish "never submitted" from
+      "submitted but the process died before writing the receipt".  The caller
+      must already hold the release lock; this helper only provides the atomic
+      file replacement primitive.
+    #>
+    param(
+        [Parameter(Mandatory = $true)][string]$ContextPath,
+        [Parameter(Mandatory = $true)][object]$Context
+    )
+    $full = [IO.Path]::GetFullPath($ContextPath)
+    $parent = Split-Path $full -Parent
+    New-Item -ItemType Directory -Path $parent -Force | Out-Null
+    $temp = "$full.$PID.$([guid]::NewGuid().ToString('N')).tmp"
+    try {
+        $json = $Context | ConvertTo-Json -Depth 20
+        [IO.File]::WriteAllText($temp, $json + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
+        Move-Item -LiteralPath $temp -Destination $full -Force
+    }
+    finally {
+        if (Test-Path -LiteralPath $temp -PathType Leaf) {
+            Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+function New-CloudDeployIdempotencyKey {
+    param(
+        [Parameter(Mandatory = $true)][object]$Context
+    )
+    $operationId = [string](Get-CloudDeployContextProperty -Context $Context -Name "operationId" -Default "")
+    $releaseCommit = [string](Get-CloudDeployContextProperty -Context $Context -Name "releaseCommit" -Default "")
+    $treeSha = [string](Get-CloudDeployContextProperty -Context $Context -Name "treeSha" -Default "")
+    if ([string]::IsNullOrWhiteSpace($operationId) -or
+        [string]::IsNullOrWhiteSpace($releaseCommit) -or
+        [string]::IsNullOrWhiteSpace($treeSha)) {
+        throw "无法生成 CloudBase 幂等键：release context 身份字段不完整。"
+    }
+    return "cloud:${operationId}:${releaseCommit}:${treeSha}"
+}
+
+function Test-CloudDeployReceipt {
+    param(
+        [Parameter(Mandatory = $true)][object]$Receipt,
+        [Parameter(Mandatory = $true)][object]$Context,
+        [string]$ExpectedMainCommit = "",
+        [string]$ExpectedBuildVersion = "",
+        [string]$ExpectedBuildMarker = ""
+    )
+    if ($null -eq $Receipt) { return $false }
+    $required = @("operationId", "version", "releaseCommit", "treeSha", "sourceSha256", "packageSha256", "mainCommit", "status", "verifiedAt", "idempotencyKey")
+    foreach ($name in $required) {
+        $property = $Receipt.PSObject.Properties[$name]
+        if ($null -eq $property -or [string]::IsNullOrWhiteSpace([string]$property.Value)) { return $false }
+    }
+    if ([string]$Receipt.status -ne "verified") { return $false }
+    foreach ($name in @("operationId", "version", "releaseCommit", "treeSha", "sourceSha256", "packageSha256")) {
+        $expected = [string](Get-CloudDeployContextProperty -Context $Context -Name $name -Default "")
+        if (-not [string]::Equals([string]$Receipt.$name, $expected, [StringComparison]::OrdinalIgnoreCase)) { return $false }
+    }
+    $main = if ([string]::IsNullOrWhiteSpace($ExpectedMainCommit)) {
+        [string](Get-CloudDeployContextProperty -Context $Context -Name "mainCommit" -Default "")
+    } else { $ExpectedMainCommit }
+    if ([string]::IsNullOrWhiteSpace($main) -or
+        -not [string]::Equals([string]$Receipt.mainCommit, $main, [StringComparison]::OrdinalIgnoreCase)) { return $false }
+    $expectedKey = New-CloudDeployIdempotencyKey -Context $Context
+    if (-not [string]::Equals([string]$Receipt.idempotencyKey, $expectedKey, [StringComparison]::OrdinalIgnoreCase)) { return $false }
+    if (-not [string]::IsNullOrWhiteSpace($ExpectedBuildVersion) -and
+        $Receipt.PSObject.Properties["onlineBuildVersion"] -and
+        -not [string]::Equals([string]$Receipt.onlineBuildVersion, $ExpectedBuildVersion, [StringComparison]::OrdinalIgnoreCase)) { return $false }
+    if (-not [string]::IsNullOrWhiteSpace($ExpectedBuildMarker) -and
+        $Receipt.PSObject.Properties["onlineBuildMarker"] -and
+        -not [string]::Equals([string]$Receipt.onlineBuildMarker, $ExpectedBuildMarker, [StringComparison]::OrdinalIgnoreCase)) { return $false }
+    return $true
+}
+
+function Assert-CloudDeployReceipt {
+    param(
+        [Parameter(Mandatory = $true)][object]$Receipt,
+        [Parameter(Mandatory = $true)][object]$Context,
+        [string]$ExpectedMainCommit = "",
+        [string]$ExpectedBuildVersion = "",
+        [string]$ExpectedBuildMarker = ""
+    )
+    if (-not (Test-CloudDeployReceipt -Receipt $Receipt -Context $Context -ExpectedMainCommit $ExpectedMainCommit -ExpectedBuildVersion $ExpectedBuildVersion -ExpectedBuildMarker $ExpectedBuildMarker)) {
+        throw "CloudBase receipt 与 release context/线上身份不一致，拒绝跳过部署。"
+    }
+    return $Receipt
 }
 
 function Get-CloudDeployVersion {
@@ -239,6 +347,106 @@ function Assert-CloudDeployVersionNotDowngrade {
     }
 }
 
+function Test-CloudDeployUtf8TextFile {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][byte[]]$Bytes
+    )
+
+    # npm may rewrite line endings in checked-in JavaScript dependencies.  We
+    # only normalize files that are unambiguously text and valid UTF-8; image,
+    # archive, and other binary payloads remain byte-for-byte protected.
+    $textExtensions = @(
+        ".js", ".cjs", ".mjs", ".njs", ".json", ".wxml", ".wxss", ".css",
+        ".scss", ".less", ".ts", ".tsx", ".jsx", ".html", ".htm", ".xml",
+        ".yaml", ".yml", ".md", ".txt", ".map", ".graphql", ".sql", ".sh",
+        ".ps1", ".cmd", ".bat", ".ini", ".conf"
+    )
+    $extension = [IO.Path]::GetExtension($Path).ToLowerInvariant()
+    if ($textExtensions -notcontains $extension) {
+        return $false
+    }
+    for ($index = 0; $index -lt $Bytes.Length; $index++) {
+        if ($Bytes[$index] -eq 0) {
+            return $false
+        }
+    }
+    try {
+        $decoder = [Text.UTF8Encoding]::new($false, $true)
+        [void]$decoder.GetString($Bytes)
+        return $true
+    }
+    catch {
+        return $false
+    }
+}
+
+function ConvertTo-CloudDeployCanonicalTextBytes {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][byte[]]$Bytes
+    )
+
+    if (-not (Test-CloudDeployUtf8TextFile -Path $Path -Bytes $Bytes)) {
+        return ,$Bytes
+    }
+    $stream = New-Object IO.MemoryStream
+    try {
+        for ($index = 0; $index -lt $Bytes.Length; $index++) {
+            $byte = $Bytes[$index]
+            if ($byte -eq 13) {
+                # Treat CRLF and lone CR identically to LF.  This is deliberately
+                # byte-level so valid UTF-8 content is otherwise untouched.
+                [void]$stream.WriteByte(10)
+                if ($index + 1 -lt $Bytes.Length -and $Bytes[$index + 1] -eq 10) {
+                    $index++
+                }
+            }
+            else {
+                [void]$stream.WriteByte($byte)
+            }
+        }
+        return ,$stream.ToArray()
+    }
+    finally {
+        $stream.Dispose()
+    }
+}
+
+function Get-CloudDeploySha256Hex {
+    param([Parameter(Mandatory = $true)][byte[]]$Bytes)
+
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try {
+        return (
+            $sha.ComputeHash($Bytes) |
+                ForEach-Object { $_.ToString("x2") }
+        ) -join ""
+    }
+    finally {
+        $sha.Dispose()
+    }
+}
+
+function Get-CloudDeployFileDigest {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path
+    )
+
+    $rawBytes = [IO.File]::ReadAllBytes($Path)
+    $canonicalBytes = ConvertTo-CloudDeployCanonicalTextBytes `
+        -Path $Path `
+        -Bytes $rawBytes
+    return [pscustomobject]@{
+        # Length/Sha256 are the stable (LF-normalized for UTF-8 text) values
+        # used by ApiFingerprint and source-change checks.
+        Length = [int64]$canonicalBytes.Length
+        Sha256 = Get-CloudDeploySha256Hex -Bytes $canonicalBytes
+        RawLength = [int64]$rawBytes.Length
+        RawSha256 = Get-CloudDeploySha256Hex -Bytes $rawBytes
+    }
+}
+
 function Get-CloudDeploySourceSnapshot {
     param(
         [Parameter(Mandatory = $true)]
@@ -261,10 +469,13 @@ function Get-CloudDeploySourceSnapshot {
         Sort-Object FullName
     foreach ($file in $files) {
         $relative = $file.FullName.Substring($api.Length).TrimStart("\", "/")
+        $digest = Get-CloudDeployFileDigest -Path $file.FullName
         $entries += [pscustomobject]@{
             Path = $relative.Replace("\", "/")
-            Length = [int64]$file.Length
-            Sha256 = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
+            Length = $digest.Length
+            Sha256 = $digest.Sha256
+            RawLength = $digest.RawLength
+            RawSha256 = $digest.RawSha256
         }
     }
     $manifest = (

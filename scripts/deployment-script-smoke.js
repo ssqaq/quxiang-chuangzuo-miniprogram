@@ -7,6 +7,7 @@ const cp = require("child_process");
 
 const root = path.resolve(__dirname, "..");
 const scriptPath = path.join(root, "scripts", "deploy-and-verify-api.ps1");
+const npmCacheScriptPath = path.join(root, "scripts", "npm-dependency-cache.ps1");
 const cloudbaseDeployPath = path.join(
   root,
   "scripts",
@@ -15,6 +16,7 @@ const cloudbaseDeployPath = path.join(
 const verifyScriptPath = path.join(root, "scripts", "verify-online-api.ps1");
 const safetyScriptPath = path.join(root, "scripts", "cloud-deploy-safety.ps1");
 const source = fs.readFileSync(scriptPath, "utf8");
+const npmCacheSource = fs.readFileSync(npmCacheScriptPath, "utf8");
 const cloudbaseDeploySource = fs.readFileSync(cloudbaseDeployPath, "utf8");
 const verifySource = fs.readFileSync(verifyScriptPath, "utf8");
 const safetySource = fs.readFileSync(safetyScriptPath, "utf8");
@@ -63,6 +65,10 @@ assert.ok(
 assert.ok(
   source.includes("Assert-CloudFunctionDeploymentResult"),
   "部署脚本必须检查云函数部署结果中的隐藏错误"
+);
+assert.ok(
+  source.includes('$Arguments -contains "open_project_window"'),
+  "WechatIDE 登录检查不能被打开项目窗口开关误拦截"
 );
 assert.ok(
   source.includes("Wait-CloudFunctionReady"),
@@ -145,6 +151,22 @@ assert.ok(
   source.includes("check-cloudfunction-dependencies.js")
     && source.includes("Assert-RuntimeDependencies"),
   "部署脚本必须执行本地依赖扫描并断言线上依赖健康状态"
+);
+assert.ok(
+  source.includes("Ensure-LocalCloudFunctionDependencies")
+    && npmCacheSource.includes('"ci"')
+    && npmCacheSource.includes('"--ignore-scripts"'),
+  "隔离发布工作树缺少 node_modules 时必须按 lockfile 安装依赖"
+);
+assert.ok(
+  source.includes("[string]$NpmCachePath")
+    && source.includes("npm-dependency-cache.ps1")
+    && source.includes("-CacheRoot $NpmCachePath")
+    && source.includes("-DependencyCheckScript")
+    && npmCacheSource.includes("LockSha256")
+    && npmCacheSource.includes("prefer-offline")
+    && npmCacheSource.includes("PreferOnline"),
+  "部署脚本必须接入按 lockfile 指纹隔离的本机 npm 缓存"
 );
 assert.ok(
   apiSource.includes("runtimeDependencies")

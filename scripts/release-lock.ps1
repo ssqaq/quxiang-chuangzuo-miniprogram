@@ -280,6 +280,7 @@ function Enter-ReleaseLock {
             }
             $owner = [ordered]@{
                 pid = $PID
+                handoffToken = [guid]::NewGuid().ToString("N")
                 startedAt = [DateTimeOffset]::UtcNow.ToString("o")
                 processStartUtc = Get-ReleaseProcessStartUtc -ProcessId $PID
                 host = [Environment]::MachineName
@@ -357,6 +358,39 @@ function Update-ReleaseLockOwner {
     $json = $owner | ConvertTo-Json -Depth 5
     [IO.File]::WriteAllText($LockHandle.OwnerPath, $json, [Text.UTF8Encoding]::new($false))
     $LockHandle.Owner = [pscustomobject]$owner
+}
+
+function Assert-ReleaseLockHandoff {
+    <#
+      A child process may use the parent's already-held OS lock only when the
+      parent explicitly hands it the one-time token stored in the owner sidecar.
+      The old boolean switch was trust-only and allowed an unrelated process to
+      claim that the outer lock existed.
+    #>
+    param(
+        [Parameter(Mandatory = $true)][string]$LockPath,
+        [Parameter(Mandatory = $true)][string]$HandoffToken,
+        [string]$OperationId = ""
+    )
+    if ([string]::IsNullOrWhiteSpace($HandoffToken)) {
+        throw "缺少发布锁交接 token，拒绝复用外层锁。"
+    }
+    $paths = Get-ReleaseLockPaths -ProjectPath (Split-Path ([IO.Path]::GetFullPath($LockPath)) -Parent) -LockPath $LockPath
+    $owner = Read-ReleaseLockOwner -OwnerPath $paths.OwnerPath
+    if ($null -eq $owner) { throw "找不到发布锁 owner，拒绝复用外层锁。" }
+    $ownerToken = if ($owner.PSObject.Properties["handoffToken"]) { [string]$owner.handoffToken } else { "" }
+    if ([string]::IsNullOrWhiteSpace($ownerToken) -or
+        -not [string]::Equals($ownerToken, $HandoffToken, [StringComparison]::Ordinal)) {
+        throw "发布锁交接 token 不匹配，拒绝复用外层锁。"
+    }
+    if (-not [string]::IsNullOrWhiteSpace($OperationId) -and
+        [string]$owner.operationId -ne $OperationId) {
+        throw "发布锁 owner operationId 与 release context 不一致，拒绝复用外层锁。"
+    }
+    if (-not (Test-Path -LiteralPath $paths.LockPath -PathType Leaf)) {
+        throw "发布锁文件不存在，拒绝复用外层锁。"
+    }
+    return $owner
 }
 
 function Exit-ReleaseLock {

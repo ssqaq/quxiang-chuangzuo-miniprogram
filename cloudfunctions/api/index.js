@@ -8654,6 +8654,52 @@ function migrateProviderExternalIdReferences(runtime, previousId, nextId) {
   return source;
 }
 
+// 删除档案时清理所有仍以外部 ID/历史别名/稳定 key 保存的兼容引用。
+// 目录投影会重建当前槽位，但旧 profile、标签和动态成本键不会自动消失，
+// 必须在同一事务里先清掉，避免删除后下一次迁移又把档案“复活”。
+function removeProviderExternalIdReferences(runtime, record, options = {}) {
+  const source = isProviderObject(runtime) ? providerClone(runtime) : {};
+  const target = isProviderObject(record) ? record : { id: record };
+  const references = [
+    target.providerKey,
+    target.id,
+    ...(Array.isArray(target.aliases) ? target.aliases : [])
+  ]
+    .map((value) => providerText(value, 160).toLowerCase())
+    .filter(Boolean);
+  const referenceSet = new Set(references);
+  if (!referenceSet.size) return source;
+  const matches = (rawKey, value) => {
+    const key = providerText(rawKey, 160).toLowerCase();
+    if (key && referenceSet.has(key)) return true;
+    if (!isProviderObject(value)) return false;
+    return [value.providerKey, value.provider, value.id]
+      .map((item) => providerText(item, 160).toLowerCase())
+      .some((item) => item && referenceSet.has(item));
+  };
+  const removeMatchingKeys = (map) => {
+    if (!isProviderObject(map)) return;
+    Object.keys(map).forEach((key) => {
+      if (matches(key, map[key])) delete map[key];
+    });
+  };
+  removeMatchingKeys(source.providerLabels);
+  if (isProviderObject(source.providerProfiles)) {
+    PROVIDER_CAPABILITY_SLOTS.forEach((slot) => {
+      removeMatchingKeys(source.providerProfiles[slot]);
+    });
+  }
+  const costs = isProviderObject(source.costs) ? source.costs : {};
+  const imageCosts = isProviderObject(costs.image) ? costs.image : {};
+  removeMatchingKeys(imageCosts.providers);
+  if (matches(imageCosts.primaryProvider, null)) {
+    const replacement = providerText(options.replacementImageProvider, 120);
+    if (replacement) imageCosts.primaryProvider = replacement;
+    else delete imageCosts.primaryProvider;
+  }
+  return source;
+}
+
 function mergeActiveProviderOverrides(registryValue, activeValue, overridesValue) {
   const registry = normalizeProviderRegistry(registryValue, { includeDefaults: true });
   const active = normalizeActiveProviders(activeValue, registry);
@@ -11561,6 +11607,7 @@ async function saveAdminProvider(event = {}, context) {
       const autoRebound = {};
       let changedProviderKey = "";
       let renamedFromId = "";
+      let deletedProviderRecord = null;
       if (mutation.operation === "delete") {
         const targetKey = providerRecordKeyFor(
           rawRecord.providerKey || rawRecord.id || rawRecord.provider || event.providerKey || event.id,
@@ -11576,6 +11623,7 @@ async function saveAdminProvider(event = {}, context) {
         ) {
           throw providerError("内置服务商不能删除。", "PROVIDER_BUILTIN_PROTECTED");
         }
+        deletedProviderRecord = providerClone(target);
         changedProviderKey = targetKey;
         delete registry.providers[targetKey];
         PROVIDER_CAPABILITY_SLOTS.forEach((slot) => {
@@ -11646,11 +11694,21 @@ async function saveAdminProvider(event = {}, context) {
           if (PROVIDER_CAPABILITY_SLOTS.includes(slot)) active[slot] = targetKey;
         }
       }
-      const projected = buildLegacyProjectionFromProviderRegistry(Object.assign({}, current, {
+      let projectionInput = Object.assign({}, current, {
         providerRegistry: registry,
         activeProviders: active,
         activeBackups
-      }));
+      });
+      if (deletedProviderRecord) {
+        const reboundImageKey = autoRebound.image && autoRebound.image.to;
+        const reboundImage = reboundImageKey && registry.providers[reboundImageKey];
+        projectionInput = removeProviderExternalIdReferences(
+          projectionInput,
+          deletedProviderRecord,
+          { replacementImageProvider: reboundImage && reboundImage.id }
+        );
+      }
+      const projected = buildLegacyProjectionFromProviderRegistry(projectionInput);
       if (renamedFromId && changedProviderKey && registry.providers[changedProviderKey]) {
         const renamed = migrateProviderExternalIdReferences(
           projected,
@@ -22503,6 +22561,7 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     buildLegacyProjectionFromProviderRegistry,
     migrateLegacyProviderRegistry,
     migrateProviderExternalIdReferences,
+    removeProviderExternalIdReferences,
     redactProviderMetadata,
     redactProviderRegistry,
     providerRegistryList,

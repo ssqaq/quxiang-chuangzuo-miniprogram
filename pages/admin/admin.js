@@ -1489,7 +1489,7 @@ function adminVideoBackupFormFromRecord(record, previous = {}, secretRows = []) 
   const secretRow = (Array.isArray(secretRows) ? secretRows : []).find(
     (item) => item && item.providerKey === source.providerKey
   );
-  const secretKey = String(secretRow && secretRow.videoApiKey || "").trim();
+  const secretKey = String(secretRow && secretRow.videoBackupApiKey || "").trim();
   const value = (field, fallback = "") => {
     if (sameProvider && previous[field] !== undefined && String(previous[field] || "").trim()) {
       return previous[field];
@@ -5220,6 +5220,10 @@ function buildAdminProviderSecretRows(registry, secretsByKey = {}) {
       imageApiKey: keyFor("image") || commonKey,
       imageBackupApiKey: keyFor("imageBackup") || commonKey,
       videoApiKey: keyFor("video") || commonKey,
+      // 备用槽位可能使用独立覆盖 Key，不能回填主槽位的值。
+      faceBackupApiKey: keyFor("faceBackup") || keyFor("face") || commonKey,
+      analysisBackupApiKey: keyFor("analysisBackup") || keyFor("analysis") || commonKey,
+      videoBackupApiKey: keyFor("videoBackup") || keyFor("video") || commonKey,
       apiKeyConfigured: Boolean(
         nested.apiKeyConfigured
         || common.apiKeyConfigured
@@ -7489,10 +7493,10 @@ Page({
         const secretRow = (this.data.providerSecretRows || []).find(
           (item) => item && item.providerKey === selectedKey
         );
-        if (secretRow && secretRow.videoApiKey) {
+        if (secretRow && secretRow.videoBackupApiKey) {
           nextForm = Object.assign({}, nextForm, {
             videoBackup: Object.assign({}, nextForm.videoBackup, {
-              apiKey: secretRow.videoApiKey,
+              apiKey: secretRow.videoBackupApiKey,
               apiKeyConfigured: true
             })
           });
@@ -7887,10 +7891,10 @@ Page({
       const row = secretRows.find((item) => item.providerKey === key);
       if (!row) return;
       const field = section === "faceBackup"
-        ? "faceApiKey"
+        ? "faceBackupApiKey"
         : section === "analysisBackup"
-          ? "analysisApiKey"
-          : "videoApiKey";
+          ? "analysisBackupApiKey"
+          : "videoBackupApiKey";
       const current = nextForm && nextForm[section] || {};
       if (current.apiKey || !row[field]) return;
       backupPatch[section] = Object.assign({}, current, {
@@ -8223,11 +8227,11 @@ Page({
         const secretRow = (this.data.providerSecretRows || []).find(
           (item) => item && item.providerKey === key
         );
-        const secretValue = baseSlot === "face"
-          ? secretRow && secretRow.faceApiKey
-          : baseSlot === "analysis"
-            ? secretRow && secretRow.analysisApiKey
-            : secretRow && secretRow.videoApiKey;
+        const secretValue = section === "faceBackup"
+          ? secretRow && secretRow.faceBackupApiKey
+          : section === "analysisBackup"
+            ? secretRow && secretRow.analysisBackupApiKey
+            : secretRow && secretRow.videoBackupApiKey;
         nextForm[section] = Object.assign(current, {
           providerKey: key,
           provider: displayAdminProvider(record.id),

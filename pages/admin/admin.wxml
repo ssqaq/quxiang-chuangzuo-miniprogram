@@ -1316,8 +1316,8 @@
               </view>
               <view class="admin-field">
                 <text>备用服务商</text>
-                <picker mode="selector" range="{{videoBackupProviderProfileOptions}}" range-key="label" value="{{videoBackupProviderProfileIndex}}" data-section="videoBackup" bindchange="onProviderProfileChange">
-                  <view class="admin-picker">{{videoBackupProviderProfileOptions[videoBackupProviderProfileIndex].label}}</view>
+                <picker mode="selector" range="{{providerPickerOptionsVideoBackup}}" range-key="label" value="{{providerPickerIndexVideoBackup}}" data-section="videoBackup" bindchange="onProviderPickerChange">
+                  <view class="admin-picker">{{providerPickerOptionsVideoBackup[providerPickerIndexVideoBackup].label}}</view>
                 </picker>
               </view>
               <view class="admin-field"><text>备用模型</text><input value="{{form.videoBackup.model}}" data-section="videoBackup" data-key="model" placeholder="例如备用视频模型" bindinput="onInput" /></view>
@@ -1471,13 +1471,13 @@
               <text>备用服务商</text>
               <picker
                 mode="selector"
-                range="{{videoBackupProviderProfileOptions}}"
+                range="{{providerPickerOptionsVideoBackup}}"
                 range-key="label"
-                value="{{videoBackupProviderProfileIndex}}"
+                value="{{providerPickerIndexVideoBackup}}"
                 data-section="videoBackup"
-                bindchange="onProviderProfileChange"
+                bindchange="onProviderPickerChange"
               >
-                <view class="admin-picker">{{videoBackupProviderProfileOptions[videoBackupProviderProfileIndex].label}}</view>
+                <view class="admin-picker">{{providerPickerOptionsVideoBackup[providerPickerIndexVideoBackup].label}}</view>
               </picker>
             </view>
             <view wx:if="{{form.videoBackup.enabled && form.videoBackup.provider}}" class="admin-field"><text>使用的模型</text><input value="{{form.videoBackup.model}}" data-section="videoBackup" data-key="model" bindinput="onInput" /></view>
@@ -3251,7 +3251,7 @@
         <picker mode="selector" range="{{imageProviderProfileOptions}}" value="{{imageProviderProfileIndex}}" data-section="image" bindchange="onProviderProfileChange"></picker>
         <picker mode="selector" range="{{imageBackupProviderProfileOptions}}" value="{{imageBackupProviderProfileIndex}}" data-section="imageBackup" bindchange="onProviderProfileChange"></picker>
         <picker mode="selector" range="{{videoProviderProfileOptions}}" value="{{videoProviderProfileIndex}}" data-section="video" bindchange="onProviderProfileChange"></picker>
-        <picker mode="selector" range="{{videoBackupProviderProfileOptions}}" value="{{videoBackupProviderProfileIndex}}" data-section="videoBackup" bindchange="onProviderProfileChange"></picker>
+        <picker mode="selector" range="{{providerPickerOptionsVideoBackup}}" value="{{providerPickerIndexVideoBackup}}" data-section="videoBackup" bindchange="onProviderPickerChange"></picker>
         <picker mode="selector" range="{{faceProviderProfileOptions}}" value="{{faceProviderProfileIndex}}" data-section="face" bindchange="onProviderProfileChange"></picker>
         <picker mode="selector" range="{{analysisProviderProfileOptions}}" value="{{analysisProviderProfileIndex}}" data-section="analysis" bindchange="onProviderProfileChange"></picker>
         <picker mode="selector" range="{{imageProviderProfileOptions}}" value="{{imageProviderProfileIndex}}" data-section="image" bindchange="onProviderProfileChange"></picker>

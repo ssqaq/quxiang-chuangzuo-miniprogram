@@ -296,12 +296,11 @@ function Ensure-ResumePreviewImport {
         [Parameter(Mandatory = $true)][string]$WorktreePath,
         [Parameter(Mandatory = $true)][object]$Value
     )
-    if ([string]::IsNullOrWhiteSpace($PreviewCliPath)) { $script:PreviewCliPath = $env:WECHAT_DEVTOOLS_CLI }
-    if ([string]::IsNullOrWhiteSpace($PreviewCliPath) -or -not (Test-Path -LiteralPath $PreviewCliPath -PathType Leaf)) {
-        throw "需要导入预览项目，但找不到微信开发者工具 CLI。"
-    }
+    $script:PreviewCliPath = Resolve-ReleaseDevToolsCli -CliPath $PreviewCliPath
     $existing = if ($Value.PSObject.Properties["previewImport"]) { $Value.previewImport } else { $null }
     if ($null -ne $existing -and [string]$existing.status -eq "imported" -and
+        [string]$existing.openStatus -eq "opened" -and
+        [string]$existing.compileStatus -eq "triggered" -and
         [string]$existing.operationId -eq [string]$Value.operationId -and
         [string]$existing.version -eq [string]$Value.version -and
         [string]$existing.releaseCommit -eq [string]$Value.releaseCommit -and
@@ -320,6 +319,12 @@ function Ensure-ResumePreviewImport {
         treeSha = [string]$Value.treeSha
         sourceSha256 = [string]$Value.sourceSha256
         importedAt = [string]$receipt.importedAt
+        openStatus = [string]$receipt.openStatus
+        openResponse = $receipt.openResponse
+        compileStatus = [string]$receipt.compileStatus
+        compileTriggeredAt = [string]$receipt.compileTriggeredAt
+        compileResponse = $receipt.compileResponse
+        steps = @($receipt.steps)
         response = $receipt.response
     }
     return Save-ResumeContext -Values @{ previewImport = $import }
@@ -518,9 +523,26 @@ function Ensure-ResumeReleaseWorktree {
     if ($dirtyLines.Count -gt 0 -and -not $previewOnlyDirty) { throw "恢复工作树不是干净状态，拒绝部署：$resolved" }
     $tree = (Invoke-ReleaseGit -WorkingDirectory $resolved -Arguments @("rev-parse", "$ReleaseCommit^{tree}") | Select-Object -Last 1).Trim()
     if (-not [string]::Equals($tree, [string]$context.treeSha, [StringComparison]::OrdinalIgnoreCase)) { throw "恢复工作树 tree SHA 与 context 不一致，拒绝继续。" }
-    $sourceSha = Get-ReleaseSourceSha256 -SourceRoot $resolved
-    if (-not [string]::Equals($sourceSha, [string]$context.sourceSha256, [StringComparison]::OrdinalIgnoreCase) -and -not $previewOnlyDirty) {
-        throw "恢复工作树源码 SHA 与 context 不一致，拒绝继续。"
+    # The immutable context fingerprint is produced by package-release.py from
+    # the Git archive.  Do the same check here instead of hashing the Windows
+    # checkout directly: core.autocrlf and culture-specific path sorting can
+    # otherwise make a clean worktree look different from the packaged tree.
+    $packageScript = Join-Path $canonicalRepo "scripts/package-release.py"
+    if (-not (Test-Path -LiteralPath $packageScript -PathType Leaf)) {
+        throw "缺少发布包校验脚本，拒绝恢复：$packageScript"
+    }
+    $probeOutput = @(& python $packageScript --source-tree $ReleaseCommit --check-only --release-context $contextPath 2>&1 | ForEach-Object { [string]$_ })
+    if ($LASTEXITCODE -ne 0) {
+        throw "Git tree 源码 SHA 校验失败，拒绝继续。"
+    }
+    $probeText = ($probeOutput -join "`n")
+    $shaMatch = [regex]::Match($probeText, '(?:sourceSha256|源码内容 SHA256)\s*[:：]\s*([0-9a-fA-F]{64})')
+    if (-not $shaMatch.Success) {
+        throw "发布包校验没有返回源码 SHA，拒绝继续。"
+    }
+    $sourceSha = $shaMatch.Groups[1].Value.ToLowerInvariant()
+    if (-not [string]::Equals($sourceSha, [string]$context.sourceSha256, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Git tree 源码 SHA 与 context 不一致，拒绝继续。"
     }
     return $resolved
 }
@@ -903,5 +925,8 @@ catch {
 finally {
     if ($null -ne $queueHeartbeat -and (Get-Command Stop-ReleaseQueueLeaseHeartbeat -ErrorAction SilentlyContinue)) { Stop-ReleaseQueueLeaseHeartbeat -Heartbeat $queueHeartbeat }
     if ($null -ne $lock) { Exit-ReleaseLock -LockHandle $lock }
-    if (-not $KeepWorktree -and $completed -and -not [string]::IsNullOrWhiteSpace($worktree)) { Remove-ReleaseGateWorktree -CanonicalRepo $canonicalRepo -WorktreePath $worktree }
+    # DevTools keeps a live reference to the imported release directory.  Keep
+    # it after a successful preview sync so the simulator does not point at a
+    # deleted worktree; a later maintenance pass can archive old preview trees.
+    if (-not $KeepWorktree -and -not $Preview -and $completed -and -not [string]::IsNullOrWhiteSpace($worktree)) { Remove-ReleaseGateWorktree -CanonicalRepo $canonicalRepo -WorktreePath $worktree }
 }

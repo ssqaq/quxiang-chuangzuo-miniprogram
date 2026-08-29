@@ -10,11 +10,16 @@
     [ValidateRange(1, 7200)]
     [int]$LockWaitSeconds = 1800,
 
-    # Preparation is the default.  Only an explicit -Publish may push a branch
-    # and create/auto-merge a PR into main.
+    # A normal release is automatic: publish the protected release branch/PR
+    # and sync the merged source to WeChat DevTools.  Use -PrepareOnly when a
+    # local immutable package/context is needed without remote side effects.
     [switch]$Publish,
 
+    [switch]$PrepareOnly,
+
     [switch]$Preview,
+
+    [switch]$SkipDevTools,
 
     [string]$PreviewCliPath = "",
 
@@ -42,6 +47,11 @@ if (-not (Test-Path -LiteralPath $queueScript -PathType Leaf)) { throw "缺少�
 # child scope in PowerShell; callbacks inside the queue would then lose their
 # helper functions (for example Get-ReleaseQueueTicketIndex).
 . $queueScript
+
+if ($Publish.IsPresent -and $PrepareOnly.IsPresent) { throw "-Publish 与 -PrepareOnly 不能同时使用。" }
+if ($Preview.IsPresent -and $SkipDevTools.IsPresent) { throw "-Preview 与 -SkipDevTools 不能同时使用。" }
+$effectivePublish = [bool]($Publish.IsPresent -or -not $PrepareOnly.IsPresent)
+$effectivePreview = [bool]($Preview.IsPresent -or ($effectivePublish -and -not $SkipDevTools.IsPresent))
 
 $canonicalGuess = (Resolve-Path (Join-Path $scriptRoot "..")).Path
 $policy = Get-ReleaseGatePolicy -PolicyPath $PolicyPath -RepositoryRoot $canonicalGuess
@@ -73,8 +83,8 @@ if (-not [string]::IsNullOrWhiteSpace($ResumeOperation)) {
     & pwsh -NoProfile -ExecutionPolicy Bypass -File $resumeScript `
         -OperationId $ResumeOperation `
         -PolicyPath ([string]$policy.policyPath) `
-        -Publish:$Publish `
-        -Preview:$Preview `
+        -Publish:$effectivePublish `
+        -Preview:$effectivePreview `
         -PreviewCliPath $PreviewCliPath `
         -PreviewClientName $PreviewClientName `
         -DeployCloud:$DeployCloud `
@@ -87,17 +97,14 @@ if (-not [string]::IsNullOrWhiteSpace($ResumeOperation)) {
 if ([string]::IsNullOrWhiteSpace($SourcePath)) { throw "普通发布必须提供 -SourcePath。" }
 if ($null -eq $IncludePath -or @($IncludePath).Count -eq 0) { throw "普通发布必须显式提供 -IncludePath。" }
 $includePaths = @(Normalize-ReleaseIncludePaths -InputPath $IncludePath)
-if ($Preview) {
-    if ([string]::IsNullOrWhiteSpace($PreviewCliPath)) { $PreviewCliPath = $env:WECHAT_DEVTOOLS_CLI }
-    if ([string]::IsNullOrWhiteSpace($PreviewCliPath) -or -not (Test-Path -LiteralPath $PreviewCliPath -PathType Leaf)) {
-        throw "已要求生成预览码，但找不到微信开发者工具 CLI；闸门尚未分配版本。"
-    }
+if ($effectivePreview) {
+    $PreviewCliPath = Resolve-ReleaseDevToolsCli -CliPath $PreviewCliPath
 }
 # Check the remote guard before creating a queue lease or reserving a version.
 # A known GitHub-plan/API failure must not burn an attempt or leave a new
 # ticket blocking FIFO.  The later PR call repeats the check under the lock to
 # close the time-of-check/time-of-use window.
-if ($Publish -and [bool]$policy.mainProtection.enforceOnPublish) {
+if ($effectivePublish -and [bool]$policy.mainProtection.enforceOnPublish) {
     Test-ReleaseGitHubProtection -RepositoryRoot $canonicalRepo -Policy $policy | Out-Null
 }
 $operationId = if ([string]::IsNullOrWhiteSpace($OperationId)) {
@@ -272,7 +279,7 @@ try {
         -SourcePath $SourcePath `
         -IncludePath $includePaths `
         -CreatedBy "release-gate/$PID" `
-        -Metadata ([ordered]@{ publish = [bool]$Publish; preview = [bool]$Preview; deployCloud = [bool]$DeployCloud }) `
+        -Metadata ([ordered]@{ publish = $effectivePublish; preview = $effectivePreview; deployCloud = [bool]$DeployCloud }) `
         -WaitSeconds $LockWaitSeconds `
         -PollMilliseconds ([int]$policy.queue.pollMilliseconds)
     if ($null -eq $queueTicket) { throw "发布队列未返回票据。" }
@@ -502,11 +509,7 @@ try {
     Write-GateHost "package" "不可变发布包已生成：$artifactPath（$($artifact.Length) bytes，SHA256=$packageSha）。"
     Set-GateQueueStage -Stage "packaged" -Status "running"
 
-    if ($Preview -and -not $Publish) {
-        if ([string]::IsNullOrWhiteSpace($PreviewCliPath)) { $PreviewCliPath = $env:WECHAT_DEVTOOLS_CLI }
-        if ([string]::IsNullOrWhiteSpace($PreviewCliPath) -or -not (Test-Path -LiteralPath $PreviewCliPath -PathType Leaf)) {
-            throw "已要求生成预览码，但找不到微信开发者工具 CLI。"
-        }
+    if ($effectivePreview -and -not $effectivePublish) {
         # A preview generated before the PR is merged is evidence for review,
         # not the production receipt.  Keep it under a distinct immutable
         # name so a later resume cannot mistake it for the final QR or
@@ -555,14 +558,14 @@ try {
         Write-GateHost "preview" "预览二维码已生成：$qrPath"
     }
 
-    if ($DeployCloud -and -not $Publish) {
-        throw "CloudBase 正式部署必须在 PR 合并后执行；先用 -Publish 生成并合并 PR，再用 -ResumeOperation 配合 -DeployCloud。"
+    if ($DeployCloud -and -not $effectivePublish) {
+        throw "CloudBase 正式部署必须在 PR 合并后执行；先完成自动发布合并，再用 -ResumeOperation 配合 -DeployCloud。"
     }
 
     # Phase 1 ends at the immutable package and PR.  Production CloudBase is
     # deliberately after the merge confirmation so online code can never lead
     # GitHub main.
-    $pr = Invoke-ReleasePullRequest -RepositoryRoot $releaseWorktree -Branch "release/$target-$operationId" -Version $target -OperationId $operationId -CommitSha $finalCommit -Policy $policy -NoPush:(-not $Publish)
+    $pr = Invoke-ReleasePullRequest -RepositoryRoot $releaseWorktree -Branch "release/$target-$operationId" -Version $target -OperationId $operationId -CommitSha $finalCommit -Policy $policy -NoPush:(-not $effectivePublish)
     $contextHash.status = [string]$pr.status
     $contextHash.releaseBranch = $pr.branch
     $contextHash.pullRequest = $pr.pr
@@ -581,7 +584,7 @@ try {
     # the operation as terminal success: the same operationId must still be
     # able to push/merge its PR later.  Release the queue lease by returning the
     # ticket to queued (FIFO remains blocked until this operation resumes).
-    if (-not $Publish) {
+    if (-not $effectivePublish) {
         if ($null -ne $queueHeartbeat -and (Get-Command Stop-ReleaseQueueLeaseHeartbeat -ErrorAction SilentlyContinue)) {
             Stop-ReleaseQueueLeaseHeartbeat -Heartbeat $queueHeartbeat
             $queueHeartbeat = $null
@@ -612,7 +615,7 @@ try {
         return
     }
 
-    if ($Publish -and [string]$pr.status -ne "merged") {
+    if ($effectivePublish -and [string]$pr.status -ne "merged") {
         throw "PR 尚未合并，已保留 context 供 -ResumeOperation 继续；禁止提前部署 CloudBase 或生成最终二维码。"
     }
 
@@ -625,7 +628,7 @@ try {
     Write-ReleaseGateJsonAtomic -Path $contextPath -Value $contextHash
     Write-GateHost "backup" "已登记上一版备份清单：$backupPath"
 
-    if ($Preview) {
+    if ($effectivePreview) {
         # 每次正式更新都先把同一隔离工作树导入微信开发者工具，再生成
         # 绑定 commit 的二维码；导入失败会保留原 context 供恢复，不会换号重打。
         Write-GateHost "preview-import" "把本次版本导入微信开发者工具项目列表。"
@@ -639,6 +642,12 @@ try {
             treeSha = $finalTree
             sourceSha256 = $preSha
             importedAt = [string]$importReceipt.importedAt
+            openStatus = [string]$importReceipt.openStatus
+            openResponse = $importReceipt.openResponse
+            compileStatus = [string]$importReceipt.compileStatus
+            compileTriggeredAt = [string]$importReceipt.compileTriggeredAt
+            compileResponse = $importReceipt.compileResponse
+            steps = @($importReceipt.steps)
             response = $importReceipt.response
         }
         Write-ReleaseGateJsonAtomic -Path $contextPath -Value $contextHash
@@ -700,12 +709,8 @@ try {
         }
         catch { $hasFinalPreview = $false }
     }
-    if ($Preview -and $Publish -and -not $hasFinalPreview) {
+    if ($effectivePreview -and $effectivePublish -and -not $hasFinalPreview) {
         # Generate the final QR only after the PR/main commit is confirmed.
-        if ([string]::IsNullOrWhiteSpace($PreviewCliPath)) { $PreviewCliPath = $env:WECHAT_DEVTOOLS_CLI }
-        if ([string]::IsNullOrWhiteSpace($PreviewCliPath) -or -not (Test-Path -LiteralPath $PreviewCliPath -PathType Leaf)) {
-            throw "已要求生成最终预览码，但找不到微信开发者工具 CLI。"
-        }
         $qrPath = Join-Path ([string]$policy.artifactRoot) "wechat-miniapp-preview-v$target-$finalCommit-qr.png"
         $infoPath = Join-Path ([string]$policy.artifactRoot) "wechat-miniapp-preview-v$target-$finalCommit-info.json"
         $infoHash = [ordered]@{ schemaVersion = 1; operationId = $operationId; appVersion = $target; gitCommit = $finalCommit; treeSha = $finalTree; sourceSha256 = $preSha; artifactPath = $artifactPath; mainCommit = if ($contextHash.Contains("mainCommit")) { [string]$contextHash.mainCommit } else { "" } }
@@ -772,7 +777,7 @@ try {
     # 先做四端验收，再把 context/record/queue 变成终态。这样“文件写完”
     # 不会被误报成“发布成功”。
     $reportContext = [pscustomobject]$contextHash
-    $acceptance = Write-ReleaseAcceptanceReport -Policy $policy -Context $reportContext -ContextPath $contextPath -RequireCloud:$DeployCloud -RequirePreview:$Preview
+    $acceptance = Write-ReleaseAcceptanceReport -Policy $policy -Context $reportContext -ContextPath $contextPath -RequireCloud:$DeployCloud -RequirePreview:$effectivePreview
     if ($null -eq $acceptance -or $null -eq $acceptance.Report -or [string]$acceptance.Report.status -ne "succeeded") {
         throw "发布验收报告未通过，拒绝写入 succeeded：$($acceptance.Report.status)"
     }
@@ -810,7 +815,7 @@ try {
     Write-ReleaseLatestManifest -Policy $policy -Context ([pscustomobject]$contextHash) -ReportPath ([string]$acceptance.Path) -Report $acceptance.Report | Out-Null
     Write-GateHost "latest" "最新版本指针已更新：$([string]$policy.latestReleasePath)"
     $completed = $true
-    $doneMessage = if (-not $Publish) { "准备完成；默认未推送。需要发布时显式加 -Publish。" } elseif ([string]$pr.status -eq "merged") { "发布完成，PR 已合并：$($pr.pr)" } else { "发布分支和 PR 已创建，等待 GitHub 必需检查：$($pr.pr)" }
+    $doneMessage = if (-not $effectivePublish) { "准备完成；未推送。需要发布时去掉 -PrepareOnly 或显式加 -Publish。" } elseif ([string]$pr.status -eq "merged") { "发布完成，PR 已合并：$($pr.pr)" } else { "发布分支和 PR 已创建，等待 GitHub 必需检查：$($pr.pr)" }
     Write-GateHost "done" $doneMessage
     Write-Host "Context: $contextPath"
     Write-Host "Artifact: $artifactPath"
@@ -934,7 +939,10 @@ catch {
     throw
 }
 finally {
-    if (-not $KeepWorktree -and -not [string]::IsNullOrWhiteSpace($releaseWorktree) -and ($completed -or -not $failureAfterCommit)) {
+    # DevTools uses the imported directory as its project source.  Retain a
+    # successful preview worktree so the newly compiled simulator has a live
+    # path; old preview worktrees are handled by release maintenance.
+    if (-not $KeepWorktree -and -not $effectivePreview -and -not [string]::IsNullOrWhiteSpace($releaseWorktree) -and ($completed -or -not $failureAfterCommit)) {
         Remove-ReleaseGateWorktree -CanonicalRepo $canonicalRepo -WorktreePath $releaseWorktree
     }
     if ($null -ne $queueHeartbeat -and (Get-Command Stop-ReleaseQueueLeaseHeartbeat -ErrorAction SilentlyContinue)) { Stop-ReleaseQueueLeaseHeartbeat -Heartbeat $queueHeartbeat }

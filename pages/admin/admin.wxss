@@ -7960,12 +7960,14 @@ page {
   margin-top: 16rpx;
   border-radius: 14rpx;
   background: #e8f1fb;
+  overflow: hidden;
   white-space: nowrap;
 }
 
 .compact-model-tabs-inner {
-  display: inline-flex;
-  min-width: 100%;
+  display: flex;
+  width: 100%;
+  min-width: 0;
   box-sizing: border-box;
   padding: 6rpx;
   align-items: center;
@@ -7973,16 +7975,16 @@ page {
 
 .compact-model-tab {
   display: inline-flex;
-  min-width: 104rpx;
+  min-width: 0;
   min-height: 58rpx;
-  flex: 0 0 auto;
-  padding: 0 14rpx;
+  flex: 1 1 0;
+  padding: 0 6rpx;
   box-sizing: border-box;
   align-items: center;
   justify-content: center;
   border-radius: 11rpx;
   color: #647c96;
-  font-size: 20rpx;
+  font-size: 19rpx;
   line-height: 30rpx;
   white-space: nowrap;
 }
@@ -8427,7 +8429,8 @@ page {
   }
 }
 
-@media (max-width: 759px) {
+/* 微信模拟器在部分 414px 设备上按约 828 CSS px 计算，900px 才能覆盖真实窄屏。 */
+@media (max-width: 900px) {
   .provider-manager-layout {
     display: block !important;
     width: 100% !important;
@@ -8507,14 +8510,18 @@ page {
     display: flex !important;
     width: 100%;
     min-width: 0;
-    overflow-x: auto;
+    overflow: hidden;
     box-sizing: border-box;
     flex-wrap: nowrap !important;
+    gap: 2rpx;
   }
 
   .provider-tab {
-    min-width: 112rpx;
-    flex: 0 0 auto !important;
+    min-width: 0;
+    flex: 1 1 0 !important;
+    padding-right: 4rpx;
+    padding-left: 4rpx;
+    font-size: 18rpx;
     white-space: nowrap;
   }
 

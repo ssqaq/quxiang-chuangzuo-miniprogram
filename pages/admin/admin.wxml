@@ -64,7 +64,7 @@
         </view>
       </view>
 
-      <scroll-view class="compact-model-tabs" scroll-x="true" enhanced="true" show-scrollbar="false">
+      <view class="compact-model-tabs">
         <view class="compact-model-tabs-inner">
           <view
             wx:for="{{compactModelTabs}}"
@@ -77,7 +77,7 @@
             aria-selected="{{compactActiveSection === item.value}}"
           >{{item.label}}</view>
         </view>
-      </scroll-view>
+      </view>
 
         <view class="compact-primary-card">
         <view class="compact-section-head">

@@ -644,6 +644,10 @@
   min-height: 60rpx;
 }
 
+.copywriting-title-head .copywriting-label {
+  font-size: 24rpx;
+}
+
 .copywriting-head {
   width: 100%;
   min-height: 60rpx;

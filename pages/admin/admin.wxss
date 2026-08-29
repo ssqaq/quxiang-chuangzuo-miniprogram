@@ -6735,6 +6735,36 @@ page {
   .usage-mobile-first-card .usage-model-top text:last-child {
     flex: none;
   }
+
+  .admin-page .provider-secret-panel {
+    padding: 12rpx;
+  }
+
+  .admin-page .provider-secret-head {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6rpx;
+  }
+
+  .admin-page .provider-secret-count {
+    align-self: flex-start;
+  }
+
+  .admin-page .vision-backup-toggle {
+    padding: 12rpx;
+  }
+
+  .admin-page .vision-backup-toggle-action {
+    min-width: 78rpx;
+    padding-right: 8rpx;
+    padding-left: 8rpx;
+  }
+
+  .admin-page .vision-backup-panel {
+    margin-right: 8rpx;
+    margin-left: 8rpx;
+    padding: 10rpx;
+  }
 }
 
 /* 模型调用统计的月份和导出按钮固定放在内容卡片左上角。 */
@@ -6935,6 +6965,26 @@ page {
 
   .admin-page .provider-tab {
     min-width: 104rpx;
+  }
+
+  .admin-page .provider-secret-row {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8rpx;
+  }
+
+  .admin-page .provider-secret-row-main,
+  .admin-page .provider-secret-row-key {
+    width: 100%;
+    flex-basis: auto;
+  }
+
+  .admin-page .vision-backup-toggle {
+    align-items: flex-start;
+  }
+
+  .admin-page .vision-backup-toggle-desc {
+    white-space: normal;
   }
 }
 
@@ -7464,4 +7514,256 @@ page {
 .danger-btn {
   color: #b13434;
   background: #f0e3e3;
+}
+
+/* 服务商目录入口：保持和四项当前配置卡同一层级，始终可见。 */
+.provider-directory-row {
+  display: flex;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 112rpx;
+  margin: 0 0 12rpx;
+  padding: 20rpx 20rpx 20rpx 24rpx;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18rpx;
+  border-color: #b9d3f7;
+  border-style: solid;
+  border-width: 1rpx;
+  border-radius: 24rpx;
+  color: #152033;
+  background: linear-gradient(135deg, #f7fbff 0%, #ffffff 72%);
+  box-shadow: 0 9rpx 24rpx rgba(35, 55, 86, 0.05);
+  line-height: normal;
+  text-align: left;
+}
+
+.provider-directory-row.is-active {
+  border-color: #246fdf;
+  box-shadow: 0 0 0 3rpx rgba(36, 111, 223, 0.12), 0 9rpx 24rpx rgba(35, 55, 86, 0.05);
+}
+
+/* 管理员专用 Key 面板：明文只存在当前页面内存，不使用 password 控件。 */
+.provider-secret-panel {
+  min-width: 0;
+  margin: 18rpx 0 22rpx;
+  padding: 16rpx;
+  border: 1rpx solid #d8e5f4;
+  border-radius: 16rpx;
+  background: #f7faff;
+}
+
+.provider-secret-head,
+.provider-secret-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14rpx;
+}
+
+.provider-secret-head {
+  padding-bottom: 12rpx;
+  border-bottom: 1rpx solid #e5edf7;
+}
+
+.provider-secret-title {
+  color: #1c3554;
+  font-size: 23rpx;
+  font-weight: 800;
+  line-height: 32rpx;
+}
+
+.provider-secret-desc,
+.provider-secret-row-id {
+  color: #71839b;
+  font-size: 18rpx;
+  line-height: 26rpx;
+}
+
+.provider-secret-count {
+  flex: none;
+  padding: 5rpx 10rpx;
+  border-radius: 999rpx;
+  color: #2a65b5;
+  background: #e5f0ff;
+  font-size: 18rpx;
+  white-space: nowrap;
+}
+
+.provider-secret-list {
+  min-width: 0;
+}
+
+.provider-secret-row {
+  margin-top: 10rpx;
+  padding: 12rpx;
+  border: 1rpx solid #e1e9f3;
+  border-radius: 12rpx;
+  background: #fff;
+}
+
+.provider-secret-row-main {
+  min-width: 120rpx;
+  flex: 0 1 34%;
+}
+
+.provider-secret-row-title,
+.provider-secret-row-id,
+.provider-secret-row-key {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-secret-row-title {
+  color: #19314e;
+  font-size: 21rpx;
+  font-weight: 700;
+  line-height: 30rpx;
+}
+
+.provider-secret-row-key {
+  box-sizing: border-box;
+  min-width: 0;
+  flex: 1 1 auto;
+  padding: 10rpx 12rpx;
+  border: 1rpx solid #d6e1ee;
+  border-radius: 10rpx;
+  color: #203b5a;
+  background: #f5f8fc;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 19rpx;
+  line-height: 28rpx;
+}
+
+.provider-secret-row-key.is-ready {
+  border-color: #a9dcc4;
+  color: #165f43;
+  background: #f2fbf6;
+}
+
+.provider-secret-row-key.is-off {
+  color: #9a6a24;
+  background: #fffaf1;
+}
+
+.provider-secret-empty {
+  padding: 18rpx 8rpx 4rpx;
+  color: #77879b;
+  font-size: 19rpx;
+  line-height: 28rpx;
+  text-align: center;
+}
+
+/* 四项能力的备用模型折叠块。按钮和内容都允许收缩，避免 375px 横向溢出。 */
+.vision-backup-section {
+  min-width: 0;
+  margin-top: 22rpx;
+  border: 1rpx solid #d8e4f1;
+  border-radius: 16rpx;
+  background: #f8fbff;
+}
+
+.vision-backup-toggle {
+  display: flex;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 76rpx;
+  padding: 14rpx 16rpx;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14rpx;
+}
+
+.vision-backup-toggle-copy {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.vision-backup-toggle-title {
+  color: #244365;
+  font-size: 23rpx;
+  font-weight: 800;
+  line-height: 32rpx;
+}
+
+.vision-backup-toggle-desc {
+  margin-top: 3rpx;
+  overflow: hidden;
+  color: #77879a;
+  font-size: 18rpx;
+  line-height: 26rpx;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vision-backup-toggle-action {
+  display: inline-flex;
+  flex: none;
+  min-width: 92rpx;
+  padding: 8rpx 10rpx;
+  align-items: center;
+  justify-content: center;
+  border: 1rpx solid #b7d0f1;
+  border-radius: 999rpx;
+  color: #246fdf;
+  background: #edf4ff;
+  font-size: 19rpx;
+  font-weight: 700;
+  line-height: 26rpx;
+  white-space: nowrap;
+}
+
+.vision-backup-chevron {
+  margin-left: 6rpx;
+  font-size: 23rpx;
+  line-height: 22rpx;
+}
+
+.vision-backup-panel {
+  min-width: 0;
+  margin: 0 12rpx 12rpx;
+  padding: 14rpx;
+  border: 1rpx solid #e0e9f3;
+  border-radius: 12rpx;
+  background: #fff;
+}
+
+.vision-backup-enable-row {
+  display: flex;
+  min-width: 0;
+  min-height: 68rpx;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14rpx;
+}
+
+.vision-backup-enable-row > view:first-child {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.vision-backup-enable-title {
+  color: #2b4564;
+  font-size: 21rpx;
+  font-weight: 700;
+  line-height: 30rpx;
+}
+
+.vision-backup-enable-desc {
+  margin-top: 2rpx;
+  color: #7b8ca1;
+  font-size: 18rpx;
+  line-height: 26rpx;
+}
+
+.vision-backup-grid {
+  margin-top: 12rpx;
+}
+
+.image-backup-panel,
+.video-backup-panel {
+  overflow: hidden;
 }

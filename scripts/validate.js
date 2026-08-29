@@ -28,8 +28,7 @@ const jsonFiles = [
 const optionalJsonFiles = ["project.private.config.json"];
 // 新增的 smoke 单独列出，既做语法检查，也纳入必要文件检查。
 const smokeFiles = [
-  "scripts/admin-provider-management-smoke.js",
-  "scripts/admin-backup-model-target-smoke.js"
+  "scripts/admin-provider-management-smoke.js"
 ];
 const jsFiles = [
   "app.js",
@@ -70,18 +69,14 @@ const jsFiles = [
   "scripts/admin-usage-entry-smoke.js",
   "scripts/admin-responsive-smoke.js",
   "scripts/admin-config-layout-smoke.js",
-  "scripts/admin-video-xingju-defaults-smoke.js",
-  "scripts/admin-provider-management-smoke.js",
-  "scripts/admin-backup-model-target-smoke.js",
   "scripts/admin-config-audit-smoke.js",
-  "scripts/admin-provider-connection-test-smoke.js",
+  "scripts/admin-provider-management-smoke.js",
   "scripts/image-quality-smoke.js",
   "scripts/image-edit-routing-smoke.js",
   "scripts/image-provider-failover-smoke.js",
   "scripts/image-provider-failover-stats-smoke.js",
   "scripts/tencent-face-fusion-page-smoke.js",
   "scripts/tencent-face-fusion-smoke.js",
-  "scripts/tencent-image-tabs-smoke.js",
   "scripts/release-safety-smoke.js",
   "scripts/check-cloudfunction-dependencies.js",
   "scripts/cloudfunction-dependency-smoke.js",
@@ -142,6 +137,7 @@ const jsFiles = [
   "scripts/photo-to-video-smoke.js",
   "scripts/video-provider-smoke.js",
   "scripts/admin-config-smoke.js",
+  "scripts/admin-video-xingju-defaults-smoke.js",
   "scripts/analysis-model-smoke.js",
   "scripts/analysis-cost-probe-smoke.js",
   "scripts/user-profile-smoke.js",
@@ -151,8 +147,6 @@ const jsFiles = [
   "scripts/repair-smoke.js",
   "scripts/workbench-interaction-smoke.js",
   "scripts/workbench-media-parser-layout-smoke.js",
-  "scripts/workbench-record-thumbnail-smoke.js",
-  "scripts/records-head-layout-smoke.js",
   "scripts/watermark-m0-smoke.js",
   "scripts/watermark-transfer-smoke.js",
   "scripts/model-usage-stats-smoke.js",
@@ -260,7 +254,6 @@ const required = [
   "utils/interaction-log.js",
   "utils/diagnostic-log.js",
   "utils/points-ui.js",
-  "services/admin-provider-registry.js",
   "scripts/refresh-preview.ps1",
   "scripts/verify-online-api.ps1",
   "scripts/sync-to-github.ps1",
@@ -298,18 +291,13 @@ const required = [
   "scripts/admin-usage-entry-smoke.js",
   "scripts/admin-responsive-smoke.js",
   "scripts/admin-config-layout-smoke.js",
-  "scripts/admin-video-xingju-defaults-smoke.js",
-  "scripts/admin-provider-management-smoke.js",
-  "scripts/admin-backup-model-target-smoke.js",
   "scripts/admin-config-audit-smoke.js",
-  "scripts/admin-provider-connection-test-smoke.js",
   "scripts/image-quality-smoke.js",
   "scripts/image-edit-routing-smoke.js",
   "scripts/image-provider-failover-smoke.js",
   "scripts/image-provider-failover-stats-smoke.js",
   "scripts/tencent-face-fusion-page-smoke.js",
   "scripts/tencent-face-fusion-smoke.js",
-  "scripts/tencent-image-tabs-smoke.js",
   "scripts/release-safety-smoke.js",
   "scripts/check-cloudfunction-dependencies.js",
   "scripts/cloudfunction-dependency-smoke.js",
@@ -371,8 +359,6 @@ const required = [
   "cloudfunctions/watermark-gateway/.env.example",
   "docs/superpowers/specs/2026-08-25-zhuceka-watermark-provider-design.md",
   "scripts/workbench-media-parser-layout-smoke.js",
-  "scripts/workbench-record-thumbnail-smoke.js",
-  "scripts/records-head-layout-smoke.js",
   "scripts/photo-to-video-cleanup-smoke.js",
   "scripts/photo-to-video-session-smoke.js",
   "scripts/watermark-transfer-smoke.js",
@@ -760,8 +746,8 @@ if (
   || !indexJs.includes("resolveImageGenerationMode(promptProject)")
   || !adminJs.includes('mode: "edits"')
   || !adminJs.includes('mode: image.mode || "edits"')
-  || !adminWxml.includes('class="image-wizard-intro"')
-  || !adminWxml.includes('data-section="image" data-key="mode"')
+  || !adminWxml.includes('<text>模式</text><input disabled value="图片编辑模式"')
+  || adminWxml.includes('<text>模式</text><input disabled value="{{form.image.mode}}"')
 ) {
   throw new Error("人脸替换的 edits 默认模式、中文显示、素材强制分流或管理员默认配置不完整。");
 }
@@ -1010,10 +996,7 @@ if (
   || !adminJs.includes("filterModelOptions")
   || !adminJs.includes("formatModelConnectionFailure")
   || !adminJs.includes("modelProbeRepairAdvice")
-  || !(
-    adminJs.includes("await this.runModelProbe(\"\")")
-    || adminJs.includes("void this.runModelProbe(\"\")")
-  )
+  || !adminJs.includes("await this.runModelProbe(\"\")")
   || !adminJs.includes("compareModelNames")
   || !adminJs.includes("modelConfigKeyForAction")
   || !adminJs.includes("configTarget: key")
@@ -1021,11 +1004,10 @@ if (
   || !adminJs.includes("modelPickerTarget")
   || !adminJs.includes("runImageBackupEditCapabilityProbe")
   || !adminWxml.includes('data-model-config="imageBackup"')
-  || !adminWxml.includes('data-model-config="videoBackup"')
   || !adminWxml.includes("imageBackupEditCapabilityProbe.checked")
   || !adminWxml.includes("imageBackupEditCapabilityLoading")
   || !cloudJs.includes('requestedTarget === "imageBackup"')
-  || !cloudJs.includes('requestedTarget === "videoBackup"')
+  || !cloudJs.includes('? "imageBackup"')
   || !fs.existsSync(path.join(root, "scripts", "admin-backup-model-target-smoke.js"))
   || !adminWxml.includes("搜索模型名称")
   || !adminWxml.includes("没有找到相关模型")
@@ -1060,25 +1042,23 @@ const adminApiKeyInputBySection = adminApiKeyInputs.reduce((result, input) => {
   return result;
 }, {});
 if (
-  adminApiKeyInputs.length < 5
-  || !["face", "analysis", "image", "imageBackup", "video"].every((section) => {
-    const input = adminApiKeyInputBySection[section];
-    if (!input) return false;
-    // 人脸/分析允许沿用主线的明文编辑框，也允许目录页的 password 输入；
-    // 视频密钥仍必须只读，避免管理员页把云端 Key 写回小程序。
-    return section === "video" ? /\bdisabled\b/.test(input) : true;
-  })
-  || (adminApiKeyInputBySection.videoBackup
-    && !/\bdisabled\b/.test(adminApiKeyInputBySection.videoBackup))
-  || !["face", "analysis", "image", "imageBackup", "video"].every(
-    (section) => adminWxml.includes(`form.${section}.apiKeyConfigured`)
-      || adminWxml.includes(`effective.${section}.apiKeyConfigured`)
-  )
+  adminApiKeyInputs.length !== 8
+  || !["face", "faceBackup", "analysis", "analysisBackup", "video", "videoBackup"].every((section) => (
+    adminApiKeyInputBySection[section]
+    && (
+      section === "video" || section === "videoBackup"
+        ? /\bdisabled\b/.test(adminApiKeyInputBySection[section])
+        : /\bpassword\b/.test(adminApiKeyInputBySection[section])
+    )
+  ))
+  || !["image", "imageBackup"].every((section) => (
+    adminApiKeyInputBySection[section]
+    && !/\bpassword\b/.test(adminApiKeyInputBySection[section])
+  ))
+  || !adminWxml.includes("effective.image.apiKeyConfigured")
+  || !adminWxml.includes("effective.imageBackup.apiKeyConfigured")
   || (adminWxml.match(/已显示完整 Key/g) || []).length < 3
-  || (
-    !adminWxml.includes("当前显示云函数实际生效的完整视频 Key")
-    && !adminWxml.includes("已显示完整内容")
-  )
+  || !adminWxml.includes("当前显示云函数实际生效的完整视频 Key")
   || !clientCloudJs.includes('action: "getAdminImageApiKeys"')
   || !cloudJs.includes("async function getAdminImageApiKeys")
   || !adminJs.includes("fetchAdminConfigBundle")
@@ -1086,32 +1066,7 @@ if (
   || !adminWxss.includes(".api-key-config-state")
   || !adminWxss.includes(".api-key-field-tip")
 ) {
-  throw new Error("管理员页面服务商目录五个槽位的 Key 状态、兼容的视频备用只读项或专用接口不完整。");
-}
-// 服务商目录与四项备用模型的关键可见契约：入口必须紧挨“当前配置”标题，
-// 四个备用区都能展开/收回，且管理页状态来自稳定 activeBackups 引用。
-const currentHeadingIndex = adminWxml.indexOf('<view class="overview-heading">当前配置</view>');
-const providerRowIndex = adminWxml.indexOf('class="provider-directory-row');
-const faceRowIndex = adminWxml.indexOf('class="current-config-row', providerRowIndex);
-if (
-  currentHeadingIndex < 0
-  || providerRowIndex < currentHeadingIndex
-  || (faceRowIndex >= 0 && providerRowIndex > faceRowIndex)
-  || !adminWxml.includes("providerSecretRows")
-  || !adminWxml.includes("档案 API Key（明文）")
-  || !adminWxml.includes("faceBackupExpanded")
-  || !adminWxml.includes("analysisBackupExpanded")
-  || !adminWxml.includes("imageBackupExpanded")
-  || !adminWxml.includes("videoBackupExpanded")
-  || !adminJs.includes("activeBackups")
-  || !adminJs.includes("toggleFaceBackup")
-  || !adminJs.includes("toggleAnalysisBackup")
-  || !adminJs.includes("toggleImageBackup")
-  || !adminJs.includes("toggleVideoBackup")
-  || !adminWxss.includes(".provider-directory-row")
-  || !adminWxss.includes(".vision-backup-toggle")
-) {
-  throw new Error("服务商入口、明文 Key 面板或四项备用模型展开/收回功能不完整。");
+  throw new Error("管理员生图完整 Key 显示、其他密钥密码保护或专用接口不完整。");
 }
 if (
   !clientCloudJs.includes('action: "getModelUsageStats"')
@@ -1162,18 +1117,9 @@ if (
   || !cloudJs.includes('action === "probeModels"')
   || !cloudJs.includes('action === "listModels"')
   || !clientCloudJs.includes('action: "probeModels"')
-  || !cloudJs.includes("async function testAdminProviderConnection")
-  || !cloudJs.includes('action === "testAdminProviderConnection"')
-  || !clientCloudJs.includes('action: "testAdminProviderConnection"')
-  || !adminJs.includes("cloud.testAdminProviderConnection")
-  || !adminJs.includes("配置保存成功")
-  || !adminJs.includes("当前配置已生效")
-  || !adminJs.includes("自动探测只是保存后的附加检查")
-  || !adminWxml.includes("修改参数后请先保存")
-  || !fs.existsSync(path.join(root, "scripts/admin-provider-connection-test-smoke.js"))
   || !fs.existsSync(path.join(root, "scripts/analysis-cost-probe-smoke.js"))
 ) {
-  throw new Error("模型成本、管理员保存提示或服务商真实连接测试功能不完整。");
+  throw new Error("模型成本、按用户/模型、月度统计或 Excel 导出功能不完整。");
 }
 if (
   /function\s+\w+\s*\([^)]*\.\.\./.test(adminJs)
@@ -1202,10 +1148,8 @@ if (
   || !adminWxml.includes('id="config-editor-face"')
   || !adminWxml.includes('id="config-editor-analysis"')
   || !adminWxml.includes('id="config-editor-image"')
-  || !adminWxml.includes('id="config-editor-tencentFaceFusion"')
+  || !adminWxml.includes('id="config-editor-tencentImage"')
   || !adminWxml.includes('id="config-editor-video"')
-  || adminWxml.includes('id="config-editor-tencentImage"')
-  || adminWxml.includes('data-section="tencentImage"')
   || (adminWxml.match(/class="config-editor-focus-tip"/g) || []).length !== 6
   || !adminWxss.includes(".config-editor-focus-tip")
   || !adminWxss.includes(".config-editor-focus-dot")
@@ -1215,7 +1159,7 @@ if (
   || adminWxml.includes("monitorSections.usage")
   || !adminWxml.includes('catchtap="toggleUsageCard"')
 ) {
-  throw new Error("管理员页面配置入口或区块顺序不正确：腾讯版独立卡或五个模型编辑区缺失。");
+  throw new Error("管理员页面配置入口或区块顺序不正确：五个模型应就地展开，其他配置应在模型用量统计之前。");
 }
 if (
   !adminWxml.includes("模型调用失败统计")
@@ -2333,13 +2277,9 @@ if (
   || indexJs.includes("wx.switchTab")
   || !indexJs.includes('wx.navigateTo({ url: "/pages/records/records" })')
   || !recordsWxml.includes('bindtap="backToCreate"')
-  || !recordsWxml.includes("返回工作台")
-  || recordsWxml.includes("返回制作")
+  || !recordsWxml.includes("返回制作")
   || !recordsJs.includes("backToCreate()")
-  || !recordsJs.includes('wx.reLaunch({ url: "/pages/workbench/workbench" })')
-  || !recordsWxml.includes('class="records-head-top"')
-  || !recordsWxml.includes('class="section-subtitle records-head-subtitle"')
-  || !recordsWxss.includes("white-space: nowrap")
+  || !recordsJs.includes('wx.reLaunch({ url: "/pages/index/index" })')
   || !recordsWxml.includes('bindtap="clearAll"')
   || !recordsWxml.includes("清空全部")
   || !recordsJs.includes("async clearAll()")

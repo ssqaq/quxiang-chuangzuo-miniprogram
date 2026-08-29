@@ -162,50 +162,6 @@ page {
   pointer-events: none;
 }
 
-.tencent-fusion-fields {
-  margin-top: 16rpx;
-}
-
-.tencent-fusion-fields .admin-field input.has-error {
-  border-color: #dc4c64;
-  background: #fff7f8;
-  box-shadow: 0 0 0 2rpx rgba(220, 76, 100, 0.08);
-}
-
-.tencent-logo-checkbox {
-  margin-top: 18rpx;
-}
-
-.tencent-test-result {
-  margin-top: 14rpx;
-  padding: 14rpx 16rpx;
-  border: 1rpx solid #cce6d8;
-  border-radius: 14rpx;
-  color: #236845;
-  background: #f3fbf6;
-}
-
-.tencent-test-result.is-failed {
-  border-color: #f0c4cb;
-  color: #a33e50;
-  background: #fff6f7;
-}
-
-.tencent-test-result-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12rpx;
-  font-size: 20rpx;
-  font-weight: 700;
-}
-
-.tencent-test-error {
-  margin-top: 8rpx;
-  line-height: 28rpx;
-  word-break: break-all;
-}
-
 .card {
   border: 1rpx solid #dce4ef;
   border-radius: 26rpx;
@@ -353,45 +309,6 @@ page {
   border-radius: 50%;
   background: #8298b6;
   content: "";
-}
-
-.status-console-build {
-  margin-top: 16rpx;
-  padding: 14rpx 16rpx;
-  border: 1rpx solid rgba(255, 255, 255, 0.12);
-  border-radius: 16rpx;
-  background: rgba(8, 24, 47, 0.24);
-}
-
-.status-console-build-row {
-  display: flex;
-  min-width: 0;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 18rpx;
-  font-size: 19rpx;
-  line-height: 30rpx;
-}
-
-.status-console-build-row + .status-console-build-row {
-  margin-top: 6rpx;
-}
-
-.status-console-build-label {
-  flex: none;
-  color: #9fb3cc;
-}
-
-.status-console-build-value {
-  min-width: 0;
-  color: #f4f8ff;
-  font-weight: 700;
-  text-align: right;
-}
-
-.status-console-build-marker {
-  overflow-wrap: anywhere;
-  word-break: break-all;
 }
 
 .status-check-button {
@@ -639,83 +556,6 @@ page {
   font-size: 36rpx;
   font-weight: 500;
   line-height: 40rpx;
-}
-
-/* 腾讯版是独立的制作链路入口，和普通生图卡保持同一层级。 */
-.tencent-pipeline-config-row {
-  border-color: #d8c9f3;
-  background: #fcfaff;
-}
-
-.tencent-pipeline-config-row .current-config-title {
-  color: #4f3687;
-}
-
-.tencent-pipeline-config-row .current-config-meta {
-  color: #7b68a0;
-}
-
-.tencent-pipeline-health-summary {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6rpx 14rpx;
-  margin-top: 6rpx;
-  color: #7b68a0;
-  font-size: 19rpx;
-  line-height: 30rpx;
-}
-
-.tencent-pipeline-health-summary text.is-ready {
-  color: #17835d;
-}
-
-.tencent-pipeline-health-summary text.is-off {
-  color: #b45d36;
-}
-
-.tencent-pipeline-editor {
-  border-color: #d8c9f3;
-  background: #fffefe;
-}
-
-.tencent-pipeline-intro {
-  border-left-color: #6848bb;
-  background: #f8f4ff;
-}
-
-.tencent-pipeline-intro .image-wizard-kicker,
-.tencent-pipeline-intro .image-wizard-title {
-  color: #543b91;
-}
-
-.tencent-pipeline-progress .image-wizard-progress-item.is-active {
-  color: #6848bb;
-}
-
-.tencent-pipeline-progress .image-wizard-progress-item.is-active text {
-  border-color: #6848bb;
-  background: #6848bb;
-  box-shadow: 0 5rpx 12rpx rgba(104, 72, 187, 0.2);
-}
-
-.tencent-pipeline-progress .image-wizard-progress-line.is-active {
-  background: #b5a0e2;
-}
-
-.tencent-pipeline-step {
-  border-color: #ded4f1;
-}
-
-.tencent-pipeline-status-card {
-  margin-bottom: 0;
-}
-
-.tencent-pipeline-save-actions {
-  margin-top: 18rpx;
-}
-
-.tencent-pipeline-nav {
-  margin-bottom: 4rpx;
 }
 
 .today-section {
@@ -4493,24 +4333,6 @@ page {
   line-height: 28rpx;
 }
 
-.api-key-readonly-value {
-  box-sizing: border-box;
-  display: flex;
-  width: 100%;
-  min-height: 70rpx;
-  padding: 0 16rpx;
-  align-items: center;
-  overflow: hidden;
-  border: 1rpx solid #dfe6ef;
-  border-radius: 14rpx;
-  color: #526178;
-  background: #f1f4f8;
-  font-size: 21rpx;
-  line-height: 30rpx;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .admin-field input {
   box-sizing: border-box;
   width: 100%;
@@ -4604,432 +4426,6 @@ page {
 
 .admin-checkbox-row checkbox {
   margin-right: 10rpx;
-}
-
-/* 图片主备向导：让管理员只先处理必要决策，旧字段仍在高级设置中保留。 */
-.image-wizard-intro {
-  margin-top: 18rpx;
-  padding: 20rpx 22rpx 18rpx;
-  border-left: 6rpx solid #2376d8;
-  border-radius: 0 16rpx 16rpx 0;
-  background: #f2f7ff;
-}
-
-.image-wizard-kicker {
-  color: #2376d8;
-  font-size: 18rpx;
-  font-weight: 800;
-  letter-spacing: 1rpx;
-}
-
-.image-wizard-title {
-  margin-top: 5rpx;
-  color: #17345e;
-  font-size: 30rpx;
-  font-weight: 900;
-  line-height: 40rpx;
-}
-
-.image-wizard-subtitle,
-.image-wizard-step-desc {
-  margin-top: 6rpx;
-  color: #64758c;
-  font-size: 20rpx;
-  line-height: 30rpx;
-}
-
-.image-wizard-progress {
-  display: flex;
-  min-width: 0;
-  margin: 20rpx 0 8rpx;
-  align-items: flex-start;
-}
-
-.image-wizard-progress-item {
-  display: flex;
-  min-width: 72rpx;
-  flex: 0 0 auto;
-  flex-direction: column;
-  align-items: center;
-  color: #a0adbd;
-  font-size: 17rpx;
-  line-height: 26rpx;
-}
-
-.image-wizard-progress-item text {
-  display: flex;
-  width: 40rpx;
-  height: 40rpx;
-  align-items: center;
-  justify-content: center;
-  border: 2rpx solid #cbd6e4;
-  border-radius: 50%;
-  color: #8291a4;
-  background: #ffffff;
-  font-size: 19rpx;
-  font-weight: 900;
-}
-
-.image-wizard-progress-item label {
-  margin-top: 5rpx;
-  white-space: nowrap;
-}
-
-.image-wizard-progress-item.is-active {
-  color: #2376d8;
-  font-weight: 800;
-}
-
-.image-wizard-progress-item.is-active text {
-  border-color: #2376d8;
-  color: #ffffff;
-  background: #2376d8;
-  box-shadow: 0 5rpx 12rpx rgba(35, 118, 216, 0.2);
-}
-
-.image-wizard-progress-line {
-  height: 2rpx;
-  margin: 20rpx 4rpx 0;
-  flex: 1 1 auto;
-  background: #dbe3ed;
-}
-
-.image-wizard-progress-line.is-active {
-  background: #7eafe9;
-}
-
-.image-wizard-step {
-  margin-top: 16rpx;
-  padding: 20rpx;
-  border: 1rpx solid #d8e4f2;
-  border-radius: 18rpx;
-  background: #ffffff;
-}
-
-.image-wizard-step-head {
-  display: flex;
-  min-width: 0;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16rpx;
-}
-
-.image-wizard-step-title {
-  color: #203a60;
-  font-size: 25rpx;
-  font-weight: 900;
-  line-height: 34rpx;
-}
-
-.image-wizard-status-card {
-  display: flex;
-  min-width: 0;
-  margin: 18rpx 0;
-  padding: 16rpx;
-  align-items: center;
-  gap: 12rpx;
-  border: 1rpx solid #b8d0f4;
-  border-radius: 14rpx;
-  background: #f4f8ff;
-}
-
-.image-wizard-status-card.is-backup {
-  border-color: #ead8ae;
-  background: #fffaf0;
-}
-
-.image-wizard-status-dot {
-  width: 16rpx;
-  height: 16rpx;
-  flex: 0 0 16rpx;
-  border-radius: 50%;
-  background: #a8b5c5;
-}
-
-.image-wizard-status-dot.is-ready {
-  background: #1fa774;
-  box-shadow: 0 0 0 6rpx rgba(31, 167, 116, 0.12);
-}
-
-.image-wizard-status-title {
-  overflow: hidden;
-  color: #1d3e70;
-  font-size: 23rpx;
-  font-weight: 900;
-  line-height: 30rpx;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.image-wizard-status-desc {
-  margin-top: 3rpx;
-  overflow: hidden;
-  color: #6b7c92;
-  font-size: 18rpx;
-  line-height: 26rpx;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.image-wizard-step .admin-field {
-  margin-top: 14rpx;
-}
-
-.image-wizard-step .admin-field input,
-.image-wizard-step .admin-field .admin-picker {
-  background: #fbfdff;
-}
-
-.image-wizard-switch-row {
-  display: flex;
-  min-height: 78rpx;
-  margin-top: 18rpx;
-  padding: 14rpx 16rpx;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16rpx;
-  border: 1rpx solid #d8e4f0;
-  border-radius: 14rpx;
-  background: #f8fbff;
-}
-
-.image-wizard-switch-title {
-  color: #244365;
-  font-size: 23rpx;
-  font-weight: 800;
-  line-height: 30rpx;
-}
-
-.image-wizard-switch-desc {
-  margin-top: 3rpx;
-  color: #77879a;
-  font-size: 18rpx;
-  line-height: 26rpx;
-}
-
-.image-wizard-backup-box {
-  margin-top: 14rpx;
-  padding: 14rpx;
-  border: 1rpx dashed #e2c983;
-  border-radius: 14rpx;
-  background: #fffdf7;
-}
-
-.image-wizard-disabled-note,
-.image-wizard-tip {
-  margin-top: 16rpx;
-  padding: 14rpx 16rpx;
-  border-radius: 12rpx;
-  color: #6f7f92;
-  background: #f2f5f8;
-  font-size: 19rpx;
-  line-height: 29rpx;
-}
-
-.image-wizard-param-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14rpx;
-  margin-top: 6rpx;
-}
-
-.image-wizard-param-grid .admin-field {
-  min-width: 0;
-}
-
-.image-wizard-summary-row {
-  display: flex;
-  min-width: 0;
-  margin-top: 12rpx;
-  padding: 12rpx 14rpx;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12rpx;
-  border-radius: 12rpx;
-  color: #63758b;
-  background: #f3f7fd;
-  font-size: 19rpx;
-  line-height: 28rpx;
-}
-
-.image-wizard-summary-row text:last-child {
-  min-width: 0;
-  overflow: hidden;
-  color: #284c7d;
-  font-weight: 800;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.image-wizard-summary-row.is-backup {
-  color: #80622d;
-  background: #fff8e8;
-}
-
-.image-wizard-retry-card {
-  display: flex;
-  min-width: 0;
-  margin-top: 18rpx;
-  padding: 16rpx;
-  align-items: center;
-  gap: 12rpx;
-  border: 1rpx solid #d8e4f0;
-  border-radius: 14rpx;
-  background: #f8fbff;
-}
-
-.image-wizard-retry-copy {
-  min-width: 0;
-  flex: 1 1 auto;
-}
-
-.image-wizard-retry-copy text {
-  display: block;
-  color: #29476b;
-  font-size: 22rpx;
-  font-weight: 800;
-  line-height: 29rpx;
-}
-
-.image-wizard-retry-copy text:last-child {
-  margin-top: 3rpx;
-  color: #77879a;
-  font-size: 17rpx;
-  font-weight: 400;
-  line-height: 24rpx;
-}
-
-.image-wizard-retry-input {
-  box-sizing: border-box;
-  width: 94rpx;
-  height: 68rpx;
-  flex: 0 0 94rpx;
-  border: 1rpx solid #8eb8ed;
-  border-radius: 12rpx;
-  color: #1f5da9;
-  background: #ffffff;
-  font-size: 28rpx;
-  font-weight: 900;
-  line-height: 68rpx;
-  text-align: center;
-}
-
-.image-wizard-retry-unit {
-  flex: 0 0 auto;
-  color: #68798e;
-  font-size: 20rpx;
-}
-
-.image-wizard-run-summary {
-  margin-top: 14rpx;
-  padding: 4rpx 14rpx;
-  border-radius: 12rpx;
-  background: #f5f7fa;
-}
-
-.image-wizard-run-summary view {
-  display: flex;
-  min-width: 0;
-  padding: 10rpx 0;
-  justify-content: space-between;
-  gap: 12rpx;
-  border-bottom: 1rpx solid #e5eaf0;
-  font-size: 18rpx;
-  line-height: 26rpx;
-}
-
-.image-wizard-run-summary view:last-child {
-  border-bottom: 0;
-}
-
-.image-wizard-run-summary text:first-child {
-  flex: 0 0 auto;
-  color: #7a8899;
-}
-
-.image-wizard-run-summary text:last-child {
-  min-width: 0;
-  overflow: hidden;
-  color: #29466a;
-  font-weight: 700;
-  text-align: right;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.image-wizard-actions {
-  justify-content: stretch;
-}
-
-.image-wizard-actions .config-model-button {
-  min-width: 0;
-  flex: 1 1 0;
-}
-
-.image-wizard-nav {
-  display: flex;
-  min-width: 0;
-  margin-top: 16rpx;
-  align-items: center;
-  gap: 10rpx;
-}
-
-.image-wizard-nav-button {
-  display: flex;
-  min-width: 140rpx;
-  height: 62rpx;
-  padding: 0 18rpx;
-  align-items: center;
-  justify-content: center;
-  border: 1rpx solid #c7d8ee;
-  border-radius: 14rpx;
-  font-size: 21rpx;
-  font-weight: 800;
-  line-height: 1;
-}
-
-.image-wizard-nav-button.is-primary {
-  color: #ffffff;
-  background: #2376d8;
-  box-shadow: 0 8rpx 18rpx rgba(35, 118, 216, 0.18);
-}
-
-.image-wizard-nav-button.is-ghost {
-  color: #426488;
-  background: #f4f8fd;
-}
-
-.image-wizard-advanced-toggle {
-  margin-left: auto;
-  padding: 12rpx 6rpx;
-  color: #6c4cb0;
-  font-size: 19rpx;
-  font-weight: 700;
-  line-height: 32rpx;
-}
-
-.image-advanced-settings {
-  margin-top: 14rpx;
-  padding-top: 4rpx;
-  border-top: 1rpx solid #e3e9f0;
-}
-
-@media (max-width: 560px) {
-  .image-wizard-param-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .image-wizard-progress-item {
-    min-width: 58rpx;
-  }
-
-  .image-wizard-progress-item label {
-    font-size: 16rpx;
-  }
-
-  .image-wizard-nav-button {
-    min-width: 112rpx;
-  }
 }
 
 .admin-actions {
@@ -6735,36 +6131,6 @@ page {
   .usage-mobile-first-card .usage-model-top text:last-child {
     flex: none;
   }
-
-  .admin-page .provider-secret-panel {
-    padding: 12rpx;
-  }
-
-  .admin-page .provider-secret-head {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 6rpx;
-  }
-
-  .admin-page .provider-secret-count {
-    align-self: flex-start;
-  }
-
-  .admin-page .vision-backup-toggle {
-    padding: 12rpx;
-  }
-
-  .admin-page .vision-backup-toggle-action {
-    min-width: 78rpx;
-    padding-right: 8rpx;
-    padding-left: 8rpx;
-  }
-
-  .admin-page .vision-backup-panel {
-    margin-right: 8rpx;
-    margin-left: 8rpx;
-    padding: 10rpx;
-  }
 }
 
 /* 模型调用统计的月份和导出按钮固定放在内容卡片左上角。 */
@@ -6947,44 +6313,22 @@ page {
 }
 
 @media (max-width: 760px) {
-  /* 提高 specificity：服务商基础规则位于后面的 canonical 区块，
-   * 窄屏规则必须在前置媒体查询里也能压过它们。 */
-  .admin-page .provider-manager-layout,
-  .admin-page .provider-form-grid,
-  .admin-page .provider-override-grid {
+  .provider-manager-layout,
+  .provider-form-grid,
+  .provider-override-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .admin-page .provider-manager-layout {
+  .provider-manager-layout {
     gap: 16rpx;
   }
 
-  .admin-page .provider-list-row-title {
+  .provider-list-row-title {
     font-size: 22rpx;
   }
 
-  .admin-page .provider-tab {
+  .provider-tab {
     min-width: 104rpx;
-  }
-
-  .admin-page .provider-secret-row {
-    align-items: stretch;
-    flex-direction: column;
-    gap: 8rpx;
-  }
-
-  .admin-page .provider-secret-row-main,
-  .admin-page .provider-secret-row-key {
-    width: 100%;
-    flex-basis: auto;
-  }
-
-  .admin-page .vision-backup-toggle {
-    align-items: flex-start;
-  }
-
-  .admin-page .vision-backup-toggle-desc {
-    white-space: normal;
   }
 }
 
@@ -7249,13 +6593,52 @@ page {
   margin-top: 18rpx;
 }
 
-.quick-providers .quick-launch-icon {
-  color: #16805b;
-  background: #e3f3ec;
-}
-
 .provider-manager-editor {
   overflow: hidden;
+}
+
+.current-provider-card {
+  align-items: center;
+  margin-top: 14rpx;
+  padding: 18rpx 20rpx;
+  border: 1rpx solid #d8e6f3;
+  border-radius: 16rpx;
+  background: linear-gradient(180deg, #f8fbff 0%, #eef5ff 100%);
+  box-shadow: 0 8rpx 22rpx rgba(23, 56, 101, 0.08);
+}
+
+.current-provider-card.is-active {
+  border-color: #246fdf;
+  box-shadow: 0 0 0 3rpx rgba(36, 111, 223, 0.12);
+}
+
+.current-provider-card .current-config-title {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+}
+
+.current-provider-card .current-config-title::before {
+  content: "商";
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40rpx;
+  height: 40rpx;
+  border-radius: 12rpx;
+  color: #16805b;
+  background: #e3f3ec;
+  font-size: 22rpx;
+  font-weight: 700;
+}
+
+.current-provider-card .current-config-meta {
+  color: #5f7187;
+}
+
+.current-provider-card .config-state.is-ready {
+  color: #087a55;
+  background: #e5f7ee;
 }
 
 .provider-manager-layout {
@@ -7516,147 +6899,7 @@ page {
   background: #f0e3e3;
 }
 
-/* 服务商目录入口：保持和四项当前配置卡同一层级，始终可见。 */
-.provider-directory-row {
-  display: flex;
-  box-sizing: border-box;
-  width: 100%;
-  min-height: 112rpx;
-  margin: 0 0 12rpx;
-  padding: 20rpx 20rpx 20rpx 24rpx;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18rpx;
-  border-color: #b9d3f7;
-  border-style: solid;
-  border-width: 1rpx;
-  border-radius: 24rpx;
-  color: #152033;
-  background: linear-gradient(135deg, #f7fbff 0%, #ffffff 72%);
-  box-shadow: 0 9rpx 24rpx rgba(35, 55, 86, 0.05);
-  line-height: normal;
-  text-align: left;
-}
-
-.provider-directory-row.is-active {
-  border-color: #246fdf;
-  box-shadow: 0 0 0 3rpx rgba(36, 111, 223, 0.12), 0 9rpx 24rpx rgba(35, 55, 86, 0.05);
-}
-
-/* 管理员专用 Key 面板：明文只存在当前页面内存，不使用 password 控件。 */
-.provider-secret-panel {
-  min-width: 0;
-  margin: 18rpx 0 22rpx;
-  padding: 16rpx;
-  border: 1rpx solid #d8e5f4;
-  border-radius: 16rpx;
-  background: #f7faff;
-}
-
-.provider-secret-head,
-.provider-secret-row {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14rpx;
-}
-
-.provider-secret-head {
-  padding-bottom: 12rpx;
-  border-bottom: 1rpx solid #e5edf7;
-}
-
-.provider-secret-title {
-  color: #1c3554;
-  font-size: 23rpx;
-  font-weight: 800;
-  line-height: 32rpx;
-}
-
-.provider-secret-desc,
-.provider-secret-row-id {
-  color: #71839b;
-  font-size: 18rpx;
-  line-height: 26rpx;
-}
-
-.provider-secret-count {
-  flex: none;
-  padding: 5rpx 10rpx;
-  border-radius: 999rpx;
-  color: #2a65b5;
-  background: #e5f0ff;
-  font-size: 18rpx;
-  white-space: nowrap;
-}
-
-.provider-secret-list {
-  min-width: 0;
-}
-
-.provider-secret-row {
-  margin-top: 10rpx;
-  padding: 12rpx;
-  border: 1rpx solid #e1e9f3;
-  border-radius: 12rpx;
-  background: #fff;
-}
-
-.provider-secret-row-main {
-  min-width: 120rpx;
-  flex: 0 1 34%;
-}
-
-.provider-secret-row-title,
-.provider-secret-row-id,
-.provider-secret-row-key {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.provider-secret-row-title {
-  color: #19314e;
-  font-size: 21rpx;
-  font-weight: 700;
-  line-height: 30rpx;
-}
-
-.provider-secret-row-key {
-  box-sizing: border-box;
-  min-width: 0;
-  flex: 1 1 auto;
-  padding: 10rpx 12rpx;
-  border: 1rpx solid #d6e1ee;
-  border-radius: 10rpx;
-  color: #203b5a;
-  background: #f5f8fc;
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 19rpx;
-  line-height: 28rpx;
-}
-
-.provider-secret-row-key.is-ready {
-  border-color: #a9dcc4;
-  color: #165f43;
-  background: #f2fbf6;
-}
-
-.provider-secret-row-key.is-off {
-  color: #9a6a24;
-  background: #fffaf1;
-}
-
-.provider-secret-empty {
-  padding: 18rpx 8rpx 4rpx;
-  color: #77879b;
-  font-size: 19rpx;
-  line-height: 28rpx;
-  text-align: center;
-}
-
-/* 四项能力的备用模型折叠块。按钮和内容都允许收缩，避免 375px 横向溢出。 */
+/* C 方案结构 + A 方案浅蓝色调：备用模型默认收起，手机端只展开当前需要的参数。 */
 .vision-backup-section {
   min-width: 0;
   margin-top: 22rpx;
@@ -7763,7 +7006,53 @@ page {
   margin-top: 12rpx;
 }
 
+.vision-backup-disabled-note {
+  margin-top: 10rpx;
+  padding: 12rpx;
+  border-radius: 10rpx;
+  color: #74859a;
+  background: #f3f7fc;
+  font-size: 19rpx;
+  line-height: 28rpx;
+}
+
 .image-backup-panel,
 .video-backup-panel {
   overflow: hidden;
+}
+
+@media (max-width: 760px) {
+  .vision-backup-toggle {
+    padding: 12rpx;
+    gap: 8rpx;
+  }
+
+  .vision-backup-toggle-title {
+    font-size: 21rpx;
+  }
+
+  .vision-backup-toggle-desc {
+    font-size: 17rpx;
+  }
+
+  .vision-backup-toggle-action {
+    min-width: 78rpx;
+    padding-left: 8rpx;
+    padding-right: 8rpx;
+    font-size: 18rpx;
+  }
+
+  .vision-backup-panel {
+    margin: 0 8rpx 8rpx;
+    padding: 10rpx;
+  }
+
+  .vision-backup-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .vision-backup-grid .admin-field,
+  .vision-backup-grid .admin-field-wide {
+    grid-column: 1;
+  }
 }

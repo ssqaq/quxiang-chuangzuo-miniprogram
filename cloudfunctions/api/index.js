@@ -1264,6 +1264,18 @@ const PROVIDER_CAPABILITY_SLOTS = Object.freeze([
   "imageBackup",
   "video"
 ]);
+// 备用视觉/视频模型不改变既有五槽位目录契约；它们通过独立的
+// activeBackups 引用同一份服务商档案，避免旧迁移和目录遍历被破坏。
+const PROVIDER_BACKUP_SLOTS = Object.freeze([
+  "faceBackup",
+  "analysisBackup",
+  "videoBackup"
+]);
+const PROVIDER_BACKUP_BASE_SLOTS = Object.freeze({
+  faceBackup: "face",
+  analysisBackup: "analysis",
+  videoBackup: "video"
+});
 const BUILTIN_PROVIDER_KEYS = Object.freeze(["dashscope", "xingju", "lingyun"]);
 const BUILTIN_PROVIDER_IDS = Object.freeze({
   dashscope: "dashscope",
@@ -1564,6 +1576,164 @@ function resolveAnalysisConfig(overrides = {}) {
     ),
     maxImageBytes: vision.maxImageBytes
   };
+}
+
+function providerBackupSource(overrides, section) {
+  if (overrides && overrides[section] && typeof overrides[section] === "object") {
+    return overrides[section];
+  }
+  return overrides && typeof overrides === "object" ? overrides : {};
+}
+
+function resolveVisionBackupConfig(overrides = {}, runtime, baseSlot = "face") {
+  const section = baseSlot === "analysis" ? "analysisBackup" : "faceBackup";
+  const source = providerBackupSource(overrides, section);
+  const runtimeActive = runtime && runtime.activeBackups
+    && runtime.activeBackups[section];
+  const sourceWithRuntimeActive = (
+    !hasOwn(source, "provider")
+    && !hasOwn(source, "providerKey")
+    && runtimeActive
+  )
+    ? Object.assign({}, source, { providerKey: runtimeActive })
+    : source;
+  const inherited = typeof providerSlotConfigFromRuntime === "function"
+    ? providerSlotConfigFromRuntime(
+      runtime,
+      sourceWithRuntimeActive.providerKey || sourceWithRuntimeActive.provider,
+      baseSlot
+    )
+    : {};
+  const envPrefix = baseSlot === "analysis" ? "ANALYSIS" : "FACE";
+  const provider = overrideString(
+    sourceWithRuntimeActive,
+    "provider",
+    inherited.provider || firstEnv([`AI_${envPrefix}_BACKUP_PROVIDER`, "AI_VISION_BACKUP_PROVIDER"])
+  );
+  const providerKey = normalizeProviderKey(
+    overrideString(sourceWithRuntimeActive, "providerKey", inherited.providerKey || providerBuiltinKey(provider) || providerStableKey(provider)),
+    inherited.providerKey || providerBuiltinKey(provider) || providerStableKey(provider)
+  );
+  // 目录中的自定义档案不能因为没有自身 Key 就偷偷继承全局视觉备用
+  // 环境变量；否则选中一个半成品档案时会误把另一套凭据发给它。
+  // 无法解析到 canonical 档案时仍保留旧版直配配置的环境变量兼容。
+  const runtimeRegistry = runtime && isProviderObject(runtime.providerRegistry)
+    ? normalizeProviderRegistry(runtime.providerRegistry, { includeDefaults: true })
+    : null;
+  const selectedRecord = runtimeRegistry && providerKey
+    ? runtimeRegistry.providers[providerRecordKeyFor(providerKey, runtimeRegistry)]
+    : null;
+  const customDirectoryRecord = Boolean(
+    selectedRecord
+    && !selectedRecord.builtIn
+    && !providerBuiltinKey(selectedRecord.providerKey || selectedRecord.id)
+  );
+  const backupEnvApiKey = customDirectoryRecord
+    ? ""
+    : firstEnv([`AI_${envPrefix}_BACKUP_API_KEY`, "AI_VISION_BACKUP_API_KEY"]);
+  const baseUrl = overrideString(
+    sourceWithRuntimeActive,
+    "baseUrl",
+    inherited.baseUrl || firstEnv([`AI_${envPrefix}_BACKUP_BASE_URL`, "AI_VISION_BACKUP_BASE_URL"])
+  );
+  const endpointValue = overrideString(
+    sourceWithRuntimeActive,
+    "endpoint",
+    inherited.endpoint || firstEnv([`AI_${envPrefix}_BACKUP_ENDPOINT`, "AI_VISION_BACKUP_ENDPOINT"])
+  );
+  const apiKey = normalizeApiKey(
+    overrideString(
+      sourceWithRuntimeActive,
+      "apiKey",
+      inherited.apiKey || backupEnvApiKey
+    )
+  );
+  const model = overrideString(
+    sourceWithRuntimeActive,
+    "model",
+    inherited.model || env(`AI_${envPrefix}_BACKUP_MODEL`, env("AI_VISION_BACKUP_MODEL", ""))
+  );
+  const timeoutMs = clampNumber(
+    hasOwn(sourceWithRuntimeActive, "timeoutMs")
+      ? sourceWithRuntimeActive.timeoutMs
+      : inherited.timeoutMs || firstEnv([`AI_${envPrefix}_BACKUP_TIMEOUT_MS`, "AI_VISION_BACKUP_TIMEOUT_MS"], "25000"),
+    25000,
+    5000,
+    60000
+  );
+  const enabled = hasOwn(sourceWithRuntimeActive, "enabled")
+    ? overrideBoolean(sourceWithRuntimeActive, "enabled", false)
+    : Boolean(provider && model && (baseUrl || endpointValue) && apiKey);
+  return {
+    enabled,
+    provider,
+    providerKey,
+    baseUrl,
+    endpoint: endpointValue,
+    apiKey,
+    model,
+    faceModel: baseSlot === "face" ? model : undefined,
+    timeoutMs,
+    maxImageBytes: inherited.maxImageBytes || resolveVisionConfig().maxImageBytes,
+    configured: Boolean(enabled && provider && (baseUrl || endpointValue) && apiKey && model)
+  };
+}
+
+function resolveFaceBackupConfig(overrides = {}, runtime) {
+  return resolveVisionBackupConfig(overrides, runtime, "face");
+}
+
+function resolveAnalysisBackupConfig(overrides = {}, runtime) {
+  return resolveVisionBackupConfig(overrides, runtime, "analysis");
+}
+
+function visionConfigCandidatesForAction(action, configs = {}) {
+  const primary = visionConfigForAction(action, configs);
+  const backup = action === "detectFaceCircle"
+    ? (configs.faceBackup || resolveFaceBackupConfig({}, configs.runtime))
+    : (configs.analysisBackup || resolveAnalysisBackupConfig({}, configs.runtime));
+  const candidates = [primary];
+  if (
+    backup
+    && backup.enabled
+    && backup.configured
+    && backup.providerKey !== primary.providerKey
+  ) {
+    candidates.push(backup);
+  }
+  return candidates;
+}
+
+function isVisionFallbackError(error) {
+  if (!error) return false;
+  if (error.retryable !== undefined) return Boolean(error.retryable);
+  return DEFAULT_RETRY_STATUSES.has(Number(error.status) || 0);
+}
+
+async function runVisionProviderFailover(candidates, request, options = {}) {
+  const list = Array.isArray(candidates) ? candidates.filter(Boolean) : [];
+  if (!list.length) throw new Error("没有可用的视觉服务商配置。");
+  let lastError = null;
+  for (let index = 0; index < list.length; index += 1) {
+    const candidate = list[index];
+    try {
+      const response = await request(candidate, index);
+      return { response, config: candidate, index };
+    } catch (error) {
+      lastError = error;
+      if (index >= list.length - 1 || !isVisionFallbackError(error)) throw error;
+      log("warn", "vision.provider-fallback", {
+        requestId: options.requestId || "",
+        action: options.action || "",
+        fromProvider: candidate.provider || "",
+        toProvider: list[index + 1].provider || "",
+        fromModel: candidate.model || "",
+        toModel: list[index + 1].model || "",
+        status: Number(error.status) || 0
+      });
+    }
+  }
+  throw lastError || new Error("视觉备用服务商调用失败。");
 }
 
 function visionConfigForAction(action, configs = {}) {
@@ -2019,6 +2189,16 @@ function resolveVideoBackupConfig(overrides = {}) {
   return {
     enabled,
     provider,
+    // 备用视频同样属于目录档案引用；保留稳定 providerKey，避免外部
+    // ID 改名后管理页和执行内核只能靠字符串猜测当前档案。
+    providerKey: normalizeProviderKey(
+      overrideString(
+        video,
+        "providerKey",
+        providerBuiltinKey(provider) || providerStableKey(provider)
+      ),
+      providerBuiltinKey(provider) || providerStableKey(provider)
+    ),
     baseUrl,
     endpoint: endpointValue,
     queryEndpoint: overrideString(
@@ -6856,8 +7036,14 @@ function normalizeLegacyRuntimePatch(input = {}) {
     ? normalizeAdminProviderLabels(source.providerLabels)
     : {};
   const faceSource = source.face && typeof source.face === "object" ? source.face : {};
+  const faceBackupSource = source.faceBackup && typeof source.faceBackup === "object"
+    ? source.faceBackup
+    : {};
   const analysisSource = source.analysis && typeof source.analysis === "object"
     ? source.analysis
+    : {};
+  const analysisBackupSource = source.analysisBackup && typeof source.analysisBackup === "object"
+    ? source.analysisBackup
     : {};
   const imageSource = source.image && typeof source.image === "object" ? source.image : {};
   const imageBackupSource = source.imageBackup && typeof source.imageBackup === "object"
@@ -6976,7 +7162,9 @@ function normalizeLegacyRuntimePatch(input = {}) {
     "alertCooldownMinutes"
   ];
   const faceConfig = {};
+  const faceBackup = {};
   const analysis = {};
+  const analysisBackup = {};
   const image = {};
   const imageBackup = {};
   const tencentFaceFusion = {};
@@ -6997,12 +7185,28 @@ function normalizeLegacyRuntimePatch(input = {}) {
         : faceSource[key];
     }
   });
+  faceKeys.concat(["enabled"]).forEach((key) => {
+    if (!hasOwn(faceBackupSource, key)) return;
+    faceBackup[key] = key === "apiKey"
+      ? normalizeApiKey(faceBackupSource[key])
+      : key === "enabled"
+        ? overrideBoolean(faceBackupSource, key, false)
+        : faceBackupSource[key];
+  });
   faceKeys.forEach((key) => {
     if (hasOwn(analysisSource, key)) {
       analysis[key] = key === "apiKey"
         ? normalizeApiKey(analysisSource[key])
         : analysisSource[key];
     }
+  });
+  faceKeys.concat(["enabled"]).forEach((key) => {
+    if (!hasOwn(analysisBackupSource, key)) return;
+    analysisBackup[key] = key === "apiKey"
+      ? normalizeApiKey(analysisBackupSource[key])
+      : key === "enabled"
+        ? overrideBoolean(analysisBackupSource, key, false)
+        : analysisBackupSource[key];
   });
   imageKeys.forEach((key) => {
     if (hasOwn(imageSource, key)) {
@@ -7134,9 +7338,11 @@ function normalizeLegacyRuntimePatch(input = {}) {
   if (Object.keys(analysisPricing).length) costs.analysis = analysisPricing;
   if (Object.keys(imagePricing).length) costs.image = imagePricing;
   if (Object.keys(videoPricing).length) costs.video = videoPricing;
-const result = {
+  const result = {
     face: faceConfig,
+    faceBackup,
     analysis,
+    analysisBackup,
     image,
     imageBackup,
     tencentFaceFusion,
@@ -7146,6 +7352,12 @@ const result = {
     costs,
     generationQueue
   };
+  if (hasOwn(source, "activeBackups")) {
+    result.activeBackups = normalizeActiveBackups(
+      source.activeBackups,
+      normalizeProviderRegistry(source.providerRegistry, { includeDefaults: true })
+    );
+  }
   if (hasOwn(source, "providerLabels")) {
     result.providerLabels = isAdminProviderObject(source.providerLabels)
       ? normalizeAdminProviderLabels(source.providerLabels)
@@ -7694,7 +7906,10 @@ function mergeProviderRecord(current, patch) {
     const before = existing.overrides && existing.overrides[slot] || {};
     const after = submitted.overrides && submitted.overrides[slot] || {};
     if (Object.keys(before).length || Object.keys(after).length) {
-      const overrideDisabled = after.overrideEnabled === false;
+      // 局部 patch 省略 overrideEnabled 时沿用旧开关；若旧档案已经关闭
+      // 覆盖，也要清理历史残留的独立地址/Key，不能让它们继续落到投影。
+      const overrideDisabled = after.overrideEnabled === false
+        || (after.overrideEnabled === undefined && before.overrideEnabled === false);
       result.overrides[slot] = overrideDisabled
         ? Object.assign({}, before, after, {
           provider: result.id,
@@ -7736,7 +7951,7 @@ function providerRegistryProviders(value) {
   if (!isProviderObject(value)) return {};
   const result = {};
   Object.keys(value).forEach((key) => {
-    if (["version", "updatedAt", "updatedBy", "providerRegistry", "activeProviders"].includes(key)) return;
+    if (["version", "updatedAt", "updatedBy", "providerRegistry", "activeProviders", "activeBackups"].includes(key)) return;
     if (!isProviderObject(value[key])) return;
     result[key] = value[key];
   });
@@ -7800,6 +8015,44 @@ function providerRecordKeyFor(value, registry) {
       || (record.aliases || []).some((alias) => String(alias).toLowerCase() === lower);
   });
   return matched || text;
+}
+
+function providerSlotConfigFromRuntime(runtime, reference, slot) {
+  const source = isProviderObject(runtime) ? runtime : {};
+  const registry = normalizeProviderRegistry(source.providerRegistry, { includeDefaults: true });
+  const key = providerRecordKeyFor(reference, registry);
+  const record = key && registry.providers[key];
+  if (!record) return {};
+  const override = record.overrides && record.overrides[slot] || {};
+  const ownConnection = override.overrideEnabled !== false;
+  const apiKey = ownConnection && override.clearApiKey
+    ? ""
+    : normalizeApiKey((ownConnection && override.apiKey) || record.apiKey)
+      || providerEnvironmentApiKey(record, slot);
+  const result = Object.assign({}, override, {
+    provider: record.id,
+    providerKey: key,
+    baseUrl: (ownConnection && override.baseUrl) || record.baseUrl || "",
+    endpoint: override.endpoint || "",
+    apiKey,
+    model: override.model || "",
+    timeoutMs: override.timeoutMs || 0
+  });
+  if (slot === "face") result.faceModel = result.model;
+  return result;
+}
+
+function normalizeActiveBackups(value, registry, options = {}) {
+  const source = value && value.activeBackups ? value.activeBackups : value;
+  const result = {};
+  PROVIDER_BACKUP_SLOTS.forEach((slot) => {
+    if (!source || !hasOwn(source, slot)) {
+      if (options.includeEmpty !== false) result[slot] = "";
+      return;
+    }
+    result[slot] = providerRecordKeyFor(source[slot], registry);
+  });
+  return result;
 }
 
 function normalizeActiveProviders(value, registry, options = {}) {
@@ -7926,6 +8179,12 @@ function buildLegacyProjectionFromProviderRegistry(runtime = {}) {
   const source = isProviderObject(runtime) ? providerClone(runtime) : {};
   const registry = normalizeProviderRegistry(source.providerRegistry, { includeDefaults: true });
   const active = normalizeActiveProviders(source.activeProviders, registry);
+  const hasActiveBackups = hasOwn(source, "activeBackups");
+  const activeBackups = normalizeActiveBackups(
+    source.activeBackups,
+    registry,
+    { includeEmpty: false }
+  );
   const providers = registry.providers;
   const labels = normalizeAdminProviderLabels(source.providerLabels, { includeDefaults: true });
   const profiles = normalizeAdminProviderProfiles(source.providerProfiles);
@@ -7983,6 +8242,77 @@ function buildLegacyProjectionFromProviderRegistry(runtime = {}) {
     }
     source[slot] = section;
   });
+  if (hasActiveBackups) {
+    PROVIDER_BACKUP_SLOTS.forEach((slot) => {
+      const key = activeBackups[slot];
+      const baseSlot = PROVIDER_BACKUP_BASE_SLOTS[slot];
+      const record = key && providers[key];
+      const previous = isProviderObject(source[slot]) ? source[slot] : {};
+      if (!record) {
+        source[slot] = Object.assign({}, previous, {
+          enabled: false,
+          provider: "",
+          providerKey: "",
+          baseUrl: "",
+          endpoint: "",
+          queryEndpoint: "",
+          apiKey: "",
+          model: ""
+        });
+        return;
+      }
+      const inherited = providerSlotConfigFromRuntime(source, key, baseSlot);
+      const override = record.overrides && record.overrides[baseSlot] || {};
+      const ownConnection = override.overrideEnabled !== false;
+      // providerSlotConfigFromRuntime 会为主槽位补环境变量 Key。备用槽位
+      // 不能把主环境 Key 误投影过来，否则 AI_*_BACKUP_API_KEY 永远不会
+      // 生效；只有目录中明确保存的档案 Key 才应优先于备用环境变量。
+      const explicitRecordApiKey = ownConnection && !override.clearApiKey
+        ? normalizeApiKey(override.apiKey || record.apiKey)
+        : "";
+      const previousKey = providerRecordKeyFor(
+        previous.providerKey || previous.provider,
+        registry
+      );
+      const sameProviderPrevious = previousKey && previousKey === key ? previous : {};
+      const projectedBackup = Object.assign({}, inherited, sameProviderPrevious, {
+        provider: record.id,
+        providerKey: key
+      });
+      if (!providerText(sameProviderPrevious.baseUrl, 500)) {
+        projectedBackup.baseUrl = inherited.baseUrl || record.baseUrl || "";
+      }
+      if (!hasOwn(sameProviderPrevious, "apiKey")) {
+        projectedBackup.apiKey = explicitRecordApiKey || "";
+      }
+      if (!providerText(sameProviderPrevious.model, 240)) projectedBackup.model = inherited.model || "";
+      // activeBackups 只保存档案引用，备用开关仍由顶层 section 保存。
+      // 切换到新档案时若没有显式开关，只有完整能力才允许默认启用；
+      // 明确关闭的草稿必须跨投影/重载保持关闭。
+      const explicitlyDisabled = hasOwn(sameProviderPrevious, "enabled")
+        && overrideBoolean(sameProviderPrevious, "enabled", false) === false;
+      projectedBackup.enabled = explicitlyDisabled
+        ? false
+        : Boolean(providerConfigComplete(record, baseSlot));
+      source[slot] = projectedBackup;
+    });
+  } else if (hasOwn(source, "providerRegistry")) {
+    // canonical 目录没有备用引用时，旧顶层 section 不能继续伪装成
+    // 已启用的备用模型；清空连接字段并显式标记 disabled，避免重载后
+    // resolver 因残留 provider/model 自动启用。
+    PROVIDER_BACKUP_SLOTS.forEach((slot) => {
+      source[slot] = Object.assign({}, source[slot] || {}, {
+        enabled: false,
+        provider: "",
+        providerKey: "",
+        baseUrl: "",
+        endpoint: "",
+        queryEndpoint: "",
+        apiKey: "",
+        model: ""
+      });
+    });
+  }
   PROVIDER_CAPABILITY_SLOTS.forEach((slot) => {
     profiles[slot] = isProviderObject(profiles[slot]) ? profiles[slot] : {};
   });
@@ -8007,6 +8337,7 @@ function buildLegacyProjectionFromProviderRegistry(runtime = {}) {
   return Object.assign(source, {
     providerRegistry: registry,
     activeProviders: active,
+    ...(hasActiveBackups ? { activeBackups } : {}),
     providerLabels: normalizeAdminProviderLabels(labels, { includeDefaults: true }),
     providerProfiles: normalizeAdminProviderProfiles(profiles)
   });
@@ -8033,6 +8364,11 @@ function migrateLegacyProviderRegistry(runtime, rawConfig) {
   let active = normalizeActiveProviders(
     normalized.activeProviders || raw.activeProviders,
     registry
+  );
+  let activeBackups = normalizeActiveBackups(
+    normalized.activeBackups || raw.activeBackups,
+    registry,
+    { includeEmpty: false }
   );
   const providers = registry.providers;
   // 迁移输入优先读取 rawConfig 中用户真正保存的 labels/profiles。一次
@@ -8170,7 +8506,45 @@ function migrateLegacyProviderRegistry(runtime, rawConfig) {
       );
       if (!hasCanonical || !active[slot]) active[slot] = key;
     });
+    PROVIDER_BACKUP_SLOTS.forEach((slot) => {
+      const baseSlot = PROVIDER_BACKUP_BASE_SLOTS[slot];
+      const section = isProviderObject(normalized[slot] || raw[slot])
+        ? (normalized[slot] || raw[slot])
+        : {};
+      const reference = section.providerKey || section.provider || "";
+      const hasProviderFields = [
+        "baseUrl", "endpoint", "apiKey", "model", "timeoutMs"
+      ].some((field) => providerText(section[field], 500));
+      if (!reference && !hasProviderFields) return;
+      const key = ensure(
+        reference || providerStableKey(`${slot}:${section.model || section.baseUrl || ""}`),
+        section.provider
+      );
+      if (!key) return;
+      const current = providers[key];
+      const override = normalizeProviderOverride(baseSlot, section, current.id);
+      current.overrides[baseSlot] = Object.assign(
+        {},
+        current.overrides[baseSlot] || {},
+        override,
+        { provider: current.id }
+      );
+      if (!hasCanonical) markLegacyRecord(current);
+      if (!activeBackups[slot]) activeBackups[slot] = key;
+    });
   }
+  // canonical 目录已经存在时，旧顶层备用配置仍需恢复到稳定的
+  // activeBackups 引用；配置对象本身由兼容投影保留，避免主/备模型混用。
+  PROVIDER_BACKUP_SLOTS.forEach((slot) => {
+    if (activeBackups[slot]) return;
+    const section = isProviderObject(normalized[slot] || raw[slot])
+      ? (normalized[slot] || raw[slot])
+      : {};
+    const reference = section.providerKey || section.provider || "";
+    if (!reference) return;
+    const key = providerRecordKeyFor(reference, registry);
+    if (key && hasOwn(providers, key)) activeBackups[slot] = key;
+  });
   // 旧配置没有 activeProviders 时，根据原有 provider 或稳定默认值补齐；视频没有可用项时保持空。
   PROVIDER_CAPABILITY_SLOTS.forEach((slot) => {
     if (active[slot]) {
@@ -8194,13 +8568,16 @@ function migrateLegacyProviderRegistry(runtime, rawConfig) {
   const value = buildLegacyProjectionFromProviderRegistry(Object.assign({}, normalized, {
     providerRegistry: registry,
     activeProviders: active,
+    ...(Object.keys(activeBackups).length ? { activeBackups } : {}),
     providerLabels: labels,
     providerProfiles: profiles
   }));
   const rawRegistry = raw && raw.providerRegistry;
   const rawActive = raw && raw.activeProviders;
+  const rawActiveBackups = raw && raw.activeBackups;
   const migrated = JSON.stringify(rawRegistry || null) !== JSON.stringify(value.providerRegistry)
     || JSON.stringify(rawActive || null) !== JSON.stringify(value.activeProviders)
+    || JSON.stringify(rawActiveBackups || null) !== JSON.stringify(value.activeBackups || null)
     || !hasOwn(raw, "providerRegistry")
     || !hasOwn(raw, "activeProviders");
   return { value, migrated };
@@ -8228,7 +8605,16 @@ function mergeProviderRegistry(current, patch) {
     normalizeActiveProviders(current && current.activeProviders, existing, { includeEmpty: false }),
     normalizeActiveProviders(patch && patch.activeProviders, existing, { includeEmpty: false })
   );
-  return { providerRegistry: existing, activeProviders: active };
+  const activeBackups = Object.assign(
+    {},
+    normalizeActiveBackups(current && current.activeBackups, existing, { includeEmpty: false }),
+    normalizeActiveBackups(patch && patch.activeBackups, existing, { includeEmpty: false })
+  );
+  return {
+    providerRegistry: existing,
+    activeProviders: active,
+    activeBackups
+  };
 }
 
 // 外部 ID 可编辑，但成本、展示标签和兼容 profile 仍可能以旧 ID 为键。
@@ -8310,6 +8696,51 @@ function mergeActiveProviderOverrides(registryValue, activeValue, overridesValue
       });
     }
     registry.providers[key].overrides = merged;
+  });
+  return registry;
+}
+
+// 备用视觉/视频配置在兼容接口中仍以 faceBackup/analysisBackup/videoBackup
+// 顶层 section 传入，但目录里复用对应能力档案的 override。这里把备用
+// section 的模型、路径和连接参数写回被选中的档案，保证目录是唯一事实
+// 来源；备用开关 enabled 不写入主能力，避免关闭备用误伤同一档案的主模型。
+function mergeActiveBackupOverrides(registryValue, activeValue, sectionsValue) {
+  const registry = normalizeProviderRegistry(registryValue, { includeDefaults: true });
+  const active = normalizeActiveBackups(activeValue, registry, { includeEmpty: false });
+  const sections = isProviderObject(sectionsValue) ? sectionsValue : {};
+  PROVIDER_BACKUP_SLOTS.forEach((slot) => {
+    const key = active[slot];
+    const baseSlot = PROVIDER_BACKUP_BASE_SLOTS[slot];
+    const section = sections[slot];
+    const record = key && registry.providers[key];
+    if (!record || !isProviderObject(section)) return;
+    const existing = record.overrides && record.overrides[baseSlot] || {};
+    const incoming = normalizeProviderOverride(baseSlot, section, record.id);
+    // 备用 enabled 只属于备用引用，不应把档案的主能力一起禁用。
+    delete incoming.enabled;
+    const merged = Object.assign({}, existing, incoming, { provider: record.id });
+    if (
+      merged.overrideEnabled !== false
+      && !incoming.clearApiKey
+      && hasOwn(incoming, "apiKey")
+      && !normalizeApiKey(incoming.apiKey)
+      && normalizeApiKey(existing.apiKey)
+    ) {
+      merged.apiKey = existing.apiKey;
+    }
+    if (
+      merged.overrideEnabled !== false
+      && !providerText(incoming.baseUrl, 500)
+      && providerText(existing.baseUrl, 500)
+    ) {
+      merged.baseUrl = existing.baseUrl;
+    }
+    if (merged.overrideEnabled === false) {
+      ["baseUrl", "apiKey", "clearApiKey"].forEach((field) => delete merged[field]);
+    }
+    record.overrides = Object.assign({}, record.overrides || {}, {
+      [baseSlot]: merged
+    });
   });
   return registry;
 }
@@ -8502,6 +8933,13 @@ function normalizeRuntimePatch(input = {}) {
       { includeEmpty: false }
     );
   }
+  if (hasOwn(source, "activeBackups")) {
+    normalized.activeBackups = normalizeActiveBackups(
+      source.activeBackups,
+      normalized.providerRegistry || normalizeProviderRegistry({}, { includeDefaults: true }),
+      { includeEmpty: false }
+    );
+  }
   if (hasOwn(source, "activeOverrides") && isProviderObject(source.activeOverrides)) {
     normalized.activeOverrides = {};
     PROVIDER_CAPABILITY_SLOTS.forEach((slot) => {
@@ -8528,11 +8966,22 @@ function normalizeRuntimePatch(input = {}) {
     const section = source[slot];
     return isProviderObject(section)
       && (hasOwn(section, "provider") || hasOwn(section, "providerKey"));
+  }) || PROVIDER_BACKUP_SLOTS.some((slot) => {
+    const section = source[slot];
+    return isProviderObject(section)
+      && (hasOwn(section, "provider") || hasOwn(section, "providerKey"));
   });
   if (hasOwn(source, "providerRegistry") || hasProviderSelectionPatch) {
     const migrated = migrateLegacyProviderRegistry(normalized, source);
     normalized.providerRegistry = migrated.value.providerRegistry;
     normalized.activeProviders = migrated.value.activeProviders;
+    // 没有备用槽位的旧 partial patch 不要挂一个值为 undefined 的
+    // activeBackups 属性；否则旧校验会把它误判成“必须是对象”。
+    if (isProviderObject(migrated.value.activeBackups)) {
+      normalized.activeBackups = migrated.value.activeBackups;
+    } else {
+      delete normalized.activeBackups;
+    }
     normalized.providerLabels = migrated.value.providerLabels;
     normalized.providerProfiles = migrated.value.providerProfiles;
   }
@@ -8573,14 +9022,50 @@ function validateCostNumber(value, field) {
 
 function validateRuntimePatch(patch, options = {}) {
   const errors = [];
+  if (patch && hasOwn(patch, "activeBackups") && !isProviderObject(patch.activeBackups)) {
+    errors.push("activeBackups 必须是对象");
+  }
   if (patch && hasOwn(patch, "providerRegistry")) {
     errors.push(...validateProviderRegistry(
       patch.providerRegistry,
       patch.activeProviders
     ));
+    if (hasOwn(patch, "activeBackups")) {
+      const backupRegistry = normalizeProviderRegistry(patch.providerRegistry, {
+        includeDefaults: true
+      });
+      const activeBackups = normalizeActiveBackups(
+        patch.activeBackups,
+        backupRegistry,
+        { includeEmpty: false }
+      );
+      Object.keys(activeBackups).forEach((slot) => {
+        const key = activeBackups[slot];
+        if (key && !hasOwn(backupRegistry.providers, key)) {
+          errors.push(`activeBackups.${slot} 指向不存在的服务商`);
+        }
+      });
+    }
+  }
+  if (
+    patch
+    && hasOwn(patch, "activeBackups")
+    && isProviderObject(patch.activeBackups)
+  ) {
+    PROVIDER_BACKUP_SLOTS.forEach((slot) => {
+      const value = patch.activeBackups[slot];
+      if (value === undefined || value === null || value === "") return;
+      const text = providerText(
+        isProviderObject(value) ? value.providerKey || value.id || value.provider : value,
+        160
+      );
+      if (!text) errors.push(`activeBackups.${slot} 引用不能为空`);
+    });
   }
   const face = patch.face || {};
+  const faceBackup = patch.faceBackup || {};
   const analysis = patch.analysis || {};
+  const analysisBackup = patch.analysisBackup || {};
   const image = patch.image || {};
   const imageBackup = patch.imageBackup || {};
   const tencentFaceFusion = patch.tencentFaceFusion || {};
@@ -8597,8 +9082,12 @@ function validateRuntimePatch(patch, options = {}) {
   [
     ["face.baseUrl", face.baseUrl],
     ["face.endpoint", face.endpoint],
+    ["faceBackup.baseUrl", faceBackup.baseUrl],
+    ["faceBackup.endpoint", faceBackup.endpoint],
     ["analysis.baseUrl", analysis.baseUrl],
     ["analysis.endpoint", analysis.endpoint],
+    ["analysisBackup.baseUrl", analysisBackup.baseUrl],
+    ["analysisBackup.endpoint", analysisBackup.endpoint],
     ["image.baseUrl", image.baseUrl],
     ["image.endpoint", image.endpoint],
     ["imageBackup.baseUrl", imageBackup.baseUrl],
@@ -8632,6 +9121,29 @@ function validateRuntimePatch(patch, options = {}) {
   ) {
     errors.push("imageBackup.mode 只能是 generations 或 edits");
   }
+  [
+    ["faceBackup.enabled", faceBackup.enabled],
+    ["analysisBackup.enabled", analysisBackup.enabled]
+  ].forEach(([field, value]) => {
+    if (value !== undefined && typeof value !== "boolean") {
+      errors.push(`${field} 必须是布尔值`);
+    }
+  });
+  [
+    ["faceBackup.timeoutMs", faceBackup.timeoutMs],
+    ["analysisBackup.timeoutMs", analysisBackup.timeoutMs]
+  ].forEach(([field, value]) => {
+    if (
+      value !== undefined
+      && (
+        !Number.isFinite(Number(value))
+        || Number(value) < 5000
+        || Number(value) > 60000
+      )
+    ) {
+      errors.push(`${field} 必须在 5000～60000 之间`);
+    }
+  });
   if (
     tencentFaceFusion.endpoint !== undefined
     && (
@@ -8755,11 +9267,31 @@ function validateRuntimePatch(patch, options = {}) {
   ) {
     errors.push("videoBackup.provider 不能和 video.provider 相同，请选择另一家备用服务商");
   }
+  if (
+    overrideBoolean(faceBackup, "enabled", false)
+    && faceBackup.provider
+    && normalizeAdminProviderId(face.provider)
+      === normalizeAdminProviderId(faceBackup.provider)
+  ) {
+    errors.push("faceBackup.provider 不能和 face.provider 相同，请选择另一家备用服务商");
+  }
+  if (
+    overrideBoolean(analysisBackup, "enabled", false)
+    && analysisBackup.provider
+    && normalizeAdminProviderId(analysis.provider)
+      === normalizeAdminProviderId(analysisBackup.provider)
+  ) {
+    errors.push("analysisBackup.provider 不能和 analysis.provider 相同，请选择另一家备用服务商");
+  }
   [
     ["face.provider", face.provider],
     ["face.model", face.model],
+    ["faceBackup.provider", faceBackup.provider],
+    ["faceBackup.model", faceBackup.model],
     ["analysis.provider", analysis.provider],
     ["analysis.model", analysis.model],
+    ["analysisBackup.provider", analysisBackup.provider],
+    ["analysisBackup.model", analysisBackup.model],
     ["image.provider", image.provider],
     ["image.model", image.model],
     ["image.size", image.size],
@@ -8993,11 +9525,25 @@ function mergeLegacyRuntimeConfig(current, patch) {
     submitted.face,
     providerProfiles
   );
+  const faceBackupConfig = mergeAdminRuntimeProviderSection(
+    "faceBackup",
+    existing.faceBackup,
+    submitted.faceBackup,
+    providerProfiles,
+    "face"
+  );
   const analysisConfig = mergeAdminRuntimeProviderSection(
     "analysis",
     existing.analysis,
     submitted.analysis,
     providerProfiles
+  );
+  const analysisBackupConfig = mergeAdminRuntimeProviderSection(
+    "analysisBackup",
+    existing.analysisBackup,
+    submitted.analysisBackup,
+    providerProfiles,
+    "analysis"
   );
   const imageConfig = mergeAdminRuntimeProviderSection(
     "image",
@@ -9057,14 +9603,16 @@ function mergeLegacyRuntimeConfig(current, patch) {
       }
     );
   });
-  return {
+  const result = {
     providerLabels: mergeAdminProviderLabels(
       existing.providerLabels,
       submitted.providerLabels
     ),
     providerProfiles,
     face: faceConfig,
+    faceBackup: faceBackupConfig,
     analysis: analysisConfig,
+    analysisBackup: analysisBackupConfig,
     image: imageConfig,
     imageBackup: imageBackupConfig,
     tencentFaceFusion: Object.assign(
@@ -9102,6 +9650,14 @@ function mergeLegacyRuntimeConfig(current, patch) {
       })
     })
   };
+  if (hasOwn(existing, "activeBackups") || hasOwn(submitted, "activeBackups")) {
+    result.activeBackups = Object.assign(
+      {},
+      normalizeActiveBackups(existing.activeBackups, undefined, { includeEmpty: false }),
+      normalizeActiveBackups(submitted.activeBackups, undefined, { includeEmpty: false })
+    );
+  }
+  return result;
 }
 
 function mergeRuntimeConfig(current, patch) {
@@ -9110,9 +9666,13 @@ function mergeRuntimeConfig(current, patch) {
   const legacy = mergeLegacyRuntimeConfig(existing, submitted);
   const hasDirectorySignal = (value) => {
     if (!isProviderObject(value)) return false;
-    if (hasOwn(value, "providerRegistry") || hasOwn(value, "activeProviders")) return true;
+    if (
+      hasOwn(value, "providerRegistry")
+      || hasOwn(value, "activeProviders")
+      || hasOwn(value, "activeBackups")
+    ) return true;
     if (hasOwn(value, "providerLabels") || hasOwn(value, "providerProfiles")) return true;
-    return PROVIDER_CAPABILITY_SLOTS.some((slot) => {
+    return PROVIDER_CAPABILITY_SLOTS.concat(PROVIDER_BACKUP_SLOTS).some((slot) => {
       const section = value[slot];
       return isProviderObject(section)
         && (hasOwn(section, "provider") || hasOwn(section, "providerKey"));
@@ -9128,22 +9688,28 @@ function mergeRuntimeConfig(current, patch) {
   const existingDirectory = existing.providerRegistry
     ? {
         providerRegistry: existing.providerRegistry,
-        activeProviders: existing.activeProviders
+        activeProviders: existing.activeProviders,
+        activeBackups: existing.activeBackups
       }
     : migrateLegacyProviderRegistry(existing, existing).value;
   const submittedDirectory = submittedHasDirectory && submitted.providerRegistry
     ? {
         providerRegistry: submitted.providerRegistry,
-        activeProviders: submitted.activeProviders
+        activeProviders: submitted.activeProviders,
+        activeBackups: submitted.activeBackups
       }
     : submittedHasDirectory
-      ? hasOwn(submitted, "activeProviders")
+      ? (hasOwn(submitted, "activeProviders") || hasOwn(submitted, "activeBackups"))
         // 管理页保存功能卡时只提交 activeProviders/activeOverrides，
         // 目录档案仍以事务中读取的 existingDirectory 为准；不能把未知的
         // 自定义 UUID 交给“旧 section 迁移”后又被默认服务商覆盖。
-        ? { providerRegistry: {}, activeProviders: submitted.activeProviders }
+        ? {
+            providerRegistry: {},
+            activeProviders: submitted.activeProviders,
+            activeBackups: submitted.activeBackups
+          }
         : migrateLegacyProviderRegistry(submitted, submitted).value
-      : { providerRegistry: {}, activeProviders: {} };
+      : { providerRegistry: {}, activeProviders: {}, activeBackups: {} };
   const registryMerge = mergeProviderRegistry(
     existingDirectory,
     submittedDirectory
@@ -9168,25 +9734,40 @@ function mergeRuntimeConfig(current, patch) {
     registryMerge.activeProviders,
     compatibilityActiveOverrides
   );
-  const registryWithLegacyProfiles = mergeLegacyProviderProfilesIntoRegistry(
+  const registryWithBackupOverrides = mergeActiveBackupOverrides(
     registryWithActiveOverrides,
+    registryMerge.activeBackups,
+    submitted
+  );
+  const registryWithLegacyProfiles = mergeLegacyProviderProfilesIntoRegistry(
+    registryWithBackupOverrides,
     legacy.providerProfiles
   );
   const activeFromLegacy = migrateLegacyProviderRegistry(
     Object.assign({}, legacy, {
       providerRegistry: registryWithLegacyProfiles,
-      activeProviders: Object.assign({}, registryMerge.activeProviders)
+      activeProviders: Object.assign({}, registryMerge.activeProviders),
+      ...(hasOwn(existing, "activeBackups") || hasOwn(submitted, "activeBackups")
+        ? { activeBackups: Object.assign({}, registryMerge.activeBackups || {}) }
+        : {})
     }),
     Object.assign({}, existing, submitted)
   ).value;
   const result = Object.assign({}, legacy, activeFromLegacy, {
-    providerRegistry: registryWithLegacyProfiles,
-    activeProviders: Object.assign(
-      {},
-      activeFromLegacy.activeProviders || {},
-      registryMerge.activeProviders || {}
-    )
+      providerRegistry: registryWithLegacyProfiles,
+      activeProviders: Object.assign(
+        {},
+        activeFromLegacy.activeProviders || {},
+        registryMerge.activeProviders || {}
+      )
   });
+  if (hasOwn(existing, "activeBackups") || hasOwn(submitted, "activeBackups")) {
+    result.activeBackups = Object.assign(
+      {},
+      activeFromLegacy.activeBackups || {},
+      registryMerge.activeBackups || {}
+    );
+  }
   const projected = buildLegacyProjectionFromProviderRegistry(result);
   // 兼容旧 helper：仅提交 providerLabels 时不凭空增加内置标签；
   // canonical registry 本身仍保留内置记录，管理页读取时再显式补默认标签。
@@ -9245,8 +9826,11 @@ const ADMIN_CONFIG_AUDIT_SECTIONS = Object.freeze([
   "providerProfiles",
   "providerRegistry",
   "activeProviders",
+  "activeBackups",
   "face",
+  "faceBackup",
   "analysis",
+  "analysisBackup",
   "image",
   "imageBackup",
   "tencentFaceFusion",
@@ -9679,7 +10263,9 @@ function redactAdminProviderProfiles(value, defaultsValue = {}) {
 
 function redactConfig(config, defaults) {
   const face = config.face || {};
+  const faceBackup = config.faceBackup || {};
   const analysis = config.analysis || {};
+  const analysisBackup = config.analysisBackup || {};
   const image = config.image || {};
   const imageBackup = config.imageBackup || {};
   const providerLabels = normalizeAdminProviderLabels(
@@ -9739,6 +10325,21 @@ function redactConfig(config, defaults) {
         || normalizeApiKey(defaults.face && defaults.face.apiKey)
       )
     },
+    faceBackup: {
+      enabled: Boolean(faceBackup.enabled),
+      provider: faceBackup.provider || "",
+      providerKey: faceBackup.providerKey || providerStableKey(faceBackup.provider),
+      baseUrl: faceBackup.baseUrl || "",
+      endpoint: faceBackup.endpoint || "",
+      apiKey: "",
+      model: faceBackup.faceModel || faceBackup.model || "",
+      timeoutMs: Number(faceBackup.timeoutMs || 0),
+      configured: Boolean(faceBackup.configured),
+      apiKeyConfigured: Boolean(
+        normalizeApiKey(faceBackup.apiKey)
+        || normalizeApiKey(defaults.faceBackup && defaults.faceBackup.apiKey)
+      )
+    },
     analysis: {
       provider: analysis.provider || "",
       providerKey: analysis.providerKey || providerStableKey(analysis.provider),
@@ -9750,6 +10351,21 @@ function redactConfig(config, defaults) {
       apiKeyConfigured: Boolean(
         normalizeApiKey(analysis.apiKey)
         || normalizeApiKey(defaults.analysis && defaults.analysis.apiKey)
+      )
+    },
+    analysisBackup: {
+      enabled: Boolean(analysisBackup.enabled),
+      provider: analysisBackup.provider || "",
+      providerKey: analysisBackup.providerKey || providerStableKey(analysisBackup.provider),
+      baseUrl: analysisBackup.baseUrl || "",
+      endpoint: analysisBackup.endpoint || "",
+      apiKey: "",
+      model: analysisBackup.model || "",
+      timeoutMs: Number(analysisBackup.timeoutMs || 0),
+      configured: Boolean(analysisBackup.configured),
+      apiKeyConfigured: Boolean(
+        normalizeApiKey(analysisBackup.apiKey)
+        || normalizeApiKey(defaults.analysisBackup && defaults.analysisBackup.apiKey)
       )
     },
     image: {
@@ -9842,6 +10458,7 @@ function redactConfig(config, defaults) {
     videoBackup: {
       enabled: Boolean(videoBackup.enabled),
       provider: videoBackup.provider || "",
+      providerKey: videoBackup.providerKey || providerStableKey(videoBackup.provider),
       baseUrl: videoBackup.baseUrl || "",
       endpoint: videoBackup.endpoint || "",
       queryEndpoint: videoBackup.queryEndpoint || "",
@@ -10110,7 +10727,8 @@ async function loadAdminRuntimeConfig(force = false, options = {}) {
           migrationData.activeProviders = registryMigration.value.activeProviders;
           migrationData.providerLabels = registryMigration.value.providerLabels;
           migrationData.providerProfiles = registryMigration.value.providerProfiles;
-          ["face", "analysis", "image", "imageBackup", "video"].forEach((slot) => {
+          migrationData.activeBackups = registryMigration.value.activeBackups;
+          ["face", "faceBackup", "analysis", "analysisBackup", "image", "imageBackup", "video", "videoBackup"].forEach((slot) => {
             if (registryMigration.value[slot]) migrationData[slot] = registryMigration.value[slot];
           });
         }
@@ -10202,19 +10820,24 @@ async function resolveEffectiveConfigs(options = {}) {
     : null;
   const projected = runtime
     ? buildLegacyProjectionFromProviderRegistry(runtime)
-    : {
+      : {
         face: {},
+        faceBackup: {},
         analysis: {},
+        analysisBackup: {},
         image: {},
         imageBackup: {},
         video: {},
+        videoBackup: {},
         points: {},
         costs: {},
         generationQueue: {}
       };
   const image = resolveImageConfig(projected.image);
   const face = resolveFaceConfig(projected.face);
+  const faceBackup = resolveFaceBackupConfig(projected.faceBackup, runtime);
   const analysis = resolveAnalysisConfig(projected.analysis);
+  const analysisBackup = resolveAnalysisBackupConfig(projected.analysisBackup, runtime);
   const imageBackup = resolveImageBackupConfig(projected.imageBackup);
   const video = resolveVideoConfig(projected.video);
   return {
@@ -10224,10 +10847,16 @@ async function resolveEffectiveConfigs(options = {}) {
         {},
         normalizeProviderRegistry({}, { includeDefaults: true })
       ),
+      activeBackups: normalizeActiveBackups(
+        {},
+        normalizeProviderRegistry({}, { includeDefaults: true })
+      ),
       providerLabels: normalizeAdminProviderLabels({}, { includeDefaults: true }),
       providerProfiles: normalizeAdminProviderProfiles({}),
       face: {},
+      faceBackup: {},
       analysis: {},
+      analysisBackup: {},
       image: {},
       imageBackup: {},
       tencentFaceFusion: {},
@@ -10245,6 +10874,10 @@ async function resolveEffectiveConfigs(options = {}) {
       (runtime || projected).activeProviders,
       (runtime || projected).providerRegistry
     ),
+    activeBackups: normalizeActiveBackups(
+      (runtime || projected).activeBackups,
+      (runtime || projected).providerRegistry
+    ),
     providerLabels: normalizeAdminProviderLabels(
       (runtime || projected).providerLabels,
       { includeDefaults: true }
@@ -10253,7 +10886,9 @@ async function resolveEffectiveConfigs(options = {}) {
       (runtime || projected).providerProfiles
     ),
     face,
+    faceBackup,
     analysis,
+    analysisBackup,
     image,
     imageBackup,
     tencentFaceFusion: resolveTencentFaceFusionConfig(
@@ -10275,7 +10910,9 @@ async function resolveEffectiveConfigs(options = {}) {
 
 function adminConfigView(configs, runtime, metadata = {}) {
   const faceDefaults = resolveFaceConfig();
+  const faceBackupDefaults = resolveFaceBackupConfig();
   const analysisDefaults = resolveAnalysisConfig();
+  const analysisBackupDefaults = resolveAnalysisBackupConfig();
   const imageDefaults = resolveImageConfig();
   const imageBackupDefaults = resolveImageBackupConfig();
   const tencentFaceFusionDefaults = resolveTencentFaceFusionConfig();
@@ -10289,7 +10926,9 @@ function adminConfigView(configs, runtime, metadata = {}) {
   const overrides = runtime || {
     providerLabels: {},
     face: {},
+    faceBackup: {},
     analysis: {},
+    analysisBackup: {},
     image: {},
     imageBackup: {},
     tencentFaceFusion: {},
@@ -10309,11 +10948,18 @@ function adminConfigView(configs, runtime, metadata = {}) {
       || runtime && runtime.activeProviders,
     providerRegistry
   );
+  const activeBackups = normalizeActiveBackups(
+    configs && configs.activeBackups
+      || runtime && runtime.activeBackups,
+    providerRegistry
+  );
   return {
     defaults: redactConfig({
       providerLabels: DEFAULT_ADMIN_PROVIDER_LABELS,
       face: faceDefaults,
+      faceBackup: faceBackupDefaults,
       analysis: analysisDefaults,
+      analysisBackup: analysisBackupDefaults,
       image: imageDefaults,
       imageBackup: imageBackupDefaults,
       tencentFaceFusion: tencentFaceFusionDefaults,
@@ -10325,7 +10971,9 @@ function adminConfigView(configs, runtime, metadata = {}) {
     }, {
       providerLabels: DEFAULT_ADMIN_PROVIDER_LABELS,
       face: faceDefaults,
+      faceBackup: faceBackupDefaults,
       analysis: analysisDefaults,
+      analysisBackup: analysisBackupDefaults,
       image: imageDefaults,
       imageBackup: imageBackupDefaults,
       tencentFaceFusion: tencentFaceFusionDefaults,
@@ -10338,7 +10986,9 @@ function adminConfigView(configs, runtime, metadata = {}) {
     overrides: redactConfig(overrides, {
       providerLabels: DEFAULT_ADMIN_PROVIDER_LABELS,
       face: faceDefaults,
+      faceBackup: faceBackupDefaults,
       analysis: analysisDefaults,
+      analysisBackup: analysisBackupDefaults,
       image: imageDefaults,
       imageBackup: imageBackupDefaults,
       tencentFaceFusion: tencentFaceFusionDefaults,
@@ -10351,7 +11001,9 @@ function adminConfigView(configs, runtime, metadata = {}) {
       providerLabels: configs.providerLabels,
       providerProfiles: overrides.providerProfiles,
       face: configs.face,
+      faceBackup: configs.faceBackup,
       analysis: configs.analysis,
+      analysisBackup: configs.analysisBackup,
       image: configs.image,
       imageBackup: configs.imageBackup,
       tencentFaceFusion: configs.tencentFaceFusion,
@@ -10363,7 +11015,9 @@ function adminConfigView(configs, runtime, metadata = {}) {
     }, {
       providerLabels: configs.providerLabels,
       face: configs.face,
+      faceBackup: configs.faceBackup,
       analysis: configs.analysis,
+      analysisBackup: configs.analysisBackup,
       image: configs.image,
       imageBackup: configs.imageBackup,
       tencentFaceFusion: configs.tencentFaceFusion,
@@ -10375,9 +11029,11 @@ function adminConfigView(configs, runtime, metadata = {}) {
     }),
     providerRegistry,
     activeProviders,
+    activeBackups,
     // effective 是兼容旧顶层配置；目录消费者优先使用 providerRegistry。
     effectiveProviderRegistry: providerRegistry,
     effectiveActiveProviders: activeProviders,
+    effectiveActiveBackups: activeBackups,
     updatedAt: metadata.updatedAt || "",
     version: Number(metadata.version || 0),
     admin: true
@@ -10442,8 +11098,18 @@ async function getAdminImageApiKeys(context) {
     face: {
       apiKey: String(configs.face && configs.face.apiKey || "")
     },
+    faceBackup: {
+      apiKey: String(configs.faceBackup && configs.faceBackup.apiKey || "")
+    },
     analysis: {
       apiKey: String(configs.analysis && configs.analysis.apiKey || "")
+    },
+    analysisBackup: {
+      apiKey: String(
+        configs.analysisBackup
+        && configs.analysisBackup.apiKey
+        || ""
+      )
     },
     image: {
       apiKey: String(configs.image && configs.image.apiKey || "")
@@ -10523,6 +11189,7 @@ function providerMutationInput(event = {}) {
     || payload.delete === true
     || payload.remove === true;
   const activePatch = source.activeProviders || source.active || payload.activeProviders || payload.active;
+  const activeBackupPatch = source.activeBackups || payload.activeBackups;
   return {
     record,
     operation: deleting ? "delete" : "upsert",
@@ -10532,6 +11199,7 @@ function providerMutationInput(event = {}) {
         ? payload.expectedVersion
         : source.version,
     activeProviders: activePatch,
+    activeBackups: activeBackupPatch,
     activeSlot: source.activeSlot || source.slot || payload.activeSlot || payload.slot,
     setActive: source.setActive !== undefined ? source.setActive : payload.setActive
   };
@@ -10583,8 +11251,14 @@ function providerRuntimeVersion(value) {
 
 function providerActiveFallback(slot, deletedKey, registry, active) {
   const providers = registry.providers;
+  // 备用槽位回退时 active[slot] 是仍在使用的主槽位档案；不能把
+  // 备用重新指向同一档案，否则 resolver 会去重，实际不会发生备用调用。
+  // 主槽位自身被删除时 active[slot] 通常等于 deletedKey，不额外排除。
+  const activeKey = active && providerText(active[slot], 160);
+  const excludedActiveKey = activeKey && activeKey !== deletedKey ? activeKey : "";
+  const isExcluded = (key) => key === deletedKey || key === excludedActiveKey;
   const fallbackKey = PROVIDER_ID_FALLBACKS[slot];
-  if (slot !== "video" && fallbackKey && fallbackKey !== deletedKey && hasOwn(providers, fallbackKey)
+  if (slot !== "video" && fallbackKey && !isExcluded(fallbackKey) && hasOwn(providers, fallbackKey)
       && providerConfigComplete(providers[fallbackKey], slot)) {
     return fallbackKey;
   }
@@ -10592,11 +11266,11 @@ function providerActiveFallback(slot, deletedKey, registry, active) {
     const envVideo = resolveVideoConfig();
     const envProvider = providerText(envVideo.provider, 120);
     const envKey = providerRecordKeyFor(envProvider, registry);
-    if (envVideo.configured && envKey && envKey !== deletedKey && hasOwn(providers, envKey)
+    if (envVideo.configured && envKey && !isExcluded(envKey) && hasOwn(providers, envKey)
         && providerConfigComplete(providers[envKey], slot)) {
       return envKey;
     }
-    if (envVideo.configured && envProvider && envKey !== deletedKey) {
+    if (envVideo.configured && envProvider && !isExcluded(envKey || envProvider)) {
       const envRecord = normalizeProviderRecord({
         providerKey: envKey || providerStableKey(envProvider),
         id: envProvider,
@@ -10617,7 +11291,7 @@ function providerActiveFallback(slot, deletedKey, registry, active) {
     }
   }
   const complete = Object.keys(providers).find((key) => (
-    key !== deletedKey
+    !isExcluded(key)
     && providerConfigComplete(providers[key], slot)
   ));
   return complete || "";
@@ -10639,16 +11313,21 @@ function providerAdminPayload(runtime, autoRebound = {}, metadata = {}) {
   const source = runtime && typeof runtime === "object" ? runtime : {};
   const registry = normalizeProviderRegistry(source.providerRegistry, { includeDefaults: true });
   const activeProviders = normalizeActiveProviders(source.activeProviders, registry);
+  const activeBackups = normalizeActiveBackups(source.activeBackups, registry);
   const projected = buildLegacyProjectionFromProviderRegistry(Object.assign({}, source, {
     providerRegistry: registry,
-    activeProviders
+    activeProviders,
+    activeBackups
   }));
   const configs = {
     face: resolveFaceConfig(projected.face),
+    faceBackup: resolveFaceBackupConfig(projected.faceBackup, projected),
     analysis: resolveAnalysisConfig(projected.analysis),
+    analysisBackup: resolveAnalysisBackupConfig(projected.analysisBackup, projected),
     image: resolveImageConfig(projected.image),
     imageBackup: resolveImageBackupConfig(projected.imageBackup),
     video: resolveVideoConfig(projected.video),
+    videoBackup: resolveVideoBackupConfig(projected.videoBackup),
     points: resolvePointsConfig(projected.points),
     costs: resolveCostConfig(projected.costs, { imageProvider: projected.image && projected.image.provider }),
     generationQueue: generationQueueMonitor.normalizeQueueSettings(projected.generationQueue)
@@ -10657,6 +11336,7 @@ function providerAdminPayload(runtime, autoRebound = {}, metadata = {}) {
     Object.assign({}, configs, {
       providerRegistry: registry,
       activeProviders,
+      activeBackups,
       providerLabels: projected.providerLabels,
       providerProfiles: projected.providerProfiles
     }),
@@ -10665,20 +11345,25 @@ function providerAdminPayload(runtime, autoRebound = {}, metadata = {}) {
   );
   const reboundDetails = Array.isArray(autoRebound)
     ? autoRebound.reduce((output, item) => {
-      if (!isProviderObject(item) || !PROVIDER_CAPABILITY_SLOTS.includes(item.slot)) return output;
+       if (!isProviderObject(item)
+         || (!PROVIDER_CAPABILITY_SLOTS.includes(item.slot)
+           && !PROVIDER_BACKUP_SLOTS.includes(item.slot))) return output;
       output[item.slot] = item;
       return output;
     }, {})
     : (isProviderObject(autoRebound) ? autoRebound : {});
   const reboundLabels = {
     face: "人脸识别",
+    faceBackup: "人脸备用模型",
     analysis: "图片分析",
+    analysisBackup: "分析备用模型",
     image: "生图主模型",
     imageBackup: "生图备用模型",
     video: "视频"
   };
   const reboundList = Object.keys(reboundDetails)
-    .filter((slot) => PROVIDER_CAPABILITY_SLOTS.includes(slot))
+     .filter((slot) => PROVIDER_CAPABILITY_SLOTS.includes(slot)
+       || PROVIDER_BACKUP_SLOTS.includes(slot))
     .map((slot) => {
       const item = isProviderObject(reboundDetails[slot]) ? reboundDetails[slot] : {};
       const from = providerText(item.from, 128);
@@ -10699,14 +11384,40 @@ function providerAdminPayload(runtime, autoRebound = {}, metadata = {}) {
     const redacted = providerClone(registry.providers[selectedKey]);
     if (redacted.metadata) redacted.metadata = redactProviderMetadata(redacted.metadata);
     redacted.apiKey = "";
+    const selectedRecord = registry.providers[selectedKey];
+    const selectedOverrides = selectedRecord.overrides || {};
+    const selectedBuiltinRecord = Boolean(
+      selectedRecord.builtIn
+      || providerBuiltinKey(selectedRecord.providerKey || selectedRecord.id || selectedRecord.provider)
+    );
+    const selectedBackupOverrideHasKey = PROVIDER_BACKUP_SLOTS.some((slot) => {
+      const baseSlot = PROVIDER_BACKUP_BASE_SLOTS[slot];
+      const override = selectedOverrides[slot] || selectedOverrides[baseSlot];
+      return Boolean(
+        override
+        && override.overrideEnabled !== false
+        && normalizeApiKey(override.apiKey)
+      );
+    });
+    const selectedBackupEnvironmentHasKey = selectedBuiltinRecord
+      && PROVIDER_BACKUP_SLOTS.some((slot) => {
+        const envNames = slot === "faceBackup"
+          ? ["AI_FACE_BACKUP_API_KEY", "AI_VISION_BACKUP_API_KEY"]
+          : slot === "analysisBackup"
+            ? ["AI_ANALYSIS_BACKUP_API_KEY", "AI_VISION_BACKUP_API_KEY"]
+            : ["AI_VIDEO_BACKUP_API_KEY", "AI_VIDEO_API_KEY", "AI_VIDEO_KEY"];
+        return Boolean(normalizeApiKey(firstEnv(envNames)));
+      });
     redacted.apiKeyConfigured = Boolean(
-      normalizeApiKey(registry.providers[selectedKey].apiKey)
-      || Object.keys(registry.providers[selectedKey].overrides || {}).some((slot) => (
-        registry.providers[selectedKey].overrides[slot]
-        && registry.providers[selectedKey].overrides[slot].overrideEnabled !== false
-        && normalizeApiKey(registry.providers[selectedKey].overrides[slot].apiKey)
+      normalizeApiKey(selectedRecord.apiKey)
+      || Object.keys(selectedOverrides).some((slot) => (
+        selectedOverrides[slot]
+        && selectedOverrides[slot].overrideEnabled !== false
+        && normalizeApiKey(selectedOverrides[slot].apiKey)
       ))
-      || PROVIDER_CAPABILITY_SLOTS.some((slot) => providerEnvironmentApiKey(registry.providers[selectedKey], slot))
+      || selectedBackupOverrideHasKey
+      || selectedBackupEnvironmentHasKey
+      || PROVIDER_CAPABILITY_SLOTS.some((slot) => providerEnvironmentApiKey(selectedRecord, slot))
     );
     Object.keys(redacted.overrides || {}).forEach((slot) => {
       if (redacted.overrides[slot]) redacted.overrides[slot].apiKey = "";
@@ -10716,6 +11427,7 @@ function providerAdminPayload(runtime, autoRebound = {}, metadata = {}) {
   return {
     providerRegistry: redactProviderRegistry(registry),
     activeProviders,
+    activeBackups,
     effective: view.effective,
     version: providerRuntimeVersion(
       metadata.version !== undefined && metadata.version !== null
@@ -10727,7 +11439,8 @@ function providerAdminPayload(runtime, autoRebound = {}, metadata = {}) {
     autoRebound: reboundList,
     autoReboundDetails: reboundDetails,
     effectiveProviderRegistry: view.effectiveProviderRegistry,
-    effectiveActiveProviders: view.effectiveActiveProviders
+    effectiveActiveProviders: view.effectiveActiveProviders,
+    effectiveActiveBackups: view.effectiveActiveBackups
   };
 }
 
@@ -10751,10 +11464,40 @@ function providerSecretView(runtime, requested) {
           || providerEnvironmentApiKey(record, slot);
       slots[slot] = { apiKey, configured: Boolean(apiKey) };
     });
+    // 视觉/视频备用引用复用对应能力档案，但管理员密钥页需要显式
+    // 展示备用槽位，且优先读取专用备用环境变量，避免把主 Key 状态误报。
+    PROVIDER_BACKUP_SLOTS.forEach((slot) => {
+      const baseSlot = PROVIDER_BACKUP_BASE_SLOTS[slot];
+      const override = record.overrides && record.overrides[baseSlot] || {};
+      const ownConnection = override.overrideEnabled !== false;
+      const dedicatedEnvNames = slot === "faceBackup"
+        ? ["AI_FACE_BACKUP_API_KEY", "AI_VISION_BACKUP_API_KEY"]
+        : slot === "analysisBackup"
+          ? ["AI_ANALYSIS_BACKUP_API_KEY", "AI_VISION_BACKUP_API_KEY"]
+          : ["AI_VIDEO_BACKUP_API_KEY", "AI_VIDEO_API_KEY", "AI_VIDEO_KEY"];
+      const builtinRecord = Boolean(
+        record.builtIn
+        || providerBuiltinKey(record.providerKey || record.id || record.provider)
+      );
+      const apiKey = ownConnection && override.clearApiKey
+        ? ""
+        : normalizeApiKey((ownConnection && override.apiKey) || record.apiKey)
+          || (builtinRecord ? normalizeApiKey(firstEnv(dedicatedEnvNames)) : "")
+          || slots[baseSlot] && slots[baseSlot].apiKey
+          || "";
+      slots[slot] = { apiKey, configured: Boolean(apiKey), baseSlot };
+    });
     const preferredSlots = PROVIDER_CAPABILITY_SLOTS.filter((slot) => (
       providerHasCapability(record, slot)
     ));
+    const allSecretSlots = PROVIDER_CAPABILITY_SLOTS.concat(PROVIDER_BACKUP_SLOTS);
     const commonApiKey = normalizeApiKey(record.apiKey)
+      // 公共 Key 为空时，能力覆盖中的真实 Key 也要回显到管理员明文面板；
+      // backup 别名复用对应主槽位，但仍纳入遍历，避免只配备用能力时显示空。
+      || allSecretSlots
+        .map((slot) => slots[slot] && slots[slot].apiKey)
+        .map((value) => normalizeApiKey(value))
+        .find(Boolean)
       || preferredSlots
         .concat(PROVIDER_CAPABILITY_SLOTS.filter((slot) => !preferredSlots.includes(slot)))
         .map((slot) => providerEnvironmentApiKey(record, slot))
@@ -10814,6 +11557,7 @@ async function saveAdminProvider(event = {}, context) {
       }
       const registry = normalizeProviderRegistry(current.providerRegistry, { includeDefaults: true });
       let active = normalizeActiveProviders(current.activeProviders, registry);
+      let activeBackups = normalizeActiveBackups(current.activeBackups, registry);
       const autoRebound = {};
       let changedProviderKey = "";
       let renamedFromId = "";
@@ -10839,6 +11583,13 @@ async function saveAdminProvider(event = {}, context) {
           const rebound = providerActiveFallback(slot, targetKey, registry, active);
           autoRebound[slot] = { from: targetKey, to: rebound };
           active[slot] = rebound;
+        });
+        PROVIDER_BACKUP_SLOTS.forEach((slot) => {
+          if (activeBackups[slot] !== targetKey) return;
+          const baseSlot = PROVIDER_BACKUP_BASE_SLOTS[slot];
+          const rebound = providerActiveFallback(baseSlot, targetKey, registry, active);
+          autoRebound[slot] = { from: targetKey, to: rebound };
+          activeBackups[slot] = rebound;
         });
       } else {
         let targetKey = providerRecordKeyFor(
@@ -10883,6 +11634,13 @@ async function saveAdminProvider(event = {}, context) {
           throw providerError("服务商至少要配置一项完整能力（地址、模型和 Key）。", "PROVIDER_CAPABILITY_REQUIRED");
         }
         if (mutation.activeProviders) active = applyProviderActivePatch(active, mutation.activeProviders, registry);
+        if (mutation.activeBackups) {
+          activeBackups = Object.assign(
+            {},
+            activeBackups,
+            normalizeActiveBackups(mutation.activeBackups, registry, { includeEmpty: false })
+          );
+        }
         if (mutation.activeSlot && mutation.setActive !== false) {
           const slot = String(mutation.activeSlot);
           if (PROVIDER_CAPABILITY_SLOTS.includes(slot)) active[slot] = targetKey;
@@ -10890,7 +11648,8 @@ async function saveAdminProvider(event = {}, context) {
       }
       const projected = buildLegacyProjectionFromProviderRegistry(Object.assign({}, current, {
         providerRegistry: registry,
-        activeProviders: active
+        activeProviders: active,
+        activeBackups
       }));
       if (renamedFromId && changedProviderKey && registry.providers[changedProviderKey]) {
         const renamed = migrateProviderExternalIdReferences(
@@ -10904,6 +11663,7 @@ async function saveAdminProvider(event = {}, context) {
       registry.version = nextVersion;
       projected.providerRegistry = registry;
       projected.activeProviders = active;
+      projected.activeBackups = activeBackups;
       projected.version = nextVersion;
       projected.updatedAt = new Date();
       projected.updatedBy = getOpenId(context);
@@ -10969,9 +11729,9 @@ async function getAdminProviderSecrets(event = {}, context) {
   const selected = firstKey ? secrets[firstKey] : null;
   const capabilities = {};
   if (selected) {
-    PROVIDER_CAPABILITY_SLOTS.forEach((slot) => {
-      const item = selected.slots && selected.slots[slot] || {};
-      capabilities[slot] = {
+      PROVIDER_CAPABILITY_SLOTS.concat(PROVIDER_BACKUP_SLOTS).forEach((slot) => {
+        const item = selected.slots && selected.slots[slot] || {};
+        capabilities[slot] = {
         apiKey: String(item.apiKey || ""),
         apiKeyConfigured: Boolean(item.configured)
       };
@@ -11597,7 +12357,7 @@ async function initializeDatabase(context) {
 }
 
 function dropBlankRuntimeApiKeys(patch = {}) {
-  ["face", "analysis", "image", "imageBackup", "video", "videoBackup"].forEach((section) => {
+  ["face", "faceBackup", "analysis", "analysisBackup", "image", "imageBackup", "video", "videoBackup"].forEach((section) => {
     if (
       patch[section]
       && hasOwn(patch[section], "apiKey")
@@ -11749,10 +12509,13 @@ async function saveAdminConfig(event, context) {
         _id: ADMIN_RUNTIME_CONFIG_ID,
         providerRegistry: canonicalRegistry,
         activeProviders: normalizeActiveProviders(next.activeProviders, canonicalRegistry),
+        activeBackups: normalizeActiveBackups(next.activeBackups, canonicalRegistry),
         providerLabels: next.providerLabels || {},
         providerProfiles: next.providerProfiles || {},
         face: next.face,
+        faceBackup: next.faceBackup,
         analysis: next.analysis,
+        analysisBackup: next.analysisBackup,
         image: next.image,
         imageBackup: next.imageBackup,
         tencentFaceFusion: next.tencentFaceFusion,
@@ -11800,10 +12563,13 @@ async function saveAdminConfig(event, context) {
     value: {
       providerRegistry: data.providerRegistry,
       activeProviders: data.activeProviders,
+      activeBackups: data.activeBackups,
       providerLabels: data.providerLabels,
       providerProfiles: data.providerProfiles,
       face: next.face,
+      faceBackup: next.faceBackup,
       analysis: next.analysis,
+      analysisBackup: next.analysisBackup,
       image: next.image,
       imageBackup: next.imageBackup,
       tencentFaceFusion: next.tencentFaceFusion,
@@ -11830,7 +12596,9 @@ async function saveAdminConfig(event, context) {
     imageBackupFields: Object.keys(patch.imageBackup),
     tencentFaceFusionFields: Object.keys(patch.tencentFaceFusion),
     videoFields: Object.keys(patch.video),
-    videoBackupFields: Object.keys(patch.videoBackup),
+      videoBackupFields: Object.keys(patch.videoBackup),
+     faceBackupFields: Object.keys(patch.faceBackup),
+     analysisBackupFields: Object.keys(patch.analysisBackup),
     pointsFields: Object.keys(patch.points),
     costFields: Object.keys(patch.costs),
     generationQueueFields: Object.keys(patch.generationQueue)
@@ -13253,9 +14021,11 @@ async function exportAutoFaceFailureStats(event, context) {
 async function analyze(event, context) {
   const payload = event.payload || {};
   const configs = await resolveEffectiveConfigs();
-  const vision = visionConfigForAction("analyze", configs);
+  const visionCandidates = visionConfigCandidatesForAction("analyze", configs)
+    .filter((candidate) => candidate && candidate.apiKey && candidate.model
+      && (candidate.endpoint || candidate.baseUrl));
   const costs = configs.costs;
-  if (!vision.apiKey) {
+  if (!visionCandidates.length) {
     return fail(
       "云函数还没有配置 AI_VISION_API_KEY（兼容 AI_API_KEY）。",
       "missing-api-key"
@@ -13268,42 +14038,48 @@ async function analyze(event, context) {
     action: "analyze",
     fileType: "main"
   });
-  assertVisionImageSize(image, vision);
-  const url = vision.endpoint || endpoint(vision.baseUrl, "chat/completions");
-  const model = vision.model;
+  assertVisionImageSize(image, visionCandidates[0]);
   const instruction = payload.instruction || "请分析图片并返回场景、背景、姿态、面部朝向、光影妆容五项。";
-  const requestPayload = {
-    model,
-    temperature: 0.2,
-    messages: [{
-      role: "user",
-      content: [
-        { type: "text", text: `${instruction}\n只返回 JSON，字段名使用 sceneDescription、backgroundDescription、poseDescription、faceDirectionDescription、lightingMakeupDescription、precisionNotes。` },
-        { type: "image_url", image_url: { url: toDataUrl(image, "image/jpeg") } }
-      ]
-    }]
-  };
-  let response;
-  try {
-    response = await requestJson(url, Object.assign({}, requestPayload, {
-      response_format: { type: "json_object" }
-    }), vision.apiKey, {}, Object.assign(
-      visionRequestMeta(event.requestId, "analyze", vision, costs),
-      { userHash: usageUserHash(getOpenId(context)) }
-    ));
-  } catch (error) {
-    if (error.status !== 400) throw error;
-    response = await requestJson(
-      url,
-      requestPayload,
-      vision.apiKey,
-      {},
-      Object.assign(
-        visionRequestMeta(event.requestId, "analyze", vision, costs),
+  const imageDataUrl = toDataUrl(image, "image/jpeg");
+  const result = await runVisionProviderFailover(
+    visionCandidates,
+    async (candidate) => {
+      const url = candidate.endpoint || endpoint(candidate.baseUrl, "chat/completions");
+      const requestPayload = {
+        model: candidate.model,
+        temperature: 0.2,
+        messages: [{
+          role: "user",
+          content: [
+            { type: "text", text: `${instruction}\n只返回 JSON，字段名使用 sceneDescription、backgroundDescription、poseDescription、faceDirectionDescription、lightingMakeupDescription、precisionNotes。` },
+            { type: "image_url", image_url: { url: imageDataUrl } }
+          ]
+        }]
+      };
+      const requestMeta = Object.assign(
+        visionRequestMeta(event.requestId, "analyze", candidate, costs),
         { userHash: usageUserHash(getOpenId(context)) }
-      )
-    );
-  }
+      );
+      try {
+        return await requestJson(
+          url,
+          Object.assign({}, requestPayload, {
+            response_format: { type: "json_object" }
+          }),
+          candidate.apiKey,
+          {},
+          requestMeta
+        );
+      } catch (error) {
+        if (error.status !== 400) throw error;
+        return requestJson(url, requestPayload, candidate.apiKey, {}, requestMeta);
+      }
+    },
+    { requestId: event.requestId, action: "analyze" }
+  );
+  const vision = result.config;
+  const response = result.response;
+  const model = vision.model;
   const rawText = extractText(response);
   if (!rawText) return fail("视觉模型没有返回可用分析文本。", "empty-analysis");
   return jsonResponse(true, {
@@ -13317,9 +14093,11 @@ async function detectFaceCircle(event, context) {
   const detectionStartedAt = Date.now();
   const payload = event.payload || {};
   const configs = await resolveEffectiveConfigs();
-  const vision = visionConfigForAction("detectFaceCircle", configs);
+  const visionCandidates = visionConfigCandidatesForAction("detectFaceCircle", configs)
+    .filter((candidate) => candidate && candidate.apiKey && candidate.model
+      && (candidate.endpoint || candidate.baseUrl));
   const costs = configs.costs;
-  if (!vision.apiKey) {
+  if (!visionCandidates.length) {
     return fail(
       "云函数还没有配置 AI_VISION_API_KEY（兼容 AI_API_KEY）。",
       "missing-api-key"
@@ -13333,14 +14111,12 @@ async function detectFaceCircle(event, context) {
     fileType: "main"
   });
   const downloadMs = Date.now() - detectionStartedAt;
-  const imageBytes = assertVisionImageSize(image, vision);
+  const imageBytes = assertVisionImageSize(image, visionCandidates[0]);
   log("info", "vision.image.ready", {
     requestId: event.requestId,
     action: "detectFaceCircle",
     imageBytes
   });
-  const url = vision.endpoint || endpoint(vision.baseUrl, "chat/completions");
-  const model = vision.model;
   const instruction = [
     "你是人脸位置检测器，只分析这张原图中清晰可见的人脸。",
     "请找出所有可识别的人脸，忽略海报、头像小图、屏幕反光和动物脸。",
@@ -13355,44 +14131,60 @@ async function detectFaceCircle(event, context) {
   const imageEncodingStartedAt = Date.now();
   const imageDataUrl = toDataUrl(image, detectMime(image));
   const imageEncodingMs = Date.now() - imageEncodingStartedAt;
-  const requestPayload = sanitizeVisionRequestPayload({
-    model,
-    temperature: 0,
-    top_p: 0.01,
-    seed: 42,
-    max_tokens: 128,
-    enable_thinking: false,
-    messages: [{
-      role: "user",
-      content: [
-        { type: "text", text: instruction },
-        { type: "image_url", image_url: { url: imageDataUrl } }
-      ]
-    }]
-  }, vision);
   let response;
+  let vision = visionCandidates[0];
+  let model = vision.model;
   const visionRequestStartedAt = Date.now();
   try {
-    try {
-        response = await requestJson(url, Object.assign({}, requestPayload, {
-          response_format: { type: "json_object" }
-        }), vision.apiKey, {}, Object.assign(
-          visionRequestMeta(event.requestId, "detectFaceCircle", vision, costs),
+    const result = await runVisionProviderFailover(
+      visionCandidates,
+      async (candidate) => {
+        const url = candidate.endpoint || endpoint(candidate.baseUrl, "chat/completions");
+        const requestPayload = sanitizeVisionRequestPayload({
+          model: candidate.model,
+          temperature: 0,
+          top_p: 0.01,
+          seed: 42,
+          max_tokens: 128,
+          enable_thinking: false,
+          messages: [{
+            role: "user",
+            content: [
+              { type: "text", text: instruction },
+              { type: "image_url", image_url: { url: imageDataUrl } }
+            ]
+          }]
+        }, candidate);
+        const requestMeta = Object.assign(
+          visionRequestMeta(event.requestId, "detectFaceCircle", candidate, costs),
           { userHash: usageUserHash(getOpenId(context)) }
-        ));
-    } catch (error) {
-      if (error.status !== 400) throw error;
-      response = await requestJson(
-        url,
-        sanitizeVisionRequestPayload(requestPayload, vision),
-        vision.apiKey,
-        {},
-        Object.assign(
-          visionRequestMeta(event.requestId, "detectFaceCircle", vision, costs),
-          { userHash: usageUserHash(getOpenId(context)) }
-        )
-      );
-    }
+        );
+        try {
+          return await requestJson(
+            url,
+            Object.assign({}, requestPayload, {
+              response_format: { type: "json_object" }
+            }),
+            candidate.apiKey,
+            {},
+            requestMeta
+          );
+        } catch (error) {
+          if (error.status !== 400) throw error;
+          return requestJson(
+            url,
+            sanitizeVisionRequestPayload(requestPayload, candidate),
+            candidate.apiKey,
+            {},
+            requestMeta
+          );
+        }
+      },
+      { requestId: event.requestId, action: "detectFaceCircle" }
+    );
+    response = result.response;
+    vision = result.config;
+    model = vision.model;
   } catch (error) {
     log("warn", "face-detection.failed", {
       requestId: event.requestId,
@@ -13580,9 +14372,11 @@ async function probeAutoFace(event, context) {
 async function analyzeWebPoses(event, context) {
   const payload = event.payload || {};
   const configs = await resolveEffectiveConfigs();
-  const vision = visionConfigForAction("analyzeWebPoses", configs);
+  const visionCandidates = visionConfigCandidatesForAction("analyzeWebPoses", configs)
+    .filter((candidate) => candidate && candidate.apiKey && candidate.model
+      && (candidate.endpoint || candidate.baseUrl));
   const costs = configs.costs;
-  if (!vision.apiKey) {
+  if (!visionCandidates.length) {
     return fail(
       "云函数还没有配置 AI_VISION_API_KEY（兼容 AI_API_KEY）。",
       "missing-api-key"
@@ -13595,9 +14389,7 @@ async function analyzeWebPoses(event, context) {
     action: "analyzeWebPoses",
     fileType: "main"
   });
-  assertVisionImageSize(image, vision);
-  const url = vision.endpoint || endpoint(vision.baseUrl, "chat/completions");
-  const model = vision.model;
+  assertVisionImageSize(image, visionCandidates[0]);
   const instruction = [
     "你是人像摄影姿势指导。当前目标平台是“社交平台照片”，分析方向是“自然”，调整幅度是“正常调整”。",
     "只根据这张原图中真实可见的人物、构图、机位、身体空间和遮挡情况，给出 8 个可实际执行、自然上镜的姿势方案。",
@@ -13609,9 +14401,12 @@ async function analyzeWebPoses(event, context) {
     "poses 必须正好有 8 条；id 必须恰好为 1 到 8 且不重复；category 只能是侧身、回头、手部、肩颈、坐姿、全身或其他；title 使用 2 到 12 个中文字符；description 每条至少 20 个中文字符。"
   ].join("\n");
   const imageDataUrl = toDataUrl(image, detectMime(image));
-  const requestWebPose = async (prompt, temperature) => {
+  let vision = visionCandidates[0];
+  let model = vision.model;
+  const requestWebPose = async (candidate, prompt, temperature) => {
+    const url = candidate.endpoint || endpoint(candidate.baseUrl, "chat/completions");
     const requestPayload = sanitizeVisionRequestPayload({
-      model,
+      model: candidate.model,
       temperature,
       top_p: 0.2,
       max_tokens: 2400,
@@ -13623,9 +14418,9 @@ async function analyzeWebPoses(event, context) {
           { type: "image_url", image_url: { url: imageDataUrl } }
         ]
       }]
-    }, vision);
+    }, candidate);
     const requestMeta = Object.assign(
-      visionRequestMeta(event.requestId, "analyzeWebPoses", vision, costs),
+      visionRequestMeta(event.requestId, "analyzeWebPoses", candidate, costs),
       { userHash: usageUserHash(getOpenId(context)) }
     );
     try {
@@ -13634,7 +14429,7 @@ async function analyzeWebPoses(event, context) {
         Object.assign({}, requestPayload, {
           response_format: { type: "json_object" }
         }),
-        vision.apiKey,
+        candidate.apiKey,
         {},
         requestMeta
       );
@@ -13644,7 +14439,7 @@ async function analyzeWebPoses(event, context) {
       const fallbackPayload = sanitizeVisionRequestPayload(requestPayload, requestMeta);
       delete fallbackPayload.enable_thinking;
       delete fallbackPayload.seed;
-      return requestJson(url, fallbackPayload, vision.apiKey, {}, requestMeta);
+      return requestJson(url, fallbackPayload, candidate.apiKey, {}, requestMeta);
     }
   };
   const repairInstruction = [
@@ -13654,7 +14449,14 @@ async function analyzeWebPoses(event, context) {
     "如果某些身体部位在图片中看不见，就写不依赖该部位的替代动作，不要减少条数。",
     "JSON 结构示例：{\"poses\":[{\"id\":1,\"title\":\"短标题\",\"description\":\"具体动作说明\",\"category\":\"其他\",\"tags\":[],\"unsuitableReason\":\"\"}]}"
   ].join("\n");
-  let response = await requestWebPose(instruction, 0.2);
+  let responseResult = await runVisionProviderFailover(
+    visionCandidates,
+    (candidate) => requestWebPose(candidate, instruction, 0.2),
+    { requestId: event.requestId, action: "analyzeWebPoses" }
+  );
+  vision = responseResult.config;
+  model = vision.model;
+  let response = responseResult.response;
   let rawText = extractText(response);
   let suggestions = normalizeWebPoseSuggestions(parseLooseJson(rawText));
   if (!suggestions) {
@@ -13665,7 +14467,7 @@ async function analyzeWebPoses(event, context) {
       rawTextLength: rawText.length,
       retry: true
     });
-    response = await requestWebPose(repairInstruction, 0);
+    response = await requestWebPose(vision, repairInstruction, 0);
     rawText = extractText(response);
     suggestions = normalizeWebPoseSuggestions(parseLooseJson(rawText));
   }
@@ -21607,6 +22409,10 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     resolveVisionConfig,
     resolveFaceConfig,
     resolveAnalysisConfig,
+    resolveFaceBackupConfig,
+    resolveAnalysisBackupConfig,
+    visionConfigCandidatesForAction,
+    runVisionProviderFailover,
     normalizeApiKey,
     apiKeyHeaders,
     mapActionErrorResult,
@@ -21691,7 +22497,9 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     mergeProviderRegistry,
     mergeProviderDirectory,
     mergeActiveProviderOverrides,
+    mergeActiveBackupOverrides,
     normalizeActiveProviders,
+    normalizeActiveBackups,
     buildLegacyProjectionFromProviderRegistry,
     migrateLegacyProviderRegistry,
     migrateProviderExternalIdReferences,

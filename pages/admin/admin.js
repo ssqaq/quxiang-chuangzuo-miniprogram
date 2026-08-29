@@ -97,12 +97,26 @@ const ADMIN_PROVIDER_VALUES = Object.freeze({
 });
 const ADMIN_PROVIDER_FORM_SECTIONS = Object.freeze([
   "face",
+  "faceBackup",
   "analysis",
+  "analysisBackup",
   "image",
   "imageBackup",
   "video",
   "videoBackup"
 ]);
+// 备用视觉/视频模型是独立的运行时槽位，但仍复用同一份服务商目录。
+// 目录本身保持 5 个能力槽，activeBackups 只记录备用槽位当前引用。
+const ADMIN_PROVIDER_BACKUP_SECTIONS = Object.freeze([
+  "faceBackup",
+  "analysisBackup",
+  "videoBackup"
+]);
+const ADMIN_PROVIDER_BACKUP_BASE_SECTIONS = Object.freeze({
+  faceBackup: "face",
+  analysisBackup: "analysis",
+  videoBackup: "video"
+});
 const ADMIN_PROVIDER_PROFILE_SECTIONS = Object.freeze([
   "face",
   "analysis",
@@ -248,7 +262,8 @@ function adminProviderIdsFromForm(form) {
   const providerIds = [];
   ADMIN_PROVIDER_FORM_SECTIONS.forEach((section) => {
     const providerId = providerIdFromDisplay(
-      source[section] && source[section].provider
+      source[section]
+      && (source[section].provider || source[section].providerKey)
     );
     if (providerId && !providerIds.includes(providerId)) providerIds.push(providerId);
   });
@@ -390,7 +405,9 @@ function buildAdminProviderFilterState(form, selectedValue = "all") {
     : "all";
   const index = Math.max(0, options.findIndex((item) => item.value === selected));
   const sectionProviderId = (section) => providerIdFromDisplay(
-    form && form[section] && form[section].provider
+    form
+    && form[section]
+    && (form[section].provider || form[section].providerKey)
   );
   const matches = (section) => selected === "all" || sectionProviderId(section) === selected;
   return {
@@ -399,8 +416,12 @@ function buildAdminProviderFilterState(form, selectedValue = "all") {
     providerFilterIndex: index,
     providerFilterLabel: options[index] && options[index].label || "全部服务商",
     providerSectionVisibility: {
-      face: matches("face"),
-      analysis: matches("analysis"),
+      face: selected === "all"
+        || sectionProviderId("face") === selected
+        || sectionProviderId("faceBackup") === selected,
+      analysis: selected === "all"
+        || sectionProviderId("analysis") === selected
+        || sectionProviderId("analysisBackup") === selected,
       image: selected === "all"
         || sectionProviderId("image") === selected
         || sectionProviderId("imageBackup") === selected,
@@ -986,8 +1007,13 @@ function normalizeAdminProviderProfiles(value) {
 
 function formSectionToProviderConfig(section, source = {}) {
   const value = source && typeof source === "object" ? source : {};
-  if (section === "face" || section === "analysis") {
-    return {
+  if (
+    section === "face"
+    || section === "analysis"
+    || section === "faceBackup"
+    || section === "analysisBackup"
+  ) {
+    const result = {
       provider: normalizeAdminProviderInput(value.provider),
       baseUrl: String(value.baseUrl || "").trim(),
       endpoint: String(value.endpoint || "").trim(),
@@ -995,6 +1021,11 @@ function formSectionToProviderConfig(section, source = {}) {
       model: String(value.model || "").trim(),
       timeoutMs: Number(value.timeoutMs || 0)
     };
+    if (section === "faceBackup" || section === "analysisBackup") {
+      result.enabled = Boolean(value.enabled);
+      result.providerKey = String(value.providerKey || "").trim();
+    }
+    return result;
   }
   if (section === "image") {
     return {
@@ -1152,6 +1183,13 @@ function buildAdminProviderProfileOptions(form, section) {
         : {}
     ),
     ...Object.keys(profileSection),
+    ...Object.keys(
+      source.providerRegistry
+      && source.providerRegistry.providers
+      && typeof source.providerRegistry.providers === "object"
+        ? source.providerRegistry.providers
+        : {}
+    ),
     currentProviderId
   ], source.providerLabels);
   const options = ids.map((providerId) => ({
@@ -1390,6 +1428,185 @@ function switchAdminProviderProfile(form, section, providerId) {
   });
 }
 
+function emptyVisionBackupForm(section = "faceBackup") {
+  const isVideo = section === "videoBackup";
+  return isVideo
+    ? {
+        enabled: false,
+        provider: "",
+        providerKey: "",
+        baseUrl: "",
+        endpoint: "",
+        queryEndpoint: "",
+        apiKey: "",
+        apiKeyConfigured: false,
+        model: "",
+        createPath: "/v1/videos/generations",
+        queryPath: "/v1/videos/{taskId}",
+        resolution: "720p",
+        aspectRatio: "",
+        timeoutMs: "90000"
+      }
+    : {
+        enabled: false,
+        provider: "",
+        providerKey: "",
+        baseUrl: "",
+        endpoint: "",
+        apiKey: "",
+        apiKeyConfigured: false,
+        model: "",
+        timeoutMs: "30000"
+  };
+}
+
+// 旧版视频页签仍使用 onProviderProfileChange；当目录已存在时，
+// 也要按稳定 providerKey 读取档案，不能把上一家服务商的字段带过去。
+function findAdminProviderRecordByRef(registry, value) {
+  const raw = String(value === undefined || value === null ? "" : value).trim();
+  if (!raw) return null;
+  const direct = getAdminProviderRecord(registry, raw);
+  if (direct) return direct;
+  const providers = registry && registry.providers && typeof registry.providers === "object"
+    ? registry.providers
+    : {};
+  const lower = raw.toLowerCase();
+  const key = Object.keys(providers).find((candidate) => {
+    const record = providers[candidate];
+    return record
+      && (String(record.id || "").toLowerCase() === lower
+        || String(record.name || "") === raw);
+  });
+  return key ? providers[key] : null;
+}
+
+function adminVideoBackupFormFromRecord(record, previous = {}, secretRows = []) {
+  const source = record && typeof record === "object" ? record : {};
+  const cap = source.capabilities && source.capabilities.video || {};
+  const previousProviderKey = String(previous.providerKey || "").trim();
+  const sameProvider = previousProviderKey
+    && previousProviderKey === String(source.providerKey || "").trim();
+  const secretRow = (Array.isArray(secretRows) ? secretRows : []).find(
+    (item) => item && item.providerKey === source.providerKey
+  );
+  const secretKey = String(secretRow && secretRow.videoApiKey || "").trim();
+  const value = (field, fallback = "") => {
+    if (sameProvider && previous[field] !== undefined && String(previous[field] || "").trim()) {
+      return previous[field];
+    }
+    if (cap[field] !== undefined && cap[field] !== "") return cap[field];
+    return fallback;
+  };
+  const previousKey = sameProvider
+    ? String(previous.apiKey || "").trim()
+    : "";
+  const next = Object.assign({}, emptyVisionBackupForm("videoBackup"), {
+    enabled: true,
+    providerKey: String(source.providerKey || "").trim(),
+    provider: String(source.name || displayAdminProvider(source.id, source.id) || "").trim(),
+    baseUrl: value("baseUrl", source.common && source.common.baseUrl || ""),
+    endpoint: value("endpoint"),
+    queryEndpoint: value("queryEndpoint"),
+    model: value("model"),
+    createPath: value("createPath", "/v1/videos/generations"),
+    queryPath: value("queryPath", "/v1/videos/{taskId}"),
+    resolution: value("resolution", "720p"),
+    aspectRatio: value("aspectRatio"),
+    timeoutMs: String(value("timeoutMs", "90000")),
+    apiKey: previousKey || secretKey,
+    apiKeyConfigured: Boolean(
+      previousKey
+      || secretKey
+      || cap.apiKeyConfigured
+      || source.common && source.common.apiKeyConfigured
+    )
+  });
+  return applyAdminVideoProviderDefaults({ videoBackup: next }, "videoBackup").videoBackup;
+}
+
+function normalizeAdminActiveBackups(value, registry, effective = {}) {
+  const hasValueObject = Boolean(value && typeof value === "object");
+  const source = hasValueObject && value.activeBackups && typeof value.activeBackups === "object"
+    ? value.activeBackups
+    : hasValueObject ? value : {};
+  const hasExplicitSource = hasValueObject;
+  const normalizedRegistry = normalizeAdminProviderRegistry(registry || {});
+  const output = {};
+  ADMIN_PROVIDER_BACKUP_SECTIONS.forEach((slot) => {
+    const section = effective && effective[slot] && typeof effective[slot] === "object"
+      ? effective[slot]
+      : {};
+    const hasExplicit = hasExplicitSource
+      || Object.prototype.hasOwnProperty.call(source, slot);
+    if (!hasExplicitSource && section.enabled === false) {
+      output[slot] = "";
+      return;
+    }
+    const raw = String(
+      hasExplicit
+        ? source[slot]
+        : section.providerKey
+          || section.provider
+          || ""
+    ).trim();
+    if (!raw) {
+      output[slot] = "";
+      return;
+    }
+    if (normalizedRegistry.providers && normalizedRegistry.providers[raw]) {
+      output[slot] = raw;
+      return;
+    }
+    const found = Object.keys(normalizedRegistry.providers || {}).find((key) => {
+      const record = normalizedRegistry.providers[key];
+      if (!record) return false;
+      return String(record.id || "").toLowerCase() === raw.toLowerCase()
+        || String(record.name || "") === raw;
+    });
+    if (found) {
+      output[slot] = found;
+      return;
+    }
+    // 旧配置可能只给了 provider 字符串；保留空值，让用户明确重新选择，
+    // 不把不存在的引用带进保存请求。
+    output[slot] = "";
+  });
+  return output;
+}
+
+function buildAdminBackupProviderOptions(registry, activeBackups, section) {
+  const baseSlot = ADMIN_PROVIDER_BACKUP_BASE_SECTIONS[section] || section;
+  const active = activeBackups && typeof activeBackups === "object"
+    ? activeBackups
+    : {};
+  const options = buildAdminProviderOptions(
+    registry,
+    { [baseSlot]: active[section] || "" },
+    baseSlot
+  );
+  return options.map((item) => Object.assign({}, item, {
+    active: item.value === (active[section] || "")
+  }));
+}
+
+function applyAdminBackupProviderDefaults(form, section) {
+  const source = form && typeof form === "object" ? form : emptyForm();
+  const current = Object.assign(
+    {},
+    emptyVisionBackupForm(section),
+    source[section] && typeof source[section] === "object" ? source[section] : {}
+  );
+  if (section === "videoBackup") {
+    return Object.assign({}, source, {
+      [section]: applyAdminVideoProviderDefaults(
+        Object.assign({}, source, { [section]: current }),
+        section
+      )[section]
+    });
+  }
+  return Object.assign({}, source, { [section]: current });
+}
+
 function emptyForm() {
   return {
     providerLabels: Object.assign({}, ADMIN_PROVIDER_LABELS),
@@ -1410,6 +1627,8 @@ function emptyForm() {
       model: "",
       timeoutMs: "30000"
     },
+    faceBackup: emptyVisionBackupForm("faceBackup"),
+    analysisBackup: emptyVisionBackupForm("analysisBackup"),
     image: {
       provider: "星炬",
       baseUrl: "https://newapi.akiyo.fun/v1",
@@ -1459,6 +1678,7 @@ function emptyForm() {
     videoBackup: {
       enabled: false,
       provider: "",
+      providerKey: "",
       baseUrl: "",
       endpoint: "",
       queryEndpoint: "",
@@ -4023,7 +4243,9 @@ function formFromConfig(result) {
     source.providerProfiles
   );
   const face = source.face || {};
+  const faceBackup = source.faceBackup || {};
   const analysis = source.analysis || {};
+  const analysisBackup = source.analysisBackup || {};
   const image = source.image || {};
   const imageBackup = source.imageBackup || {};
   const tencentFaceFusion = source.tencentFaceFusion || {};
@@ -4076,6 +4298,28 @@ function formFromConfig(result) {
       ),
       model: analysis.model || "",
       timeoutMs: String(analysis.timeoutMs || 30000)
+    },
+    faceBackup: {
+      enabled: Boolean(faceBackup.enabled && (faceBackup.provider || faceBackup.providerKey)),
+      provider: displayAdminProvider(faceBackup.provider),
+      providerKey: String(faceBackup.providerKey || ""),
+      baseUrl: faceBackup.baseUrl || "",
+      endpoint: faceBackup.endpoint || "",
+      apiKey: faceBackup.apiKey || "",
+      apiKeyConfigured: Boolean(faceBackup.apiKeyConfigured || faceBackup.apiKey),
+      model: faceBackup.model || "",
+      timeoutMs: String(faceBackup.timeoutMs || 30000)
+    },
+    analysisBackup: {
+      enabled: Boolean(analysisBackup.enabled && (analysisBackup.provider || analysisBackup.providerKey)),
+      provider: displayAdminProvider(analysisBackup.provider),
+      providerKey: String(analysisBackup.providerKey || ""),
+      baseUrl: analysisBackup.baseUrl || "",
+      endpoint: analysisBackup.endpoint || "",
+      apiKey: analysisBackup.apiKey || "",
+      apiKeyConfigured: Boolean(analysisBackup.apiKeyConfigured || analysisBackup.apiKey),
+      model: analysisBackup.model || "",
+      timeoutMs: String(analysisBackup.timeoutMs || 30000)
     },
     image: {
       provider: displayAdminImageProvider(image.provider),
@@ -4155,6 +4399,7 @@ function formFromConfig(result) {
     videoBackup: {
       enabled: Boolean(videoBackup.enabled && videoBackup.provider),
       provider: displayAdminProvider(videoBackup.provider),
+      providerKey: String(videoBackup.providerKey || ""),
       baseUrl: videoBackup.baseUrl || "",
       endpoint: videoBackup.endpoint || "",
       queryEndpoint: videoBackup.queryEndpoint || "",
@@ -4253,6 +4498,11 @@ function formFromConfig(result) {
     normalizedRegistry,
     source
   );
+  const activeBackups = normalizeAdminActiveBackups(
+    result && result.activeBackups,
+    normalizedRegistry,
+    source
+  );
   return Object.assign(
     applyAdminVideoProviderDefaults(
       applyAdminVideoProviderDefaults(form),
@@ -4260,7 +4510,8 @@ function formFromConfig(result) {
     ),
     {
       providerRegistry: normalizedRegistry,
-      activeProviders
+      activeProviders,
+      activeBackups
     }
   );
 }
@@ -4313,6 +4564,16 @@ function formToConfig(form) {
       model: String(form.face.model || "").trim(),
       timeoutMs: Number(form.face.timeoutMs || 0)
     },
+    faceBackup: {
+      enabled: Boolean(form.faceBackup && form.faceBackup.enabled),
+      provider: normalizeAdminProviderInput(form.faceBackup && form.faceBackup.provider),
+      providerKey: String(form.faceBackup && form.faceBackup.providerKey || "").trim(),
+      baseUrl: String(form.faceBackup && form.faceBackup.baseUrl || "").trim(),
+      endpoint: String(form.faceBackup && form.faceBackup.endpoint || "").trim(),
+      apiKey: String(form.faceBackup && form.faceBackup.apiKey || "").trim(),
+      model: String(form.faceBackup && form.faceBackup.model || "").trim(),
+      timeoutMs: Number(form.faceBackup && form.faceBackup.timeoutMs || 0)
+    },
     analysis: {
       provider: normalizeAdminProviderInput(form.analysis.provider),
       baseUrl: String(form.analysis.baseUrl || "").trim(),
@@ -4320,6 +4581,16 @@ function formToConfig(form) {
       apiKey: String(form.analysis.apiKey || "").trim(),
       model: String(form.analysis.model || "").trim(),
       timeoutMs: Number(form.analysis.timeoutMs || 0)
+    },
+    analysisBackup: {
+      enabled: Boolean(form.analysisBackup && form.analysisBackup.enabled),
+      provider: normalizeAdminProviderInput(form.analysisBackup && form.analysisBackup.provider),
+      providerKey: String(form.analysisBackup && form.analysisBackup.providerKey || "").trim(),
+      baseUrl: String(form.analysisBackup && form.analysisBackup.baseUrl || "").trim(),
+      endpoint: String(form.analysisBackup && form.analysisBackup.endpoint || "").trim(),
+      apiKey: String(form.analysisBackup && form.analysisBackup.apiKey || "").trim(),
+      model: String(form.analysisBackup && form.analysisBackup.model || "").trim(),
+      timeoutMs: Number(form.analysisBackup && form.analysisBackup.timeoutMs || 0)
     },
     image: {
       provider: normalizeAdminImageProviderInput(form.image.provider),
@@ -4397,6 +4668,7 @@ function formToConfig(form) {
         && form.videoBackup.provider
       ),
       provider: normalizeAdminProviderInput(form.videoBackup.provider),
+      providerKey: String(form.videoBackup.providerKey || "").trim(),
       baseUrl: String(form.videoBackup.baseUrl || "").trim(),
       endpoint: String(form.videoBackup.endpoint || "").trim(),
       queryEndpoint: String(form.videoBackup.queryEndpoint || "").trim(),
@@ -4467,7 +4739,9 @@ function emptyAdminImageApiKeys() {
   });
   return {
     face: "",
+    faceBackup: "",
     analysis: "",
+    analysisBackup: "",
     image: "",
     imageBackup: "",
     video: "",
@@ -4508,6 +4782,12 @@ function normalizeAdminImageApiKeys(result) {
       ).trim();
     });
   });
+  ["faceBackup", "analysisBackup"].forEach((section) => {
+    const value = source[section];
+    normalized[section] = String(
+      value && typeof value === "object" ? value.apiKey || "" : value || ""
+    ).trim();
+  });
   const videoBackup = source.videoBackup;
   normalized.videoBackup = String(
     videoBackup && typeof videoBackup === "object"
@@ -4547,6 +4827,13 @@ function adminImageApiKeysFromForm(form) {
     ) {
       result.providerProfiles[section][activeProviderId] = result[section];
     }
+  });
+  ["faceBackup", "analysisBackup"].forEach((section) => {
+    result[section] = String(
+      source[section]
+      && source[section].apiKey
+      || ""
+    ).trim();
   });
   result.videoBackup = String(
     source.videoBackup
@@ -4613,6 +4900,19 @@ function formWithAdminImageApiKeys(form, apiKeys) {
     });
     next.providerProfiles = captureAdminProviderProfile(next, section);
   });
+  ["faceBackup", "analysisBackup"].forEach((section) => {
+    const backupKey = String(keys[section] || "").trim();
+    next = Object.assign({}, next, {
+      [section]: Object.assign({}, source[section] || {}, {
+        apiKey: backupKey,
+        apiKeyConfigured: Boolean(
+          source[section]
+          && source[section].apiKeyConfigured
+          || backupKey
+        )
+      })
+    });
+  });
   const backupKey = String(keys.videoBackup || "").trim();
   next = Object.assign({}, next, {
     videoBackup: Object.assign({}, source.videoBackup || {}, {
@@ -4627,7 +4927,13 @@ function formWithAdminImageApiKeys(form, apiKeys) {
   return next;
 }
 
-function adminConfigSavePayload(form, baseline, expectedVersion) {
+function adminConfigSavePayload(
+  form,
+  baseline,
+  expectedVersion,
+  activeProvidersOverride,
+  activeBackupsOverride
+) {
   const syncedForm = syncAdminProviderProfiles(form);
   const configPayload = formToConfig(syncedForm);
   const currentKeys = adminImageApiKeysFromForm(syncedForm);
@@ -4667,6 +4973,13 @@ function adminConfigSavePayload(form, baseline, expectedVersion) {
       }
     });
   });
+  ["faceBackup", "analysisBackup"].forEach((section) => {
+    const current = String(currentKeys[section] || "").trim();
+    const loaded = String(loadedKeys[section] || "").trim();
+    if (!current || current === loaded) {
+      if (configPayload[section]) delete configPayload[section].apiKey;
+    }
+  });
   if (configPayload.video) {
     delete configPayload.video.apiKey;
   }
@@ -4685,7 +4998,9 @@ function adminConfigSavePayload(form, baseline, expectedVersion) {
       }
     });
   }
-  const activeProviders = form && form.activeProviders && typeof form.activeProviders === "object"
+  const activeProviders = activeProvidersOverride && typeof activeProvidersOverride === "object"
+    ? Object.assign({}, activeProvidersOverride)
+    : form && form.activeProviders && typeof form.activeProviders === "object"
     ? Object.assign({}, form.activeProviders)
     : {};
   const activeOverrides = {};
@@ -4697,6 +5012,13 @@ function adminConfigSavePayload(form, baseline, expectedVersion) {
     activeOverrides[slot] = section;
   });
   configPayload.activeProviders = activeProviders;
+  configPayload.activeBackups = normalizeAdminActiveBackups(
+    activeBackupsOverride && typeof activeBackupsOverride === "object"
+      ? activeBackupsOverride
+      : form && form.activeBackups,
+    form && form.providerRegistry,
+    form
+  );
   configPayload.activeOverrides = activeOverrides;
   if (expectedVersion !== undefined && expectedVersion !== null && expectedVersion !== "") {
     configPayload.expectedVersion = Number(expectedVersion) || 0;
@@ -4767,6 +5089,13 @@ function adminImageApiKeysAfterSave(form, baseline) {
       result.providerProfiles[section][activeProviderId] = result[section];
     }
   });
+  ["faceBackup", "analysisBackup"].forEach((section) => {
+    result[section] = String(
+      currentKeys[section]
+      || loadedKeys[section]
+      || ""
+    ).trim();
+  });
   result.videoBackup = String(
     currentKeys.videoBackup
     || loadedKeys.videoBackup
@@ -4779,27 +5108,55 @@ function emptyAdminProviderUiState() {
   return {
     providerRegistry: normalizeAdminProviderRegistry({}),
     activeProviders: {},
+    activeBackups: {},
     providerRows: [],
     providerPickerOptionsFace: [{ value: "", label: "未配置", status: "empty" }],
     providerPickerOptionsAnalysis: [{ value: "", label: "未配置", status: "empty" }],
     providerPickerOptionsImage: [{ value: "", label: "未配置", status: "empty" }],
     providerPickerOptionsImageBackup: [{ value: "", label: "未配置", status: "empty" }],
     providerPickerOptionsVideo: [{ value: "", label: "未配置", status: "empty" }],
+    providerPickerOptionsFaceBackup: [{ value: "", label: "未配置", status: "empty" }],
+    providerPickerOptionsAnalysisBackup: [{ value: "", label: "未配置", status: "empty" }],
+    providerPickerOptionsVideoBackup: [{ value: "", label: "未配置", status: "empty" }],
     providerPickerIndexFace: 0,
     providerPickerIndexAnalysis: 0,
     providerPickerIndexImage: 0,
     providerPickerIndexImageBackup: 0,
-    providerPickerIndexVideo: 0
+    providerPickerIndexVideo: 0,
+    providerPickerIndexFaceBackup: 0,
+    providerPickerIndexAnalysisBackup: 0,
+    providerPickerIndexVideoBackup: 0
   };
 }
 
-function buildAdminProviderUiState(registry, activeProviders) {
+function buildAdminProviderUiState(registry, activeProviders, activeBackups, effective = {}) {
   const source = normalizeAdminProviderRegistry(registry || {});
   const active = normalizeAdminActiveProviders(activeProviders, source);
+  const backups = normalizeAdminActiveBackups(activeBackups, source, effective);
+  const rows = buildAdminProviderRows(source, active);
+  rows.forEach((row) => {
+    const backupSlots = ADMIN_PROVIDER_BACKUP_SECTIONS.filter(
+      (slot) => backups[slot] === row.providerKey
+    );
+    if (!backupSlots.length) return;
+    // 备用槽位也算“使用中”。buildProviderRows 只看主槽位，
+    // 这里把仅被备用引用的自定义档案状态补回来；内置/未配置状态仍保留。
+    if (row.status !== "内置" && row.status !== "未配置") {
+      row.status = "使用中";
+      row.statusClass = "active";
+    }
+    const backupLabels = backupSlots.map((slot) => (
+      slot === "faceBackup" ? "人脸备用" : slot === "analysisBackup" ? "分析备用" : "视频备用"
+    ));
+    row.usedText = row.usedText === "未绑定功能"
+      ? backupLabels.join("、")
+      : `${row.usedText}、${backupLabels.join("、")}`;
+  });
   const patch = {
     providerRegistry: source,
     activeProviders: active,
-    providerRows: buildAdminProviderRows(source, active)
+    activeBackups: backups,
+    providerRows: rows
   };
   ADMIN_PROVIDER_SLOTS.forEach((slot) => {
     const suffix = slot.charAt(0).toUpperCase() + slot.slice(1);
@@ -4808,10 +5165,73 @@ function buildAdminProviderUiState(registry, activeProviders) {
     const index = options.findIndex((item) => item.value === active[slot]);
     patch[`providerPickerIndex${suffix}`] = index >= 0 ? index : 0;
   });
+  ADMIN_PROVIDER_BACKUP_SECTIONS.forEach((slot) => {
+    const suffix = slot.charAt(0).toUpperCase() + slot.slice(1);
+    const options = buildAdminBackupProviderOptions(source, backups, slot);
+    patch[`providerPickerOptions${suffix}`] = options;
+    const index = options.findIndex((item) => item.value === backups[slot]);
+    patch[`providerPickerIndex${suffix}`] = index >= 0 ? index : 0;
+  });
   return patch;
 }
 
-function applyAdminProviderRegistryToForm(form, registry, activeProviders) {
+function buildAdminProviderSecretRows(registry, secretsByKey = {}) {
+  const source = normalizeAdminProviderRegistry(registry || {});
+  const secrets = secretsByKey && typeof secretsByKey === "object"
+    ? secretsByKey
+    : {};
+  return (source.order || Object.keys(source.providers || {})).map((key) => {
+    const record = source.providers && source.providers[key];
+    if (!record) return null;
+    const response = secrets[key] && typeof secrets[key] === "object"
+      ? secrets[key]
+      : {};
+    const nested = response.secrets && typeof response.secrets === "object"
+      ? response.secrets[key] || response.secrets
+      : response;
+    const common = nested.common && typeof nested.common === "object"
+      ? nested.common
+      : nested;
+    const caps = nested.capabilities && typeof nested.capabilities === "object"
+      ? nested.capabilities
+      : nested.slots && typeof nested.slots === "object"
+        ? nested.slots
+        : {};
+    const keyFor = (slot) => String(
+      caps[slot] && (caps[slot].apiKey || caps[slot].key)
+      || ""
+    ).trim();
+    // 档案可能没有公共 Key、只在能力覆盖里配置独立 Key；
+    // 列表仍要显示一枚真实明文，不能误报“读取失败”。
+    const commonKey = String(
+      common.apiKey
+      || nested.apiKey
+      || Object.keys(caps).map((slot) => keyFor(slot)).find(Boolean)
+      || ""
+    ).trim();
+    return {
+      providerKey: key,
+      id: record.id,
+      name: record.name,
+      apiKey: commonKey,
+      commonApiKey: commonKey,
+      faceApiKey: keyFor("face") || commonKey,
+      analysisApiKey: keyFor("analysis") || commonKey,
+      imageApiKey: keyFor("image") || commonKey,
+      imageBackupApiKey: keyFor("imageBackup") || commonKey,
+      videoApiKey: keyFor("video") || commonKey,
+      apiKeyConfigured: Boolean(
+        nested.apiKeyConfigured
+        || common.apiKeyConfigured
+        || commonKey
+        || Object.keys(caps).some((slot) => keyFor(slot))
+      ),
+      loaded: Boolean(Object.keys(response).length)
+    };
+  }).filter(Boolean);
+}
+
+function applyAdminProviderRegistryToForm(form, registry, activeProviders, activeBackups) {
   const source = form && typeof form === "object" ? form : emptyForm();
   const output = Object.assign({}, source);
   const active = activeProviders || {};
@@ -4839,6 +5259,73 @@ function applyAdminProviderRegistryToForm(form, registry, activeProviders) {
     });
     current.apiKeyConfigured = Boolean(
       cap.apiKeyConfigured
+      || record.common && record.common.apiKeyConfigured
+      || current.apiKey
+    );
+    output[slot] = current;
+  });
+  const backups = normalizeAdminActiveBackups(
+    activeBackups,
+    registry,
+    source
+  );
+  ADMIN_PROVIDER_BACKUP_SECTIONS.forEach((slot) => {
+    const key = String(backups[slot] || "").trim();
+    const baseSlot = ADMIN_PROVIDER_BACKUP_BASE_SECTIONS[slot];
+    const record = getAdminProviderRecord(registry, key);
+    const current = Object.assign(
+      {},
+      emptyVisionBackupForm(slot),
+      output[slot] && typeof output[slot] === "object" ? output[slot] : {}
+    );
+    if (!record) {
+      if (
+        activeBackups
+        && typeof activeBackups === "object"
+        && Object.prototype.hasOwnProperty.call(activeBackups, slot)
+      ) {
+        // 明确没有目录引用时，不能把上一家服务商的地址、模型或 Key
+        // 留在表单里；否则保存后仍可能把失效档案投影回旧配置。
+        output[slot] = Object.assign({}, emptyVisionBackupForm(slot), {
+          enabled: false
+        });
+        return;
+      }
+      output[slot] = current;
+      return;
+    }
+    const cap = record.capabilities && record.capabilities[baseSlot] || {};
+    const sameProvider = String(current.providerKey || "").trim() === key;
+    if (!sameProvider) {
+      Object.assign(current, emptyVisionBackupForm(slot), {
+        enabled: true,
+        providerKey: key
+      });
+    }
+    current.providerKey = key;
+    current.provider = baseSlot === "image" || baseSlot === "imageBackup"
+      ? displayAdminImageProvider(record.id)
+      : displayAdminProvider(record.id);
+    current.enabled = Boolean(current.enabled || key === backups[slot]);
+    if (
+      (cap.baseUrl || record.common && Object.prototype.hasOwnProperty.call(record.common, "baseUrl"))
+    ) {
+      // 目录档案切换后，公共地址必须来自新档案；同一档案的未保存草稿
+      // 则保留用户刚输入的值，避免切页签时把草稿冲掉。
+      if (!sameProvider || !String(current.baseUrl || "").trim()) {
+        current.baseUrl = cap.baseUrl || record.common.baseUrl;
+      }
+    }
+    ["endpoint", "queryEndpoint", "model", "createPath", "queryPath", "resolution", "aspectRatio", "timeoutMs", "enabled"].forEach((field) => {
+      // cap 中的空字符串也是明确值（例如清除旧路径），不能因为
+      // emptyVisionBackupForm 的默认值而继续沿用上一家服务商。
+      if (cap[field] !== undefined && (!sameProvider || field === "enabled" || field === "endpoint" || field === "queryEndpoint" || field === "model" || field === "createPath" || field === "queryPath" || field === "resolution" || field === "aspectRatio" || field === "timeoutMs")) {
+        current[field] = cap[field];
+      }
+    });
+    current.apiKeyConfigured = Boolean(
+      current.apiKeyConfigured
+      || cap.apiKeyConfigured
       || record.common && record.common.apiKeyConfigured
       || current.apiKey
     );
@@ -4913,7 +5400,12 @@ function normalizeAdminProviderRebound(value) {
   return [];
 }
 
-function adminApiKeyBaselineWithoutProvider(baseline, activeProviders, providerKey) {
+function adminApiKeyBaselineWithoutProvider(
+  baseline,
+  activeProviders,
+  providerKey,
+  activeBackups = activeProviders
+) {
   const output = Object.assign(
     emptyAdminImageApiKeys(),
     baseline && typeof baseline === "object" ? baseline : {}
@@ -4922,6 +5414,11 @@ function adminApiKeyBaselineWithoutProvider(baseline, activeProviders, providerK
   if (!target) return output;
   ADMIN_PROVIDER_SLOTS.forEach((slot) => {
     if (String(activeProviders && activeProviders[slot] || "").trim() === target) {
+      output[slot] = "";
+    }
+  });
+  ADMIN_PROVIDER_BACKUP_SECTIONS.forEach((slot) => {
+    if (String(activeBackups && activeBackups[slot] || "").trim() === target) {
       output[slot] = "";
     }
   });
@@ -5378,17 +5875,25 @@ Page({
     configVersion: 0,
     providerRegistry: normalizeAdminProviderRegistry({}),
     activeProviders: {},
+    activeBackups: {},
     providerRows: [],
+    providerSecretRows: [],
     providerPickerOptionsFace: [{ value: "", label: "未配置" }],
     providerPickerOptionsAnalysis: [{ value: "", label: "未配置" }],
     providerPickerOptionsImage: [{ value: "", label: "未配置" }],
     providerPickerOptionsImageBackup: [{ value: "", label: "未配置" }],
     providerPickerOptionsVideo: [{ value: "", label: "未配置" }],
+    providerPickerOptionsFaceBackup: [{ value: "", label: "未配置" }],
+    providerPickerOptionsAnalysisBackup: [{ value: "", label: "未配置" }],
+    providerPickerOptionsVideoBackup: [{ value: "", label: "未配置" }],
     providerPickerIndexFace: 0,
     providerPickerIndexAnalysis: 0,
     providerPickerIndexImage: 0,
     providerPickerIndexImageBackup: 0,
     providerPickerIndexVideo: 0,
+    providerPickerIndexFaceBackup: 0,
+    providerPickerIndexAnalysisBackup: 0,
+    providerPickerIndexVideoBackup: 0,
     providerDraft: emptyProviderDraft(),
     providerDraftDirty: false,
     providerDraftSnapshot: "",
@@ -5406,6 +5911,10 @@ Page({
     providerAutoRebound: [],
     activeConfigSection: "",
     activeConfigTitle: "",
+    faceBackupExpanded: true,
+    analysisBackupExpanded: true,
+    imageBackupExpanded: true,
+    videoBackupExpanded: true,
     monitorExpanded: true,
     usageExpanded: true,
     monitorSections: {
@@ -5432,6 +5941,7 @@ Page({
   onUnload() {
     this._adminLoadToken = (this._adminLoadToken || 0) + 1;
     this._providerDraftRequestSeq = (this._providerDraftRequestSeq || 0) + 1;
+    this._providerSecretRowsRequestSeq = (this._providerSecretRowsRequestSeq || 0) + 1;
     this._imageApiKeyBaseline = emptyAdminImageApiKeys();
     this.stopModelFailureAutoRefresh();
     this.stopAutoFaceFailureAutoRefresh();
@@ -5857,13 +6367,16 @@ Page({
       const rawForm = formFromConfig(result);
       const providerUi = buildAdminProviderUiState(
         rawForm.providerRegistry,
-        rawForm.activeProviders
+        rawForm.activeProviders,
+        rawForm.activeBackups,
+        rawForm
       );
       const form = formWithAdminImageApiKeys(
         applyAdminProviderRegistryToForm(
           rawForm,
           providerUi.providerRegistry,
-          providerUi.activeProviders
+          providerUi.activeProviders,
+          providerUi.activeBackups
         ),
         imageApiKeys
       );
@@ -5893,6 +6406,7 @@ Page({
       ));
       Object.assign(basePatch, this.buildAdminDerivedPatch(basePatch, moduleStates));
       this.setData(basePatch);
+      void this.loadProviderSecretRows(providerUi.providerRegistry);
       diagnosticLog.info("admin", "config-loaded", "管理员配置读取完成", {
         runtimeConfigVersion: result.version || 0
       });
@@ -6638,13 +7152,16 @@ Page({
         const rawForm = formFromConfig(result);
         const providerUi = buildAdminProviderUiState(
           rawForm.providerRegistry,
-          rawForm.activeProviders
+          rawForm.activeProviders,
+          rawForm.activeBackups,
+          rawForm
         );
         const form = formWithAdminImageApiKeys(
           applyAdminProviderRegistryToForm(
             rawForm,
             providerUi.providerRegistry,
-            providerUi.activeProviders
+            providerUi.activeProviders,
+            providerUi.activeBackups
           ),
           imageApiKeys
         );
@@ -6664,6 +7181,7 @@ Page({
         ));
         Object.assign(patch, this.buildAdminDerivedPatch(patch, this.data.moduleStates));
         this.setData(patch);
+        void this.loadProviderSecretRows(providerUi.providerRegistry);
         await this.loadTencentFaceFusionStatus(token);
         if (!apiKeyResult.ok) {
           diagnosticLog.warn(
@@ -6882,11 +7400,61 @@ Page({
     );
     const option = options[index];
     if (!option || (section !== "videoBackup" && !option.value)) return;
-    let nextForm = switchAdminProviderProfile(
-      this.data.form,
-      section,
-      option.value
-    );
+    const previousSection = this.data.form && this.data.form[section]
+      && typeof this.data.form[section] === "object"
+      ? this.data.form[section]
+      : {};
+    const previousRecord = section === "videoBackup"
+      ? findAdminProviderRecordByRef(
+        this.data.providerRegistry,
+        previousSection.providerKey || previousSection.provider
+      )
+      : null;
+    const selectedRecord = section === "videoBackup"
+      ? findAdminProviderRecordByRef(this.data.providerRegistry, option.value)
+      : null;
+    let nextForm;
+    const activeBackups = Object.assign({}, this.data.activeBackups || {});
+    if (section === "videoBackup") {
+      activeBackups.videoBackup = selectedRecord
+        ? selectedRecord.providerKey
+        : "";
+      if (selectedRecord) {
+        const capturedProfiles = captureAdminProviderProfile(this.data.form, section);
+        nextForm = Object.assign({}, this.data.form, {
+          providerProfiles: capturedProfiles,
+          videoBackup: adminVideoBackupFormFromRecord(
+            selectedRecord,
+            Object.assign({}, previousSection, {
+              providerKey: previousSection.providerKey
+                || previousRecord && previousRecord.providerKey
+                || ""
+            }),
+            this.data.providerSecretRows
+          )
+        });
+      } else if (!option.value) {
+        nextForm = Object.assign({}, this.data.form, {
+          providerProfiles: captureAdminProviderProfile(this.data.form, section),
+          videoBackup: Object.assign({}, emptyVisionBackupForm("videoBackup"), {
+            enabled: false
+          })
+        });
+      } else {
+        // 兼容尚未迁移到目录的旧版档案。
+        nextForm = switchAdminProviderProfile(
+          this.data.form,
+          section,
+          option.value
+        );
+      }
+    } else {
+      nextForm = switchAdminProviderProfile(
+        this.data.form,
+        section,
+        option.value
+      );
+    }
     if (section === "video" || section === "videoBackup") {
       const currentVideoApiKey = String(
         this.data.form
@@ -6895,13 +7463,40 @@ Page({
         || ""
       ).trim();
       nextForm = applyAdminVideoProviderDefaults(nextForm, section);
-      if (currentVideoApiKey) {
+      const nextProviderId = providerIdFromDisplay(
+        nextForm[section] && nextForm[section].provider
+      );
+      const previousProviderId = providerIdFromDisplay(
+        previousSection.provider
+        || previousRecord && previousRecord.id
+      );
+      const sameProvider = Boolean(
+        currentVideoApiKey
+        && previousProviderId
+        && nextProviderId
+        && previousProviderId.toLowerCase() === nextProviderId.toLowerCase()
+      );
+      if (currentVideoApiKey && sameProvider) {
         nextForm = Object.assign({}, nextForm, {
           [section]: Object.assign({}, nextForm[section], {
             apiKey: currentVideoApiKey,
             apiKeyConfigured: true
           })
         });
+      }
+      if (section === "videoBackup" && !sameProvider) {
+        const selectedKey = activeBackups.videoBackup;
+        const secretRow = (this.data.providerSecretRows || []).find(
+          (item) => item && item.providerKey === selectedKey
+        );
+        if (secretRow && secretRow.videoApiKey) {
+          nextForm = Object.assign({}, nextForm, {
+            videoBackup: Object.assign({}, nextForm.videoBackup, {
+              apiKey: secretRow.videoApiKey,
+              apiKeyConfigured: true
+            })
+          });
+        }
       }
     }
     const imageModel = String(
@@ -6921,7 +7516,8 @@ Page({
     ).trim();
     const capabilityProfiles = this.data.modelCapabilityProfiles || {};
     const patch = Object.assign({
-      form: nextForm,
+      form: Object.assign({}, nextForm, { activeBackups }),
+      activeBackups,
       message: section === "videoBackup" && !option.value
         ? "已关闭备用视频服务商；保存后，主服务商失败时不会自动切换。"
         : `已切换到${displayAdminProvider(option.value, option.value)}；当前只修改页面草稿，点击“保存全部配置”后才写入云端。`
@@ -7082,6 +7678,29 @@ Page({
         })
       });
     }
+    let activeBackups = this.data.activeBackups;
+    if (
+      ADMIN_PROVIDER_BACKUP_SECTIONS.includes(section)
+      && key === "provider"
+    ) {
+      const providerId = providerIdFromDisplay(value);
+      const registry = this.data.providerRegistry || {};
+      const selectedKey = Object.keys(registry.providers || {}).find((candidate) => {
+        const record = registry.providers[candidate];
+        return record && (
+          candidate === providerId
+          || String(record.id || "").toLowerCase() === providerId.toLowerCase()
+          || String(record.name || "") === value
+        );
+      }) || "";
+      activeBackups = Object.assign({}, this.data.activeBackups || {}, {
+        [section]: selectedKey
+      });
+      nextForm[section] = Object.assign({}, nextForm[section] || {}, {
+        providerKey: selectedKey,
+        enabled: Boolean(selectedKey)
+      });
+    }
     if (section === "video" || section === "videoBackup") {
       nextForm = applyAdminVideoProviderDefaults(nextForm, section);
     }
@@ -7093,6 +7712,11 @@ Page({
       );
     }
     const patch = { form: nextForm };
+    if (activeBackups && activeBackups !== this.data.activeBackups) {
+      patch.activeBackups = activeBackups;
+      nextForm = Object.assign({}, nextForm, { activeBackups });
+      patch.form = nextForm;
+    }
     if (section === "tencentFaceFusion") {
       patch[`tencentFaceFusionFieldErrors.${key}`] = "";
     }
@@ -7156,8 +7780,13 @@ Page({
     this.setData(patch);
   },
 
-  providerUiPatch(registry = this.data.providerRegistry, activeProviders = this.data.activeProviders) {
-    return buildAdminProviderUiState(registry, activeProviders);
+  providerUiPatch(
+    registry = this.data.providerRegistry,
+    activeProviders = this.data.activeProviders,
+    activeBackups = this.data.activeBackups,
+    effective = this.data.effective || {}
+  ) {
+    return buildAdminProviderUiState(registry, activeProviders, activeBackups, effective);
   },
 
   providerDraftHasChanges() {
@@ -7226,6 +7855,60 @@ Page({
       });
     };
     this.confirmDiscardProviderDraft(open);
+  },
+
+  async loadProviderSecretRows(registry = this.data.providerRegistry) {
+    const source = normalizeAdminProviderRegistry(registry || {});
+    const rows = buildAdminProviderRows(source, this.data.activeProviders || {});
+    if (!rows.length) {
+      this.setData({ providerSecretRows: [] });
+      return;
+    }
+    const requestSeq = (this._providerSecretRowsRequestSeq || 0) + 1;
+    this._providerSecretRowsRequestSeq = requestSeq;
+    this.setData({ providerSecretsLoading: true });
+    const loaded = {};
+    await Promise.all(rows.map(async (row) => {
+      try {
+        loaded[row.providerKey] = await cloud.getAdminProviderSecrets(
+          row.providerKey,
+          { retryLimit: 0 }
+        );
+      } catch (error) {
+        loaded[row.providerKey] = { __error: String(error && error.message || "") };
+      }
+    }));
+    if (requestSeq !== this._providerSecretRowsRequestSeq) return;
+    const secretRows = buildAdminProviderSecretRows(source, loaded);
+    let nextForm = this.data.form;
+    const backupPatch = {};
+    ADMIN_PROVIDER_BACKUP_SECTIONS.forEach((section) => {
+      const key = this.data.activeBackups && this.data.activeBackups[section];
+      const row = secretRows.find((item) => item.providerKey === key);
+      if (!row) return;
+      const field = section === "faceBackup"
+        ? "faceApiKey"
+        : section === "analysisBackup"
+          ? "analysisApiKey"
+          : "videoApiKey";
+      const current = nextForm && nextForm[section] || {};
+      if (current.apiKey || !row[field]) return;
+      backupPatch[section] = Object.assign({}, current, {
+        apiKey: row[field],
+        apiKeyConfigured: true
+      });
+    });
+    if (Object.keys(backupPatch).length) {
+      nextForm = Object.assign({}, nextForm, backupPatch);
+      const keys = Object.assign({}, this._imageApiKeyBaseline || {});
+      Object.keys(backupPatch).forEach((section) => { keys[section] = backupPatch[section].apiKey; });
+      this._imageApiKeyBaseline = keys;
+    }
+    this.setData({
+      providerSecretRows: secretRows,
+      form: nextForm,
+      providerSecretsLoading: false
+    });
   },
 
   startAddProvider() {
@@ -7330,6 +8013,11 @@ Page({
         registry,
         result && result.effective || this.data.effective || {}
       );
+      const activeBackups = normalizeAdminActiveBackups(
+        result && result.activeBackups || this.data.activeBackups,
+        registry,
+        result && result.effective || this.data.effective || {}
+      );
       const effective = result && result.effective || this.data.effective;
       const savedKey = String(
         result && result.provider && result.provider.providerKey
@@ -7341,11 +8029,12 @@ Page({
       const nextApiKeyBaseline = adminApiKeyBaselineWithoutProvider(
         this._imageApiKeyBaseline,
         active,
-        savedKey
+        savedKey,
+        activeBackups
       );
       const nextForm = effective
         ? formWithAdminImageApiKeys(
-          applyAdminProviderRegistryToForm(formFromConfig(result), registry, active),
+          applyAdminProviderRegistryToForm(formFromConfig(result), registry, active, activeBackups),
           nextApiKeyBaseline
         )
         : this.data.form;
@@ -7353,7 +8042,7 @@ Page({
       const nextDraft = savedRecord
         ? adminProviderDraftFromRecord(savedRecord, draft)
         : draft;
-      const patch = Object.assign({}, this.providerUiPatch(registry, active), {
+      const patch = Object.assign({}, this.providerUiPatch(registry, active, activeBackups, effective), {
         form: nextForm,
         effective,
         configVersion: Number(result && result.version) || this.data.configVersion,
@@ -7367,6 +8056,7 @@ Page({
       });
       this._imageApiKeyBaseline = nextApiKeyBaseline;
       this.setData(patch);
+      void this.loadProviderSecretRows(registry);
       wx.showToast({ title: "服务商已保存", icon: "success" });
     } catch (error) {
       this.setData({ providerSaving: false });
@@ -7380,15 +8070,22 @@ Page({
     const record = getAdminProviderRecord(this.data.providerRegistry, key);
     if (!record) return [];
     const active = this.data.activeProviders || {};
-    return ADMIN_PROVIDER_SLOTS.filter((slot) => active[slot] === key).map((slot) => {
+    const activeBackups = this.data.activeBackups || {};
+    const slots = ADMIN_PROVIDER_SLOTS.filter((slot) => active[slot] === key)
+      .concat(ADMIN_PROVIDER_BACKUP_SECTIONS.filter((slot) => activeBackups[slot] === key));
+    return slots.map((slot) => {
       const fallback = slot === "face" || slot === "analysis"
         ? "阿里云百炼"
         : slot === "image"
           ? "星炬"
           : slot === "imageBackup"
             ? "凌云"
+            : slot === "faceBackup" || slot === "analysisBackup"
+              ? "其他完整服务商"
             : "当前环境预设";
-      return `${ADMIN_PROVIDER_CAPABILITY_LABELS[slot]}：${fallback}`;
+      const label = ADMIN_PROVIDER_CAPABILITY_LABELS[slot]
+        || (slot === "faceBackup" ? "人脸备用模型" : slot === "analysisBackup" ? "分析备用模型" : "视频备用模型");
+      return `${label}：${fallback}`;
     });
   },
 
@@ -7425,15 +8122,21 @@ Page({
             registry,
             result && result.effective || {}
           );
+          const activeBackups = normalizeAdminActiveBackups(
+            result && result.activeBackups || {},
+            registry,
+            result && result.effective || {}
+          );
           const effective = result && result.effective || null;
           const nextApiKeyBaseline = adminApiKeyBaselineWithoutProvider(
             this._imageApiKeyBaseline,
             this.data.activeProviders,
-            key
+            key,
+            this.data.activeBackups
           );
           const form = effective
             ? formWithAdminImageApiKeys(
-              applyAdminProviderRegistryToForm(formFromConfig(result), registry, active),
+              applyAdminProviderRegistryToForm(formFromConfig(result), registry, active, activeBackups),
               nextApiKeyBaseline
             )
             : this.data.form;
@@ -7441,7 +8144,7 @@ Page({
           const nextKey = rows.length ? rows[0].providerKey : "";
           const nextRecord = getAdminProviderRecord(registry, nextKey);
           const nextDraft = nextRecord ? adminProviderDraftFromRecord(nextRecord, {}) : emptyProviderDraft();
-          const patch = Object.assign({}, this.providerUiPatch(registry, active), {
+          const patch = Object.assign({}, this.providerUiPatch(registry, active, activeBackups, effective), {
             form,
             effective,
             configVersion: Number(result && result.version) || this.data.configVersion,
@@ -7457,6 +8160,7 @@ Page({
           });
           this._imageApiKeyBaseline = nextApiKeyBaseline;
           this.setData(patch);
+          void this.loadProviderSecretRows(registry);
           wx.showToast({ title: "服务商已删除", icon: "success" });
         } catch (error) {
           this.setData({ providerDeleting: false });
@@ -7471,13 +8175,17 @@ Page({
     const section = event && event.currentTarget && event.currentTarget.dataset
       ? String(event.currentTarget.dataset.section || "")
       : "";
-    if (!ADMIN_PROVIDER_SLOTS.includes(section)) return;
+    const isBackup = ADMIN_PROVIDER_BACKUP_SECTIONS.includes(section);
+    if (!ADMIN_PROVIDER_SLOTS.includes(section) && !isBackup) return;
     const index = Number(event && event.detail && event.detail.value) || 0;
     const suffix = section.charAt(0).toUpperCase() + section.slice(1);
     const options = this.data[`providerPickerOptions${suffix}`] || [];
     const option = options[index] || options[0];
     const key = option && option.value || "";
-    const active = Object.assign({}, this.data.activeProviders, { [section]: key });
+    const active = Object.assign({}, this.data.activeProviders || {});
+    const activeBackups = Object.assign({}, this.data.activeBackups || {});
+    if (isBackup) activeBackups[section] = key;
+    else active[section] = key;
     this._imageApiKeyBaseline = Object.assign(
       emptyAdminImageApiKeys(),
       this._imageApiKeyBaseline || {},
@@ -7485,28 +8193,80 @@ Page({
     );
     let nextForm = Object.assign({}, this.data.form);
     if (!key) {
-      nextForm[section] = Object.assign({}, nextForm[section] || {}, {
-        provider: "",
-        providerKey: "",
-        apiKey: "",
-        apiKeyConfigured: false
-      });
+      if (isBackup) {
+        // 选择“未配置”就是清空该备用槽位，避免上一家服务商的模型、地址
+        // 或 Key 继续藏在草稿里，随后又被保存/兜底逻辑误用。
+        nextForm[section] = Object.assign({}, emptyVisionBackupForm(section), {
+          enabled: false
+        });
+      } else {
+        // 主槽位仍保留原有字段形状（尤其是生图的 mode/size 和视频路径），
+        // 只清掉服务商引用与 Key，避免切回“未配置”时表单结构被备用模板覆盖。
+        nextForm[section] = Object.assign({}, nextForm[section] || {}, {
+          provider: "",
+          providerKey: "",
+          apiKey: "",
+          apiKeyConfigured: false
+        });
+      }
     } else {
       const record = getAdminProviderRecord(this.data.providerRegistry, key);
       if (!record) return;
-      nextForm[section] = adminProviderEffectiveSection(
-        record,
-        section,
-        Object.assign({}, nextForm[section] || {}, { apiKey: "" })
-      );
-      nextForm[section].providerKey = key;
-      nextForm[section].provider = section === "image" || section === "imageBackup"
-        ? displayAdminImageProvider(record.id)
-        : displayAdminProvider(record.id);
-      if (section === "video") nextForm = applyAdminVideoProviderDefaults(nextForm);
+      if (isBackup) {
+        const baseSlot = ADMIN_PROVIDER_BACKUP_BASE_SECTIONS[section];
+        const cap = record.capabilities && record.capabilities[baseSlot] || {};
+        const current = Object.assign(
+          {},
+          emptyVisionBackupForm(section),
+          { enabled: true }
+        );
+        const secretRow = (this.data.providerSecretRows || []).find(
+          (item) => item && item.providerKey === key
+        );
+        const secretValue = baseSlot === "face"
+          ? secretRow && secretRow.faceApiKey
+          : baseSlot === "analysis"
+            ? secretRow && secretRow.analysisApiKey
+            : secretRow && secretRow.videoApiKey;
+        nextForm[section] = Object.assign(current, {
+          providerKey: key,
+          provider: displayAdminProvider(record.id),
+          enabled: true,
+          baseUrl: cap.baseUrl || record.common && record.common.baseUrl || "",
+          endpoint: cap.endpoint !== undefined ? cap.endpoint : current.endpoint,
+          queryEndpoint: cap.queryEndpoint !== undefined ? cap.queryEndpoint : current.queryEndpoint,
+          model: cap.model !== undefined ? cap.model : current.model,
+          createPath: cap.createPath !== undefined ? cap.createPath : current.createPath,
+          queryPath: cap.queryPath !== undefined ? cap.queryPath : current.queryPath,
+          resolution: cap.resolution !== undefined ? cap.resolution : current.resolution,
+          aspectRatio: cap.aspectRatio !== undefined ? cap.aspectRatio : current.aspectRatio,
+          timeoutMs: cap.timeoutMs !== undefined ? String(cap.timeoutMs) : current.timeoutMs,
+          apiKey: current.apiKey || secretValue || "",
+          apiKeyConfigured: Boolean(current.apiKeyConfigured || secretValue || cap.apiKeyConfigured || record.common && record.common.apiKeyConfigured)
+        });
+      } else {
+        nextForm[section] = adminProviderEffectiveSection(
+          record,
+          section,
+          Object.assign({}, nextForm[section] || {}, { apiKey: "" })
+        );
+        nextForm[section].providerKey = key;
+        nextForm[section].provider = section === "image" || section === "imageBackup"
+          ? displayAdminImageProvider(record.id)
+          : displayAdminProvider(record.id);
+        if (section === "video") nextForm = applyAdminVideoProviderDefaults(nextForm);
+      }
     }
-    const patch = Object.assign({}, this.providerUiPatch(this.data.providerRegistry, active), {
-      form: nextForm,
+    const patch = Object.assign({}, this.providerUiPatch(
+      this.data.providerRegistry,
+      active,
+      activeBackups,
+      this.data.effective || nextForm
+    ), {
+      form: Object.assign({}, nextForm, {
+        activeProviders: active,
+        activeBackups
+      }),
       message: key && option.status === "empty"
         ? "这个服务商页签还没配置完整，保存后不会自动兜底。"
         : "已切换服务商；点击“保存全部配置”后生效。"
@@ -7846,19 +8606,133 @@ Page({
     }, buildAdminProviderProfilePickerState(nextForm), buildQualityPickerState(nextForm)));
   },
 
+  onVisionBackupEnabledChange(event) {
+    const section = String(
+      event
+      && event.currentTarget
+      && event.currentTarget.dataset
+      && event.currentTarget.dataset.section
+      || ""
+    ).trim();
+    if (section !== "faceBackup" && section !== "analysisBackup") return;
+    const enabled = Boolean(event && event.detail && event.detail.value);
+    const nextForm = Object.assign({}, this.data.form, {
+      [section]: Object.assign(
+        {},
+        emptyVisionBackupForm(section),
+        this.data.form && this.data.form[section] || {},
+        { enabled }
+      )
+    });
+    const activeBackups = Object.assign({}, this.data.activeBackups || {});
+    if (!enabled) {
+      activeBackups[section] = "";
+    } else {
+      const existing = nextForm[section] || {};
+      let restored = String(activeBackups[section] || "").trim();
+      if (!restored) {
+        const foundRecord = findAdminProviderRecordByRef(
+          this.data.providerRegistry,
+          existing.providerKey || existing.provider
+        );
+        restored = String(foundRecord && foundRecord.providerKey || "").trim();
+      }
+      activeBackups[section] = restored;
+      // 旧配置可能只有 provider/name，没有稳定 key；重新启用时把解析出的
+      // key 同步回表单，后续保存才不会再次丢失备用档案引用。
+      if (restored) {
+        const record = getAdminProviderRecord(this.data.providerRegistry, restored);
+        nextForm[section] = Object.assign({}, existing, {
+          providerKey: restored,
+          provider: record
+            ? String(record.name || displayAdminProvider(record.id, record.id))
+            : existing.provider
+        });
+      }
+    }
+    nextForm.activeBackups = activeBackups;
+    this.setData(Object.assign({
+      form: nextForm,
+      activeBackups,
+      message: enabled
+        ? `已开启${section === "faceBackup" ? "备用人脸" : "备用分析"}模型；配置完整后主模型失败时才会切换。`
+        : `已关闭${section === "faceBackup" ? "备用人脸" : "备用分析"}模型；已填写参数会保留。`
+    }, this.providerUiPatch(
+      this.data.providerRegistry,
+      this.data.activeProviders,
+      activeBackups,
+      this.data.effective || nextForm
+    )));
+  },
+
   onVideoBackupEnabledChange(event) {
     const enabled = Boolean(event && event.detail && event.detail.value);
-    const nextForm = updateAdminProviderProfileForm(
+    let nextForm = updateAdminProviderProfileForm(
       this.data.form,
       "videoBackup",
       { enabled }
     );
+    const currentVideoBackup = nextForm.videoBackup || {};
+    let restoredKey = String(
+      this.data.activeBackups
+      && this.data.activeBackups.videoBackup
+      || currentVideoBackup.providerKey
+      || ""
+    ).trim();
+    if (enabled && !restoredKey) {
+      const foundRecord = findAdminProviderRecordByRef(
+        this.data.providerRegistry,
+        currentVideoBackup.provider
+      );
+      restoredKey = String(foundRecord && foundRecord.providerKey || "").trim();
+    }
+    if (enabled && restoredKey) {
+      const record = getAdminProviderRecord(this.data.providerRegistry, restoredKey);
+      nextForm = Object.assign({}, nextForm, {
+        videoBackup: Object.assign({}, currentVideoBackup, {
+          enabled: true,
+          providerKey: restoredKey,
+          provider: record
+            ? String(record.name || displayAdminProvider(record.id, record.id))
+            : currentVideoBackup.provider
+        })
+      });
+    }
+    const activeBackups = Object.assign({}, this.data.activeBackups || {}, {
+      videoBackup: enabled
+        ? restoredKey
+        : ""
+    });
+    nextForm.activeBackups = activeBackups;
     this.setData(Object.assign({
       form: nextForm,
+      activeBackups,
       message: enabled
         ? "已开启备用视频模型；参数完整后，主模型创建失败时才会切换。"
         : "已关闭备用视频模型；已填写的备用参数会保留。"
-    }, buildAdminProviderProfilePickerState(nextForm), buildQualityPickerState(nextForm)));
+    }, buildAdminProviderProfilePickerState(nextForm), buildQualityPickerState(nextForm),
+    this.providerUiPatch(
+      this.data.providerRegistry,
+      this.data.activeProviders,
+      activeBackups,
+      this.data.effective || nextForm
+    )));
+  },
+
+  toggleFaceBackup() {
+    this.setData({ faceBackupExpanded: !this.data.faceBackupExpanded });
+  },
+
+  toggleAnalysisBackup() {
+    this.setData({ analysisBackupExpanded: !this.data.analysisBackupExpanded });
+  },
+
+  toggleImageBackup() {
+    this.setData({ imageBackupExpanded: !this.data.imageBackupExpanded });
+  },
+
+  toggleVideoBackup() {
+    this.setData({ videoBackupExpanded: !this.data.videoBackupExpanded });
   },
 
   validateImageWizardStep(step = this.data.imageWizardStep) {
@@ -8014,6 +8888,25 @@ Page({
         if (!Number.isFinite(backupTimeout) || backupTimeout < 10000 || backupTimeout > 900000) return "备用视频超时必须在 10000～900000 毫秒之间。";
       }
     }
+    return "";
+  },
+
+  validateVisionBackupSection(section) {
+    if (section !== "faceBackup" && section !== "analysisBackup") return "";
+    const backup = this.data.form && this.data.form[section] || {};
+    if (!backup.enabled) return "";
+    const primarySection = section === "faceBackup" ? "face" : "analysis";
+    const primary = this.data.form && this.data.form[primarySection] || {};
+    if (!String(backup.provider || backup.providerKey || "").trim()) return "请选择备用服务商。";
+    if (
+      providerIdFromDisplay(backup.provider)
+      && providerIdFromDisplay(backup.provider) === providerIdFromDisplay(primary.provider)
+    ) return "备用服务商要和主服务商不同。";
+    if (!String(backup.model || "").trim()) return "请填写备用模型名称。";
+    if (!String(backup.apiKey || "").trim() && !backup.apiKeyConfigured) return "备用模型 API Key 尚未配置，请先填写或配置服务商 Key。";
+    if (!String(backup.baseUrl || backup.endpoint || "").trim()) return "请填写备用模型接口地址。";
+    const timeout = Number(backup.timeoutMs);
+    if (!Number.isFinite(timeout) || timeout < 10000 || timeout > 900000) return "备用模型超时必须在 10000～900000 毫秒之间。";
     return "";
   },
 
@@ -8204,6 +9097,9 @@ Page({
         if (nextSection === "providers" && !this.data.providerEditingKey) {
           const first = this.data.providerRows && this.data.providerRows[0];
           if (first) this.openProviderDraft(first.providerKey);
+        }
+        if (nextSection === "providers") {
+          void this.loadProviderSecretRows(this.data.providerRegistry);
         }
         this.persistMonitorLayout();
         if (nextSection === "users" && this.data.userStats.unavailable) {
@@ -8559,6 +9455,13 @@ Page({
         return;
       }
     }
+    const visionBackupError = this.validateVisionBackupSection("faceBackup")
+      || this.validateVisionBackupSection("analysisBackup");
+    if (visionBackupError) {
+      this.setData({ message: visionBackupError });
+      wx.showToast({ title: visionBackupError, icon: "none" });
+      return;
+    }
     if (this.data.activeConfigSection === "tencentFaceFusion") {
       const stepOneError = this.validateTencentWizardStep(1);
       const stepTwoError = this.data.form.imageBackup && this.data.form.imageBackup.enabled
@@ -8652,7 +9555,9 @@ Page({
         adminConfigSavePayload(
           this.data.form,
           this._imageApiKeyBaseline,
-          this.data.configVersion
+          this.data.configVersion,
+          this.data.activeProviders,
+          this.data.activeBackups
         )
       );
       const effective = result.effective || null;
@@ -8665,7 +9570,9 @@ Page({
       );
       const providerUi = buildAdminProviderUiState(
         form.providerRegistry,
-        form.activeProviders
+        form.activeProviders,
+        form.activeBackups,
+        form
       );
       this._imageApiKeyBaseline = savedImageApiKeys;
       const patch = Object.assign({}, providerUi, {

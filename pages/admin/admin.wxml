@@ -214,6 +214,24 @@
 
     <view class="overview-section">
       <view class="overview-heading">当前配置</view>
+      <!-- 服务商入口固定放在当前配置标题与四项功能卡之间，方便直接管理目录。 -->
+      <view
+        class="provider-directory-row {{activeConfigSection === 'providers' ? 'is-active' : ''}}"
+        data-section="providers"
+        bindtap="toggleConfigSection"
+        hover-class="control-tap"
+        role="button"
+        aria-label="打开服务商目录"
+      >
+        <view class="current-config-main">
+          <view class="current-config-title">服务商</view>
+          <view class="current-config-meta">{{providerRows.length}} 个档案 · 管理人脸、分析、生图、视频及备用模型</view>
+        </view>
+        <view class="current-config-side">
+          <view class="config-state {{providerRows.length ? 'is-ready' : 'is-off'}}">{{providerRows.length ? '已配置' : '未配置'}}</view>
+          <text class="current-config-arrow">›</text>
+        </view>
+      </view>
       <view wx:if="{{activeConfigSection === 'providers'}}" id="config-editor-providers" class="card config-editor config-editor-inline provider-manager-editor">
         <view class="config-editor-head">
           <view>
@@ -225,6 +243,26 @@
         <view class="config-helper">新增服务商只加入四项功能的选择器，不会自动替换当前线上绑定。API Key 只在这里的管理员编辑状态下读取，留空保存会保留原 Key。</view>
         <view wx:if="{{providerAutoRebound.length}}" class="provider-rebound-notice">
           删除后的自动切换：<block wx:for="{{providerAutoRebound}}" wx:key="*this"><text wx:if="{{index}}">、</text><text>{{item}}</text></block>
+        </view>
+        <view class="provider-secret-panel">
+          <view class="provider-secret-head">
+            <view>
+              <view class="provider-secret-title">档案 API Key（明文）</view>
+              <view class="provider-secret-desc">仅管理员页面显示；不会写入本地缓存、普通配置响应或日志。</view>
+            </view>
+            <view class="provider-secret-count">{{providerSecretRows.length || 0}} 个档案</view>
+          </view>
+          <view wx:if="{{providerSecretsLoading}}" class="provider-secret-empty">正在读取档案 Key…</view>
+          <view wx:elif="{{providerSecretRows.length}}" class="provider-secret-list">
+            <view wx:for="{{providerSecretRows}}" wx:key="providerKey" class="provider-secret-row">
+              <view class="provider-secret-row-main">
+                <view class="provider-secret-row-title">{{item.name || '未命名服务商'}}</view>
+                <view class="provider-secret-row-id">{{item.id || item.providerKey}}</view>
+              </view>
+              <view class="provider-secret-row-key {{item.apiKey ? 'is-ready' : 'is-off'}}" selectable="true">{{item.apiKey || (item.apiKeyConfigured ? '已配置但读取失败' : '未配置')}}</view>
+            </view>
+          </view>
+          <view wx:else class="provider-secret-empty">暂无可显示的服务商档案 Key。</view>
         </view>
         <view class="provider-manager-layout">
           <view class="provider-manager-list">
@@ -275,7 +313,7 @@
                 </view>
                 <view class="admin-field admin-field-wide admin-api-key-field">
                   <view class="admin-field-label-row"><text>公共 API Key</text><text class="api-key-config-state {{providerDraft.common.apiKey || providerDraft.common.apiKeyConfigured ? 'is-ready' : 'is-off'}}">{{providerDraft.common.apiKey ? '已填写新 Key' : (providerDraft.common.apiKeyConfigured ? '已配置完整 Key' : '未配置')}}</text></view>
-                  <input password="{{false}}" value="{{providerDraft.common.apiKey}}" placeholder="留空保留原 Key" data-path="common.apiKey" bindinput="onProviderDraftInput" />
+                  <input value="{{providerDraft.common.apiKey}}" placeholder="留空保留原 Key" data-path="common.apiKey" bindinput="onProviderDraftInput" />
                   <view class="provider-key-clear-row"><switch checked="{{providerDraft.common.clearApiKey}}" data-target="common" bindchange="onProviderClearKeyToggle" /><text>明确清除公共 Key</text></view>
                 </view>
               </view>
@@ -413,6 +451,34 @@
             </view>
             <view class="admin-field"><text>超时毫秒</text><input type="number" value="{{form.face.timeoutMs}}" data-section="face" data-key="timeoutMs" bindinput="onInput" /></view>
           </view>
+          <view class="vision-backup-section">
+            <view class="vision-backup-toggle" bindtap="toggleFaceBackup" hover-class="control-tap" role="button" aria-expanded="{{faceBackupExpanded}}" aria-label="{{faceBackupExpanded ? '收起人脸备用模型' : '展开人脸备用模型'}}">
+              <view class="vision-backup-toggle-copy">
+                <view class="vision-backup-toggle-title">备用人脸模型</view>
+                <view class="vision-backup-toggle-desc">主模型失败时自动切换；备用服务商和模型独立保存。</view>
+              </view>
+              <view class="vision-backup-toggle-action">{{faceBackupExpanded ? '收起' : '展开'}} <text class="vision-backup-chevron">{{faceBackupExpanded ? '⌃' : '⌄'}}</text></view>
+            </view>
+            <view wx:if="{{faceBackupExpanded}}" class="vision-backup-panel">
+              <label class="vision-backup-enable-row">
+                <view><view class="vision-backup-enable-title">启用备用人脸模型</view><view class="vision-backup-enable-desc">关闭后只使用主模型，不会发起备用请求。</view></view>
+                <switch checked="{{form.faceBackup.enabled}}" color="#2376d8" data-section="faceBackup" bindchange="onVisionBackupEnabledChange"></switch>
+              </label>
+              <view wx:if="{{form.faceBackup.enabled}}" class="admin-grid vision-backup-grid">
+                <view class="admin-field"><text>备用服务商</text><picker mode="selector" range="{{providerPickerOptionsFaceBackup}}" range-key="label" value="{{providerPickerIndexFaceBackup}}" data-section="faceBackup" bindchange="onProviderPickerChange"><view class="admin-picker">{{providerPickerOptionsFaceBackup[providerPickerIndexFaceBackup].label}}</view></picker></view>
+                <view class="admin-field"><text>备用模型</text><input value="{{form.faceBackup.model}}" data-section="faceBackup" data-key="model" placeholder="例如 qwen-vl-plus" bindinput="onInput" /></view>
+                <view class="admin-field admin-field-wide"><text>备用接口地址</text><input value="{{form.faceBackup.baseUrl}}" data-section="faceBackup" data-key="baseUrl" placeholder="留空继承公共地址" bindinput="onInput" /></view>
+                <view class="admin-field admin-field-wide"><text>备用请求路径（可留空）</text><input value="{{form.faceBackup.endpoint}}" data-section="faceBackup" data-key="endpoint" placeholder="留空使用服务商默认路径" bindinput="onInput" /></view>
+                <view class="admin-field admin-field-wide admin-api-key-field">
+                  <view class="admin-field-label-row"><text>备用 API Key</text><text class="api-key-config-state {{form.faceBackup.apiKey || form.faceBackup.apiKeyConfigured ? 'is-ready' : 'is-off'}}">{{form.faceBackup.apiKey ? '已显示完整 Key' : (form.faceBackup.apiKeyConfigured ? '已配置 Key' : '未配置')}}</text></view>
+                  <input value="{{form.faceBackup.apiKey}}" data-section="faceBackup" data-key="apiKey" placeholder="填写备用模型 API Key" bindinput="onInput" />
+                  <view class="api-key-field-tip">备用 Key 与主模型分开保存；留空保存会保留原 Key。</view>
+                </view>
+                <view class="admin-field"><text>备用超时毫秒</text><input type="number" value="{{form.faceBackup.timeoutMs}}" data-section="faceBackup" data-key="timeoutMs" bindinput="onInput" /></view>
+              </view>
+              <view wx:else class="image-wizard-disabled-note">备用模型未启用。打开上面的开关后再选择服务商和模型。</view>
+            </view>
+          </view>
         </view>
         <view wx:if="{{activeConfigSection !== 'users'}}" class="admin-actions">
           <view
@@ -514,6 +580,34 @@
               <view class="api-key-field-tip">当前显示云函数实际生效的完整 Key；修改后点击“保存全部配置”才会生效。</view>
             </view>
             <view class="admin-field"><text>超时毫秒</text><input type="number" value="{{form.analysis.timeoutMs}}" data-section="analysis" data-key="timeoutMs" bindinput="onInput" /></view>
+          </view>
+          <view class="vision-backup-section">
+            <view class="vision-backup-toggle" bindtap="toggleAnalysisBackup" hover-class="control-tap" role="button" aria-expanded="{{analysisBackupExpanded}}" aria-label="{{analysisBackupExpanded ? '收起分析备用模型' : '展开分析备用模型'}}">
+              <view class="vision-backup-toggle-copy">
+                <view class="vision-backup-toggle-title">备用分析模型</view>
+                <view class="vision-backup-toggle-desc">主分析请求失败时自动切换；不会改变主模型绑定。</view>
+              </view>
+              <view class="vision-backup-toggle-action">{{analysisBackupExpanded ? '收起' : '展开'}} <text class="vision-backup-chevron">{{analysisBackupExpanded ? '⌃' : '⌄'}}</text></view>
+            </view>
+            <view wx:if="{{analysisBackupExpanded}}" class="vision-backup-panel">
+              <label class="vision-backup-enable-row">
+                <view><view class="vision-backup-enable-title">启用备用分析模型</view><view class="vision-backup-enable-desc">关闭后只使用主分析模型，不会发起备用请求。</view></view>
+                <switch checked="{{form.analysisBackup.enabled}}" color="#2376d8" data-section="analysisBackup" bindchange="onVisionBackupEnabledChange"></switch>
+              </label>
+              <view wx:if="{{form.analysisBackup.enabled}}" class="admin-grid vision-backup-grid">
+                <view class="admin-field"><text>备用服务商</text><picker mode="selector" range="{{providerPickerOptionsAnalysisBackup}}" range-key="label" value="{{providerPickerIndexAnalysisBackup}}" data-section="analysisBackup" bindchange="onProviderPickerChange"><view class="admin-picker">{{providerPickerOptionsAnalysisBackup[providerPickerIndexAnalysisBackup].label}}</view></picker></view>
+                <view class="admin-field"><text>备用模型</text><input value="{{form.analysisBackup.model}}" data-section="analysisBackup" data-key="model" placeholder="例如 qwen-vl-plus" bindinput="onInput" /></view>
+                <view class="admin-field admin-field-wide"><text>备用接口地址</text><input value="{{form.analysisBackup.baseUrl}}" data-section="analysisBackup" data-key="baseUrl" placeholder="留空继承公共地址" bindinput="onInput" /></view>
+                <view class="admin-field admin-field-wide"><text>备用请求路径（可留空）</text><input value="{{form.analysisBackup.endpoint}}" data-section="analysisBackup" data-key="endpoint" placeholder="留空使用服务商默认路径" bindinput="onInput" /></view>
+                <view class="admin-field admin-field-wide admin-api-key-field">
+                  <view class="admin-field-label-row"><text>备用 API Key</text><text class="api-key-config-state {{form.analysisBackup.apiKey || form.analysisBackup.apiKeyConfigured ? 'is-ready' : 'is-off'}}">{{form.analysisBackup.apiKey ? '已显示完整 Key' : (form.analysisBackup.apiKeyConfigured ? '已配置 Key' : '未配置')}}</text></view>
+                  <input value="{{form.analysisBackup.apiKey}}" data-section="analysisBackup" data-key="apiKey" placeholder="填写备用模型 API Key" bindinput="onInput" />
+                  <view class="api-key-field-tip">备用 Key 与主模型分开保存；留空保存会保留原 Key。</view>
+                </view>
+                <view class="admin-field"><text>备用超时毫秒</text><input type="number" value="{{form.analysisBackup.timeoutMs}}" data-section="analysisBackup" data-key="timeoutMs" bindinput="onInput" /></view>
+              </view>
+              <view wx:else class="image-wizard-disabled-note">备用模型未启用。打开上面的开关后再选择服务商和模型。</view>
+            </view>
           </view>
         </view>
         <view wx:if="{{activeConfigSection !== 'users'}}" class="admin-actions">
@@ -797,6 +891,15 @@
             <checkbox disabled value="enabled" checked="{{true}}" color="#245fd4"></checkbox>
             <text>主模型失败后自动重试 {{form.image.maxRetries || 0}} 次</text>
           </label>
+          <view class="vision-backup-section image-backup-collapsible">
+            <view class="vision-backup-toggle" bindtap="toggleImageBackup" hover-class="control-tap" role="button" aria-expanded="{{imageBackupExpanded}}" aria-label="{{imageBackupExpanded ? '收起备用生图模型' : '展开备用生图模型'}}">
+              <view class="vision-backup-toggle-copy">
+                <view class="vision-backup-toggle-title">备用生图模型</view>
+                <view class="vision-backup-toggle-desc">主模型失败后才调用一次，主备参数和服务商独立保存。</view>
+              </view>
+              <view class="vision-backup-toggle-action">{{imageBackupExpanded ? '收起' : '展开'}} <text class="vision-backup-chevron">{{imageBackupExpanded ? '⌃' : '⌄'}}</text></view>
+            </view>
+            <view wx:if="{{imageBackupExpanded}}" class="vision-backup-panel image-backup-panel">
           <view class="image-provider-divider"></view>
           <view class="image-provider-section-head">
             <view>
@@ -906,6 +1009,9 @@
             <view class="admin-field"><text>备用调用次数</text><input disabled type="number" value="1" /></view>
            </view>
            <view class="config-helper">执行顺序：主模型先尝试，失败后按重试次数继续；仍失败且备用已启用时才切换备用一次。主备的模式、尺寸比例、清晰度和超时分别保存。</view>
+          </view>
+          <view wx:else class="image-wizard-disabled-note">备用生图模型已收起。点击“展开”查看和编辑备用服务商、模型及 Key。</view>
+          </view>
           </view>
         </view>
         <view wx:if="{{activeConfigSection !== 'users'}}" class="admin-actions">
@@ -1323,6 +1429,15 @@
           <view class="config-helper">{{videoPricingNotice}}</view>
           <view class="config-helper">{{videoCapabilityNotice}}</view>
 
+          <view class="vision-backup-section video-backup-collapsible">
+            <view class="vision-backup-toggle" bindtap="toggleVideoBackup" hover-class="control-tap" role="button" aria-expanded="{{videoBackupExpanded}}" aria-label="{{videoBackupExpanded ? '收起备用视频模型' : '展开备用视频模型'}}">
+              <view class="vision-backup-toggle-copy">
+                <view class="vision-backup-toggle-title">备用视频模型</view>
+                <view class="vision-backup-toggle-desc">主模型创建失败时自动尝试一次，任务拿到编号后不会中途切换。</view>
+              </view>
+              <view class="vision-backup-toggle-action">{{videoBackupExpanded ? '收起' : '展开'}} <text class="vision-backup-chevron">{{videoBackupExpanded ? '⌃' : '⌄'}}</text></view>
+            </view>
+            <view wx:if="{{videoBackupExpanded}}" class="vision-backup-panel video-backup-panel">
           <view class="image-provider-divider"></view>
           <view class="image-provider-section-head">
             <view>
@@ -1395,6 +1510,9 @@
             <view wx:if="{{form.videoBackup.enabled && form.videoBackup.provider}}" class="admin-field"><text>超时毫秒</text><input type="number" value="{{form.videoBackup.timeoutMs}}" data-section="videoBackup" data-key="timeoutMs" bindinput="onInput" /></view>
           </view>
           <view wx:if="{{!form.videoBackup.enabled || !form.videoBackup.provider}}" class="config-helper">当前未启用备用服务商。主服务商创建失败时会直接退款，不会再请求其他视频接口。</view>
+          </view>
+          <view wx:else class="image-wizard-disabled-note">备用视频模型已收起。点击“展开”查看和编辑备用服务商、模型及 Key。</view>
+          </view>
           </view>
         </view>
         <view wx:if="{{activeConfigSection !== 'users'}}" class="admin-actions">

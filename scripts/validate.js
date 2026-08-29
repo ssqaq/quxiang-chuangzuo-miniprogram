@@ -28,7 +28,8 @@ const jsonFiles = [
 const optionalJsonFiles = ["project.private.config.json"];
 // 新增的 smoke 单独列出，既做语法检查，也纳入必要文件检查。
 const smokeFiles = [
-  "scripts/admin-provider-management-smoke.js"
+  "scripts/admin-provider-management-smoke.js",
+  "scripts/admin-backup-model-target-smoke.js"
 ];
 const jsFiles = [
   "app.js",
@@ -71,6 +72,7 @@ const jsFiles = [
   "scripts/admin-config-layout-smoke.js",
   "scripts/admin-video-xingju-defaults-smoke.js",
   "scripts/admin-provider-management-smoke.js",
+  "scripts/admin-backup-model-target-smoke.js",
   "scripts/admin-config-audit-smoke.js",
   "scripts/admin-provider-connection-test-smoke.js",
   "scripts/image-quality-smoke.js",
@@ -298,6 +300,7 @@ const required = [
   "scripts/admin-config-layout-smoke.js",
   "scripts/admin-video-xingju-defaults-smoke.js",
   "scripts/admin-provider-management-smoke.js",
+  "scripts/admin-backup-model-target-smoke.js",
   "scripts/admin-config-audit-smoke.js",
   "scripts/admin-provider-connection-test-smoke.js",
   "scripts/image-quality-smoke.js",
@@ -1084,6 +1087,31 @@ if (
   || !adminWxss.includes(".api-key-field-tip")
 ) {
   throw new Error("管理员页面服务商目录五个槽位的 Key 状态、兼容的视频备用只读项或专用接口不完整。");
+}
+// 服务商目录与四项备用模型的关键可见契约：入口必须紧挨“当前配置”标题，
+// 四个备用区都能展开/收回，且管理页状态来自稳定 activeBackups 引用。
+const currentHeadingIndex = adminWxml.indexOf('<view class="overview-heading">当前配置</view>');
+const providerRowIndex = adminWxml.indexOf('class="provider-directory-row');
+const faceRowIndex = adminWxml.indexOf('class="current-config-row', providerRowIndex);
+if (
+  currentHeadingIndex < 0
+  || providerRowIndex < currentHeadingIndex
+  || (faceRowIndex >= 0 && providerRowIndex > faceRowIndex)
+  || !adminWxml.includes("providerSecretRows")
+  || !adminWxml.includes("档案 API Key（明文）")
+  || !adminWxml.includes("faceBackupExpanded")
+  || !adminWxml.includes("analysisBackupExpanded")
+  || !adminWxml.includes("imageBackupExpanded")
+  || !adminWxml.includes("videoBackupExpanded")
+  || !adminJs.includes("activeBackups")
+  || !adminJs.includes("toggleFaceBackup")
+  || !adminJs.includes("toggleAnalysisBackup")
+  || !adminJs.includes("toggleImageBackup")
+  || !adminJs.includes("toggleVideoBackup")
+  || !adminWxss.includes(".provider-directory-row")
+  || !adminWxss.includes(".vision-backup-toggle")
+) {
+  throw new Error("服务商入口、明文 Key 面板或四项备用模型展开/收回功能不完整。");
 }
 if (
   !clientCloudJs.includes('action: "getModelUsageStats"')

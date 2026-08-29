@@ -434,9 +434,9 @@ try {
 
         if ($Preview -and -not (Test-ResumeFinalPreview -Value $context)) {
             Write-ResumeLog "preview" "为已合并 context 生成或幂等复用最终二维码。"
-            $preview = Write-ResumeFinalPreview -WorktreePath $worktree -Value $context -ReleaseCommit $releaseCommit -MainCommit $mergeCommit
-            $qrPath = [string]$preview.qrPath
-            $infoPath = [string]$preview.infoPath
+            $previewArtifact = Write-ResumeFinalPreview -WorktreePath $worktree -Value $context -ReleaseCommit $releaseCommit -MainCommit $mergeCommit
+            $qrPath = [string]$previewArtifact.qrPath
+            $infoPath = [string]$previewArtifact.infoPath
             $context = Save-ResumeContext -Values @{ phase = "previewed"; previewQrPath = $qrPath; previewInfoPath = $infoPath; postMergeStatus = "running" }
             $phase = "previewed"
         }
@@ -574,9 +574,9 @@ try {
     if ($Preview -and -not $hasFinalPreview) {
         Write-ResumeLog "preview" "生成或幂等复用最终二维码。"
         $mergeCommit = if ($context.PSObject.Properties["mainCommit"]) { [string]$context.mainCommit } else { "" }
-        $preview = Write-ResumeFinalPreview -WorktreePath $worktree -Value $context -ReleaseCommit $releaseCommit -MainCommit $mergeCommit
-        $qrPath = [string]$preview.qrPath
-        $infoPath = [string]$preview.infoPath
+        $previewArtifact = Write-ResumeFinalPreview -WorktreePath $worktree -Value $context -ReleaseCommit $releaseCommit -MainCommit $mergeCommit
+        $qrPath = [string]$previewArtifact.qrPath
+        $infoPath = [string]$previewArtifact.infoPath
         $context = Save-ResumeContext -Values @{ phase = "previewed"; previewQrPath = $qrPath; previewInfoPath = $infoPath }
         Set-ReleaseQueuePhase -QueueRoot $queueRoot -OperationId $OperationId -Phase "previewed" -Status "running" -Version ([string]$context.version) -BaseHead ([string]$context.baseHead) -ContextPath $contextPath -Lease $queueLease | Out-Null
         $phase = "previewed"

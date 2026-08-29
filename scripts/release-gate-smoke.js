@@ -69,7 +69,7 @@ function testFilesAndPolicy() {
   );
   assert.strictEqual(policy.branch, "main");
   assert.ok(policy.remote.includes("github.com/ssqaq/"));
-  for (const key of ["lockPath", "artifactRoot", "reservationRoot", "worktreeRoot", "contextRoot", "logRoot", "archiveManifestPath"]) {
+  for (const key of ["lockPath", "artifactRoot", "reservationRoot", "worktreeRoot", "contextRoot", "logRoot", "archiveManifestPath", "reportRoot", "backupRoot", "alertRoot", "latestReleasePath"]) {
     assert.ok(policy[key], `策略缺少 ${key}`);
   }
   const expectedParent = path.dirname(canonicalRoot);
@@ -83,6 +83,10 @@ function testFilesAndPolicy() {
     logRoot: path.join(expectedParent, "wechat-miniapp-release-logs"),
     queueRoot: path.join(expectedParent, "wechat-miniapp-release-queue"),
     archiveManifestPath: path.join(expectedParent, "wechat-miniapp-release-archive.json"),
+    reportRoot: path.join(expectedParent, "wechat-miniapp-release-reports"),
+    backupRoot: path.join(expectedParent, "wechat-miniapp-release-backups"),
+    alertRoot: path.join(expectedParent, "wechat-miniapp-release-logs", "alerts"),
+    latestReleasePath: path.join(expectedParent, "wechat-miniapp-latest-release.json"),
   };
   assert.strictEqual(path.resolve(policyPath).toLowerCase(), path.resolve(path.join(expectedParent, "wechat-miniapp-release-policy.json")).toLowerCase(), "策略文件不是固定唯一路径");
   for (const [key, expected] of Object.entries(expectedPaths)) {
@@ -124,6 +128,9 @@ function testStaticContracts() {
     "checkDeadline",
     "no checks reported",
     "Start-Sleep -Seconds 5",
+    "Invoke-ReleasePreviewImport",
+    "project_import",
+    "Write-ReleaseImmutableFile",
   ]) {
     assert.ok(gate.includes(marker) || entry.includes(marker), `发布闸门缺少 ${marker}`);
   }
@@ -134,6 +141,11 @@ function testStaticContracts() {
   assert.ok(entry.includes('"scripts/resume-release-smoke.js"'), "发布工具快照必须包含恢复 smoke");
   assert.ok(entry.includes('"scripts/cloud-deploy-safety-smoke.js"'), "发布工具快照必须包含 Cloud 快照 smoke");
   assert.ok(entry.includes('"scripts/deployment-script-smoke.js"'), "发布工具快照必须包含部署 smoke");
+  assert.ok(entry.includes('"scripts/release-report.ps1"'), "发布工具快照必须包含验收报告");
+  assert.ok(entry.includes('"scripts/rollback-release.ps1"'), "发布工具快照必须包含回滚入口");
+  assert.ok(entry.includes('"scripts/release-maintenance.ps1"'), "发布工具快照必须包含 reservation 维护");
+  assert.ok(entry.includes('"scripts/install-git-hooks.ps1"'), "发布工具快照必须包含 Git hooks 安装器");
+  assert.ok(entry.includes('preview-import'), "正式预览必须先导入微信开发者工具");
   assert.ok(!entry.includes("push origin \"HEAD:main\""), "闸门不能直接 push main");
   assert.ok(gate.indexOf("auth status") < gate.indexOf("push origin"), "GitHub 认证检查必须先于推送 release 分支");
   assert.ok(entry.indexOf("Test-ReleaseGitHubProtection") < entry.indexOf("New-ReleaseQueueTicket"), "正式发布保护预检必须先于创建队列票据");
@@ -193,6 +205,45 @@ function testIdentityDerivation() {
   }
 }
 
+function testImmutableBinary() {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "release-gate-immutable-"));
+  const source = path.join(temp, "source.tmp");
+  const destination = path.join(temp, "artifact.bin");
+  try {
+    fs.writeFileSync(source, Buffer.from("same-bytes"));
+    const first = runPowerShell([
+      `. ${quote(gateScript)}`,
+      `$r = Write-ReleaseImmutableFile -SourcePath ${quote(source)} -DestinationPath ${quote(destination)}`,
+      `if ($r.Status -ne 'created') { throw "first status=$($r.Status)" }`,
+      `if (-not (Test-Path -LiteralPath ${quote(destination)} -PathType Leaf)) { throw 'destination missing' }`,
+      `Write-Output 'IMMUTABLE_CREATE_OK'`,
+    ].join("; "));
+    assertPowerShellOk(first, "不可变二进制首次落盘");
+    assert.ok(first.stdout.includes("IMMUTABLE_CREATE_OK"));
+    const secondSource = path.join(temp, "source2.tmp");
+    fs.writeFileSync(secondSource, Buffer.from("same-bytes"));
+    const second = runPowerShell([
+      `. ${quote(gateScript)}`,
+      `$r = Write-ReleaseImmutableFile -SourcePath ${quote(secondSource)} -DestinationPath ${quote(destination)}`,
+      `if ($r.Status -ne 'reused') { throw "second status=$($r.Status)" }`,
+      `Write-Output 'IMMUTABLE_REUSE_OK'`,
+    ].join("; "));
+    assertPowerShellOk(second, "不可变二进制幂等复用");
+    assert.ok(second.stdout.includes("IMMUTABLE_REUSE_OK"));
+    const conflictSource = path.join(temp, "source3.tmp");
+    fs.writeFileSync(conflictSource, Buffer.from("different-bytes"));
+    const conflict = runPowerShell([
+      `. ${quote(gateScript)}`,
+      `try { Write-ReleaseImmutableFile -SourcePath ${quote(conflictSource)} -DestinationPath ${quote(destination)} | Out-Null; throw 'different bytes accepted' } catch { if ($_.Exception.Message -notmatch '内容不同') { throw } }`,
+      `Write-Output 'IMMUTABLE_CONFLICT_OK'`,
+    ].join("; "));
+    assertPowerShellOk(conflict, "不可变二进制冲突");
+    assert.ok(conflict.stdout.includes("IMMUTABLE_CONFLICT_OK"));
+  } finally {
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
+}
+
 function testMainCommitContainment() {
   // Build a tiny local bare remote to exercise the exact squash-merge case.
   // In a squash merge releaseCommit is not an ancestor of main; the PR's
@@ -241,5 +292,6 @@ testFilesAndPolicy();
 testStaticContracts();
 testIncludePathNormalization();
 testIdentityDerivation();
+testImmutableBinary();
 testMainCommitContainment();
 console.log("release gate smoke: OK");

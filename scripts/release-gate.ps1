@@ -41,8 +41,8 @@ function Get-ReleaseGatePolicy {
     }
     # schema 1 policies created before the durable queue enhancement remain
     # readable; derive the queue directory beside the lock when absent.
+    $parent = Split-Path ([IO.Path]::GetFullPath([string]$policy.lockPath)) -Parent
     if ($null -eq $policy.PSObject.Properties["queueRoot"] -or [string]::IsNullOrWhiteSpace([string]$policy.queueRoot)) {
-        $parent = Split-Path ([IO.Path]::GetFullPath([string]$policy.lockPath)) -Parent
         $policy | Add-Member -NotePropertyName queueRoot -NotePropertyValue (Join-Path $parent "wechat-miniapp-release-queue") -Force
     }
     if ($null -eq $policy.PSObject.Properties["queue"]) {
@@ -52,6 +52,19 @@ function Get-ReleaseGatePolicy {
     foreach ($key in $queueDefaults.Keys) {
         if ($null -eq $policy.queue.PSObject.Properties[$key]) {
             $policy.queue | Add-Member -NotePropertyName $key -NotePropertyValue $queueDefaults[$key] -Force
+        }
+    }
+    # These paths were added after schema 1.  Derive them for old policy files
+    # so every caller still writes to the one canonical state directory.
+    $derivedStatePaths = @{
+        reportRoot = Join-Path $parent "wechat-miniapp-release-reports"
+        backupRoot = Join-Path $parent "wechat-miniapp-release-backups"
+        alertRoot = Join-Path ([string]$policy.logRoot) "alerts"
+        latestReleasePath = Join-Path $parent "wechat-miniapp-latest-release.json"
+    }
+    foreach ($key in $derivedStatePaths.Keys) {
+        if ($null -eq $policy.PSObject.Properties[$key] -or [string]::IsNullOrWhiteSpace([string]$policy.$key)) {
+            $policy | Add-Member -NotePropertyName $key -NotePropertyValue $derivedStatePaths[$key] -Force
         }
     }
     if ($null -eq $policy.PSObject.Properties["mainProtection"]) {
@@ -105,6 +118,10 @@ function Assert-ReleaseCanonicalPolicy {
         logRoot = Join-Path $canonicalParent "wechat-miniapp-release-logs"
         queueRoot = Join-Path $canonicalParent "wechat-miniapp-release-queue"
         archiveManifestPath = Join-Path $canonicalParent "wechat-miniapp-release-archive.json"
+        reportRoot = Join-Path $canonicalParent "wechat-miniapp-release-reports"
+        backupRoot = Join-Path $canonicalParent "wechat-miniapp-release-backups"
+        alertRoot = Join-Path (Join-Path $canonicalParent "wechat-miniapp-release-logs") "alerts"
+        latestReleasePath = Join-Path $canonicalParent "wechat-miniapp-latest-release.json"
     }
     foreach ($name in $expectedPaths.Keys) {
         $property = $Policy.PSObject.Properties[$name]
@@ -406,12 +423,20 @@ function Get-ReleaseUsedVersions {
         [Parameter(Mandatory = $true)][string]$RecordRoot,
         [Parameter(Mandatory = $true)][string]$RepositoryRoot,
         [string]$QueueRoot = "",
-        [string]$ContextRoot = ""
+        [string]$ContextRoot = "",
+        # New queue tickets carry an explicit requested version as a durable
+        # write-ahead claim.  When the current operation is resolving that
+        # claim under the release lock, do not count its own ticket as a
+        # competing reservation; otherwise every explicit TargetVersion is
+        # rejected as "not the next available version" before a reservation
+        # can ever be written.
+        [string]$ExcludeOperationId = ""
     )
     $used = New-Object System.Collections.Generic.HashSet[string]([StringComparer]::OrdinalIgnoreCase)
     foreach ($root in @($ReservationRoot, $RecordRoot)) {
         if (-not (Test-Path -LiteralPath $root -PathType Container)) { continue }
-        foreach ($file in Get-ChildItem -LiteralPath $root -Filter '*.json' -File -ErrorAction SilentlyContinue) {
+        foreach ($file in Get-ChildItem -LiteralPath $root -Filter '*.json' -File -Recurse -Force -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -notmatch '(?i)[\\/]node_modules[\\/]' }) {
             try {
                 $record = Get-Content -LiteralPath $file.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
                 $targetProperty = $record.PSObject.Properties["targetVersion"]
@@ -431,6 +456,10 @@ function Get-ReleaseUsedVersions {
             try {
                 $queue = Get-Content -LiteralPath $queuePath -Raw -Encoding UTF8 | ConvertFrom-Json
                 foreach ($ticket in @($queue.tickets)) {
+                    if (-not [string]::IsNullOrWhiteSpace($ExcludeOperationId) -and
+                        [string]$ticket.operationId -eq $ExcludeOperationId) {
+                        continue
+                    }
                     $value = [string]$ticket.version
                     if ($value -match '^\d+\.\d+\.\d+$') { [void]$used.Add($value) }
                     $requested = [string]$ticket.requestedVersion
@@ -493,9 +522,21 @@ function New-ReleaseReservation {
         includePaths = @($IncludePath)
         createdAt = [DateTimeOffset]::UtcNow.ToString("o")
     }
-    $temp = "$target.$PID.tmp"
-    [IO.File]::WriteAllText($temp, ($record | ConvertTo-Json -Depth 8) + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
-    Move-Item -LiteralPath $temp -Destination $target
+    # Reservation creation is write-once.  Use a per-attempt name and never
+    # force-replace an existing reservation: a concurrent allocator must fail
+    # closed instead of silently stealing another operation's version.
+    $temp = "$target.$PID.$([guid]::NewGuid().ToString('N')).tmp"
+    try {
+        [IO.File]::WriteAllText($temp, ($record | ConvertTo-Json -Depth 8) + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
+        try { [IO.File]::Move($temp, $target) }
+        catch [IO.IOException] {
+            if (Test-Path -LiteralPath $target -PathType Leaf) { throw "reservation 文件并发冲突，拒绝覆盖：$target" }
+            throw
+        }
+    }
+    finally {
+        Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue
+    }
     return [pscustomobject]@{ Path = $target; Record = [pscustomobject]$record }
 }
 
@@ -512,9 +553,10 @@ function Set-ReleaseReservationStatus {
     $hash.status = $Status
     $hash.updatedAt = [DateTimeOffset]::UtcNow.ToString("o")
     foreach ($key in $Extra.Keys) { $hash[$key] = $Extra[$key] }
-    $temp = "$ReservationPath.$PID.tmp"
-    [IO.File]::WriteAllText($temp, ($hash | ConvertTo-Json -Depth 10) + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
-    Move-Item -LiteralPath $temp -Destination $ReservationPath -Force
+    # Status changes are mutable, but readers must see either the old complete
+    # JSON or the new complete JSON.  The shared atomic writer also avoids the
+    # old Move-Item -Force race with queue/status readers.
+    Write-ReleaseGateJsonAtomic -Path $ReservationPath -Value $hash | Out-Null
 }
 
 function Resolve-ReleaseVersion {
@@ -625,7 +667,134 @@ function Write-ReleaseGateJsonAtomic {
     New-Item -ItemType Directory -Path $parent -Force | Out-Null
     $temp = "$Path.$PID.$([guid]::NewGuid().ToString('N')).tmp"
     [IO.File]::WriteAllText($temp, ($Value | ConvertTo-Json -Depth 15) + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
-    Move-Item -LiteralPath $temp -Destination $Path -Force
+    # Replace in the same directory so readers never observe a partial JSON.
+    # File.Replace preserves the destination ACL and is atomic on NTFS; the
+    # fallback is only for filesystems that do not implement Replace.
+    try {
+        if (Test-Path -LiteralPath $Path -PathType Leaf) {
+            [IO.File]::Replace($temp, $Path, $null, $true)
+        }
+        else {
+            [IO.File]::Move($temp, $Path)
+        }
+    }
+    catch {
+        if (Test-Path -LiteralPath $temp -PathType Leaf) {
+            Move-Item -LiteralPath $temp -Destination $Path -Force
+        }
+        else { throw }
+    }
+}
+
+function Write-ReleaseImmutableJson {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][object]$Value
+    )
+    $bytes = [Text.UTF8Encoding]::new($false).GetBytes((($Value | ConvertTo-Json -Depth 30) + [Environment]::NewLine))
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { $new = ([BitConverter]::ToString($sha.ComputeHash($bytes)) -replace '-', '').ToLowerInvariant() }
+    finally { $sha.Dispose() }
+    $parent = Split-Path ([IO.Path]::GetFullPath($Path)) -Parent
+    New-Item -ItemType Directory -Path $parent -Force | Out-Null
+    $temp = "$Path.$PID.$([guid]::NewGuid().ToString('N')).tmp"
+    [IO.File]::WriteAllBytes($temp, $bytes)
+    try {
+        if (Test-Path -LiteralPath $Path -PathType Leaf) {
+            $old = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($old -ne $new) { throw "不可变状态文件同名但内容不同，拒绝覆盖：$Path" }
+            return "reused"
+        }
+        try {
+            [IO.File]::Move($temp, $Path)
+            return "created"
+        }
+        catch [IO.IOException] {
+            # Another writer may have won the create race.  Same bytes are
+            # idempotent; different bytes remain a hard failure.
+            if (Test-Path -LiteralPath $Path -PathType Leaf) {
+                $old = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+                if ($old -eq $new) { return "reused" }
+                throw "不可变状态文件同名但内容不同，拒绝覆盖：$Path"
+            }
+            throw
+        }
+    }
+    finally { Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue }
+}
+
+function Write-ReleaseImmutableFile {
+    <# Move a generated binary into its final name without ever overwriting a
+       different byte stream.  Same SHA is idempotent; a different SHA is a
+       hard conflict. #>
+    param(
+        [Parameter(Mandatory = $true)][string]$SourcePath,
+        [Parameter(Mandatory = $true)][string]$DestinationPath
+    )
+    $source = [IO.Path]::GetFullPath($SourcePath)
+    $destination = [IO.Path]::GetFullPath($DestinationPath)
+    if (-not (Test-Path -LiteralPath $source -PathType Leaf)) { throw "不可变文件源不存在：$source" }
+    $sourceItem = Get-Item -LiteralPath $source
+    if ($sourceItem.Length -le 0) { throw "不可变文件为空：$source" }
+    $sourceSha = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant()
+    $parent = Split-Path $destination -Parent
+    New-Item -ItemType Directory -Path $parent -Force | Out-Null
+    if (Test-Path -LiteralPath $destination -PathType Leaf) {
+        $oldItem = Get-Item -LiteralPath $destination
+        if ($oldItem.Length -le 0) { throw "不可变文件目标为空，拒绝覆盖：$destination" }
+        $oldSha = (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($oldSha -ne $sourceSha) { throw "不可变文件同名但内容不同，拒绝覆盖：$destination" }
+        return [pscustomobject]@{ Status = "reused"; Path = $destination; Sha256 = $oldSha; SizeBytes = [int64]$oldItem.Length }
+    }
+    try {
+        [IO.File]::Move($source, $destination)
+        return [pscustomobject]@{ Status = "created"; Path = $destination; Sha256 = $sourceSha; SizeBytes = [int64]$sourceItem.Length }
+    }
+    catch [IO.IOException] {
+        # Another process may have won the create race.  It is safe to reuse
+        # only if the bytes are exactly identical.
+        if (Test-Path -LiteralPath $destination -PathType Leaf) {
+            $oldItem = Get-Item -LiteralPath $destination
+            $oldSha = (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($oldSha -eq $sourceSha) {
+                return [pscustomobject]@{ Status = "reused"; Path = $destination; Sha256 = $oldSha; SizeBytes = [int64]$oldItem.Length }
+            }
+            throw "不可变文件同名但内容不同，拒绝覆盖：$destination"
+        }
+        throw
+    }
+    finally {
+        Remove-Item -LiteralPath $source -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Invoke-ReleasePreviewImport {
+    <# 将本次隔离发布工作树登记到微信开发者工具项目列表。这里只导入
+       当前 release context 对应的目录，不把开发工作区或旧 clone 混进去。 #>
+    param(
+        [Parameter(Mandatory = $true)][string]$CliPath,
+        [Parameter(Mandatory = $true)][string]$ClientName,
+        [Parameter(Mandatory = $true)][string]$ProjectPath
+    )
+    if (-not (Test-Path -LiteralPath $CliPath -PathType Leaf)) { throw "微信开发者工具 CLI 不存在：$CliPath" }
+    if (-not (Test-Path -LiteralPath $ProjectPath -PathType Container)) { throw "待导入预览项目目录不存在：$ProjectPath" }
+    $output = & $CliPath -c $ClientName project_import --project ([IO.Path]::GetFullPath($ProjectPath)) 2>&1
+    $exitCode = $LASTEXITCODE
+    $text = ($output | ForEach-Object { [string]$_ }) -join "`n"
+    if ($exitCode -ne 0) { throw "微信开发者工具导入预览项目失败：$text" }
+    $response = $null
+    foreach ($line in @($text -split "`r?`n" | Where-Object { $_.Trim().StartsWith('{') -and $_.Trim().EndsWith('}') })) {
+        try { $response = $line | ConvertFrom-Json } catch { }
+    }
+    if ($null -ne $response -and $response.PSObject.Properties["ok"] -and -not [bool]$response.ok) {
+        throw "微信开发者工具拒绝导入预览项目：$([string]$response.message)"
+    }
+    return [pscustomobject]@{
+        status = "imported"
+        projectPath = [IO.Path]::GetFullPath($ProjectPath)
+        response = $response
+        importedAt = [DateTimeOffset]::UtcNow.ToString("o")
+    }
 }
 
 function Update-ReleaseArchiveManifest {
@@ -704,7 +873,10 @@ function New-ReleaseContext {
         [int]$ExpiresMinutes = 180,
         [string]$BaseHead = "",
         [string]$QueueTicketPath = "",
-        [string]$Phase = "prepared"
+        [string]$Phase = "prepared",
+        [string]$LogPath = "",
+        [string]$ReportPath = "",
+        [string]$BackupPath = ""
     )
     $context = [ordered]@{
         schemaVersion = 2
@@ -727,6 +899,9 @@ function New-ReleaseContext {
         receipts = [ordered]@{}
         recovery = [ordered]@{ resumable = $true; lastFailureStage = "" }
     }
+    if (-not [string]::IsNullOrWhiteSpace($LogPath)) { $context.logPath = [IO.Path]::GetFullPath($LogPath) }
+    if (-not [string]::IsNullOrWhiteSpace($ReportPath)) { $context.reportPath = [IO.Path]::GetFullPath($ReportPath) }
+    if (-not [string]::IsNullOrWhiteSpace($BackupPath)) { $context.backupPath = [IO.Path]::GetFullPath($BackupPath) }
     Write-ReleaseGateJsonAtomic -Path $Path -Value $context
     return [pscustomobject]$context
 }
@@ -759,6 +934,29 @@ function Assert-ReleaseContextShape {
         if ($null -eq $Context.PSObject.Properties["phase"] -or [string]::IsNullOrWhiteSpace([string]$Context.phase)) { throw "release context v2 缺少 phase。" }
         if ($null -eq $Context.PSObject.Properties["baseHead"] -or [string]$Context.baseHead -notmatch '^[0-9a-fA-F]{7,64}$') { throw "release context v2 baseHead 无效。" }
     }
+    foreach ($pathField in @("artifactPath", "logPath", "reportPath", "reportMarkdownPath", "backupPath", "queueTicketPath", "releaseWorktree", "previewQrPath", "previewInfoPath", "premergePreviewQrPath", "premergePreviewInfoPath")) {
+        $property = $Context.PSObject.Properties[$pathField]
+        if ($null -eq $property -or [string]::IsNullOrWhiteSpace([string]$property.Value)) { continue }
+        $value = [IO.Path]::GetFullPath([string]$property.Value)
+        $allowedRoot = switch ($pathField) {
+            "artifactPath" { [string]$Policy.artifactRoot }
+            "logPath" { [string]$Policy.logRoot }
+            "reportPath" { [string]$Policy.reportRoot }
+            "reportMarkdownPath" { [string]$Policy.reportRoot }
+            "backupPath" { [string]$Policy.backupRoot }
+            "queueTicketPath" { [string]$Policy.queueRoot }
+            "releaseWorktree" { [string]$Policy.worktreeRoot }
+            "previewQrPath" { [string]$Policy.artifactRoot }
+            "previewInfoPath" { [string]$Policy.artifactRoot }
+            "premergePreviewQrPath" { [string]$Policy.artifactRoot }
+            "premergePreviewInfoPath" { [string]$Policy.artifactRoot }
+        }
+        $root = (ConvertTo-ReleaseFullPath -Path $allowedRoot).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
+        if (-not $value.StartsWith($root, [StringComparison]::OrdinalIgnoreCase) -and
+            -not (Test-ReleasePathEqual -Left $value -Right $allowedRoot)) {
+            throw "release context $pathField 不在策略允许目录内。"
+        }
+    }
     $expires = ConvertTo-ReleaseUtcDateTime -Value $Context.expiresAt
     if ($expires -le [DateTime]::UtcNow) { throw "release context 已过期。" }
     return $true
@@ -773,6 +971,16 @@ function New-ReleaseOperationLogPath {
     return Join-Path $LogRoot "release-$OperationId.log"
 }
 
+function ConvertTo-ReleaseSafeMessage {
+    param([AllowEmptyString()][string]$Message)
+    $safe = [string]$Message
+    # Logs/alerts are durable and may be copied outside the machine.  Keep the
+    # stage and error wording useful while removing common credential shapes.
+    $safe = [regex]::Replace($safe, '(?i)(handoffToken|access[_-]?token|refresh[_-]?token|authorization|cookie|appsecret|secret|api[_-]?key|password)\s*[=:：]\s*[^\s,;]+', '$1=[已隐藏]')
+    $safe = [regex]::Replace($safe, '(?i)Bearer\s+[A-Za-z0-9._~+/=-]+', 'Bearer [已隐藏]')
+    return $safe
+}
+
 function Write-ReleaseOperationLog {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
@@ -780,9 +988,421 @@ function Write-ReleaseOperationLog {
         [Parameter(Mandatory = $true)][string]$Message,
         [string]$OperationId = ""
     )
-    $line = [ordered]@{ at = [DateTimeOffset]::UtcNow.ToString("o"); operationId = $OperationId; stage = $Stage; message = $Message } |
+    $parent = Split-Path ([IO.Path]::GetFullPath($Path)) -Parent
+    New-Item -ItemType Directory -Path $parent -Force | Out-Null
+    $line = [ordered]@{ at = [DateTimeOffset]::UtcNow.ToString("o"); operationId = $OperationId; stage = $Stage; message = ConvertTo-ReleaseSafeMessage -Message $Message } |
         ConvertTo-Json -Compress
-    Add-Content -LiteralPath $Path -Value $line -Encoding UTF8
+    $mutex = $null
+    $ownsMutex = $false
+    try {
+        # PowerShell does not use backslash as an escape character.  Keep one
+        # separator here; two literal backslashes make the Windows mutex name
+        # invalid and abort the release before the first durable log entry.
+        $name = "Global\wechat-miniapp-release-log-" + ([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([IO.Path]::GetFullPath($Path))) -replace '[^A-Za-z0-9]', '_')
+        $mutex = [Threading.Mutex]::new($false, $name)
+        try {
+            $ownsMutex = $mutex.WaitOne([TimeSpan]::FromSeconds(15))
+        }
+        catch [Threading.AbandonedMutexException] {
+            # The previous writer died while holding the mutex.  The OS has
+            # already transferred ownership to us, so the append is safe.
+            $ownsMutex = $true
+        }
+        if (-not $ownsMutex) { throw "等待发布日志写入锁超时：$Path" }
+        Add-Content -LiteralPath $Path -Value $line -Encoding UTF8
+    }
+    finally {
+        if ($null -ne $mutex) {
+            if ($ownsMutex) { try { $mutex.ReleaseMutex() } catch {} }
+            $mutex.Dispose()
+        }
+    }
+}
+
+function Write-ReleaseFailureAlert {
+    <# Write one sanitized alert per operation.  Webhook delivery is optional
+       and best-effort; a network failure must never hide the original error. #>
+    param(
+        [Parameter(Mandatory = $true)][object]$Policy,
+        [Parameter(Mandatory = $true)][string]$OperationId,
+        [string]$Version = "",
+        [string]$Stage = "failed",
+        [Parameter(Mandatory = $true)][string]$Message,
+        [string]$ContextPath = "",
+        [string]$LogPath = ""
+    )
+    $root = if ($Policy.PSObject.Properties["alertRoot"] -and $Policy.alertRoot) { [string]$Policy.alertRoot } else { Join-Path ([string]$Policy.logRoot) "alerts" }
+    $path = Join-Path $root "release-$OperationId.json"
+    $alert = [ordered]@{
+        schemaVersion = 1
+        operationId = $OperationId
+        version = $Version
+        stage = $Stage
+        status = "failed"
+        message = ConvertTo-ReleaseSafeMessage -Message $Message
+        contextPath = $ContextPath
+        logPath = $LogPath
+        createdAt = [DateTimeOffset]::UtcNow.ToString("o")
+    }
+    try { Write-ReleaseGateJsonAtomic -Path $path -Value $alert } catch { Write-Host "失败告警写入失败：$($_.Exception.Message)" -ForegroundColor Yellow }
+    $webhook = [string]$env:MINIPROGRAM_RELEASE_ALERT_WEBHOOK
+    if (-not [string]::IsNullOrWhiteSpace($webhook)) {
+        try {
+            $payload = @{ text = "微信小程序发布失败 [$OperationId] v$Version 阶段=$Stage：$($alert.message)" } | ConvertTo-Json -Compress
+            Invoke-RestMethod -Uri $webhook -Method Post -ContentType "application/json" -Body $payload -TimeoutSec 10 | Out-Null
+        }
+        catch { Write-Host "失败告警 webhook 发送失败（不影响发布现场）：$($_.Exception.Message)" -ForegroundColor Yellow }
+    }
+    return $path
+}
+
+function Get-ReleaseLatestManifest {
+    param([Parameter(Mandatory = $true)][object]$Policy)
+    $path = [string]$Policy.latestReleasePath
+    if ([string]::IsNullOrWhiteSpace($path) -or -not (Test-Path -LiteralPath $path -PathType Leaf)) { return $null }
+    try { return Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json }
+    catch { throw "latest-release 清单无法解析：$path" }
+}
+
+function Write-ReleaseBackupManifest {
+    <# 在新版本真正写入最终状态前登记上一版。旧产物不复制、不删除，
+       只保存它们的不可变路径和 SHA，回滚时可验证后复用。 #>
+    param(
+        [Parameter(Mandatory = $true)][object]$Policy,
+        [Parameter(Mandatory = $true)][string]$OperationId,
+        [Parameter(Mandatory = $true)][string]$Version
+    )
+    $previous = Get-ReleaseLatestManifest -Policy $Policy
+    $root = [string]$Policy.backupRoot
+    New-Item -ItemType Directory -Path $root -Force | Out-Null
+    $path = Join-Path $root "backup-$OperationId.json"
+    $manifest = [ordered]@{
+        schemaVersion = 1
+        operationId = $OperationId
+        version = $Version
+        createdAt = [DateTimeOffset]::UtcNow.ToString("o")
+        status = "registered"
+        previous = $null
+    }
+    if ($null -ne $previous) {
+        $copy = [ordered]@{}
+        foreach ($property in $previous.PSObject.Properties) { $copy[$property.Name] = $property.Value }
+        $manifest.previous = $copy
+    }
+    Write-ReleaseImmutableJson -Path $path -Value $manifest | Out-Null
+    return [pscustomobject]@{ Path = $path; Manifest = [pscustomobject]$manifest }
+}
+
+function Invoke-ReleaseLatestCriticalSection {
+    <# latest-release.json 是跨入口共享的可移动指针。所有读-校验-写
+       必须在同一个进程间互斥体内完成，避免旧报告在 TOCTOU 窗口覆盖新版本。 #>
+    param(
+        [Parameter(Mandatory = $true)][scriptblock]$Action,
+        [ValidateRange(1, 300)][int]$TimeoutSeconds = 60
+    )
+        $mutex = [Threading.Mutex]::new($false, 'Local\wechat-miniapp-release-latest')
+    $owned = $false
+    try {
+        try { $owned = $mutex.WaitOne([TimeSpan]::FromSeconds($TimeoutSeconds)) }
+        catch [Threading.AbandonedMutexException] { $owned = $true }
+        if (-not $owned) { throw "latest-release 指针互斥锁等待超时，拒绝并发写入。" }
+        return & $Action
+    }
+    finally {
+        if ($owned) { try { $mutex.ReleaseMutex() } catch { } }
+        $mutex.Dispose()
+    }
+}
+
+function Write-ReleaseLatestManifestCore {
+    param(
+        [Parameter(Mandatory = $true)][object]$Policy,
+        [Parameter(Mandatory = $true)][object]$Context,
+        [Parameter(Mandatory = $true)][string]$ReportPath,
+        [Parameter(Mandatory = $true)][object]$Report
+    )
+    $status = if ($Report.PSObject.Properties["status"]) { [string]$Report.status } else { "" }
+    if ($status -ne "succeeded") { throw "只有验收报告 succeeded 才能更新 latest-release 清单。" }
+    # latest 是一个可移动指针，但版本不能倒退。相同版本只能由同一个
+    # operation/commit 幂等复用，避免旧恢复任务把新版本指针改回去。
+    $existing = Get-ReleaseLatestManifest -Policy $Policy
+    if ($null -ne $existing) {
+        $existingVersion = [string](Get-ReleaseReceiptField $existing "version")
+        $newVersion = [string]$Context.version
+        try {
+            $oldSemver = [version]$existingVersion
+            $newSemver = [version]$newVersion
+            if ($oldSemver -gt $newSemver) { throw "latest-release 已是更高版本 $existingVersion，拒绝回退到 $newVersion。" }
+            if ($oldSemver -eq $newSemver) {
+                $sameIdentity = [string]::Equals([string](Get-ReleaseReceiptField $existing "operationId"), [string]$Context.operationId, [StringComparison]::OrdinalIgnoreCase) -and
+                    [string]::Equals([string](Get-ReleaseReceiptField $existing "releaseCommit"), [string]$Context.releaseCommit, [StringComparison]::OrdinalIgnoreCase) -and
+                    [string]::Equals([string](Get-ReleaseReceiptField $existing "treeSha"), [string]$Context.treeSha, [StringComparison]::OrdinalIgnoreCase)
+                if (-not $sameIdentity) { throw "latest-release 同版本 $newVersion 已绑定其他操作，拒绝覆盖。" }
+            }
+        }
+        catch [System.Management.Automation.RuntimeException] { throw }
+        catch { throw "latest-release 版本字段无效，拒绝更新：$existingVersion" }
+    }
+    $manifest = [ordered]@{
+        schemaVersion = 1
+        operationId = [string]$Context.operationId
+        version = [string]$Context.version
+        releaseCommit = [string]$Context.releaseCommit
+        treeSha = [string]$Context.treeSha
+        sourceSha256 = [string]$Context.sourceSha256
+        packageSha256 = if ($Context.PSObject.Properties["packageSha256"]) { [string]$Context.packageSha256 } else { "" }
+        artifactPath = [string]$Context.artifactPath
+        reportPath = [IO.Path]::GetFullPath($ReportPath)
+        createdAt = [DateTimeOffset]::UtcNow.ToString("o")
+        status = "succeeded"
+    }
+    Write-ReleaseGateJsonAtomic -Path ([string]$Policy.latestReleasePath) -Value $manifest
+    return [pscustomobject]$manifest
+}
+
+function Write-ReleaseLatestManifest {
+    param(
+        [Parameter(Mandatory = $true)][object]$Policy,
+        [Parameter(Mandatory = $true)][object]$Context,
+        [Parameter(Mandatory = $true)][string]$ReportPath,
+        [Parameter(Mandatory = $true)][object]$Report
+    )
+    return Invoke-ReleaseLatestCriticalSection -Action {
+        Write-ReleaseLatestManifestCore -Policy $Policy -Context $Context -ReportPath $ReportPath -Report $Report
+    }
+}
+
+function Invoke-ReleaseReservationMaintenanceInline {
+    <# 轻量内置维护，供 release.ps1 在已持有同一把锁时调用。它不删除
+       原 reservation，只把失败/取消/过期副本放进 archive，历史版本仍被
+       Get-ReleaseUsedVersions 计入，避免旧号再次被分配。 #>
+    param(
+        [Parameter(Mandatory = $true)][object]$Policy,
+        [ValidateRange(0, 8760)][int]$OlderThanHours = 24
+    )
+    $root = [IO.Path]::GetFullPath([string]$Policy.reservationRoot)
+    if (-not (Test-Path -LiteralPath $root -PathType Container)) { return 0 }
+    $archiveRoot = Join-Path $root "archive"
+    New-Item -ItemType Directory -Path $archiveRoot -Force | Out-Null
+    $archived = New-Object System.Collections.Generic.List[object]
+    foreach ($file in @(Get-ChildItem -LiteralPath $root -Filter 'reservation-*.json' -File -ErrorAction SilentlyContinue)) {
+        try { $value = Get-Content -LiteralPath $file.FullName -Raw -Encoding UTF8 | ConvertFrom-Json } catch { continue }
+        $status = [string]$value.status
+        if ($status -notin @('failed','cancelled','expired','recoverable')) { continue }
+        $stampText = if ($value.PSObject.Properties['updatedAt']) { [string]$value.updatedAt } else { [string]$value.createdAt }
+        $ageHours = 0.0
+        try { $ageHours = ([DateTimeOffset]::UtcNow - [DateTimeOffset]::Parse($stampText)).TotalHours } catch { $ageHours = $OlderThanHours }
+        if ($ageHours -lt $OlderThanHours) { continue }
+        $target = Join-Path $archiveRoot $file.Name
+        $bytes = [IO.File]::ReadAllBytes($file.FullName)
+        $newSha = ([BitConverter]::ToString(([Security.Cryptography.SHA256]::Create().ComputeHash($bytes))) -replace '-','').ToLowerInvariant()
+        if (Test-Path -LiteralPath $target -PathType Leaf) {
+            $oldSha = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($oldSha -ne $newSha) { throw "reservation 归档同名内容不同，拒绝覆盖：$target" }
+        }
+        else {
+            $temp = "$target.$PID.$([guid]::NewGuid().ToString('N')).tmp"
+            try { [IO.File]::WriteAllBytes($temp, $bytes); [IO.File]::Move($temp, $target) } finally { Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue }
+        }
+        [void]$archived.Add([ordered]@{ operationId = [string]$value.operationId; version = [string]$value.targetVersion; status = $status; sourcePath = $file.FullName; archivePath = $target; sourceSha256 = $newSha; archivedAt = [DateTimeOffset]::UtcNow.ToString('o') })
+    }
+    $indexPath = Join-Path $archiveRoot 'reservation-archive-index.json'
+    $entries = New-Object System.Collections.Generic.List[object]
+    if (Test-Path -LiteralPath $indexPath -PathType Leaf) {
+        try { $old = Get-Content -LiteralPath $indexPath -Raw -Encoding UTF8 | ConvertFrom-Json; foreach($e in @($old.entries)){[void]$entries.Add($e)} } catch { throw "reservation 归档索引无法解析：$indexPath" }
+    }
+    $seen = New-Object System.Collections.Generic.HashSet[string]([StringComparer]::OrdinalIgnoreCase)
+    # Do not wrap a generic List in @(...).  PowerShell 7's enumerable
+    # binder can throw "Argument types do not match" for a non-empty
+    # List[object]; materialize its array explicitly instead.
+    foreach($e in $entries.ToArray()){[void]$seen.Add("$($e.operationId)|$($e.sourceSha256)")}
+    foreach($e in $archived.ToArray()){if($seen.Add("$($e.operationId)|$($e.sourceSha256)")){[void]$entries.Add($e)}}
+    Write-ReleaseGateJsonAtomic -Path $indexPath -Value ([ordered]@{schemaVersion=1;generatedAt=[DateTimeOffset]::UtcNow.ToString('o');versionReuseAllowed=$false;entries=[object[]]$entries.ToArray()})
+    return $archived.Count
+}
+
+function Get-ReleaseReceiptField {
+    param([object]$Object, [string]$Name)
+    if ($null -eq $Object) { return "" }
+    $property = $Object.PSObject.Properties[$Name]
+    if ($null -eq $property -or $null -eq $property.Value) { return "" }
+    return [string]$property.Value
+}
+
+function Write-ReleaseAcceptanceReport {
+    <# 统一核对 GitHub/main、ZIP、二维码、CloudBase 四端。报告本身也是
+       不可变证据：同名不同内容拒绝覆盖，失败不会更新 latest 指针。 #>
+    param(
+        [Parameter(Mandatory = $true)][object]$Policy,
+        [Parameter(Mandatory = $true)][object]$Context,
+        [string]$ContextPath = "",
+        [switch]$RequireCloud,
+        [switch]$RequirePreview
+    )
+    $operationId = [string]$Context.operationId
+    $reportRoot = [string]$Policy.reportRoot
+    New-Item -ItemType Directory -Path $reportRoot -Force | Out-Null
+    $jsonPath = Join-Path $reportRoot "release-$operationId.json"
+    $markdownPath = Join-Path $reportRoot "release-$operationId.md"
+    $checks = [ordered]@{}
+
+    $mainPass = $false
+    $mainReason = "未记录 mainCommit"
+    $mainCommit = Get-ReleaseReceiptField $Context "mainCommit"
+    if (-not [string]::IsNullOrWhiteSpace($mainCommit)) {
+        try { $null = Assert-ReleaseMainContainsCommit -RepositoryRoot ([string]$Policy.canonicalRepo) -ReleaseCommit ([string]$Context.releaseCommit) -MergeCommit $mainCommit; $mainPass = $true; $mainReason = "main 已包含 releaseCommit" } catch { $mainReason = $_.Exception.Message }
+    }
+    $checks.main = [ordered]@{ status = if ($mainPass) { "pass" } else { "fail" }; version = [string]$Context.version; releaseCommit = [string]$Context.releaseCommit; mainCommit = $mainCommit; reason = $mainReason }
+
+    $artifactPath = [string]$Context.artifactPath
+    $zipPass = $false; $zipReason = "产物不存在"
+    $artifactSha = ""; $artifactSize = 0
+    if (Test-Path -LiteralPath $artifactPath -PathType Leaf) {
+        try {
+            $artifact = Get-Item -LiteralPath $artifactPath
+            $artifactSize = [int64]$artifact.Length
+            $artifactSha = (Get-FileHash -LiteralPath $artifactPath -Algorithm SHA256).Hash.ToLowerInvariant()
+            $expectedSha = Get-ReleaseReceiptField $Context "packageSha256"
+            $expectedSize = Get-ReleaseReceiptField $Context "packageSizeBytes"
+            $expectedName = "wechat-miniapp-release-v$($Context.version)-$($Context.releaseCommit).zip"
+            $zipPass = $artifactSize -gt 0 -and
+                [IO.Path]::GetFileName($artifactPath) -eq $expectedName -and
+                $expectedSha -match '^[0-9a-fA-F]{64}$' -and
+                $artifactSha -eq $expectedSha.ToLowerInvariant() -and
+                $expectedSize -match '^\d+$' -and
+                [int64]$expectedSize -eq $artifactSize
+            $packageScript = Join-Path $PSScriptRoot "package-release.py"
+            if ($zipPass -and (Test-Path -LiteralPath $packageScript -PathType Leaf) -and -not [string]::IsNullOrWhiteSpace($ContextPath) -and (Test-Path -LiteralPath $ContextPath -PathType Leaf)) {
+                $packageProbe = & python $packageScript --check-only --release-context $ContextPath 2>&1
+                if ($LASTEXITCODE -ne 0) { $zipPass = $false; $zipReason = "package-release.py 校验失败：$($packageProbe -join ' ')" }
+            }
+            if ($zipPass) { $zipReason = "ZIP 存在且 SHA/大小一致" }
+            elseif ([string]::IsNullOrWhiteSpace($zipReason) -or $zipReason -eq "产物不存在") { $zipReason = "ZIP SHA 或大小与 context 不一致" }
+        } catch { $zipReason = $_.Exception.Message }
+    }
+    $checks.zip = [ordered]@{ status = if ($zipPass) { "pass" } else { "fail" }; path = $artifactPath; sha256 = $artifactSha; sizeBytes = $artifactSize; reason = $zipReason }
+
+    $previewRequested = [bool]$RequirePreview -or (
+        -not [string]::IsNullOrWhiteSpace((Get-ReleaseReceiptField $Context "previewQrPath")) -or
+        -not [string]::IsNullOrWhiteSpace((Get-ReleaseReceiptField $Context "previewInfoPath"))
+    )
+    $qrPass = $false; $qrReason = "未要求二维码"; $qrPath = Get-ReleaseReceiptField $Context "previewQrPath"; $infoPath = Get-ReleaseReceiptField $Context "previewInfoPath"
+    if ($previewRequested) {
+        $qrReason = "二维码证据缺失"
+        if (-not [string]::IsNullOrWhiteSpace($qrPath) -and -not [string]::IsNullOrWhiteSpace($infoPath) -and (Test-Path -LiteralPath $qrPath -PathType Leaf) -and (Test-Path -LiteralPath $infoPath -PathType Leaf)) {
+            try {
+                $artifactRoot = (ConvertTo-ReleaseFullPath -Path ([string]$Policy.artifactRoot)).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
+                $resolvedQr = ConvertTo-ReleaseFullPath -Path $qrPath
+                $resolvedInfo = ConvertTo-ReleaseFullPath -Path $infoPath
+                if (-not $resolvedQr.StartsWith($artifactRoot, [StringComparison]::OrdinalIgnoreCase) -or -not $resolvedInfo.StartsWith($artifactRoot, [StringComparison]::OrdinalIgnoreCase)) {
+                    throw "二维码路径不在策略产物目录内。"
+                }
+                $expectedQrName = "wechat-miniapp-preview-v$($Context.version)-$($Context.releaseCommit)-qr.png"
+                $expectedInfoName = "wechat-miniapp-preview-v$($Context.version)-$($Context.releaseCommit)-info.json"
+                if ([IO.Path]::GetFileName($resolvedQr) -ne $expectedQrName -or [IO.Path]::GetFileName($resolvedInfo) -ne $expectedInfoName) {
+                    throw "二维码文件名不是当前版本/commit 的不可变名称。"
+                }
+                $qrItem = Get-Item -LiteralPath $resolvedQr
+                if ($qrItem.Length -le 0) { throw "二维码文件为空。" }
+                $info = Get-Content -LiteralPath $infoPath -Raw -Encoding UTF8 | ConvertFrom-Json
+                $qrSha = (Get-FileHash -LiteralPath $qrPath -Algorithm SHA256).Hash.ToLowerInvariant()
+                $infoMain = Get-ReleaseReceiptField $info "mainCommit"
+                $expectedMain = Get-ReleaseReceiptField $Context "mainCommit"
+                $qrPass = [int](Get-ReleaseReceiptField $info "schemaVersion") -eq 1 -and
+                    -not [string]::IsNullOrWhiteSpace((Get-ReleaseReceiptField $info "qrSha256")) -and
+                    (Get-ReleaseReceiptField $info "qrSha256").ToLowerInvariant() -eq $qrSha -and
+                    (Get-ReleaseReceiptField $info "operationId") -eq $operationId -and
+                    (Get-ReleaseReceiptField $info "appVersion") -eq [string]$Context.version -and
+                    (Get-ReleaseReceiptField $info "gitCommit") -eq [string]$Context.releaseCommit -and
+                    (Get-ReleaseReceiptField $info "treeSha") -eq [string]$Context.treeSha -and
+                    (Get-ReleaseReceiptField $info "sourceSha256") -eq [string]$Context.sourceSha256 -and
+                    (Get-ReleaseReceiptField $info "artifactPath") -eq [string]$Context.artifactPath -and
+                    -not [string]::IsNullOrWhiteSpace($expectedMain) -and
+                    [string]::Equals($infoMain, $expectedMain, [StringComparison]::OrdinalIgnoreCase)
+                $qrReason = if ($qrPass) { "二维码 info 与 context 一致" } else { "二维码 SHA 或绑定字段不一致" }
+            } catch { $qrReason = $_.Exception.Message }
+        }
+    }
+    $checks.qr = [ordered]@{ status = if (-not $previewRequested) { "skipped" } elseif ($qrPass) { "pass" } else { "fail" }; qrPath = $qrPath; infoPath = $infoPath; reason = $qrReason }
+
+    # When preview was requested, the DevTools project import is a separate
+    # auditable step.  A QR file alone does not prove that the newly packaged
+    # source was actually loaded into the preview tool.
+    $importReceipt = if ($Context.PSObject.Properties["previewImport"]) { $Context.previewImport } else { $null }
+    $importRequested = [bool]$RequirePreview -or $null -ne $importReceipt
+    $importPass = $false; $importReason = "未要求导入预览项目"
+    if ($importRequested) {
+        $importReason = "缺少预览项目导入回执"
+        if ($null -ne $importReceipt) {
+            $importPath = Get-ReleaseReceiptField $importReceipt "projectPath"
+                $worktreeRoot = (ConvertTo-ReleaseFullPath -Path ([string]$Policy.worktreeRoot)).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
+            $importPass = (Get-ReleaseReceiptField $importReceipt "status") -eq "imported" -and
+                (Get-ReleaseReceiptField $importReceipt "operationId") -eq $operationId -and
+                (Get-ReleaseReceiptField $importReceipt "version") -eq [string]$Context.version -and
+                [string]::Equals((Get-ReleaseReceiptField $importReceipt "releaseCommit"), [string]$Context.releaseCommit, [StringComparison]::OrdinalIgnoreCase) -and
+                [string]::Equals((Get-ReleaseReceiptField $importReceipt "treeSha"), [string]$Context.treeSha, [StringComparison]::OrdinalIgnoreCase) -and
+                [string]::Equals((Get-ReleaseReceiptField $importReceipt "sourceSha256"), [string]$Context.sourceSha256, [StringComparison]::OrdinalIgnoreCase) -and
+                -not [string]::IsNullOrWhiteSpace($importPath) -and
+                $importPath.StartsWith($worktreeRoot, [StringComparison]::OrdinalIgnoreCase)
+            $importReason = if ($importPass) { "微信开发者工具已导入当前隔离工作树" } else { "预览导入回执与 context 不一致" }
+        }
+    }
+    $checks.previewImport = [ordered]@{ status = if (-not $importRequested) { "skipped" } elseif ($importPass) { "pass" } else { "fail" }; reason = $importReason; receipt = $importReceipt }
+
+    $cloudReceipt = if ($Context.PSObject.Properties["cloudReceipt"]) { $Context.cloudReceipt } else { $null }
+    $cloudRequested = [bool]$RequireCloud -or $null -ne $cloudReceipt
+    $cloudPass = $false; $cloudReason = "未要求 CloudBase"
+    if ($cloudRequested) {
+        $cloudReason = "CloudBase receipt 缺失"
+        if ($null -ne $cloudReceipt) {
+            $expectedPackage = Get-ReleaseReceiptField $Context "packageSha256"
+            $expectedMain = Get-ReleaseReceiptField $Context "mainCommit"
+            $receiptMarker = Get-ReleaseReceiptField $cloudReceipt "onlineBuildMarker"
+            $expectedMarker = Get-ReleaseReceiptField $Context "apiBuildMarker"
+            $cloudPass = [int](Get-ReleaseReceiptField $cloudReceipt "schemaVersion") -eq 1 -and
+                (Get-ReleaseReceiptField $cloudReceipt "status") -eq "verified" -and
+                -not [string]::IsNullOrWhiteSpace((Get-ReleaseReceiptField $cloudReceipt "verifiedAt")) -and
+                -not [string]::IsNullOrWhiteSpace((Get-ReleaseReceiptField $cloudReceipt "idempotencyKey")) -and
+                (Get-ReleaseReceiptField $cloudReceipt "operationId") -eq $operationId -and
+                (Get-ReleaseReceiptField $cloudReceipt "version") -eq [string]$Context.version -and
+                (Get-ReleaseReceiptField $cloudReceipt "releaseCommit") -eq [string]$Context.releaseCommit -and
+                (Get-ReleaseReceiptField $cloudReceipt "treeSha") -eq [string]$Context.treeSha -and
+                (Get-ReleaseReceiptField $cloudReceipt "sourceSha256") -eq [string]$Context.sourceSha256 -and
+                -not [string]::IsNullOrWhiteSpace($expectedPackage) -and
+                (Get-ReleaseReceiptField $cloudReceipt "packageSha256") -eq $expectedPackage -and
+                -not [string]::IsNullOrWhiteSpace($expectedMain) -and
+                [string]::Equals((Get-ReleaseReceiptField $cloudReceipt "mainCommit"), $expectedMain, [StringComparison]::OrdinalIgnoreCase) -and
+                (Get-ReleaseReceiptField $cloudReceipt "idempotencyKey") -eq "cloud:$operationId`:$([string]$Context.releaseCommit):$([string]$Context.treeSha)" -and
+                (Get-ReleaseReceiptField $cloudReceipt "onlineBuildVersion") -eq [string]$Context.version -and
+                -not [string]::IsNullOrWhiteSpace($receiptMarker) -and
+                ([string]::IsNullOrWhiteSpace($expectedMarker) -or $receiptMarker -eq $expectedMarker)
+            $cloudReason = if ($cloudPass) { "CloudBase receipt 已验证" } else { "CloudBase receipt 绑定字段不一致" }
+        }
+    }
+    $checks.cloud = [ordered]@{ status = if (-not $cloudRequested) { "skipped" } elseif ($cloudPass) { "pass" } else { "fail" }; reason = $cloudReason; receipt = $cloudReceipt }
+
+    $failed = @($checks.Values | Where-Object { $_.status -eq "fail" }).Count
+    $pending = @($checks.Values | Where-Object { $_.status -eq "pending" }).Count
+    $overall = if ($failed -gt 0 -or $pending -gt 0) { "failed" } else { "succeeded" }
+    $report = [ordered]@{
+        schemaVersion = 1; operationId = $operationId; version = [string]$Context.version; releaseCommit = [string]$Context.releaseCommit; treeSha = [string]$Context.treeSha; sourceSha256 = [string]$Context.sourceSha256; packageSha256 = $artifactSha; artifactPath = $artifactPath; status = $overall; checks = $checks; createdAt = if ($Context.PSObject.Properties["createdAt"] -and -not [string]::IsNullOrWhiteSpace([string]$Context.createdAt)) { [string]$Context.createdAt } else { [DateTimeOffset]::UtcNow.ToString("o") }
+    }
+    Write-ReleaseImmutableJson -Path $jsonPath -Value $report
+    $lines = @("# 发布验收报告", "", "- 操作号：$operationId", "- 版本：$($Context.version)", "- releaseCommit：$($Context.releaseCommit)", "- 总状态：$overall", "", "| 项目 | 状态 | 说明 |", "|---|---|---|")
+    foreach ($entry in $checks.GetEnumerator()) { $lines += "| $($entry.Key) | $($entry.Value.status) | $($entry.Value.reason -replace '\|','/') |" }
+    $markdown = ($lines -join "`n") + "`n"
+    $tempMd = "$markdownPath.$PID.$([guid]::NewGuid().ToString('N')).tmp"
+    [IO.File]::WriteAllText($tempMd, $markdown, [Text.UTF8Encoding]::new($false))
+    try {
+        if (Test-Path -LiteralPath $markdownPath -PathType Leaf) {
+            $oldMd = (Get-FileHash -LiteralPath $markdownPath -Algorithm SHA256).Hash.ToLowerInvariant()
+            $newMd = (Get-FileHash -LiteralPath $tempMd -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($oldMd -ne $newMd) { throw "验收报告同名但内容不同，拒绝覆盖：$markdownPath" }
+        }
+        else { [IO.File]::Move($tempMd, $markdownPath) }
+    }
+    finally { Remove-Item -LiteralPath $tempMd -Force -ErrorAction SilentlyContinue }
+    return [pscustomobject]@{ Path = $jsonPath; MarkdownPath = $markdownPath; Report = [pscustomobject]$report }
 }
 
 function Set-ReleaseQueuePhase {

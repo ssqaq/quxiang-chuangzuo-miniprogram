@@ -78,6 +78,139 @@ function Read-ReleaseLockOwner {
     }
 }
 
+function Get-ReleaseLockOwnerMutexName {
+    <#
+      The OS lock protects the release critical section, but the owner sidecar
+      is written by both the foreground phase updater and the timer callback.
+      Use a deterministic named mutex for that small metadata file so a
+      heartbeat cannot write an older snapshot over a newer stage/version.
+    #>
+    param([Parameter(Mandatory = $true)][string]$OwnerPath)
+    $full = [IO.Path]::GetFullPath($OwnerPath)
+    $hash = [Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = [Text.UTF8Encoding]::new($false).GetBytes($full)
+        return "Global\wechat-miniapp-release-owner-" + (([BitConverter]::ToString($hash.ComputeHash($bytes)) -replace '-', '').ToLowerInvariant())
+    }
+    finally { $hash.Dispose() }
+}
+
+function Enter-ReleaseLockOwnerGuard {
+    param(
+        [Parameter(Mandatory = $true)][string]$OwnerPath,
+        [ValidateRange(1, 120)][int]$WaitSeconds = 15
+    )
+    $mutex = $null
+    $owns = $false
+    try {
+        $mutex = [Threading.Mutex]::new($false, (Get-ReleaseLockOwnerMutexName -OwnerPath $OwnerPath))
+        try {
+            $owns = $mutex.WaitOne([TimeSpan]::FromSeconds($WaitSeconds))
+        }
+        catch [Threading.AbandonedMutexException] {
+            # The owner writer died while holding the metadata mutex.  The OS
+            # transferred ownership to this process, so it is safe to continue.
+            $owns = $true
+        }
+        if (-not $owns) { throw "等待发布锁 owner 元数据写入锁超时：$OwnerPath" }
+        return [pscustomobject]@{ Mutex = $mutex; Owns = $true }
+    }
+    catch {
+        if ($null -ne $mutex) {
+            try { if ($owns) { $mutex.ReleaseMutex() } } catch {}
+            try { $mutex.Dispose() } catch {}
+        }
+        throw
+    }
+}
+
+function Exit-ReleaseLockOwnerGuard {
+    param([AllowNull()][object]$Guard)
+    if ($null -eq $Guard) { return }
+    try {
+        if ($Guard.Owns -and $null -ne $Guard.Mutex) { $Guard.Mutex.ReleaseMutex() }
+    }
+    catch { }
+    finally {
+        try { if ($null -ne $Guard.Mutex) { $Guard.Mutex.Dispose() } } catch { }
+    }
+}
+
+function Write-ReleaseLockOwnerAtomicInternal {
+    <# Caller must hold Enter-ReleaseLockOwnerGuard. #>
+    param(
+        [Parameter(Mandatory = $true)][string]$OwnerPath,
+        [Parameter(Mandatory = $true)][object]$Value
+    )
+    $full = [IO.Path]::GetFullPath($OwnerPath)
+    $parent = Split-Path $full -Parent
+    if (-not (Test-Path -LiteralPath $parent -PathType Container)) {
+        New-Item -ItemType Directory -Path $parent -Force | Out-Null
+    }
+    $temp = "$full.$PID.$([guid]::NewGuid().ToString('N')).tmp"
+    $backup = "$full.$PID.$([guid]::NewGuid().ToString('N')).replace.bak"
+    try {
+        $json = $Value | ConvertTo-Json -Depth 8
+        [IO.File]::WriteAllText($temp, $json, [Text.UTF8Encoding]::new($false))
+        if (Test-Path -LiteralPath $full -PathType Leaf) {
+            try {
+                # Replace is atomic on the NTFS volume used by the release
+                # workspace and never exposes a truncated owner JSON.
+                [IO.File]::Replace($temp, $full, $backup, $true)
+            }
+            catch [PlatformNotSupportedException] {
+                # PowerShell 7/.NET Core has the overwrite Move overload.  It
+                # is still performed while the named mutex is held.
+                [IO.File]::Move($temp, $full, $true)
+            }
+            catch [NotSupportedException] {
+                [IO.File]::Move($temp, $full, $true)
+            }
+        }
+        else {
+            [IO.File]::Move($temp, $full)
+        }
+    }
+    finally {
+        if (Test-Path -LiteralPath $temp -PathType Leaf) {
+            Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue
+        }
+        if (Test-Path -LiteralPath $backup -PathType Leaf) {
+            Remove-Item -LiteralPath $backup -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+function Write-ReleaseLockOwnerAtomic {
+    param(
+        [Parameter(Mandatory = $true)][string]$OwnerPath,
+        [Parameter(Mandatory = $true)][object]$Value
+    )
+    $guard = Enter-ReleaseLockOwnerGuard -OwnerPath $OwnerPath
+    try { Write-ReleaseLockOwnerAtomicInternal -OwnerPath $OwnerPath -Value $Value }
+    finally { Exit-ReleaseLockOwnerGuard -Guard $guard }
+}
+
+function Update-ReleaseLockHeartbeat {
+    param(
+        [Parameter(Mandatory = $true)][string]$OwnerPath,
+        [Parameter(Mandatory = $true)][int]$OwnerPid
+    )
+    $guard = $null
+    try {
+        $guard = Enter-ReleaseLockOwnerGuard -OwnerPath $OwnerPath
+        # Read only after taking the guard.  Otherwise a heartbeat can capture
+        # an old stage and write it after Update-ReleaseLockOwner advances it.
+        $owner = Read-ReleaseLockOwner -OwnerPath $OwnerPath
+        if ($null -eq $owner -or [int]$owner.pid -ne $OwnerPid) { return }
+        $hash = [ordered]@{}
+        foreach ($property in $owner.PSObject.Properties) { $hash[$property.Name] = $property.Value }
+        $hash.lastHeartbeat = [DateTimeOffset]::UtcNow.ToString("o")
+        Write-ReleaseLockOwnerAtomicInternal -OwnerPath $OwnerPath -Value $hash
+    }
+    finally { Exit-ReleaseLockOwnerGuard -Guard $guard }
+}
+
 function Get-ReleaseProcessStartUtc {
     param([int]$ProcessId)
 
@@ -144,17 +277,56 @@ function Start-ReleaseLockHeartbeat {
     $timer = New-Object System.Timers.Timer
     $timer.Interval = $IntervalSeconds * 1000
     $timer.AutoReset = $true
-    $subscription = Register-ObjectEvent -InputObject $timer -EventName Elapsed -Action {
+    # Register-ObjectEvent actions execute in an event-job scope.  `$using:`
+    # variables are not supported there (they are for remoting/jobs), so pass
+    # the two immutable values explicitly through MessageData.
+    $heartbeatMessage = [pscustomobject]@{ OwnerPath = $ownerPath; OwnerPid = $ownerPid }
+    $subscription = Register-ObjectEvent -InputObject $timer -EventName Elapsed -MessageData $heartbeatMessage -Action {
         try {
-            if (-not (Test-Path -LiteralPath $using:ownerPath -PathType Leaf)) { return }
-            $owner = Get-Content -LiteralPath $using:ownerPath -Raw -Encoding UTF8 | ConvertFrom-Json
-            if ([int]$owner.pid -ne $using:ownerPid) { return }
-            $hash = [ordered]@{}
-            foreach ($property in $owner.PSObject.Properties) { $hash[$property.Name] = $property.Value }
-            $hash.lastHeartbeat = [DateTimeOffset]::UtcNow.ToString("o")
-            $temp = "$using:ownerPath.$using:ownerPid.heartbeat.tmp"
-            [IO.File]::WriteAllText($temp, ($hash | ConvertTo-Json -Depth 8), [Text.UTF8Encoding]::new($false))
-            Move-Item -LiteralPath $temp -Destination $using:ownerPath -Force
+            # Register-ObjectEvent actions run in an event-job scope and cannot
+            # reliably resolve functions from the dot-sourced caller scope.
+            # Keep the small read/modify/atomic-write routine self-contained
+            # here, while using the exact same owner mutex as foreground writes.
+            $message = $event.MessageData
+            $path = [IO.Path]::GetFullPath([string]$message.OwnerPath)
+            $nameHash = [Security.Cryptography.SHA256]::Create()
+            try {
+                $nameBytes = [Text.UTF8Encoding]::new($false).GetBytes($path)
+                $mutexName = "Global\wechat-miniapp-release-owner-" + (([BitConverter]::ToString($nameHash.ComputeHash($nameBytes)) -replace '-', '').ToLowerInvariant())
+            }
+            finally { $nameHash.Dispose() }
+            $mutex = [Threading.Mutex]::new($false, $mutexName)
+            $owns = $false
+            try {
+                try { $owns = $mutex.WaitOne([TimeSpan]::FromSeconds(15)) }
+                catch [Threading.AbandonedMutexException] { $owns = $true }
+                if (-not $owns) { return }
+                if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return }
+                $owner = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
+                if ([int]$owner.pid -ne [int]$message.OwnerPid) { return }
+                $hash = [ordered]@{}
+                foreach ($property in $owner.PSObject.Properties) { $hash[$property.Name] = $property.Value }
+                $hash.lastHeartbeat = [DateTimeOffset]::UtcNow.ToString("o")
+                $temp = "$path.$([int]$message.OwnerPid).$([guid]::NewGuid().ToString('N')).heartbeat.tmp"
+                $backup = "$path.$([int]$message.OwnerPid).$([guid]::NewGuid().ToString('N')).heartbeat.replace.bak"
+                try {
+                    [IO.File]::WriteAllText($temp, ($hash | ConvertTo-Json -Depth 8), [Text.UTF8Encoding]::new($false))
+                    if (Test-Path -LiteralPath $path -PathType Leaf) {
+                        try { [IO.File]::Replace($temp, $path, $backup, $true) }
+                        catch [PlatformNotSupportedException] { [IO.File]::Move($temp, $path, $true) }
+                        catch [NotSupportedException] { [IO.File]::Move($temp, $path, $true) }
+                    }
+                    else { [IO.File]::Move($temp, $path) }
+                }
+                finally {
+                    if (Test-Path -LiteralPath $temp -PathType Leaf) { Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue }
+                    if (Test-Path -LiteralPath $backup -PathType Leaf) { Remove-Item -LiteralPath $backup -Force -ErrorAction SilentlyContinue }
+                }
+            }
+            finally {
+                if ($owns) { try { $mutex.ReleaseMutex() } catch {} }
+                $mutex.Dispose()
+            }
         }
         catch {
             # Heartbeat is best effort; the exclusive OS handle still protects
@@ -205,6 +377,33 @@ function Assert-ReleaseLockOwned {
     if ($null -eq $owner -or [int]$owner.pid -ne $PID) {
         $suffix = if ([string]::IsNullOrWhiteSpace($Stage)) { "" } else { "（阶段：$Stage）" }
         throw "发布锁所有权丢失$suffix，已停止后续写入。"
+    }
+    $expectedToken = if ($LockHandle.Owner.PSObject.Properties["handoffToken"]) { [string]$LockHandle.Owner.handoffToken } else { "" }
+    $actualToken = if ($owner.PSObject.Properties["handoffToken"]) { [string]$owner.handoffToken } else { "" }
+    if ([string]::IsNullOrWhiteSpace($expectedToken) -or
+        -not [string]::Equals($expectedToken, $actualToken, [StringComparison]::Ordinal)) {
+        $suffix = if ([string]::IsNullOrWhiteSpace($Stage)) { "" } else { "（阶段：$Stage）" }
+        throw "发布锁交接身份已变化$suffix，已停止后续写入。"
+    }
+    # Keep the deserialized DateTime/DateTimeOffset object intact.  Casting an
+    # ISO timestamp to [string] in a Beijing PowerShell session formats it as
+    # local wall time and then a second parse treats it as UTC, producing an
+    # eight-hour false PID-reuse alarm.
+    $recordedStart = if ($owner.PSObject.Properties["processStartUtc"]) { $owner.processStartUtc } else { "" }
+    if (-not [string]::IsNullOrWhiteSpace($recordedStart)) {
+        $actualStart = Get-ReleaseProcessStartUtc -ProcessId $PID
+        if (-not [string]::IsNullOrWhiteSpace($actualStart)) {
+            try {
+                $delta = (ConvertTo-ReleaseUtcDateTime -Value $actualStart) - (ConvertTo-ReleaseUtcDateTime -Value $recordedStart)
+                if ([Math]::Abs($delta.TotalSeconds) -ge 2) {
+                    throw "发布锁进程启动时间已变化，已停止后续写入。"
+                }
+            }
+            catch {
+                if ($_.Exception.Message -like "发布锁进程启动时间已变化*") { throw }
+                throw "发布锁 owner 启动时间无效，已停止后续写入。"
+            }
+        }
     }
     return $true
 }
@@ -302,7 +501,10 @@ function Enter-ReleaseLock {
             $stream.SetLength(0)
             $stream.Write($ownerBytes, 0, $ownerBytes.Length)
             $stream.Flush()
-            [IO.File]::WriteAllText($paths.OwnerPath, $ownerJson, [Text.UTF8Encoding]::new($false))
+            # Owner metadata is separate from the held OS lock.  Publish it
+            # through the same guarded atomic writer used by heartbeat/stage
+            # updates, so readers never see a truncated JSON document.
+            Write-ReleaseLockOwnerAtomic -OwnerPath $paths.OwnerPath -Value $owner
             $handle = [pscustomobject]@{
                 Stream = $stream
                 LockPath = $paths.LockPath
@@ -348,16 +550,30 @@ function Update-ReleaseLockOwner {
     )
 
     Assert-ReleaseLockOwned -LockHandle $LockHandle -Stage $Stage | Out-Null
-    $owner = [ordered]@{}
-    foreach ($property in $LockHandle.Owner.PSObject.Properties) {
-        $owner[$property.Name] = $property.Value
+    $guard = $null
+    try {
+        $guard = Enter-ReleaseLockOwnerGuard -OwnerPath ([string]$LockHandle.OwnerPath)
+        # Re-read after acquiring the metadata guard.  This closes the race in
+        # which a timer callback captured an older owner object before this
+        # phase update started.
+        $current = Read-ReleaseLockOwner -OwnerPath ([string]$LockHandle.OwnerPath)
+        $expectedToken = if ($LockHandle.Owner.PSObject.Properties["handoffToken"]) { [string]$LockHandle.Owner.handoffToken } else { "" }
+        $currentToken = if ($null -ne $current -and $current.PSObject.Properties["handoffToken"]) { [string]$current.handoffToken } else { "" }
+        if ($null -eq $current -or [int]$current.pid -ne $PID -or
+            $currentToken -ne $expectedToken) {
+            throw "发布锁所有权在元数据写入前丢失。"
+        }
+        $owner = [ordered]@{}
+        foreach ($property in $current.PSObject.Properties) {
+            $owner[$property.Name] = $property.Value
+        }
+        $owner.targetVersion = $TargetVersion
+        if (-not [string]::IsNullOrWhiteSpace($Stage)) { $owner.stage = $Stage }
+        $owner.lastHeartbeat = [DateTimeOffset]::UtcNow.ToString("o")
+        Write-ReleaseLockOwnerAtomicInternal -OwnerPath ([string]$LockHandle.OwnerPath) -Value $owner
+        $LockHandle.Owner = [pscustomobject]$owner
     }
-    $owner.targetVersion = $TargetVersion
-    if (-not [string]::IsNullOrWhiteSpace($Stage)) { $owner.stage = $Stage }
-    $owner.lastHeartbeat = [DateTimeOffset]::UtcNow.ToString("o")
-    $json = $owner | ConvertTo-Json -Depth 5
-    [IO.File]::WriteAllText($LockHandle.OwnerPath, $json, [Text.UTF8Encoding]::new($false))
-    $LockHandle.Owner = [pscustomobject]$owner
+    finally { Exit-ReleaseLockOwnerGuard -Guard $guard }
 }
 
 function Assert-ReleaseLockHandoff {
@@ -389,6 +605,50 @@ function Assert-ReleaseLockHandoff {
     }
     if (-not (Test-Path -LiteralPath $paths.LockPath -PathType Leaf)) {
         throw "发布锁文件不存在，拒绝复用外层锁。"
+    }
+
+    # A stale owner sidecar can survive a crashed parent after the OS releases
+    # its FileStream.  Prove that the recorded process is still the same
+    # process, then prove the lock is still held: if this probe can open the
+    # file with FileShare.None, no outer owner currently holds it and the child
+    # must not perform a deployment without the critical section.
+    $ownerPid = 0
+    try { $ownerPid = [int]$owner.pid } catch { $ownerPid = 0 }
+    if ($ownerPid -le 0) { throw "发布锁 owner PID 无效，拒绝复用外层锁。" }
+    $process = $null
+    try { $process = Get-Process -Id $ownerPid -ErrorAction Stop }
+    catch { throw "发布锁 owner 进程已退出，拒绝复用外层锁。" }
+    $recordedStart = if ($owner.PSObject.Properties["processStartUtc"]) { $owner.processStartUtc } else { "" }
+    if ([string]::IsNullOrWhiteSpace($recordedStart)) {
+        throw "发布锁 owner 缺少 processStartUtc，拒绝复用外层锁。"
+    }
+    $actualStart = Get-ReleaseProcessStartUtc -ProcessId $ownerPid
+    if ([string]::IsNullOrWhiteSpace($actualStart)) { throw "无法读取发布锁 owner 进程启动时间，拒绝复用外层锁。" }
+    try {
+        $delta = (ConvertTo-ReleaseUtcDateTime -Value $actualStart) - (ConvertTo-ReleaseUtcDateTime -Value $recordedStart)
+        if ([Math]::Abs($delta.TotalSeconds) -ge 2) { throw "发布锁 owner PID 已被复用，拒绝复用外层锁。" }
+    }
+    catch {
+        if ($_.Exception.Message -like "发布锁 owner PID 已被复用*") { throw }
+        throw "发布锁 owner 启动时间无效，拒绝复用外层锁。"
+    }
+    $probe = $null
+    try {
+        $probe = [IO.File]::Open($paths.LockPath, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+        # Opening succeeded: the parent no longer owns the lock.  Do not keep
+        # this probe open; it is evidence of a stale handoff only.
+        throw "发布锁当前未被 owner 独占持有，拒绝复用外层锁。"
+    }
+    catch [IO.IOException] {
+        # Windows sharing violation is the expected result while the parent
+        # FileStream is alive.  The process/start-time checks above rule out a
+        # stale sidecar in the normal crash/restart case.
+    }
+    catch [UnauthorizedAccessException] {
+        throw "无法验证发布锁独占状态（访问被拒绝），拒绝复用外层锁。"
+    }
+    finally {
+        if ($null -ne $probe) { $probe.Dispose() }
     }
     return $owner
 }

@@ -22,7 +22,9 @@ jobs:
   release-gate:
     name: release-gate
     runs-on: windows-latest
-    timeout-minutes: 20
+    # The local publisher may wait up to 30 minutes for a required check.
+    # Leave room for the same smoke suite on a busy hosted runner.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
@@ -39,6 +41,34 @@ jobs:
           RELEASE_WORKFLOW_BASE_REF: ${{ github.base_ref }}
           RELEASE_WORKFLOW_HEAD_REF: ${{ github.head_ref }}
         run: node scripts/release-workflow-smoke.js --runtime
+      - name: Public repository compatibility
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $headers = @{
+            Accept = "application/vnd.github+json"
+            "User-Agent" = "wechat-miniapp-release-gate"
+          }
+          if (-not [string]::IsNullOrWhiteSpace($env:GH_TOKEN)) {
+            $headers["Authorization"] = "Bearer $env:GH_TOKEN"
+          }
+          $repo = Invoke-RestMethod `
+            -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY" `
+            -Headers $headers `
+            -TimeoutSec 20
+          if ($repo.visibility -notin @("public", "private", "internal")) {
+            throw "GitHub 返回了未知仓库可见性：$($repo.visibility)"
+          }
+          if ($repo.visibility -eq "public") {
+            Write-Host "公开仓库模式：不依赖 GitHub Pro/Team，继续使用 PR-only 和 release-gate 必需检查。"
+          }
+          else {
+            Write-Host "仓库可见性=$($repo.visibility)：发布闸门保持同一套保护契约。"
+          }
+      - name: Release hooks smoke
+        shell: pwsh
+        run: node scripts/release-hooks-smoke.js
       - name: Cache API npm download cache
         uses: actions/cache@v4
         with:
@@ -77,6 +107,10 @@ jobs:
             recordRoot = Join-Path $parent "wechat-miniapp-release-records"
             contextRoot = Join-Path $parent "wechat-miniapp-release-contexts"
             logRoot = Join-Path $parent "wechat-miniapp-release-logs"
+            reportRoot = Join-Path $parent "wechat-miniapp-release-reports"
+            backupRoot = Join-Path $parent "wechat-miniapp-release-backups"
+            alertRoot = Join-Path (Join-Path $parent "wechat-miniapp-release-logs") "alerts"
+            latestReleasePath = Join-Path $parent "wechat-miniapp-latest-release.json"
             archiveManifestPath = Join-Path $parent "wechat-miniapp-release-archive.json"
             mainProtection = [ordered]@{ mode = "pr-only"; requiredWorkflow = "release-gate.yml"; applyToAdmins = $true; enforceOnPublish = $true }
             queue = [ordered]@{ waitSeconds = 1800; pollMilliseconds = 500; leaseSeconds = 180; staleAfterSeconds = 600; maxAttempts = 3 }

@@ -1,0 +1,36 @@
+#!/bin/sh
+set -eu
+
+# This local hook is only a second line of defence.  GitHub branch protection
+# remains the authoritative rule, but an installed hook gives an immediate,
+# readable error before a direct push can even reach the network.
+#
+# Git LFS also consumes the pre-push ref stream.  Save it once and replay it
+# below; otherwise a guard that reads stdin would silently disable LFS uploads.
+refs_file="$(mktemp "${TMPDIR:-/tmp}/wechat-miniapp-pre-push.XXXXXX")" || {
+  printf >&2 '\n%s\n\n' "无法创建 pre-push 临时文件，已拒绝推送。"
+  exit 2
+}
+cleanup() { rm -f "$refs_file"; }
+trap cleanup EXIT HUP INT TERM
+cat > "$refs_file"
+
+if [ "${MINIPROGRAM_SYNC_ALLOW_MAIN_PUSH:-}" != "1" ]; then
+  while IFS=' ' read -r local_ref local_sha remote_ref remote_sha; do
+    case "$remote_ref" in
+      refs/heads/main)
+        printf >&2 '\n%s\n\n' "拒绝直接 push main：发布必须走 release/<version>-<operationId> 分支并通过 PR。"
+        exit 1
+        ;;
+    esac
+  done < "$refs_file"
+fi
+
+# Keep Git LFS's generated hook behaviour intact.  The main-branch guard above
+# deliberately runs first, so a machine without Git LFS still gets the useful
+# release-policy error instead of an unrelated LFS error for a forbidden push.
+command -v git-lfs >/dev/null 2>&1 || {
+  printf >&2 "\n%s\n\n" "This repository is configured for Git LFS but 'git-lfs' was not found on your path. If you no longer wish to use Git LFS, remove this hook by deleting the 'pre-push' file in the hooks directory (set by 'core.hookspath'; usually '.git/hooks')."
+  exit 2
+}
+git lfs pre-push "$@" < "$refs_file"

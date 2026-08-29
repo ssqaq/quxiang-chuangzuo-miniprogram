@@ -115,6 +115,8 @@ $reservation = $null
 $releaseWorktree = ""
 $contextPath = ""
 $recordPath = ""
+$reportPath = ""
+$backupPath = ""
 $finalCommit = ""
 $target = ""
 $baseHead = ""
@@ -149,9 +151,23 @@ $releaseToolPaths = @(
     "scripts/resume-release.ps1",
     "scripts/resume-release-smoke.js",
     "scripts/release-status.ps1",
+    "scripts/release-report.ps1",
+    "scripts/release-report-smoke.js",
+    "scripts/release-maintenance.ps1",
+    "scripts/release-maintenance-smoke.js",
+    "scripts/rollback-release.ps1",
+    "scripts/rollback-release-smoke.js",
+    "scripts/release-hooks-smoke.js",
+    "scripts/install-git-hooks.ps1",
+    "scripts/install-git-hooks.cmd",
+    "scripts/write-release-record.ps1",
     "scripts/release-workflow-smoke.js",
     "scripts/sync-to-github.ps1",
     ".github/workflows/release-gate.yml",
+    ".githooks/pre-commit",
+    ".githooks/post-commit",
+    ".githooks/pre-push",
+    ".githooks/post-checkout",
     "docs/superpowers/specs/2026-08-28-release-gate-design.md"
 )
 
@@ -167,7 +183,8 @@ function Set-GateQueueStage {
         [string]$Status = ""
     )
     if ($null -ne $lockHandle) {
-        Update-ReleaseLockOwner -LockHandle $lockHandle -TargetVersion $(if ($TargetVersion) { $TargetVersion } else { "auto" }) -Stage $Stage
+        $ownerVersion = if (-not [string]::IsNullOrWhiteSpace([string]$target)) { [string]$target } elseif (-not [string]::IsNullOrWhiteSpace([string]$TargetVersion)) { [string]$TargetVersion } else { "auto" }
+        Update-ReleaseLockOwner -LockHandle $lockHandle -TargetVersion $ownerVersion -Stage $Stage
     }
     if ($null -ne $queueTicket -and (Get-Command Set-ReleaseQueuePhase -ErrorAction SilentlyContinue)) {
         $nextStatus = if ([string]::IsNullOrWhiteSpace($Status)) { $Stage } else { $Status }
@@ -214,6 +231,33 @@ function Invoke-GatePython {
 function Add-GateUniquePath {
     param([System.Collections.Generic.List[string]]$List, [string]$Path)
     if (-not $List.Contains($Path)) { [void]$List.Add($Path) }
+}
+
+function Invoke-GateDependencyPreflight {
+    param([Parameter(Mandatory = $true)][string]$SourceRoot)
+    $checker = Join-Path $SourceRoot "scripts/check-cloudfunction-dependencies.js"
+    $apiRoot = Join-Path $SourceRoot "cloudfunctions/api"
+    if (-not (Test-Path -LiteralPath $checker -PathType Leaf)) {
+        Write-GateHost "preflight" "来源未带依赖检查脚本，已用 package/package-lock 结构检查代替。"
+        if (-not (Test-Path -LiteralPath (Join-Path $apiRoot "package.json") -PathType Leaf) -or -not (Test-Path -LiteralPath (Join-Path $apiRoot "package-lock.json") -PathType Leaf)) { throw "来源缺少 API 依赖清单。" }
+        return
+    }
+    # node_modules intentionally never enters a release snapshot.  有依赖缓存
+    # 时做完整 require 检查；没有缓存时至少解析源码和 JSON，不能因发布
+    # 包排除了 node_modules 而把预检变成必然失败。
+    $nodeModules = Join-Path $apiRoot "node_modules"
+    if (Test-Path -LiteralPath $nodeModules -PathType Container) {
+        $output = & node $checker --api-root $apiRoot 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "云函数依赖预检失败：$($output -join "`n")" }
+        Write-GateHost "preflight" "云函数依赖完整检查通过。"
+    }
+    else {
+        $null = Get-Content -LiteralPath (Join-Path $apiRoot "package.json") -Raw -Encoding UTF8 | ConvertFrom-Json
+        $null = Get-Content -LiteralPath (Join-Path $apiRoot "package-lock.json") -Raw -Encoding UTF8 | ConvertFrom-Json
+        $syntax = & node --check (Join-Path $apiRoot "index.js") 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "云函数 index.js 语法预检失败：$($syntax -join "`n")" }
+        Write-GateHost "preflight" "未发现 node_modules，已完成 JSON/语法预检；CI 或部署阶段再做完整依赖检查。"
+    }
 }
 
 try {
@@ -269,6 +313,8 @@ try {
     # partially scanned clone/worktree inventory.
     $archiveManifestPath = Update-ReleaseArchiveManifest -Policy $policy
     Write-GateHost "archive" "已更新旧 clone/worktree 封存清单：$archiveManifestPath"
+    $archivedReservationCount = Invoke-ReleaseReservationMaintenanceInline -Policy $policy -OlderThanHours 24
+    Write-GateHost "reservation-maintenance" "已检查历史 reservation，新增归档 $archivedReservationCount 条；历史版本仍不可复用。"
     $leaseOwner = "release-gate/$PID/$operationId"
     $queueLease = Claim-ReleaseQueueTicket `
         -TicketId ([string]$queueTicket.ticketId) `
@@ -316,6 +362,7 @@ try {
     $sourceCommit = $sourceRepo.Commit
     Set-GateQueueStage -Stage "source" -Status "running"
     Write-GateHost "source" "来源 $($sourceRepo.Root)，提交 $sourceCommit，文件 $($includePaths.Count) 个。"
+    Invoke-GateDependencyPreflight -SourceRoot $sourceRepo.Root
 
     Write-GateHost "fetch" "刷新 origin/$($policy.branch)。"
     Invoke-ReleaseGit -WorkingDirectory $canonicalRepo -Arguments @("fetch", "origin", "refs/heads/$($policy.branch):refs/remotes/origin/$($policy.branch)") | ForEach-Object { Write-Host $_ }
@@ -326,7 +373,8 @@ try {
         -RecordRoot ([string]$policy.recordRoot) `
         -RepositoryRoot $canonicalRepo `
         -QueueRoot $queueRoot `
-        -ContextRoot ([string]$policy.contextRoot)
+        -ContextRoot ([string]$policy.contextRoot) `
+        -ExcludeOperationId $operationId
     $target = Resolve-ReleaseVersion -BaseVersion $baseVersion -RequestedVersion $TargetVersion -UsedVersions $usedVersions
     Update-ReleaseLockOwner -LockHandle $lockHandle -TargetVersion $target -Stage "version"
     Set-GateQueueStage -Stage "version" -Status "running"
@@ -419,6 +467,7 @@ try {
 
     $artifactPath = Join-Path ([string]$policy.artifactRoot) "wechat-miniapp-release-v$target-$finalCommit.zip"
     $contextPath = Join-Path ([string]$policy.contextRoot) "release-$operationId.json"
+    $reportPath = Join-Path ([string]$policy.reportRoot) "release-$operationId.json"
     $context = New-ReleaseContext `
         -Path $contextPath `
         -OperationId $operationId `
@@ -431,7 +480,9 @@ try {
         -ArtifactPath $artifactPath `
         -BaseHead $baseHead `
         -QueueTicketPath (Join-Path $queueRoot "queue.json") `
-        -Phase "prepared"
+        -Phase "prepared" `
+        -LogPath $logPath `
+        -ReportPath $reportPath
     Assert-ReleaseContextShape -Context $context -Policy $policy | Out-Null
     Write-GateHost "context" "release context 已生成：$contextPath"
 
@@ -443,6 +494,7 @@ try {
     $packageSha = (Get-FileHash -LiteralPath $artifactPath -Algorithm SHA256).Hash.ToLowerInvariant()
     $contextHash = [ordered]@{}
     foreach ($prop in $context.PSObject.Properties) { $contextHash[$prop.Name] = $prop.Value }
+    $contextHash.releaseWorktree = [IO.Path]::GetFullPath($releaseWorktree)
     $contextHash.packageSha256 = $packageSha
     $contextHash.packageSizeBytes = [int64]$artifact.Length
     $contextHash.status = "prepared"
@@ -461,36 +513,43 @@ try {
         # overwrite it in place.
         $qrPath = Join-Path ([string]$policy.artifactRoot) "wechat-miniapp-preview-v$target-$finalCommit-premerge-qr.png"
         $infoPath = Join-Path ([string]$policy.artifactRoot) "wechat-miniapp-preview-v$target-$finalCommit-premerge-info.json"
-        $previewOutput = & $PreviewCliPath -c $PreviewClientName create_preview_qrcode `
-            --project $releaseWorktree `
-            --qr-format image `
-            --qr-output $qrPath 2>&1
-        $previewExitCode = $LASTEXITCODE
-        $previewText = ($previewOutput | ForEach-Object { [string]$_ }) -join "`n"
-        $previewSummary = "WechatIDE create_preview_qrcode 已返回。"
-        try {
-            $jsonStart = $previewText.IndexOf("{")
-            if ($jsonStart -ge 0) {
-                $previewResult = $previewText.Substring($jsonStart) | ConvertFrom-Json
-                $previewOk = if ($previewResult.PSObject.Properties["ok"]) { [bool]$previewResult.ok } else { $false }
-                $previewSummary = "WechatIDE create_preview_qrcode ok=$previewOk。"
+        if (-not (Test-Path -LiteralPath $qrPath -PathType Leaf)) {
+            $tempQrPath = "$qrPath.$PID.$([guid]::NewGuid().ToString('N')).tmp.png"
+            try {
+                $previewOutput = & $PreviewCliPath -c $PreviewClientName create_preview_qrcode `
+                    --project $releaseWorktree `
+                    --qr-format image `
+                    --qr-output $tempQrPath 2>&1
+                $previewExitCode = $LASTEXITCODE
+                $previewText = ($previewOutput | ForEach-Object { [string]$_ }) -join "`n"
+                $previewSummary = "WechatIDE create_preview_qrcode 已返回。"
+                try {
+                    $jsonStart = $previewText.IndexOf("{")
+                    if ($jsonStart -ge 0) {
+                        $previewResult = $previewText.Substring($jsonStart) | ConvertFrom-Json
+                        $previewOk = if ($previewResult.PSObject.Properties["ok"]) { [bool]$previewResult.ok } else { $false }
+                        $previewSummary = "WechatIDE create_preview_qrcode ok=$previewOk。"
+                    }
+                }
+                catch { $previewSummary = "WechatIDE 已返回，结果 JSON 未解析；继续以退出码和二维码文件校验。" }
+                Write-Host $previewSummary
+                if ($previewExitCode -ne 0 -or -not (Test-Path -LiteralPath $tempQrPath -PathType Leaf)) { throw "预览码生成失败，未发布到远端。" }
+                if ((Get-Item -LiteralPath $tempQrPath).Length -le 0) { throw "预览码为空，未发布到远端。" }
+                Write-ReleaseImmutableFile -SourcePath $tempQrPath -DestinationPath $qrPath | Out-Null
+            }
+            finally {
+                if (Test-Path -LiteralPath $tempQrPath -PathType Leaf) { Remove-Item -LiteralPath $tempQrPath -Force -ErrorAction SilentlyContinue }
             }
         }
-        catch {
-            $previewSummary = "WechatIDE 已返回，结果 JSON 未解析；继续以退出码和二维码文件校验。"
-        }
-        Write-Host $previewSummary
-        if ($previewExitCode -ne 0 -or -not (Test-Path -LiteralPath $qrPath -PathType Leaf)) {
-            throw "预览码生成失败，未发布到远端。"
-        }
+        elseif ((Get-Item -LiteralPath $qrPath).Length -le 0) { throw "已有预览码为空，拒绝继续。" }
         $info = [pscustomobject]@{}
         if (Test-Path -LiteralPath $infoPath -PathType Leaf) {
-            try { $info = Get-Content -LiteralPath $infoPath -Raw -Encoding UTF8 | ConvertFrom-Json } catch { $info = [pscustomobject]@{} }
+            try { $info = Get-Content -LiteralPath $infoPath -Raw -Encoding UTF8 | ConvertFrom-Json } catch { throw "已有预览二维码 info 无法解析，拒绝覆盖：$infoPath" }
         }
         $infoHash = [ordered]@{}
         foreach ($prop in $info.PSObject.Properties) { $infoHash[$prop.Name] = $prop.Value }
-        $infoHash.operationId = $operationId; $infoHash.appVersion = $target; $infoHash.gitCommit = $finalCommit; $infoHash.treeSha = $finalTree; $infoHash.sourceSha256 = $preSha; $infoHash.artifactPath = $artifactPath
-        Write-ReleaseGateJsonAtomic -Path $infoPath -Value $infoHash
+        $infoHash.schemaVersion = 1; $infoHash.operationId = $operationId; $infoHash.appVersion = $target; $infoHash.gitCommit = $finalCommit; $infoHash.treeSha = $finalTree; $infoHash.sourceSha256 = $preSha; $infoHash.artifactPath = $artifactPath; $infoHash.phase = "premerge"; $infoHash.qrSha256 = (Get-FileHash -LiteralPath $qrPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        Write-ReleaseImmutableJson -Path $infoPath -Value $infoHash | Out-Null
         $contextHash.premergePreviewQrPath = $qrPath; $contextHash.premergePreviewInfoPath = $infoPath
         Write-ReleaseGateJsonAtomic -Path $contextPath -Value $contextHash
         Write-GateHost "preview" "预览二维码已生成：$qrPath"
@@ -542,6 +601,7 @@ try {
             baseHead = $baseHead; sourceCommit = $sourceCommit; releaseCommit = $finalCommit; treeSha = $finalTree
             sourceSha256 = $preSha; packageSha256 = $packageSha; packagePath = $artifactPath; contextPath = $contextPath
             changedFiles = @($allowed); generatedAt = [DateTimeOffset]::UtcNow.ToString("o"); releaseBranch = $pr.branch; pullRequest = $pr.pr
+            logPath = $logPath; reportPath = $reportPath
             phase = "prepared"
         }
         Write-ReleaseGateJsonAtomic -Path $preparedRecordPath -Value $preparedRecord
@@ -554,6 +614,34 @@ try {
 
     if ($Publish -and [string]$pr.status -ne "merged") {
         throw "PR 尚未合并，已保留 context 供 -ResumeOperation 继续；禁止提前部署 CloudBase 或生成最终二维码。"
+    }
+
+    # 登记上一版可用证据。该清单只引用旧的不可变产物，不复制也不删除；
+    # 即使后续 CloudBase/二维码失败，恢复入口仍能沿用同一 context。
+    $backup = Write-ReleaseBackupManifest -Policy $policy -OperationId $operationId -Version $target
+    $backupPath = [string]$backup.Path
+    $contextHash.backupPath = $backupPath
+    $contextHash.backupManifest = $backup.Manifest
+    Write-ReleaseGateJsonAtomic -Path $contextPath -Value $contextHash
+    Write-GateHost "backup" "已登记上一版备份清单：$backupPath"
+
+    if ($Preview) {
+        # 每次正式更新都先把同一隔离工作树导入微信开发者工具，再生成
+        # 绑定 commit 的二维码；导入失败会保留原 context 供恢复，不会换号重打。
+        Write-GateHost "preview-import" "把本次版本导入微信开发者工具项目列表。"
+        $importReceipt = Invoke-ReleasePreviewImport -CliPath $PreviewCliPath -ClientName $PreviewClientName -ProjectPath $releaseWorktree
+        $contextHash.previewImport = [ordered]@{
+            status = [string]$importReceipt.status
+            projectPath = [string]$importReceipt.projectPath
+            operationId = $operationId
+            version = $target
+            releaseCommit = $finalCommit
+            treeSha = $finalTree
+            sourceSha256 = $preSha
+            importedAt = [string]$importReceipt.importedAt
+            response = $importReceipt.response
+        }
+        Write-ReleaseGateJsonAtomic -Path $contextPath -Value $contextHash
     }
 
     if ($DeployCloud) {
@@ -621,11 +709,14 @@ try {
         $qrPath = Join-Path ([string]$policy.artifactRoot) "wechat-miniapp-preview-v$target-$finalCommit-qr.png"
         $infoPath = Join-Path ([string]$policy.artifactRoot) "wechat-miniapp-preview-v$target-$finalCommit-info.json"
         $infoHash = [ordered]@{ schemaVersion = 1; operationId = $operationId; appVersion = $target; gitCommit = $finalCommit; treeSha = $finalTree; sourceSha256 = $preSha; artifactPath = $artifactPath; mainCommit = if ($contextHash.Contains("mainCommit")) { [string]$contextHash.mainCommit } else { "" } }
+        if (-not (Test-Path -LiteralPath $qrPath -PathType Leaf) -and (Test-Path -LiteralPath $infoPath -PathType Leaf)) {
+            throw "已有二维码 info 但二维码文件缺失，拒绝重新生成或覆盖：$infoPath"
+        }
         if (Test-Path -LiteralPath $qrPath -PathType Leaf) {
             $existingQrSha = (Get-FileHash -LiteralPath $qrPath -Algorithm SHA256).Hash.ToLowerInvariant()
             if (-not (Test-Path -LiteralPath $infoPath -PathType Leaf)) { throw "已有二维码但缺少 info，拒绝复用或覆盖：$qrPath" }
             $existingInfo = Get-Content -LiteralPath $infoPath -Raw -Encoding UTF8 | ConvertFrom-Json
-            if ([string]$existingInfo.qrSha256 -ne $existingQrSha) { throw "已有二维码 SHA 与 info 不一致，拒绝覆盖：$qrPath" }
+            if ([int]$existingInfo.schemaVersion -ne 1 -or [string]::IsNullOrWhiteSpace([string]$existingInfo.qrSha256) -or [string]$existingInfo.qrSha256 -ne $existingQrSha) { throw "已有二维码 SHA/schema 与 info 不一致，拒绝覆盖：$qrPath" }
             foreach ($key in @("operationId", "appVersion", "gitCommit", "treeSha", "sourceSha256", "artifactPath", "mainCommit")) {
                 if ([string]$existingInfo.$key -ne [string]$infoHash[$key]) { throw "已有二维码 info 与当前发布不一致，拒绝覆盖：$infoPath" }
             }
@@ -636,13 +727,13 @@ try {
                 $previewOutput = & $PreviewCliPath -c $PreviewClientName create_preview_qrcode --project $releaseWorktree --qr-format image --qr-output $tempQrPath 2>&1
                 if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $tempQrPath -PathType Leaf)) { throw "最终预览码生成失败；保留原 release context。" }
                 if ((Get-Item -LiteralPath $tempQrPath).Length -le 0) { throw "最终预览码为空；保留原 release context。" }
-                Move-Item -LiteralPath $tempQrPath -Destination $qrPath
+                Write-ReleaseImmutableFile -SourcePath $tempQrPath -DestinationPath $qrPath | Out-Null
             }
             finally {
                 if (Test-Path -LiteralPath $tempQrPath -PathType Leaf) { Remove-Item -LiteralPath $tempQrPath -Force -ErrorAction SilentlyContinue }
             }
             $infoHash.qrSha256 = (Get-FileHash -LiteralPath $qrPath -Algorithm SHA256).Hash.ToLowerInvariant()
-            Write-ReleaseGateJsonAtomic -Path $infoPath -Value $infoHash
+            Write-ReleaseImmutableJson -Path $infoPath -Value $infoHash | Out-Null
         }
         $contextHash.previewQrPath = $qrPath; $contextHash.previewInfoPath = $infoPath; $contextHash.phase = "previewed"
         Write-ReleaseGateJsonAtomic -Path $contextPath -Value $contextHash
@@ -678,6 +769,15 @@ try {
     if ($contextHash.Contains("cloudReceipt")) { $record.cloudReceipt = $contextHash.cloudReceipt }
     Write-ReleaseGateJsonAtomic -Path $recordPath -Value $record
 
+    # 先做四端验收，再把 context/record/queue 变成终态。这样“文件写完”
+    # 不会被误报成“发布成功”。
+    $reportContext = [pscustomobject]$contextHash
+    $acceptance = Write-ReleaseAcceptanceReport -Policy $policy -Context $reportContext -ContextPath $contextPath -RequireCloud:$DeployCloud -RequirePreview:$Preview
+    if ($null -eq $acceptance -or $null -eq $acceptance.Report -or [string]$acceptance.Report.status -ne "succeeded") {
+        throw "发布验收报告未通过，拒绝写入 succeeded：$($acceptance.Report.status)"
+    }
+    $contextHash.reportPath = [string]$acceptance.Path
+    $contextHash.reportMarkdownPath = [string]$acceptance.MarkdownPath
     $contextHash.status = "succeeded"
     $contextHash.terminalStatus = "succeeded"
     $contextHash.completedAt = [DateTimeOffset]::UtcNow.ToString("o")
@@ -687,7 +787,11 @@ try {
     $record.status = $contextHash.status
     $record.terminalStatus = "succeeded"
     $record.generatedAt = [DateTimeOffset]::UtcNow.ToString("o")
+    $record.reportPath = [string]$acceptance.Path
+    $record.reportMarkdownPath = [string]$acceptance.MarkdownPath
+    $record.backupPath = $backupPath
     Write-ReleaseGateJsonAtomic -Path $recordPath -Value $record
+    Write-GateHost "report" "四端验收通过，报告已生成：$($acceptance.Path)"
 
     # This is the sole terminal queue transition, deliberately last.
     Set-GateQueueStage -Stage "succeeded" -Status "succeeded"
@@ -695,6 +799,11 @@ try {
     if ($null -eq $terminalQueue -or [string]$terminalQueue.status -ne "succeeded") {
         throw "发布队列未确认 succeeded，保留原 context 供恢复。"
     }
+    # Only move the mutable latest pointer after the durable queue says
+    # succeeded.  If this final pointer write is interrupted, the catch block
+    # can repair it without downgrading the already-successful release.
+    Write-ReleaseLatestManifest -Policy $policy -Context ([pscustomobject]$contextHash) -ReportPath ([string]$acceptance.Path) -Report $acceptance.Report | Out-Null
+    Write-GateHost "latest" "最新版本指针已更新：$([string]$policy.latestReleasePath)"
     $completed = $true
     $doneMessage = if (-not $Publish) { "准备完成；默认未推送。需要发布时显式加 -Publish。" } elseif ([string]$pr.status -eq "merged") { "发布完成，PR 已合并：$($pr.pr)" } else { "发布分支和 PR 已创建，等待 GitHub 必需检查：$($pr.pr)" }
     Write-GateHost "done" $doneMessage
@@ -705,6 +814,11 @@ catch {
     $message = $_.Exception.Message
     try { Write-ReleaseOperationLog -Path $logPath -Stage "failed" -Message $message -OperationId $operationId }
     catch { Write-Host "失败日志写入失败：$($_.Exception.Message)" -ForegroundColor Yellow }
+    try {
+        $alertPath = Write-ReleaseFailureAlert -Policy $policy -OperationId $operationId -Version $target -Stage "failed" -Message $message -ContextPath $contextPath -LogPath $logPath
+        Write-Host "失败告警已记录：$alertPath" -ForegroundColor Yellow
+    }
+    catch { Write-Host "失败告警处理失败：$($_.Exception.Message)" -ForegroundColor Yellow }
 
     # Check the queue before attempting recovery.  The terminal queue write is
     # intentionally last; if it already succeeded (for example, a process was
@@ -740,6 +854,19 @@ catch {
         }
         elseif (-not $repairAllowed) {
             Write-Host "队列已是 succeeded，但 context 阶段/产物未达到可修复条件；保持现场供人工审计。" -ForegroundColor Yellow
+        }
+        if ($repairAllowed) {
+            try {
+                $reportFile = if ($repairContext.PSObject.Properties["reportPath"]) { [string]$repairContext.reportPath } else { Join-Path ([string]$policy.reportRoot) "release-$operationId.json" }
+                if (Test-Path -LiteralPath $reportFile -PathType Leaf) {
+                    $repairReport = Get-Content -LiteralPath $reportFile -Raw -Encoding UTF8 | ConvertFrom-Json
+                    if ([string]$repairReport.status -eq "succeeded") {
+                        Write-ReleaseLatestManifest -Policy $policy -Context $repairContext -ReportPath $reportFile -Report $repairReport | Out-Null
+                        Write-Host "成功 latest 指针已补写：$([string]$policy.latestReleasePath)" -ForegroundColor Yellow
+                    }
+                }
+            }
+            catch { Write-Host "成功 latest 指针补写失败：$($_.Exception.Message)" -ForegroundColor Yellow }
         }
     }
     else {

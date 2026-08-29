@@ -1,5 +1,6 @@
 ﻿param(
   [string]$CliPath = "",
+  [string]$ClientName = "default",
   [string]$SourcePath = "",
   [object[]]$IncludePath = @(),
   [string]$TargetVersion = "",
@@ -9,7 +10,8 @@
 $ErrorActionPreference = "Stop"
 
 # 预览不能再直接读取脏工作区、打包或覆盖 latest 文件。它只是统一发布
-# 闸门的兼容入口，所有二维码和 info JSON 都由同一个 release context 生成。
+# 闸门的兼容入口：每次预览都会先导入新的隔离项目，再由同一个
+# release context 生成二维码和 info JSON。
 # 旧文件名仅保留为静态校验标记，不会创建或覆盖：wechat-miniapp-preview-latest-qr.png
 # 旧文件名仅保留为静态校验标记，不会创建或覆盖：wechat-miniapp-preview-latest-info.json
 $releaseScript = Join-Path $PSScriptRoot "release.ps1"
@@ -37,6 +39,7 @@ $invoke = @{
   IncludePath = @($IncludePath)
   Preview = $true
   PreviewCliPath = $CliPath
+  PreviewClientName = $ClientName
   Publish = $Publish.IsPresent
 }
 if (-not [string]::IsNullOrWhiteSpace($TargetVersion)) {

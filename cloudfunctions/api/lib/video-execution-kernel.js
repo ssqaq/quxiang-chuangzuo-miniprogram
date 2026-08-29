@@ -91,6 +91,16 @@ function normalizedProviderId(video = {}) {
   return text(video.provider, 80).toLowerCase();
 }
 
+// 新目录以稳定 providerKey 标识同一档案；旧运行时可能只有外部
+// provider 字符串。两者都存在时优先 providerKey，只有缺 key 才回退到
+// 外部 ID，避免改名后主/备被错误判成两家或同一家。
+function sameVideoProvider(left = {}, right = {}) {
+  const leftKey = text(left.providerKey, 160).toLowerCase();
+  const rightKey = text(right.providerKey, 160).toLowerCase();
+  if (leftKey && rightKey) return leftKey === rightKey;
+  return normalizedProviderId(left) === normalizedProviderId(right);
+}
+
 function videoProviderCandidates(configs = {}) {
   const primary = configs.video && typeof configs.video === "object"
     ? configs.video
@@ -103,7 +113,7 @@ function videoProviderCandidates(configs = {}) {
   if (
     backup.configured
     && normalizedProviderId(backup)
-    && normalizedProviderId(backup) !== normalizedProviderId(primary)
+    && !sameVideoProvider(primary, backup)
   ) {
     candidates.push({ role: "backup", video: backup });
   }

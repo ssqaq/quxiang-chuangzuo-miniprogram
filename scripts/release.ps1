@@ -779,6 +779,11 @@ try {
     $contextHash.reportPath = [string]$acceptance.Path
     $contextHash.reportMarkdownPath = [string]$acceptance.MarkdownPath
     $contextHash.status = "succeeded"
+    if ($contextHash.Contains("lastError")) { $contextHash.Remove("lastError") }
+    if ($contextHash.Contains("recovery") -and $null -ne $contextHash.recovery) {
+        $contextHash.recovery.resumable = $true
+        $contextHash.recovery.lastFailureStage = ""
+    }
     $contextHash.terminalStatus = "succeeded"
     $contextHash.completedAt = [DateTimeOffset]::UtcNow.ToString("o")
     $contextHash.finalization = [ordered]@{ state = "committed"; completedAt = $contextHash.completedAt }

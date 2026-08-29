@@ -1026,6 +1026,11 @@ function Write-ReleaseReportLatestAtomic {
                     foreach ($key in @("operationId", "releaseCommit", "mainCommit", "treeSha", "sourceSha256", "packageSha256", "artifactPath")) {
                         $left = [string](Get-ReleaseReportProperty $Report $key "")
                         $right = [string](Get-ReleaseReportProperty $oldLoaded.value $key "")
+                        # Older latest pointers did not carry mainCommit.  A
+                        # missing legacy value is safe to backfill when every
+                        # other identity field matches; a non-empty mismatch
+                        # remains a hard conflict.
+                        if ($key -eq "mainCommit" -and [string]::IsNullOrWhiteSpace($right)) { continue }
                         if ($left -ne $right) { $sameIdentity = $false; break }
                     }
                     if ($sameIdentity) { return [pscustomobject]@{ updated = $false; path = $path; reason = "同版本同身份，幂等复用 latest" } }
@@ -1052,6 +1057,11 @@ function Write-ReleaseReportLatestAtomic {
         $parent = Split-Path $path -Parent
         New-Item -ItemType Directory -Path $parent -Force | Out-Null
         $temp = "$path.$PID.$([guid]::NewGuid().ToString('N')).tmp"
+        # File.Replace is atomic on NTFS but requires a real backup filename.
+        # Keep the backup beside the destination and remove it only after the
+        # replacement/fallback has completed; never pass $null, which makes
+        # Windows reject the call on some versions of .NET.
+        $backup = "$path.$PID.$([guid]::NewGuid().ToString('N')).bak"
         try {
             [IO.File]::WriteAllText($temp, $latestText, [Text.UTF8Encoding]::new($false))
             if (Test-Path -LiteralPath $path -PathType Leaf) {
@@ -1059,7 +1069,7 @@ function Write-ReleaseReportLatestAtomic {
                 # snapshot; never replace its newer pointer.
                 $beforeReplace = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
                 if ($beforeReplace -ne $oldSha) { throw "latest 在写入前发生变化，拒绝覆盖：$path" }
-                try { [IO.File]::Replace($temp, $path, $null, $true) }
+                try { [IO.File]::Replace($temp, $path, $backup, $true) }
                 catch [PlatformNotSupportedException] { [IO.File]::Move($temp, $path, $true) }
                 catch [NotSupportedException] { [IO.File]::Move($temp, $path, $true) }
             }
@@ -1077,7 +1087,10 @@ function Write-ReleaseReportLatestAtomic {
             }
             return [pscustomobject]@{ updated = $true; path = $path; reason = "" }
         }
-        finally { if (Test-Path -LiteralPath $temp -PathType Leaf) { Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue } }
+        finally {
+            if (Test-Path -LiteralPath $temp -PathType Leaf) { Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue }
+            if (Test-Path -LiteralPath $backup -PathType Leaf) { Remove-Item -LiteralPath $backup -Force -ErrorAction SilentlyContinue }
+        }
     }
     finally { if (-not $LatestLockHeld) { Exit-ReleaseReportLatestGuard -Guard $guard } }
 }

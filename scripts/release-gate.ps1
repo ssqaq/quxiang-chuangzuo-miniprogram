@@ -553,6 +553,9 @@ function Set-ReleaseReservationStatus {
     $hash.status = $Status
     $hash.updatedAt = [DateTimeOffset]::UtcNow.ToString("o")
     foreach ($key in $Extra.Keys) { $hash[$key] = $Extra[$key] }
+    if ([string]$Status -eq "succeeded" -and -not $Extra.ContainsKey("lastError")) {
+        if ($hash.Contains("lastError")) { $hash.Remove("lastError") }
+    }
     # Status changes are mutable, but readers must see either the old complete
     # JSON or the new complete JSON.  The shared atomic writer also avoids the
     # old Move-Item -Force race with queue/status readers.
@@ -666,23 +669,28 @@ function Write-ReleaseGateJsonAtomic {
     $parent = Split-Path ([IO.Path]::GetFullPath($Path)) -Parent
     New-Item -ItemType Directory -Path $parent -Force | Out-Null
     $temp = "$Path.$PID.$([guid]::NewGuid().ToString('N')).tmp"
+    $backup = "$Path.$PID.$([guid]::NewGuid().ToString('N')).replace.bak"
     [IO.File]::WriteAllText($temp, ($Value | ConvertTo-Json -Depth 15) + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
     # Replace in the same directory so readers never observe a partial JSON.
     # File.Replace preserves the destination ACL and is atomic on NTFS; the
     # fallback is only for filesystems that do not implement Replace.
     try {
         if (Test-Path -LiteralPath $Path -PathType Leaf) {
-            [IO.File]::Replace($temp, $Path, $null, $true)
+            try { [IO.File]::Replace($temp, $Path, $backup, $true) }
+            catch [PlatformNotSupportedException] { [IO.File]::Move($temp, $Path, $true) }
+            catch [NotSupportedException] { [IO.File]::Move($temp, $Path, $true) }
         }
         else {
             [IO.File]::Move($temp, $Path)
         }
     }
-    catch {
+    finally {
         if (Test-Path -LiteralPath $temp -PathType Leaf) {
-            Move-Item -LiteralPath $temp -Destination $Path -Force
+            Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue
         }
-        else { throw }
+        if (Test-Path -LiteralPath $backup -PathType Leaf) {
+            Remove-Item -LiteralPath $backup -Force -ErrorAction SilentlyContinue
+        }
     }
 }
 
@@ -1148,6 +1156,7 @@ function Write-ReleaseLatestManifestCore {
         operationId = [string]$Context.operationId
         version = [string]$Context.version
         releaseCommit = [string]$Context.releaseCommit
+        mainCommit = if ($Context.PSObject.Properties["mainCommit"]) { [string]$Context.mainCommit } elseif ($Report.PSObject.Properties["mainCommit"]) { [string]$Report.mainCommit } else { "" }
         treeSha = [string]$Context.treeSha
         sourceSha256 = [string]$Context.sourceSha256
         packageSha256 = if ($Context.PSObject.Properties["packageSha256"]) { [string]$Context.packageSha256 } else { "" }
@@ -1242,8 +1251,14 @@ function Write-ReleaseAcceptanceReport {
     $operationId = [string]$Context.operationId
     $reportRoot = [string]$Policy.reportRoot
     New-Item -ItemType Directory -Path $reportRoot -Force | Out-Null
-    $jsonPath = Join-Path $reportRoot "release-$operationId.json"
-    $markdownPath = Join-Path $reportRoot "release-$operationId.md"
+    # Reports are immutable evidence.  A failed first attempt may already have
+    # occupied the canonical name; a later recovery must never overwrite that
+    # evidence.  The write path is selected after the new report is assembled:
+    # the canonical name is used for the first write, and a deterministic
+    # `-repair-<sha>` sibling is used when the old file contains different
+    # (usually failed) evidence.
+    $canonicalJsonPath = Join-Path $reportRoot "release-$operationId.json"
+    $jsonPath = $canonicalJsonPath
     $checks = [ordered]@{}
 
     $mainPass = $false
@@ -1387,7 +1402,27 @@ function Write-ReleaseAcceptanceReport {
     $report = [ordered]@{
         schemaVersion = 1; operationId = $operationId; version = [string]$Context.version; releaseCommit = [string]$Context.releaseCommit; treeSha = [string]$Context.treeSha; sourceSha256 = [string]$Context.sourceSha256; packageSha256 = $artifactSha; artifactPath = $artifactPath; status = $overall; checks = $checks; createdAt = if ($Context.PSObject.Properties["createdAt"] -and -not [string]::IsNullOrWhiteSpace([string]$Context.createdAt)) { [string]$Context.createdAt } else { [DateTimeOffset]::UtcNow.ToString("o") }
     }
-    Write-ReleaseImmutableJson -Path $jsonPath -Value $report
+    # Pick an immutable repair filename if the canonical report already exists
+    # with different bytes.  This preserves the original failure report while
+    # allowing the same operation/context to finish after a bug or transient
+    # side-effect is repaired.  The hash is based on the exact JSON bytes, so
+    # retries are idempotent and do not create an unbounded stream of files.
+    $reportJsonBytes = [Text.UTF8Encoding]::new($false).GetBytes((($report | ConvertTo-Json -Depth 30) + [Environment]::NewLine))
+    if (Test-Path -LiteralPath $canonicalJsonPath -PathType Leaf) {
+        $existingReportSha = (Get-FileHash -LiteralPath $canonicalJsonPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        $reportSha = [Security.Cryptography.SHA256]::Create()
+        try { $newReportSha = ([BitConverter]::ToString($reportSha.ComputeHash($reportJsonBytes)) -replace '-', '').ToLowerInvariant() }
+        finally { $reportSha.Dispose() }
+        if ($existingReportSha -ne $newReportSha) {
+            $repairId = $newReportSha.Substring(0, 16)
+            $jsonPath = Join-Path $reportRoot "release-$operationId-repair-$repairId.json"
+        }
+    }
+    # Suppress the helper's created/reused marker.  The acceptance function's
+    # public result must be one object; leaking that marker makes PowerShell
+    # unwrap the assignment into an array and hides `.Report` from callers.
+    Write-ReleaseImmutableJson -Path $jsonPath -Value $report | Out-Null
+    $markdownPath = [IO.Path]::ChangeExtension($jsonPath, ".md")
     $lines = @("# 发布验收报告", "", "- 操作号：$operationId", "- 版本：$($Context.version)", "- releaseCommit：$($Context.releaseCommit)", "- 总状态：$overall", "", "| 项目 | 状态 | 说明 |", "|---|---|---|")
     foreach ($entry in $checks.GetEnumerator()) { $lines += "| $($entry.Key) | $($entry.Value.status) | $($entry.Value.reason -replace '\|','/') |" }
     $markdown = ($lines -join "`n") + "`n"

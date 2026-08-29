@@ -58,6 +58,13 @@ assert.match(copyActions[1], /line-height:\s*1/);
 const titleHead = wxss.match(/\.copywriting-title-head\s*\{([^}]*)\}/);
 assert.ok(titleHead);
 assert.match(titleHead[1], /min-height:\s*60rpx/);
+
+const titleLabel = wxss.match(
+  /\.copywriting-title-head\s+\.copywriting-label\s*\{([^}]*)\}/
+);
+assert.ok(titleLabel, "标题标签必须有独立字号规则");
+assert.match(titleLabel[1], /font-size:\s*24rpx/);
+
 assert.match(wxss, /\.copywriting-head\s*\{[\s\S]*width:\s*100%/);
 assert.match(wxss, /\.copywriting-section-head\s*\{[\s\S]*width:\s*100%/);
 

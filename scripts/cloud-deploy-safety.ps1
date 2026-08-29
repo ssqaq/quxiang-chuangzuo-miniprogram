@@ -80,7 +80,25 @@ function Assert-CloudDeployReleaseContext {
             throw "release context 缺少字段：$name"
         }
     }
-    if ([int]$context.schemaVersion -ne 1) { throw "不支持的 release context schemaVersion：$($context.schemaVersion)" }
+    if ([int]$context.schemaVersion -notin @(1, 2)) { throw "不支持的 release context schemaVersion：$($context.schemaVersion)" }
+    if ([int]$context.schemaVersion -ge 2) {
+        foreach ($name in @("baseHead", "phase")) {
+            if ($null -eq $context.PSObject.Properties[$name] -or [string]::IsNullOrWhiteSpace([string]$context.$name)) {
+                throw "release context v2 缺少字段：$name"
+            }
+        }
+        if ([string]$context.baseHead -notmatch '^[0-9a-fA-F]{7,64}$') {
+            throw "release context v2 baseHead 无效。"
+        }
+        $allowedDeployPhases = @("merged", "deployed", "previewed", "verified")
+        if ($allowedDeployPhases -notcontains [string]$context.phase) {
+            throw "CloudBase 部署只允许消费 PR 已合并后的 context；当前 phase=$($context.phase)。"
+        }
+        if ($allowedDeployPhases -contains [string]$context.phase -and
+            ($null -eq $context.PSObject.Properties["mainCommit"] -or [string]::IsNullOrWhiteSpace([string]$context.mainCommit))) {
+            throw "CloudBase 部署 context 缺少已合并的 mainCommit，拒绝绕过 PR。"
+        }
+    }
     if ([string]$context.version -ne $ExpectedVersion) {
         throw "release context 版本与部署源码不一致：context=$($context.version)，源码=$ExpectedVersion"
     }
@@ -98,6 +116,24 @@ function Assert-CloudDeployReleaseContext {
     if ($expires -le [DateTime]::UtcNow) { throw "release context 已过期：$ContextPath" }
 
     $project = [IO.Path]::GetFullPath($ProjectPath)
+    $canonical = [IO.Path]::GetFullPath([string]$context.canonicalRepo)
+    if (-not (Test-Path -LiteralPath $canonical -PathType Container)) {
+        throw "release context canonicalRepo 不存在：$canonical"
+    }
+    $projectRoot = (& git -C $project rev-parse --show-toplevel 2>$null | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($projectRoot)) {
+        throw "无法读取部署源码 Git 根目录。"
+    }
+    $projectRoot = [IO.Path]::GetFullPath($projectRoot)
+    $commonDir = (& git -C $projectRoot rev-parse --git-common-dir 2>$null | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($commonDir)) {
+        throw "无法读取部署源码 Git common dir。"
+    }
+    $commonDirFull = if ([IO.Path]::IsPathRooted($commonDir)) { [IO.Path]::GetFullPath($commonDir) } else { [IO.Path]::GetFullPath((Join-Path $projectRoot $commonDir)) }
+    $canonicalGit = [IO.Path]::GetFullPath((Join-Path $canonical ".git"))
+    if (-not [string]::Equals($commonDirFull.TrimEnd('\', '/'), $canonicalGit.TrimEnd('\', '/'), [StringComparison]::OrdinalIgnoreCase)) {
+        throw "部署源码不是该 release context 的 canonical 隔离工作树，拒绝部署：$projectRoot"
+    }
     $head = (& git -C $project rev-parse HEAD 2>$null | Out-String).Trim()
     if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($head)) { throw "无法读取部署源码 Git HEAD。" }
     $tree = (& git -C $project rev-parse "$head^{tree}" 2>$null | Out-String).Trim()
@@ -203,55 +239,6 @@ function Assert-CloudDeployVersionNotDowngrade {
     }
 }
 
-function Test-CloudDeployTextPath {
-    param([Parameter(Mandatory = $true)][string]$Path)
-
-    $extension = [IO.Path]::GetExtension($Path).ToLowerInvariant()
-    return $extension -in @(
-        ".cjs", ".css", ".html", ".js", ".json", ".md", ".mjs", ".njs",
-        ".ps1", ".sh", ".ts", ".tsx", ".txt", ".wxml", ".wxss", ".xml",
-        ".yaml", ".yml"
-    )
-}
-
-function Get-CloudDeployFileDigest {
-    param(
-        [Parameter(Mandatory = $true)][IO.FileInfo]$File,
-        [Parameter(Mandatory = $true)][string]$RelativePath
-    )
-
-    $bytes = [IO.File]::ReadAllBytes($File.FullName)
-    if (Test-CloudDeployTextPath -Path $RelativePath) {
-        # Tooling on Windows may rewrite only CRLF/LF while the source is
-        # unchanged.  Canonicalize line endings for text files, but leave
-        # binary assets byte-for-byte protected.
-        $normalized = New-Object 'System.Collections.Generic.List[byte]'
-        for ($index = 0; $index -lt $bytes.Length; $index++) {
-            if ($bytes[$index] -eq 13) {
-                if ($index + 1 -lt $bytes.Length -and $bytes[$index + 1] -eq 10) {
-                    $index++
-                }
-                [void]$normalized.Add(10)
-            } else {
-                [void]$normalized.Add($bytes[$index])
-            }
-        }
-        $bytes = $normalized.ToArray()
-    }
-
-    $sha = [Security.Cryptography.SHA256]::Create()
-    try {
-        $hash = ($sha.ComputeHash($bytes) | ForEach-Object { $_.ToString("x2") }) -join ""
-    }
-    finally {
-        $sha.Dispose()
-    }
-    return [pscustomobject]@{
-        Length = [int64]$bytes.Length
-        Sha256 = $hash
-    }
-}
-
 function Get-CloudDeploySourceSnapshot {
     param(
         [Parameter(Mandatory = $true)]
@@ -274,11 +261,10 @@ function Get-CloudDeploySourceSnapshot {
         Sort-Object FullName
     foreach ($file in $files) {
         $relative = $file.FullName.Substring($api.Length).TrimStart("\", "/")
-        $digest = Get-CloudDeployFileDigest -File $file -RelativePath $relative
         $entries += [pscustomobject]@{
             Path = $relative.Replace("\", "/")
-            Length = $digest.Length
-            Sha256 = $digest.Sha256
+            Length = [int64]$file.Length
+            Sha256 = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
         }
     }
     $manifest = (

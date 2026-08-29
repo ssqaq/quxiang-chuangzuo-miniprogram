@@ -21,10 +21,18 @@ function ConvertTo-ReleaseUtcDateTime {
         throw "时间值为空。"
     }
     try {
+        # An offset-less timestamp produced by older releases is a UTC clock
+        # value (DateTime.UtcNow.ToString("o")), not local wall time.  Assume
+        # UTC for that legacy shape so stale-lock checks do not shift by the
+        # machine timezone.
+        $styles = [Globalization.DateTimeStyles]::RoundtripKind
+        if ($text -notmatch '(?:Z|[+-]\d{2}:?\d{2})$') {
+            $styles = $styles -bor [Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal
+        }
         return ([DateTimeOffset]::Parse(
             $text,
             [Globalization.CultureInfo]::InvariantCulture,
-            [Globalization.DateTimeStyles]::RoundtripKind
+            $styles
         )).UtcDateTime
     }
     catch {
@@ -68,6 +76,137 @@ function Read-ReleaseLockOwner {
     catch {
         return $null
     }
+}
+
+function Get-ReleaseProcessStartUtc {
+    param([int]$ProcessId)
+
+    try {
+        $process = Get-Process -Id $ProcessId -ErrorAction Stop
+        return ([DateTimeOffset]$process.StartTime.ToUniversalTime()).ToString("o")
+    }
+    catch {
+        return ""
+    }
+}
+
+function Test-ReleaseLockOwnerStale {
+    param(
+        [Parameter(Mandatory = $true)][object]$Owner,
+        [ValidateRange(5, 86400)][int]$StaleAfterSeconds = 600
+    )
+
+    $heartbeatValue = if ($Owner.PSObject.Properties["lastHeartbeat"]) {
+        $Owner.lastHeartbeat
+    }
+    else {
+        $Owner.startedAt
+    }
+    try {
+        $heartbeat = ConvertTo-ReleaseUtcDateTime -Value $heartbeatValue
+    }
+    catch {
+        return $true
+    }
+    if (([DateTime]::UtcNow - $heartbeat).TotalSeconds -le $StaleAfterSeconds) {
+        return $false
+    }
+
+    # A stale sidecar is not enough to take over a live process.  If the PID is
+    # still alive and its start time matches the recorded process, leave it
+    # alone; the OS file handle remains the final arbiter for ownership.
+    $pidValue = 0
+    try { $pidValue = [int]$Owner.pid } catch { return $true }
+    if ($pidValue -le 0) { return $true }
+    $actualStart = Get-ReleaseProcessStartUtc -ProcessId $pidValue
+    $recordedStart = if ($Owner.PSObject.Properties["processStartUtc"]) { $Owner.processStartUtc } else { "" }
+    if (-not [string]::IsNullOrWhiteSpace($actualStart) -and
+        -not [string]::IsNullOrWhiteSpace($recordedStart)) {
+        try {
+            $delta = (ConvertTo-ReleaseUtcDateTime -Value $actualStart) - (ConvertTo-ReleaseUtcDateTime -Value $recordedStart)
+            $delta = $delta.TotalSeconds
+            if ([Math]::Abs($delta) -lt 2) { return $false }
+        }
+        catch { }
+    }
+    return [string]::IsNullOrWhiteSpace($actualStart)
+}
+
+function Start-ReleaseLockHeartbeat {
+    param(
+        [Parameter(Mandatory = $true)][object]$LockHandle,
+        [ValidateRange(5, 900)][int]$IntervalSeconds = 30
+    )
+
+    if ($null -ne $LockHandle.HeartbeatTimer) { return $LockHandle }
+    $ownerPath = [string]$LockHandle.OwnerPath
+    $ownerPid = $PID
+    $timer = New-Object System.Timers.Timer
+    $timer.Interval = $IntervalSeconds * 1000
+    $timer.AutoReset = $true
+    $subscription = Register-ObjectEvent -InputObject $timer -EventName Elapsed -Action {
+        try {
+            if (-not (Test-Path -LiteralPath $using:ownerPath -PathType Leaf)) { return }
+            $owner = Get-Content -LiteralPath $using:ownerPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ([int]$owner.pid -ne $using:ownerPid) { return }
+            $hash = [ordered]@{}
+            foreach ($property in $owner.PSObject.Properties) { $hash[$property.Name] = $property.Value }
+            $hash.lastHeartbeat = [DateTimeOffset]::UtcNow.ToString("o")
+            $temp = "$using:ownerPath.$using:ownerPid.heartbeat.tmp"
+            [IO.File]::WriteAllText($temp, ($hash | ConvertTo-Json -Depth 8), [Text.UTF8Encoding]::new($false))
+            Move-Item -LiteralPath $temp -Destination $using:ownerPath -Force
+        }
+        catch {
+            # Heartbeat is best effort; the exclusive OS handle still protects
+            # the critical section and the next invocation can recover context.
+        }
+    }
+    $LockHandle.HeartbeatTimer = $timer
+    $LockHandle.HeartbeatSubscription = $subscription
+    $timer.Start()
+    return $LockHandle
+}
+
+function Stop-ReleaseLockHeartbeat {
+    param([object]$LockHandle)
+
+    if ($null -eq $LockHandle) { return }
+    try {
+        if ($null -ne $LockHandle.HeartbeatSubscription) {
+            Unregister-Event -SubscriptionId $LockHandle.HeartbeatSubscription.Id -ErrorAction SilentlyContinue
+            # Register-ObjectEvent exposes the subscription's action as a
+            # scriptblock, not a job id.  Unregistering the subscription is
+            # sufficient; remove only the actual event job when PowerShell
+            # provides one.
+            $eventJob = Get-Job -Name $LockHandle.HeartbeatSubscription.Name -ErrorAction SilentlyContinue
+            if ($null -ne $eventJob) { Remove-Job -Job $eventJob -Force -ErrorAction SilentlyContinue }
+        }
+    }
+    catch { }
+    try {
+        if ($null -ne $LockHandle.HeartbeatTimer) {
+            $LockHandle.HeartbeatTimer.Stop()
+            $LockHandle.HeartbeatTimer.Dispose()
+        }
+    }
+    catch { }
+    $LockHandle.HeartbeatTimer = $null
+    $LockHandle.HeartbeatSubscription = $null
+}
+
+function Assert-ReleaseLockOwned {
+    param(
+        [Parameter(Mandatory = $true)][object]$LockHandle,
+        [string]$Stage = ""
+    )
+
+    if ($null -eq $LockHandle.Stream) { throw "发布锁句柄已失效。" }
+    $owner = Read-ReleaseLockOwner -OwnerPath ([string]$LockHandle.OwnerPath)
+    if ($null -eq $owner -or [int]$owner.pid -ne $PID) {
+        $suffix = if ([string]::IsNullOrWhiteSpace($Stage)) { "" } else { "（阶段：$Stage）" }
+        throw "发布锁所有权丢失$suffix，已停止后续写入。"
+    }
+    return $true
 }
 
 function Read-ReleasePending {
@@ -114,7 +253,9 @@ function Enter-ReleaseLock {
         # same lock without silently falling back to a bypass.
         [ValidateRange(1, 7200)][int]$WaitSeconds = 60,
         [string]$LockPath = "",
-        [string]$ProjectId = ""
+        [string]$ProjectId = "",
+        [ValidateRange(5, 86400)][int]$LeaseSeconds = 180,
+        [string]$Stage = "queue"
     )
 
     $paths = Get-ReleaseLockPaths -ProjectPath $ProjectPath -LockPath $LockPath
@@ -139,10 +280,16 @@ function Enter-ReleaseLock {
             }
             $owner = [ordered]@{
                 pid = $PID
-                startedAt = [DateTime]::UtcNow.ToString("o")
+                startedAt = [DateTimeOffset]::UtcNow.ToString("o")
+                processStartUtc = Get-ReleaseProcessStartUtc -ProcessId $PID
+                host = [Environment]::MachineName
                 gitHead = $head
                 targetVersion = $TargetVersion
                 targetType = $TargetType
+                operationId = $ProjectId
+                stage = $Stage
+                leaseSeconds = $LeaseSeconds
+                lastHeartbeat = [DateTimeOffset]::UtcNow.ToString("o")
                 projectId = if ([string]::IsNullOrWhiteSpace($ProjectId)) {
                     Split-Path ([IO.Path]::GetFullPath($ProjectPath)) -Leaf
                 } else {
@@ -155,13 +302,18 @@ function Enter-ReleaseLock {
             $stream.Write($ownerBytes, 0, $ownerBytes.Length)
             $stream.Flush()
             [IO.File]::WriteAllText($paths.OwnerPath, $ownerJson, [Text.UTF8Encoding]::new($false))
-            return [pscustomobject]@{
+            $handle = [pscustomobject]@{
                 Stream = $stream
                 LockPath = $paths.LockPath
                 OwnerPath = $paths.OwnerPath
                 PendingPath = $paths.PendingPath
                 Owner = [pscustomobject]$owner
+                LeaseSeconds = $LeaseSeconds
+                HeartbeatTimer = $null
+                HeartbeatSubscription = $null
             }
+            Start-ReleaseLockHeartbeat -LockHandle $handle -IntervalSeconds ([Math]::Max(5, [Math]::Min(60, [int]($LeaseSeconds / 3)))) | Out-Null
+            return $handle
         }
         catch [IO.IOException] {
             if ($null -ne $stream) {
@@ -190,14 +342,18 @@ function Enter-ReleaseLock {
 function Update-ReleaseLockOwner {
     param(
         [Parameter(Mandatory = $true)][object]$LockHandle,
-        [Parameter(Mandatory = $true)][string]$TargetVersion
+        [Parameter(Mandatory = $true)][string]$TargetVersion,
+        [string]$Stage = ""
     )
 
+    Assert-ReleaseLockOwned -LockHandle $LockHandle -Stage $Stage | Out-Null
     $owner = [ordered]@{}
     foreach ($property in $LockHandle.Owner.PSObject.Properties) {
         $owner[$property.Name] = $property.Value
     }
     $owner.targetVersion = $TargetVersion
+    if (-not [string]::IsNullOrWhiteSpace($Stage)) { $owner.stage = $Stage }
+    $owner.lastHeartbeat = [DateTimeOffset]::UtcNow.ToString("o")
     $json = $owner | ConvertTo-Json -Depth 5
     [IO.File]::WriteAllText($LockHandle.OwnerPath, $json, [Text.UTF8Encoding]::new($false))
     $LockHandle.Owner = [pscustomobject]$owner
@@ -216,6 +372,7 @@ function Exit-ReleaseLock {
         }
     }
     finally {
+        Stop-ReleaseLockHeartbeat -LockHandle $LockHandle
         if ($null -ne $LockHandle.Stream) {
             $LockHandle.Stream.Dispose()
         }

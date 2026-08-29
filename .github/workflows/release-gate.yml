@@ -8,6 +8,13 @@ on:
       - "**"
   workflow_dispatch:
 
+# Serialize checks for the same repository/base branch.  GitHub may collapse
+# multiple pending UI runs, but it never cancels the active run; the durable
+# release queue is the source of truth for strict FIFO and recovery.
+concurrency:
+  group: release-gate-${{ github.repository }}-${{ github.event.pull_request.base.ref || github.ref_name }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
@@ -23,6 +30,32 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
+      - name: Release workflow concurrency and protection preflight
+        shell: pwsh
+        env:
+          RELEASE_WORKFLOW_EVENT_NAME: ${{ github.event_name }}
+          RELEASE_WORKFLOW_REF: ${{ github.ref }}
+          RELEASE_WORKFLOW_REF_NAME: ${{ github.ref_name }}
+          RELEASE_WORKFLOW_BASE_REF: ${{ github.base_ref }}
+          RELEASE_WORKFLOW_HEAD_REF: ${{ github.head_ref }}
+        run: node scripts/release-workflow-smoke.js --runtime
+      - name: Cache API npm download cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/wechat-miniapp-npm-cache
+          key: npm-api-${{ hashFiles('cloudfunctions/api/package-lock.json') }}
+          restore-keys: |
+            npm-api-
+      - name: Prepare API dependency cache
+        shell: pwsh
+        env:
+          WECHAT_MINIPROGRAM_NPM_CACHE_PATH: ${{ runner.temp }}/wechat-miniapp-npm-cache
+        run: |
+          . "$env:GITHUB_WORKSPACE\scripts\npm-dependency-cache.ps1"
+          $info = Ensure-LocalCloudFunctionDependencies `
+            -ApiPath "$env:GITHUB_WORKSPACE\cloudfunctions\api" `
+            -DependencyCheckScript "$env:GITHUB_WORKSPACE\scripts\check-cloudfunction-dependencies.js"
+          Write-Host "API npm cache key: $($info.Key)"
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -37,6 +70,7 @@ jobs:
             remote = "https://github.com/ssqaq/quxiang-chuangzuo-miniprogram.git"
             branch = "main"
             lockPath = Join-Path $parent "wechat-miniapp-release.lock"
+            queueRoot = Join-Path $parent "wechat-miniapp-release-queue"
             artifactRoot = $parent
             reservationRoot = Join-Path $parent "wechat-miniapp-release-reservations"
             worktreeRoot = Join-Path $parent "wechat-miniapp-release-worktrees"
@@ -44,8 +78,8 @@ jobs:
             contextRoot = Join-Path $parent "wechat-miniapp-release-contexts"
             logRoot = Join-Path $parent "wechat-miniapp-release-logs"
             archiveManifestPath = Join-Path $parent "wechat-miniapp-release-archive.json"
-            mainProtection = [ordered]@{ mode = "pr-only"; requiredWorkflow = "release-gate.yml"; applyToAdmins = $true }
-            queue = [ordered]@{ waitSeconds = 1800; pollMilliseconds = 500 }
+            mainProtection = [ordered]@{ mode = "pr-only"; requiredWorkflow = "release-gate.yml"; applyToAdmins = $true; enforceOnPublish = $true }
+            queue = [ordered]@{ waitSeconds = 1800; pollMilliseconds = 500; leaseSeconds = 180; staleAfterSeconds = 600; maxAttempts = 3 }
             immutableArtifacts = $true
             allowSourceWorktrees = $true
           }
@@ -57,9 +91,21 @@ jobs:
       - name: Release safety smoke
         shell: pwsh
         run: node scripts/release-safety-smoke.js
+      - name: Release lock smoke
+        shell: pwsh
+        run: node scripts/release-lock-smoke.js
+      - name: Release queue smoke
+        shell: pwsh
+        run: node scripts/release-queue-smoke.js
+      - name: Version concurrency smoke
+        shell: pwsh
+        run: node scripts/version-concurrency-smoke.js
       - name: Release gate smoke
         shell: pwsh
         run: node scripts/release-gate-smoke.js
+      - name: Release failure-stage contract smoke
+        shell: pwsh
+        run: node scripts/release-workflow-smoke.js
       - name: Cloud deploy safety smoke
         shell: pwsh
         run: node scripts/cloud-deploy-safety-smoke.js

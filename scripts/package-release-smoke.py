@@ -128,6 +128,37 @@ class PackageReleaseSmoke(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 PACKAGE.load_release_context(context_path)
 
+    def test_schema2_context_requires_and_accepts_queue_bindings(self):
+        commit = "d" * 40
+        with tempfile.TemporaryDirectory(prefix="package-release-context-v2-smoke-") as temp:
+            directory = Path(temp)
+            context_path = directory / "context.json"
+            artifact = directory / f"wechat-miniapp-release-v1.2.3-{commit}.zip"
+            context = {
+                "schemaVersion": 2,
+                "operationId": "op-schema2-smoke",
+                "canonicalRepo": str(ROOT),
+                "version": "1.2.3",
+                "sourceCommit": commit,
+                "releaseCommit": commit,
+                "treeSha": commit,
+                "sourceSha256": "e" * 64,
+                "artifactPath": str(artifact),
+                "baseHead": "f" * 40,
+                "phase": "prepared",
+                "expiresAt": "2099-01-01T00:00:00Z",
+            }
+            context_path.write_text(json.dumps(context), encoding="utf-8")
+            loaded = PACKAGE.load_release_context(context_path)
+            self.assertEqual(loaded["schemaVersion"], 2)
+            self.assertEqual(loaded["baseHead"], "f" * 40)
+
+            invalid = dict(context)
+            invalid.pop("baseHead")
+            context_path.write_text(json.dumps(invalid), encoding="utf-8")
+            with self.assertRaises(RuntimeError):
+                PACKAGE.load_release_context(context_path)
+
 
 if __name__ == "__main__":
     unittest.main()

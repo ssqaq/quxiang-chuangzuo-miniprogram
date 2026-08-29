@@ -14,7 +14,9 @@
   [string]$DeployLockPath = "",
   [string]$ReleaseContext = "",
   [string]$NpmCachePath = "",
-  [switch]$ReleaseGateLockHeld
+  [switch]$ReleaseGateLockHeld,
+  [string]$ReleaseGateLockToken = "",
+  [switch]$AllowPostMergeRecovery
 )
 
 # Keep this file ASCII-only so Windows PowerShell 5.1 can parse it without BOM.
@@ -672,14 +674,22 @@ if (-not $VerifyOnly -and -not $DryRun -and [string]::IsNullOrWhiteSpace($releas
 if ($ReleaseGateLockHeld -and [string]::IsNullOrWhiteSpace($DeployLockPath)) {
   throw "-ReleaseGateLockHeld 必须同时提供统一发布锁 -DeployLockPath。"
 }
+if ($ReleaseGateLockHeld -and [string]::IsNullOrWhiteSpace($ReleaseGateLockToken)) {
+  throw "-ReleaseGateLockHeld 必须同时提供外层锁交接 token。"
+}
 $releaseContext = $null
+$releaseContextPathResolved = ""
+$idempotencyKey = ""
 if (-not [string]::IsNullOrWhiteSpace($releaseContextPath)) {
   $expectedRemote = (& git -C $project remote get-url origin 2>$null | Out-String).Trim()
+  $releaseContextPathResolved = [IO.Path]::GetFullPath($releaseContextPath)
   $releaseContext = Assert-CloudDeployReleaseContext `
-    -ContextPath ([IO.Path]::GetFullPath($releaseContextPath)) `
+    -ContextPath $releaseContextPathResolved `
     -ProjectPath $project `
     -ExpectedVersion $appVersion `
-    -ExpectedRemoteUrl $expectedRemote
+    -ExpectedRemoteUrl $expectedRemote `
+    -AllowPostMergeRecovery:$AllowPostMergeRecovery
+  $idempotencyKey = New-CloudDeployIdempotencyKey -Context $releaseContext
   Write-Host "Release context: $releaseContextPath"
 }
 $imageMode = Get-ConfigValue -Text $configText -Name "imageMode"
@@ -745,11 +755,58 @@ $deployLock = $null
 $sourceSnapshot = $null
 $pendingPath = ""
 $locationPushed = $false
+$cloudEffectStarted = $false
+$cloudUploadSkipped = $false
+
+function Save-CloudDeploymentEffect {
+  param(
+    [Parameter(Mandatory = $true)][ValidateSet("pending", "running", "submitted", "unknown", "verified", "failed")][string]$State,
+    [object]$Receipt = $null,
+    [string]$ErrorMessage = "",
+    [string]$Transport = ""
+  )
+  if ($null -eq $releaseContext -or [string]::IsNullOrWhiteSpace($releaseContextPathResolved)) {
+    return
+  }
+  try {
+    $current = Get-Content -LiteralPath $releaseContextPathResolved -Raw -Encoding UTF8 | ConvertFrom-Json
+    $hash = [ordered]@{}
+    foreach ($property in $current.PSObject.Properties) { $hash[$property.Name] = $property.Value }
+    $effect = [ordered]@{}
+    if ($current.PSObject.Properties["cloudDeployment"] -and $null -ne $current.cloudDeployment) {
+      foreach ($property in $current.cloudDeployment.PSObject.Properties) { $effect[$property.Name] = $property.Value }
+    }
+    $effect.schemaVersion = 1
+    $effect.operationId = [string]$current.operationId
+    $effect.version = [string]$current.version
+    $effect.releaseCommit = [string]$current.releaseCommit
+    $effect.treeSha = [string]$current.treeSha
+    $effect.sourceSha256 = [string]$current.sourceSha256
+    $effect.packageSha256 = if ($current.PSObject.Properties["packageSha256"]) { [string]$current.packageSha256 } else { "" }
+    $effect.mainCommit = if ($current.PSObject.Properties["mainCommit"]) { [string]$current.mainCommit } else { "" }
+    $effect.idempotencyKey = $idempotencyKey
+    $effect.state = $State
+    if (-not [string]::IsNullOrWhiteSpace($Transport)) { $effect.transport = $Transport }
+    if (-not [string]::IsNullOrWhiteSpace($ErrorMessage)) { $effect.lastError = $ErrorMessage }
+    $effect.updatedAt = [DateTimeOffset]::UtcNow.ToString("o")
+    if ($null -ne $Receipt) { $effect.receipt = $Receipt }
+    $hash.cloudDeployment = $effect
+    Write-CloudDeployContextAtomic -ContextPath $releaseContextPathResolved -Context ([pscustomobject]$hash)
+    $script:releaseContext = [pscustomobject]$hash
+  }
+  catch {
+    # A state write must never hide the original deployment error.  The next
+    # resume performs an online identity readback before deciding to upload.
+    Write-Warning "Cloud deployment effect state 写入失败：$($_.Exception.Message)"
+  }
+}
+
 try {
   if (-not $VerifyOnly) {
     $lockPaths = Get-CloudDeployLockPaths -ProjectPath $project -LockPath $DeployLockPath
     if ($ReleaseGateLockHeld) {
       Write-Host "Use release gate's exclusive cloud deployment lock"
+      Assert-ReleaseLockHandoff -LockPath $DeployLockPath -HandoffToken $ReleaseGateLockToken -OperationId $(if ($null -ne $releaseContext) { [string]$releaseContext.operationId } else { "" }) | Out-Null
       $pendingPath = $lockPaths.PendingPath
     }
     else {
@@ -772,7 +829,14 @@ try {
         throw "No pending cloud deployment record was found to resume."
       }
       if (
+        [string]$pendingDeployment.operationId -ne [string](if ($null -ne $releaseContext) { $releaseContext.operationId } else { "" }) -or
         [string]$pendingDeployment.targetVersion -ne $appVersion -or
+        [string]$pendingDeployment.version -ne $appVersion -or
+        [string]$pendingDeployment.releaseCommit -ne [string](if ($null -ne $releaseContext) { $releaseContext.releaseCommit } else { "" }) -or
+        [string]$pendingDeployment.treeSha -ne [string](if ($null -ne $releaseContext) { $releaseContext.treeSha } else { "" }) -or
+        [string]$pendingDeployment.sourceSha256 -ne [string](if ($null -ne $releaseContext) { $releaseContext.sourceSha256 } else { "" }) -or
+        [string]$pendingDeployment.packageSha256 -ne [string](if ($null -ne $releaseContext -and $releaseContext.PSObject.Properties["packageSha256"]) { $releaseContext.packageSha256 } else { "" }) -or
+        [string]$pendingDeployment.idempotencyKey -ne $idempotencyKey -or
         [string]$pendingDeployment.functionName -ne $functionName -or
         [string]$pendingDeployment.environmentId -ne $cloudEnvId -or
         [string]$pendingDeployment.apiFingerprint -ne $sourceSnapshot.ApiFingerprint
@@ -946,10 +1010,23 @@ try {
   Write-Host "5/7 Deploy cloud function via $resolvedDeployTransport"
   Write-Host "Check online version before upload"
   $onlineVersionBeforeUpload = ""
+  $onlineMarkerBeforeUpload = ""
+  $onlineSnapshotBeforeUpload = $null
   if ($resolvedDeployTransport -eq "cloudbase") {
-    $onlineVersionBeforeUpload = Get-CloudBaseFunctionVersion `
-      -EnvironmentId $cloudEnvId `
-      -FunctionName $functionName
+    try {
+      $onlineSnapshotBeforeUpload = Get-CloudBaseFunctionSnapshot `
+        -EnvironmentId $cloudEnvId `
+        -FunctionName $functionName
+      $onlineVersionBeforeUpload = [string]$onlineSnapshotBeforeUpload.BuildVersion
+      $onlineMarkerBeforeUpload = [string]$onlineSnapshotBeforeUpload.BuildMarker
+    }
+    catch {
+      # Keep the original version guard as a fallback for older CloudBase
+      # responses that do not expose CodeInfo in fn detail.
+      $onlineVersionBeforeUpload = Get-CloudBaseFunctionVersion `
+        -EnvironmentId $cloudEnvId `
+        -FunctionName $functionName
+    }
   }
   else {
     Wait-CloudFunctionReady `
@@ -970,14 +1047,41 @@ try {
     -LocalVersion $appVersion `
     -OnlineVersion $onlineVersionBeforeUpload
   Write-Host "Version guard passed: local=$($versionDecision.LocalVersion), online=$($versionDecision.OnlineVersion), relation=$($versionDecision.Relation)"
+  if ($null -ne $releaseContext -and [string]::IsNullOrWhiteSpace($idempotencyKey)) {
+    $idempotencyKey = New-CloudDeployIdempotencyKey -Context $releaseContext
+  }
+  # A process can die after CloudBase accepted the upload but before the
+  # context receipt was written.  If the online code already carries this
+  # release's version and build marker, treat it as the same idempotent effect
+  # and continue with read-only verification instead of uploading twice.
+  $cloudUploadSkipped = $resolvedDeployTransport -eq "cloudbase" -and
+    $null -ne $onlineSnapshotBeforeUpload -and
+    [string]$onlineSnapshotBeforeUpload.BuildVersion -eq $appVersion -and
+    -not [string]::IsNullOrWhiteSpace($expectedMarker) -and
+    [string]$onlineSnapshotBeforeUpload.BuildMarker -eq $expectedMarker
+  if ($cloudUploadSkipped) {
+    Write-Host "CloudBase 线上已经是同版本/构建标记，跳过重复上传，继续完整核验。"
+  }
+  if (-not $cloudUploadSkipped) {
+    $cloudEffectStarted = $true
+    Save-CloudDeploymentEffect -State "submitted" -Transport $resolvedDeployTransport
+  }
   if ($resolvedDeployTransport -eq "cloudbase") {
     Write-Host "CloudBase 直部署：不等待微信确认弹窗"
-    Invoke-CloudBaseFunctionDeploy `
-      -EnvironmentId $cloudEnvId `
-      -FunctionName $functionName `
-      -ApiPath $apiPath `
-      -TimeoutSeconds $expectedFunctionTimeout `
-      -NpxPath $cloudBaseCli | Out-Null
+    if (-not $cloudUploadSkipped) {
+      try {
+        Invoke-CloudBaseFunctionDeploy `
+          -EnvironmentId $cloudEnvId `
+          -FunctionName $functionName `
+          -ApiPath $apiPath `
+          -TimeoutSeconds $expectedFunctionTimeout `
+          -NpxPath $cloudBaseCli | Out-Null
+      }
+      catch {
+        Save-CloudDeploymentEffect -State "unknown" -Transport $resolvedDeployTransport -ErrorMessage $_.Exception.Message
+        throw
+      }
+    }
   }
   else {
     if ($ResumePendingDeploy) {
@@ -1023,10 +1127,18 @@ try {
         Write-CloudDeployPending `
           -PendingPath $pendingPath `
           -Record ([ordered]@{
+            schemaVersion = 1
             taskId = $taskId
             toolName = "cloud_fn_deploy"
+            operationId = if ($null -ne $releaseContext) { [string]$releaseContext.operationId } else { "" }
+            version = $appVersion
             targetVersion = $appVersion
             buildMarker = $expectedMarker
+            releaseCommit = if ($null -ne $releaseContext) { [string]$releaseContext.releaseCommit } else { "" }
+            treeSha = if ($null -ne $releaseContext) { [string]$releaseContext.treeSha } else { "" }
+            sourceSha256 = if ($null -ne $releaseContext) { [string]$releaseContext.sourceSha256 } else { "" }
+            packageSha256 = if ($null -ne $releaseContext -and $releaseContext.PSObject.Properties["packageSha256"]) { [string]$releaseContext.packageSha256 } else { "" }
+            idempotencyKey = $idempotencyKey
             functionName = $functionName
             environmentId = $cloudEnvId
             apiFingerprint = $sourceSnapshot.ApiFingerprint
@@ -1085,6 +1197,9 @@ try {
       -Health $runtimeHealth `
       -ExpectedVersion $appVersion `
       -ExpectedMarker $expectedMarker
+    if ($null -ne $releaseContext) {
+      Save-CloudDeploymentEffect -State "verified" -Transport $resolvedDeployTransport
+    }
     Write-Host "CloudBase function deployment verified successfully." -ForegroundColor Green
     return
   }
@@ -1181,7 +1296,16 @@ try {
     -ProjectPath $project `
     -ApiPath $apiPath `
     -Stage "online verification"
+  if ($null -ne $releaseContext) {
+    Save-CloudDeploymentEffect -State "verified" -Transport $resolvedDeployTransport
+  }
   Write-Host "Cloud function deployment verified successfully." -ForegroundColor Green
+}
+catch {
+  if ($cloudEffectStarted) {
+    Save-CloudDeploymentEffect -State "unknown" -Transport $resolvedDeployTransport -ErrorMessage $_.Exception.Message
+  }
+  throw
 }
 finally {
   if ($locationPushed) {

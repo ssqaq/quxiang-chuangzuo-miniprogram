@@ -106,6 +106,9 @@ jobs:
       - name: Release failure-stage contract smoke
         shell: pwsh
         run: node scripts/release-workflow-smoke.js
+      - name: Resume release recovery smoke
+        shell: pwsh
+        run: node scripts/resume-release-smoke.js
       - name: Cloud deploy safety smoke
         shell: pwsh
         run: node scripts/cloud-deploy-safety-smoke.js

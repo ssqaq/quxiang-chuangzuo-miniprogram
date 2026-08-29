@@ -22,6 +22,8 @@
 
     [switch]$DeployCloud,
 
+    [switch]$ResumePendingDeploy,
+
     [switch]$KeepWorktree,
 
     [string]$ResumeOperation = "",
@@ -76,6 +78,7 @@ if (-not [string]::IsNullOrWhiteSpace($ResumeOperation)) {
         -PreviewCliPath $PreviewCliPath `
         -PreviewClientName $PreviewClientName `
         -DeployCloud:$DeployCloud `
+        -ResumePendingDeploy:$ResumePendingDeploy `
         -LockWaitSeconds $LockWaitSeconds `
         -KeepWorktree:$KeepWorktree
     exit $LASTEXITCODE
@@ -136,12 +139,15 @@ $releaseToolPaths = @(
     "scripts/npm-dependency-cache.ps1",
     "scripts/npm-dependency-cache-smoke.js",
     "scripts/cloud-deploy-safety.ps1",
+    "scripts/cloud-deploy-safety-smoke.js",
+    "scripts/deployment-script-smoke.js",
     "scripts/deploy-api-cloudbase-cli.ps1",
     "scripts/refresh-preview.ps1",
     "scripts/configure-github-protection.ps1",
     "scripts/release-queue.ps1",
     "scripts/release-queue-smoke.js",
     "scripts/resume-release.ps1",
+    "scripts/resume-release-smoke.js",
     "scripts/release-status.ps1",
     "scripts/release-workflow-smoke.js",
     "scripts/sync-to-github.ps1",
@@ -561,6 +567,7 @@ try {
             -ProjectPath $releaseWorktree `
             -ReleaseContext $contextPath `
             -ReleaseGateLockHeld `
+            -ReleaseGateLockToken ([string]$lockHandle.Owner.handoffToken) `
             -DeployLockPath ([string]$policy.lockPath) `
             -DeployTransport "auto" `
             -LockWaitSeconds $LockWaitSeconds
@@ -569,10 +576,17 @@ try {
         }
         $contextHash.phase = "deployed"
         $contextHash.cloudReceipt = [ordered]@{
+            schemaVersion = 1
             operationId = $operationId
             version = $target
             releaseCommit = $finalCommit
+            treeSha = $finalTree
+            sourceSha256 = $preSha
+            packageSha256 = $packageSha
             mainCommit = if ($contextHash.Contains("mainCommit")) { [string]$contextHash.mainCommit } else { "" }
+            idempotencyKey = "cloud:$operationId`:$finalCommit`:$finalTree"
+            onlineBuildVersion = $target
+            onlineBuildMarker = if ($contextHash.Contains("apiBuildMarker")) { [string]$contextHash.apiBuildMarker } else { "" }
             verifiedAt = [DateTimeOffset]::UtcNow.ToString("o")
             status = "verified"
         }
@@ -606,10 +620,30 @@ try {
         }
         $qrPath = Join-Path ([string]$policy.artifactRoot) "wechat-miniapp-preview-v$target-$finalCommit-qr.png"
         $infoPath = Join-Path ([string]$policy.artifactRoot) "wechat-miniapp-preview-v$target-$finalCommit-info.json"
-        $previewOutput = & $PreviewCliPath -c $PreviewClientName create_preview_qrcode --project $releaseWorktree --qr-format image --qr-output $qrPath 2>&1
-        if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $qrPath -PathType Leaf)) { throw "最终预览码生成失败；保留原 release context。" }
-        $infoHash = [ordered]@{ operationId = $operationId; appVersion = $target; gitCommit = $finalCommit; treeSha = $finalTree; sourceSha256 = $preSha; artifactPath = $artifactPath; mainCommit = if ($contextHash.Contains("mainCommit")) { [string]$contextHash.mainCommit } else { "" } }
-        Write-ReleaseGateJsonAtomic -Path $infoPath -Value $infoHash
+        $infoHash = [ordered]@{ schemaVersion = 1; operationId = $operationId; appVersion = $target; gitCommit = $finalCommit; treeSha = $finalTree; sourceSha256 = $preSha; artifactPath = $artifactPath; mainCommit = if ($contextHash.Contains("mainCommit")) { [string]$contextHash.mainCommit } else { "" } }
+        if (Test-Path -LiteralPath $qrPath -PathType Leaf) {
+            $existingQrSha = (Get-FileHash -LiteralPath $qrPath -Algorithm SHA256).Hash.ToLowerInvariant()
+            if (-not (Test-Path -LiteralPath $infoPath -PathType Leaf)) { throw "已有二维码但缺少 info，拒绝复用或覆盖：$qrPath" }
+            $existingInfo = Get-Content -LiteralPath $infoPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ([string]$existingInfo.qrSha256 -ne $existingQrSha) { throw "已有二维码 SHA 与 info 不一致，拒绝覆盖：$qrPath" }
+            foreach ($key in @("operationId", "appVersion", "gitCommit", "treeSha", "sourceSha256", "artifactPath", "mainCommit")) {
+                if ([string]$existingInfo.$key -ne [string]$infoHash[$key]) { throw "已有二维码 info 与当前发布不一致，拒绝覆盖：$infoPath" }
+            }
+        }
+        else {
+            $tempQrPath = "$qrPath.$PID.$([guid]::NewGuid().ToString('N')).tmp.png"
+            try {
+                $previewOutput = & $PreviewCliPath -c $PreviewClientName create_preview_qrcode --project $releaseWorktree --qr-format image --qr-output $tempQrPath 2>&1
+                if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $tempQrPath -PathType Leaf)) { throw "最终预览码生成失败；保留原 release context。" }
+                if ((Get-Item -LiteralPath $tempQrPath).Length -le 0) { throw "最终预览码为空；保留原 release context。" }
+                Move-Item -LiteralPath $tempQrPath -Destination $qrPath
+            }
+            finally {
+                if (Test-Path -LiteralPath $tempQrPath -PathType Leaf) { Remove-Item -LiteralPath $tempQrPath -Force -ErrorAction SilentlyContinue }
+            }
+            $infoHash.qrSha256 = (Get-FileHash -LiteralPath $qrPath -Algorithm SHA256).Hash.ToLowerInvariant()
+            Write-ReleaseGateJsonAtomic -Path $infoPath -Value $infoHash
+        }
         $contextHash.previewQrPath = $qrPath; $contextHash.previewInfoPath = $infoPath; $contextHash.phase = "previewed"
         Write-ReleaseGateJsonAtomic -Path $contextPath -Value $contextHash
         Set-GateQueueStage -Stage "previewed" -Status "running"

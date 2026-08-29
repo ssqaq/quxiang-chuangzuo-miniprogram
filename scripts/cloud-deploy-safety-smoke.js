@@ -54,6 +54,18 @@ assert.ok(
   deploySource.includes("Assert-CloudDeploySourceSnapshotStable"),
   "真实部署必须检查云函数源码快照"
 );
+const cloudHelperSource = fs.readFileSync(helperPath, "utf8");
+assert.ok(
+  cloudHelperSource.includes("CloudBase 部署只允许消费 PR 已合并后的 context") &&
+    cloudHelperSource.includes("mainCommit") &&
+    cloudHelperSource.includes("git-common-dir"),
+  "CloudBase 必须校验 PR 合并凭证和 canonical worktree"
+);
+assert.ok(
+  cloudHelperSource.includes("RawSha256") &&
+    cloudHelperSource.includes("ConvertTo-CloudDeployCanonicalTextBytes"),
+  "源码快照必须保留原始摘要并规范化文本换行"
+);
 const verifyBranchEnd = deploySource.indexOf(
   'Write-Host "1/7 Check WechatIDE login"',
   0
@@ -337,11 +349,58 @@ try {
     );
   });
   const apiRoot = path.join(snapshotRoot, "cloudfunctions", "api");
-  const snapshotCommand = [
+  const snapshotFile = path.join(snapshotRoot, "snapshot.json");
+  const snapshotStableCommand = [
     `. ${psQuote(helperPath)}`,
     `$snapshot = Get-CloudDeploySourceSnapshot -ProjectPath ${psQuote(snapshotRoot)} -ApiPath ${psQuote(apiRoot)}`,
     `Assert-CloudDeploySourceSnapshotStable -Snapshot $snapshot -ProjectPath ${psQuote(snapshotRoot)} -ApiPath ${psQuote(apiRoot)} -Stage 'smoke-stable'`,
-    `Set-Content -LiteralPath ${psQuote(path.join(apiRoot, "index.js"))} -Value 'module.exports = 2;' -Encoding UTF8`,
+    `$snapshot | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath ${psQuote(snapshotFile)} -Encoding UTF8`,
+    `$entry = @($snapshot.Files | Where-Object { $_.Path -eq 'index.js' })[0]`,
+    `if ([string]::IsNullOrWhiteSpace([string]$entry.RawSha256) -or [string]::IsNullOrWhiteSpace([string]$entry.RawLength)) { throw 'Raw source digest fields are missing.' }`,
+    "Write-Output 'SNAPSHOT_STABLE_OK'",
+  ].join("; ");
+  const snapshotStableResult = runPowerShell(snapshotStableCommand, snapshotRoot);
+  assert.strictEqual(
+    snapshotStableResult.status,
+    0,
+    `源码快照初始稳定性测试失败\n${snapshotStableResult.stdout}\n${snapshotStableResult.stderr}`
+  );
+  assert.ok(snapshotStableResult.stdout.includes("SNAPSHOT_STABLE_OK"));
+
+  // npm ci can rewrite a checked-in text dependency's line endings.  That
+  // byte-only change must not be mistaken for a source edit.
+  fs.writeFileSync(
+    path.join(apiRoot, "index.js"),
+    "module.exports = 1;\r\n",
+    "utf8"
+  );
+  const snapshotEolCommand = [
+    `. ${psQuote(helperPath)}`,
+    `$snapshot = Get-Content -LiteralPath ${psQuote(snapshotFile)} -Raw -Encoding UTF8 | ConvertFrom-Json`,
+    `Assert-CloudDeploySourceSnapshotStable -Snapshot $snapshot -ProjectPath ${psQuote(snapshotRoot)} -ApiPath ${psQuote(apiRoot)} -Stage 'smoke-eol'`,
+    `$current = Get-CloudDeploySourceSnapshot -ProjectPath ${psQuote(snapshotRoot)} -ApiPath ${psQuote(apiRoot)}`,
+    `$oldEntry = @($snapshot.Files | Where-Object { $_.Path -eq 'index.js' })[0]`,
+    `$newEntry = @($current.Files | Where-Object { $_.Path -eq 'index.js' })[0]`,
+    `if ([string]$oldEntry.Sha256 -ne [string]$newEntry.Sha256) { throw 'Canonical digest changed for line-ending-only edit.' }`,
+    `if ([string]$oldEntry.RawSha256 -eq [string]$newEntry.RawSha256) { throw 'Raw digest did not record line-ending change.' }`,
+    "Write-Output 'SNAPSHOT_EOL_OK'",
+  ].join("; ");
+  const snapshotEolResult = runPowerShell(snapshotEolCommand, snapshotRoot);
+  assert.strictEqual(
+    snapshotEolResult.status,
+    0,
+    `仅换行差异不应触发源码快照失败\n${snapshotEolResult.stdout}\n${snapshotEolResult.stderr}`
+  );
+  assert.ok(snapshotEolResult.stdout.includes("SNAPSHOT_EOL_OK"));
+
+  fs.writeFileSync(
+    path.join(apiRoot, "index.js"),
+    "module.exports = 2;\r\n",
+    "utf8"
+  );
+  const snapshotCommand = [
+    `. ${psQuote(helperPath)}`,
+    `$snapshot = Get-Content -LiteralPath ${psQuote(snapshotFile)} -Raw -Encoding UTF8 | ConvertFrom-Json`,
     "$caught = $false",
     "try { Assert-CloudDeploySourceSnapshotStable -Snapshot $snapshot -ProjectPath "
       + `${psQuote(snapshotRoot)} -ApiPath ${psQuote(apiRoot)} -Stage 'smoke-change' } `

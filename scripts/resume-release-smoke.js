@@ -240,6 +240,8 @@ function testStaticContracts() {
     "idempotencyKey",
     "qrSha256",
   ]) mustContain(resume, marker, "resume 副作用绑定契约");
+  assert.ok(!/\$preview\s*=\s*Write-ResumeFinalPreview/.test(resume), "resume 不能用 $preview 覆盖 Preview 开关参数");
+  mustContain(resume, "$previewArtifact = Write-ResumeFinalPreview", "resume 预览结果变量");
   for (const marker of [
     "operationId",
     "releaseCommit",

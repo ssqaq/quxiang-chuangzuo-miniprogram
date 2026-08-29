@@ -8544,3 +8544,35 @@ page {
     margin-top: 8rpx;
   }
 }
+
+/* 旧版服务商编辑器的最终窄屏规则：四项能力固定等分，不再横向滚动。 */
+@media (max-width: 900px) {
+  .admin-page .provider-tabs {
+    gap: 0 !important;
+    overflow-x: hidden !important;
+    overflow-y: hidden !important;
+  }
+
+  .admin-page .provider-tab {
+    flex: 1 1 0 !important;
+    min-width: 0 !important;
+    padding-right: 2rpx !important;
+    padding-left: 2rpx !important;
+    font-size: 18rpx !important;
+    line-height: 28rpx;
+    text-align: center;
+  }
+
+  .admin-page .compact-model-tabs-inner {
+    gap: 0 !important;
+    overflow: hidden !important;
+  }
+
+  .admin-page .compact-model-tab {
+    flex: 1 1 0 !important;
+    min-width: 0 !important;
+    padding-right: 3rpx !important;
+    padding-left: 3rpx !important;
+    font-size: 18rpx !important;
+  }
+}

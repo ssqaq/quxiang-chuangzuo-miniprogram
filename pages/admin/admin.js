@@ -5636,6 +5636,48 @@ function diagnosticLogCopyText(item = {}) {
   ].join("\n");
 }
 
+// C 结构只负责把最常用的模型参数放到一个窄屏可读的工作台，
+// 复杂监控和服务商档案仍由原有管理区承接。
+const COMPACT_MODEL_TABS = Object.freeze([
+  { value: "face", label: "人脸", title: "人脸识别", description: "启用后可被人脸功能选择", backup: "faceBackup" },
+  { value: "analysis", label: "分析", title: "图片分析", description: "用于图片内容理解与分析", backup: "analysisBackup" },
+  { value: "tencentFaceFusion", label: "图片分析", title: "图片分析", description: "腾讯融合使用独立参数", backup: "" },
+  { value: "image", label: "生图", title: "生图", description: "控制图片生成与编辑模型", backup: "imageBackup" },
+  { value: "video", label: "视频", title: "视频生成", description: "控制视频创建与查询模型", backup: "videoBackup" }
+]);
+
+const COMPACT_MODEL_SECTIONS = COMPACT_MODEL_TABS.map((item) => item.value);
+
+function compactModelReady(section = {}, sectionName = "") {
+  const source = section && typeof section === "object" ? section : {};
+  if (sectionName === "tencentFaceFusion") {
+    return Boolean(
+      String(source.endpoint || "").trim()
+      && String(source.model || "").trim()
+      && String(source.secretId || "").trim()
+      && String(source.secretKey || "").trim()
+    );
+  }
+  return Boolean(
+    String(source.provider || source.providerKey || "").trim()
+    && String(source.model || "").trim()
+    && String(source.baseUrl || source.endpoint || source.queryEndpoint || "").trim()
+    && (source.apiKeyConfigured || String(source.apiKey || "").trim())
+  );
+}
+
+function compactTimeoutText(value) {
+  const milliseconds = Number(value);
+  if (!Number.isFinite(milliseconds) || milliseconds <= 0) return "未设置";
+  if (milliseconds % 1000 === 0) return `${milliseconds / 1000} 秒`;
+  return `${milliseconds} 毫秒`;
+}
+
+function compactSectionSuffix(section = "") {
+  const text = String(section || "");
+  return text ? text.charAt(0).toUpperCase() + text.slice(1) : "";
+}
+
 Page({
   data: {
     appVersion: config.appVersion,
@@ -5913,12 +5955,57 @@ Page({
     providerDeleting: false,
     providerSecretsLoading: false,
     providerAutoRebound: [],
+    compactModelMode: true,
+    compactActiveSection: "face",
+    compactModelTabs: COMPACT_MODEL_TABS.slice(),
+    compactActiveModel: {
+      title: "人脸识别",
+      description: "启用后可被人脸功能选择",
+      provider: "",
+      model: "",
+      baseUrl: "",
+      apiKey: "",
+      keyReady: false,
+      keyText: "未配置",
+      timeoutMs: "",
+      timeoutText: "未设置",
+      createPath: "",
+      queryPath: ""
+    },
+    compactOverview: {
+      readyCount: 0,
+      backupCount: 0,
+      status: "读取中",
+      tone: "neutral",
+      cloudStatus: "读取中",
+      cloudTone: "neutral"
+    },
+    compactBackupSection: "faceBackup",
+    compactActiveBackup: {
+      title: "备用人脸模型",
+      caption: "未启用 · 点击展开配置参数",
+      enabled: false,
+      provider: "",
+      model: "",
+      baseUrl: "",
+      apiKey: "",
+      keyReady: false,
+      keyText: "未配置",
+      timeoutMs: ""
+    },
+    compactBackupEnabledText: "未启用",
+    compactBackupExpanded: false,
+    compactProviderOptions: [{ value: "", label: "未配置" }],
+    compactProviderIndex: 0,
+    compactBackupProviderOptions: [{ value: "", label: "未配置" }],
+    compactBackupProviderIndex: 0,
+    compactAdvancedExpanded: false,
     activeConfigSection: "",
     activeConfigTitle: "",
-    faceBackupExpanded: true,
-    analysisBackupExpanded: true,
-    imageBackupExpanded: true,
-    videoBackupExpanded: true,
+    faceBackupExpanded: false,
+    analysisBackupExpanded: false,
+    imageBackupExpanded: false,
+    videoBackupExpanded: false,
     monitorExpanded: true,
     usageExpanded: true,
     monitorSections: {
@@ -5940,6 +6027,290 @@ Page({
     this.loadAdminPage();
     this.startModelFailureAutoRefresh();
     this.startAutoFaceFailureAutoRefresh();
+  },
+
+  buildCompactModelPatch(form = this.data.form, activeSection = this.data.compactActiveSection) {
+    const source = form && typeof form === "object" ? form : {};
+    const tab = COMPACT_MODEL_TABS.find((item) => item.value === activeSection)
+      || COMPACT_MODEL_TABS[0];
+    const section = source[tab.value] && typeof source[tab.value] === "object"
+      ? source[tab.value]
+      : {};
+    const keyReady = Boolean(section.apiKeyConfigured || String(section.apiKey || "").trim());
+    const model = Object.assign({}, section, {
+      title: tab.title,
+      description: tab.description,
+      providerKey: String(
+        section.providerKey
+        || (this.data.activeProviders && this.data.activeProviders[tab.value])
+        || ""
+      ).trim(),
+      provider: String(section.provider || "").trim(),
+      model: String(section.model || "").trim(),
+      baseUrl: String(section.baseUrl || section.endpoint || section.queryEndpoint || "").trim(),
+      apiKey: String(section.apiKey || ""),
+      keyReady,
+      keyText: keyReady ? "已配置 Key" : "未配置",
+      timeoutMs: String(section.timeoutMs || ""),
+      timeoutText: compactTimeoutText(section.timeoutMs),
+      createPath: String(section.createPath || ""),
+      queryPath: String(section.queryPath || "")
+    });
+    const backupSection = tab.backup || "";
+    const backup = backupSection && source[backupSection]
+      ? source[backupSection]
+      : {};
+    const backupKeyReady = Boolean(
+      backup.apiKeyConfigured
+      || String(backup.apiKey || "").trim()
+    );
+    const backupExpandedKey = backupSection === "faceBackup"
+      ? "faceBackupExpanded"
+      : backupSection === "analysisBackup"
+        ? "analysisBackupExpanded"
+        : backupSection === "imageBackup"
+          ? "imageBackupExpanded"
+          : backupSection === "videoBackup"
+            ? "videoBackupExpanded"
+            : "";
+    const backupExpanded = backupExpandedKey
+      ? Boolean(this.data[backupExpandedKey])
+      : false;
+    const backupView = Object.assign({}, backup, {
+      title: `${tab.label}备用模型`,
+      caption: backup.enabled
+        ? `${backup.provider || "未选择服务商"} · ${backup.model || "未填写模型"}`
+        : "未启用 · 点击展开配置参数",
+      provider: String(backup.provider || "").trim(),
+      providerKey: String(
+        backup.providerKey
+        || (this.data.activeBackups && this.data.activeBackups[backupSection])
+        || ""
+      ).trim(),
+      model: String(backup.model || "").trim(),
+      baseUrl: String(backup.baseUrl || backup.endpoint || backup.queryEndpoint || "").trim(),
+      apiKey: String(backup.apiKey || ""),
+      keyReady: backupKeyReady,
+      keyText: backupKeyReady ? "已配置 Key" : "未配置",
+      timeoutMs: String(backup.timeoutMs || ""),
+      timeoutText: compactTimeoutText(backup.timeoutMs)
+    });
+    const readySections = ["face", "analysis", "image", "video"];
+    const readyCount = readySections.filter((name) => compactModelReady(source[name], name)).length;
+    const backupCount = ["faceBackup", "analysisBackup", "imageBackup", "videoBackup"]
+      .filter((name) => Boolean(source[name] && source[name].enabled)).length;
+    const cloudConfigured = Boolean(String(config.cloudEnvId || "").trim());
+    const overview = {
+      readyCount,
+      backupCount,
+      status: readyCount === readySections.length ? "主模型正常" : `${readyCount}/4 已配置`,
+      tone: readyCount === readySections.length ? "ready" : "warning",
+      cloudStatus: cloudConfigured ? "已配置" : "未配置",
+      cloudTone: cloudConfigured ? "ready" : "warning"
+    };
+    const providerOptions = this.data[`providerPickerOptions${compactSectionSuffix(tab.value)}`]
+      || [{ value: "", label: "未配置" }];
+    const backupProviderOptions = backupSection
+      ? this.data[`providerPickerOptions${compactSectionSuffix(backupSection)}`]
+        || [{ value: "", label: "未配置" }]
+      : [{ value: "", label: "未配置" }];
+    return {
+      compactModelTabs: COMPACT_MODEL_TABS.slice(),
+      compactActiveSection: tab.value,
+      compactActiveModel: model,
+      compactOverview: overview,
+      compactBackupSection: backupSection,
+      compactActiveBackup: backupView,
+      compactBackupEnabledText: backup.enabled ? "已启用" : "未启用",
+      compactBackupExpanded: backupExpanded,
+      compactProviderOptions: providerOptions,
+      compactProviderIndex: Number(this.data[`providerPickerIndex${compactSectionSuffix(tab.value)}`]) || 0,
+      compactBackupProviderOptions: backupProviderOptions,
+      compactBackupProviderIndex: backupSection
+        ? Number(this.data[`providerPickerIndex${compactSectionSuffix(backupSection)}`]) || 0
+        : 0
+    };
+  },
+
+  refreshCompactModelState(form = this.data.form, activeSection = this.data.compactActiveSection) {
+    this.setData(this.buildCompactModelPatch(form, activeSection));
+  },
+
+  switchCompactModelTab(event) {
+    const section = String(
+      event && event.currentTarget && event.currentTarget.dataset
+        ? event.currentTarget.dataset.section || ""
+        : ""
+    );
+    if (!COMPACT_MODEL_SECTIONS.includes(section)) return;
+    this.setData(Object.assign({
+      activeConfigSection: section,
+      activeConfigTitle: (COMPACT_MODEL_TABS.find((item) => item.value === section) || {}).title || "模型配置",
+      compactAdvancedExpanded: false
+    }, this.buildCompactModelPatch(this.data.form, section)));
+  },
+
+  toggleCompactBackup() {
+    const section = String(this.data.compactBackupSection || "");
+    const key = section === "faceBackup"
+      ? "faceBackupExpanded"
+      : section === "analysisBackup"
+        ? "analysisBackupExpanded"
+        : section === "imageBackup"
+          ? "imageBackupExpanded"
+          : section === "videoBackup"
+            ? "videoBackupExpanded"
+            : "";
+    if (!key) return;
+    const expanded = !Boolean(this.data[key]);
+    const patch = this.buildCompactModelPatch(this.data.form, this.data.compactActiveSection);
+    patch[key] = expanded;
+    patch.compactBackupExpanded = expanded;
+    this.setData(patch);
+  },
+
+  toggleCompactBackupEnabled(event) {
+    const section = String(this.data.compactBackupSection || "");
+    const detail = event && event.detail ? event.detail : {};
+    const proxy = {
+      currentTarget: { dataset: { section } },
+      detail: { value: Boolean(detail.value) }
+    };
+    if (section === "faceBackup" || section === "analysisBackup") {
+      this.onVisionBackupEnabledChange(proxy);
+    } else if (section === "imageBackup") {
+      this.onImageBackupEnabledChange(proxy);
+    } else if (section === "videoBackup") {
+      this.onVideoBackupEnabledChange(proxy);
+    }
+    setTimeout(() => this.refreshCompactModelState(this.data.form), 0);
+  },
+
+  onCompactProviderChange(event) {
+    const section = String(this.data.compactActiveSection || "");
+    if (!section || section === "tencentFaceFusion") return;
+    this.onProviderPickerChange({
+      currentTarget: { dataset: { section } },
+      detail: { value: Number(event && event.detail && event.detail.value) || 0 }
+    });
+    setTimeout(() => this.refreshCompactModelState(this.data.form), 0);
+  },
+
+  onCompactBackupProviderChange(event) {
+    const section = String(this.data.compactBackupSection || "");
+    if (!section) return;
+    this.onProviderPickerChange({
+      currentTarget: { dataset: { section } },
+      detail: { value: Number(event && event.detail && event.detail.value) || 0 }
+    });
+    setTimeout(() => this.refreshCompactModelState(this.data.form), 0);
+  },
+
+  toggleCompactAdvanced() {
+    this.setData({ compactAdvancedExpanded: !Boolean(this.data.compactAdvancedExpanded) });
+  },
+
+  openCompactProviderDirectory() {
+    this.setData({
+      compactModelMode: false,
+      activeConfigSection: "providers",
+      activeConfigTitle: CONFIG_SECTION_TITLES.providers
+    }, () => {
+      if (typeof wx.pageScrollTo === "function") {
+        wx.pageScrollTo({ selector: "#config-editor-providers", duration: 220 });
+      }
+    });
+  },
+
+  openCompactProviderEditor(event) {
+    const dataset = event && event.currentTarget && event.currentTarget.dataset
+      ? event.currentTarget.dataset
+      : {};
+    const providerKey = String(
+      dataset.providerKey
+      || (this.data.compactActiveModel && this.data.compactActiveModel.providerKey)
+      || ""
+    ).trim();
+    const tab = String(dataset.tab || this.data.compactActiveSection || "").trim();
+    this.setData({
+      compactModelMode: false,
+      activeConfigSection: "providers",
+      activeConfigTitle: CONFIG_SECTION_TITLES.providers
+    }, () => {
+      if (providerKey) {
+        this.openProviderDraft(providerKey, {
+          tab: ADMIN_PROVIDER_MAIN_SLOTS.includes(tab) ? tab : "face"
+        });
+      } else {
+        this.startAddProvider();
+      }
+      if (typeof wx.pageScrollTo === "function") {
+        wx.pageScrollTo({ selector: "#config-editor-providers", duration: 220 });
+      }
+    });
+  },
+
+  openCompactBackupEditor(event) {
+    const dataset = event && event.currentTarget && event.currentTarget.dataset
+      ? event.currentTarget.dataset
+      : {};
+    const providerKey = String(
+      dataset.providerKey
+      || (this.data.compactActiveBackup && this.data.compactActiveBackup.providerKey)
+      || ""
+    ).trim();
+    const tab = String(dataset.tab || this.data.compactActiveSection || "").trim();
+    this.setData({
+      compactModelMode: false,
+      activeConfigSection: "providers",
+      activeConfigTitle: CONFIG_SECTION_TITLES.providers
+    }, () => {
+      if (providerKey) {
+        this.openProviderDraft(providerKey, {
+          tab: tab === "analysis"
+            ? "analysis"
+            : tab === "image"
+              ? "image"
+              : tab === "video"
+                ? "video"
+                : "face"
+        });
+      } else {
+        this.startAddProvider();
+      }
+      if (typeof wx.pageScrollTo === "function") {
+        wx.pageScrollTo({ selector: "#config-editor-providers", duration: 220 });
+      }
+    });
+  },
+
+  startCompactProvider() {
+    this.setData({
+      compactModelMode: false,
+      activeConfigSection: "providers",
+      activeConfigTitle: CONFIG_SECTION_TITLES.providers
+    }, () => {
+      this.startAddProvider();
+      if (typeof wx.pageScrollTo === "function") {
+        wx.pageScrollTo({ selector: "#config-editor-providers", duration: 220 });
+      }
+    });
+  },
+
+  openCompactFullEditor() {
+    this.setData({ compactModelMode: false }, () => {
+      if (typeof wx.pageScrollTo === "function") {
+        wx.pageScrollTo({ selector: configEditorSelector(this.data.compactActiveSection), duration: 220 });
+      }
+    });
+  },
+
+  backToCompactModel() {
+    this.setData(Object.assign({
+      compactModelMode: true,
+      activeConfigSection: "",
+      activeConfigTitle: ""
+    }, this.buildCompactModelPatch(this.data.form, this.data.compactActiveSection)));
   },
 
   onUnload() {
@@ -6409,7 +6780,11 @@ Page({
         {}
       ));
       Object.assign(basePatch, this.buildAdminDerivedPatch(basePatch, moduleStates));
-      this.setData(basePatch);
+      this.setData(basePatch, () => {
+        if (this.data.compactModelMode) {
+          this.refreshCompactModelState(this.data.form, this.data.compactActiveSection);
+        }
+      });
       void this.loadProviderSecretRows(providerUi.providerRegistry);
       diagnosticLog.info("admin", "config-loaded", "管理员配置读取完成", {
         runtimeConfigVersion: result.version || 0
@@ -7546,6 +7921,10 @@ Page({
       patch,
       this.buildAdminDerivedPatch({ form: nextForm }, this.data.moduleStates)
     );
+    Object.assign(
+      patch,
+      this.buildCompactModelPatch(nextForm, this.data.compactActiveSection)
+    );
     this.setData(patch);
   },
 
@@ -8607,7 +8986,8 @@ Page({
       message: enabled
         ? "已开启备用图片模型；填写完整后，主模型失败时才会切换。"
         : "已关闭备用图片模型；已填写的备用参数会保留。"
-    }, buildAdminProviderProfilePickerState(nextForm), buildQualityPickerState(nextForm)));
+    }, buildAdminProviderProfilePickerState(nextForm), buildQualityPickerState(nextForm),
+    this.buildCompactModelPatch(nextForm)));
   },
 
   onVisionBackupEnabledChange(event) {
@@ -8666,7 +9046,7 @@ Page({
       this.data.activeProviders,
       activeBackups,
       this.data.effective || nextForm
-    )));
+    ), this.buildCompactModelPatch(nextForm)));
   },
 
   onVideoBackupEnabledChange(event) {
@@ -8720,23 +9100,39 @@ Page({
       this.data.activeProviders,
       activeBackups,
       this.data.effective || nextForm
-    )));
+    ), this.buildCompactModelPatch(nextForm)));
   },
 
   toggleFaceBackup() {
-    this.setData({ faceBackupExpanded: !this.data.faceBackupExpanded });
+    const expanded = !this.data.faceBackupExpanded;
+    const patch = this.buildCompactModelPatch(this.data.form);
+    patch.faceBackupExpanded = expanded;
+    if (this.data.compactBackupSection === "faceBackup") patch.compactBackupExpanded = expanded;
+    this.setData(patch);
   },
 
   toggleAnalysisBackup() {
-    this.setData({ analysisBackupExpanded: !this.data.analysisBackupExpanded });
+    const expanded = !this.data.analysisBackupExpanded;
+    const patch = this.buildCompactModelPatch(this.data.form);
+    patch.analysisBackupExpanded = expanded;
+    if (this.data.compactBackupSection === "analysisBackup") patch.compactBackupExpanded = expanded;
+    this.setData(patch);
   },
 
   toggleImageBackup() {
-    this.setData({ imageBackupExpanded: !this.data.imageBackupExpanded });
+    const expanded = !this.data.imageBackupExpanded;
+    const patch = this.buildCompactModelPatch(this.data.form);
+    patch.imageBackupExpanded = expanded;
+    if (this.data.compactBackupSection === "imageBackup") patch.compactBackupExpanded = expanded;
+    this.setData(patch);
   },
 
   toggleVideoBackup() {
-    this.setData({ videoBackupExpanded: !this.data.videoBackupExpanded });
+    const expanded = !this.data.videoBackupExpanded;
+    const patch = this.buildCompactModelPatch(this.data.form);
+    patch.videoBackupExpanded = expanded;
+    if (this.data.compactBackupSection === "videoBackup") patch.compactBackupExpanded = expanded;
+    this.setData(patch);
   },
 
   validateImageWizardStep(step = this.data.imageWizardStep) {
@@ -9595,7 +9991,11 @@ Page({
         {}
       ));
       Object.assign(patch, this.buildAdminDerivedPatch(patch, this.data.moduleStates));
-      this.setData(patch);
+      this.setData(patch, () => {
+        if (this.data.compactModelMode) {
+          this.refreshCompactModelState(this.data.form, this.data.compactActiveSection);
+        }
+      });
       diagnosticLog.info("admin", "config-saved", "管理员配置保存完成", {
         version: result.version || 0
       });

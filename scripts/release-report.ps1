@@ -436,7 +436,7 @@ function Get-ReleaseReportIdentity {
 function New-ReleaseReportEvidence {
     param(
         [Parameter(Mandatory = $true)][string]$Name,
-        [ValidateSet("pass", "pending", "fail")][string]$Status = "pending",
+        [ValidateSet("pass", "pending", "fail", "skipped")][string]$Status = "pending",
         [string]$Message = "",
         [hashtable]$Values = @{},
         [string[]]$Issues = @()
@@ -716,6 +716,37 @@ function Get-ReleaseReportCloudEvidence {
     return New-ReleaseReportEvidence -Name "CloudBase" -Status $status -Message $message -Values @{ receipt = [pscustomobject]@{ schemaVersion = [int](Get-ReleaseReportProperty $receipt "schemaVersion" 0); status = $receiptStatus; operationId = [string](Get-ReleaseReportProperty $receipt "operationId" ""); version = [string](Get-ReleaseReportProperty $receipt "version" ""); releaseCommit = [string](Get-ReleaseReportProperty $receipt "releaseCommit" ""); mainCommit = [string](Get-ReleaseReportProperty $receipt "mainCommit" ""); treeSha = [string](Get-ReleaseReportProperty $receipt "treeSha" ""); sourceSha256 = [string](Get-ReleaseReportProperty $receipt "sourceSha256" ""); packageSha256 = [string](Get-ReleaseReportProperty $receipt "packageSha256" "") }; onlineBuildVersion = $onlineVersion; onlineBuildMarker = $marker } -Issues $issues.ToArray()
 }
 
+function Get-ReleaseReportPreviewEvidence {
+    param([Parameter(Mandatory = $true)][object]$Operation, [Parameter(Mandatory = $true)][object]$Identity)
+    $ctx = $Operation.context
+    $record = $Operation.record
+    $preview = Get-ReleaseReportProperty $ctx "previewImport" $null
+    if ($null -eq $preview) { $preview = Get-ReleaseReportProperty $record "previewImport" $null }
+    if ($null -eq $preview) {
+        return New-ReleaseReportEvidence -Name "开发者工具" -Status "skipped" -Message "本次未请求导入开发者工具" -Values @{ requested = $false; importStatus = ""; compileStatus = ""; compileCompletedAt = ""; attempts = 0 } -Issues @()
+    }
+    $issues = [System.Collections.Generic.List[string]]::new()
+    $importStatus = [string](Get-ReleaseReportProperty $preview "status" "")
+    $openStatus = [string](Get-ReleaseReportProperty $preview "openStatus" "")
+    $compileStatus = [string](Get-ReleaseReportProperty $preview "compileStatus" "")
+    if ($importStatus -ne "imported") { [void]$issues.Add("开发者工具导入状态=$importStatus") }
+    if ($openStatus -ne "opened") { [void]$issues.Add("开发者工具打开状态=$openStatus") }
+    if ($compileStatus -ne "succeeded") { [void]$issues.Add("开发者工具编译状态=$compileStatus（必须为 succeeded）") }
+    $status = if ($issues.Count -eq 0) { "pass" } else { "fail" }
+    $message = if ($status -eq "pass") { "已导入、打开并确认编译完成" } else { "开发者工具导入或编译未完成" }
+    return New-ReleaseReportEvidence -Name "开发者工具" -Status $status -Message $message -Values @{
+        requested = $true
+        importStatus = $importStatus
+        openStatus = $openStatus
+        compileStatus = $compileStatus
+        compileTriggeredAt = [string](Get-ReleaseReportProperty $preview "compileTriggeredAt" "")
+        compileCompletedAt = [string](Get-ReleaseReportProperty $preview "compileCompletedAt" "")
+        compileElapsedMs = [int](Get-ReleaseReportProperty $preview "compileElapsedMs" 0)
+        attempts = [int](Get-ReleaseReportProperty $preview "compileAttempts" 0)
+        projectPath = [string](Get-ReleaseReportProperty $preview "projectPath" "")
+    } -Issues $issues.ToArray()
+}
+
 function Get-ReleaseReportOperationStatus {
     param([Parameter(Mandatory = $true)][object]$Operation)
     foreach ($source in @($Operation.ticket, $Operation.context, $Operation.record)) {
@@ -847,8 +878,9 @@ function Get-ReleaseReportData {
     $artifactEvidence = if ($SkipZip) { New-ReleaseReportEvidence -Name "ZIP" -Status "pending" -Message "跳过 ZIP 读取" } else { Get-ReleaseReportArtifactEvidence -Policy $Policy -Identity $identity }
     $qrEvidence = Get-ReleaseReportQrEvidence -Policy $Policy -Operation $operation -Identity $identity
     $cloudEvidence = Get-ReleaseReportCloudEvidence -Operation $operation -Identity $identity
-    $evidence = [ordered]@{ main = $mainEvidence; artifact = $artifactEvidence; qr = $qrEvidence; cloudbase = $cloudEvidence; reservation = $reservationEvidence }
-    $all = @($contextEvidence, $recordEvidence, $queueEvidence, $reservationEvidence, $mainEvidence, $artifactEvidence, $qrEvidence, $cloudEvidence)
+    $previewEvidence = Get-ReleaseReportPreviewEvidence -Operation $operation -Identity $identity
+    $evidence = [ordered]@{ main = $mainEvidence; artifact = $artifactEvidence; previewImport = $previewEvidence; qr = $qrEvidence; cloudbase = $cloudEvidence; reservation = $reservationEvidence }
+    $all = @($contextEvidence, $recordEvidence, $queueEvidence, $reservationEvidence, $mainEvidence, $artifactEvidence, $previewEvidence, $qrEvidence, $cloudEvidence)
     $failCount = @($all | Where-Object { $_.status -eq "fail" }).Count
     $pendingCount = @($all | Where-Object { $_.status -eq "pending" }).Count
     $operationStatus = Get-ReleaseReportOperationStatus -Operation $operation
@@ -900,7 +932,7 @@ function Get-ReleaseReportData {
 
 function ConvertTo-ReleaseReportMarkdown {
     param([Parameter(Mandatory = $true)][object]$Report)
-    $icon = @{ succeeded = "✅"; pass = "✅"; pending = "⏳"; recoverable = "⚠️"; failed = "❌"; fail = "❌" }
+    $icon = @{ succeeded = "✅"; pass = "✅"; skipped = "⏭️"; pending = "⏳"; recoverable = "⚠️"; failed = "❌"; fail = "❌" }
     $statusText = [string](Get-ReleaseReportProperty $Report "status" "pending")
     $rows = New-Object System.Collections.Generic.List[string]
     [void]$rows.Add("# 微信小程序发布验收报告")
@@ -914,7 +946,7 @@ function ConvertTo-ReleaseReportMarkdown {
     [void]$rows.Add("")
     [void]$rows.Add("| 检查项 | 状态 | 说明 |")
     [void]$rows.Add("|---|---|---|")
-    foreach ($entry in @(@("队列", $Report.queue), @("release context", $Report.context), @("release record", $Report.record), @("reservation", $Report.evidence.reservation), @("GitHub main", $Report.evidence.main), @("ZIP", $Report.evidence.artifact), @("二维码", $Report.evidence.qr), @("CloudBase", $Report.evidence.cloudbase))) {
+    foreach ($entry in @(@("队列", $Report.queue), @("release context", $Report.context), @("release record", $Report.record), @("reservation", $Report.evidence.reservation), @("GitHub main", $Report.evidence.main), @("ZIP", $Report.evidence.artifact), @("开发者工具", $Report.evidence.previewImport), @("二维码", $Report.evidence.qr), @("CloudBase", $Report.evidence.cloudbase))) {
         $name = [string]$entry[0]; $value = $entry[1]; $s = [string](Get-ReleaseReportProperty $value "status" "pending"); $msg = [string](Get-ReleaseReportProperty $value "message" "")
         $issues = @((Get-ReleaseReportProperty $value "issues" @())) -join "；"
         if (-not [string]::IsNullOrWhiteSpace($issues)) { $msg = "$msg：$issues" }
@@ -1142,6 +1174,7 @@ function Format-ReleaseReportStatusLine {
         main = [string](Get-ReleaseReportProperty $e.main "status" "pending")
         artifact = [string](Get-ReleaseReportProperty $e.artifact "status" "pending")
         qr = [string](Get-ReleaseReportProperty $e.qr "status" "pending")
+        previewImport = [string](Get-ReleaseReportProperty $e.previewImport "status" "skipped")
         cloudbase = [string](Get-ReleaseReportProperty $e.cloudbase "status" "pending")
         reportPath = [string](Get-ReleaseReportProperty $Report.paths "report" "")
     }

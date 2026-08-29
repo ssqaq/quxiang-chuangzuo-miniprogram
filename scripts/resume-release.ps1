@@ -300,7 +300,7 @@ function Ensure-ResumePreviewImport {
     $existing = if ($Value.PSObject.Properties["previewImport"]) { $Value.previewImport } else { $null }
     if ($null -ne $existing -and [string]$existing.status -eq "imported" -and
         [string]$existing.openStatus -eq "opened" -and
-        [string]$existing.compileStatus -eq "triggered" -and
+        [string]$existing.compileStatus -eq "succeeded" -and
         [string]$existing.operationId -eq [string]$Value.operationId -and
         [string]$existing.version -eq [string]$Value.version -and
         [string]$existing.releaseCommit -eq [string]$Value.releaseCommit -and
@@ -323,6 +323,10 @@ function Ensure-ResumePreviewImport {
         openResponse = $receipt.openResponse
         compileStatus = [string]$receipt.compileStatus
         compileTriggeredAt = [string]$receipt.compileTriggeredAt
+        compileCompletedAt = [string]$receipt.compileCompletedAt
+        compileElapsedMs = [int]$receipt.compileElapsedMs
+        compileAttempts = [int]$receipt.compileAttempts
+        compileVerification = $receipt.compileVerification
         compileResponse = $receipt.compileResponse
         steps = @($receipt.steps)
         response = $receipt.response

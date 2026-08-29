@@ -159,6 +159,9 @@ $releaseToolPaths = @(
     "scripts/resume-release.ps1",
     "scripts/resume-release-smoke.js",
     "scripts/release-status.ps1",
+    "scripts/release-status.html",
+    "scripts/check-cloudbase-env.ps1",
+    "scripts/check-utf8.js",
     "scripts/release-report.ps1",
     "scripts/release-report-smoke.js",
     "scripts/release-maintenance.ps1",
@@ -261,12 +264,57 @@ function Invoke-GateDependencyPreflight {
         Write-GateHost "preflight" "云函数依赖完整检查通过。"
     }
     else {
-        $null = Get-Content -LiteralPath (Join-Path $apiRoot "package.json") -Raw -Encoding UTF8 | ConvertFrom-Json
-        $null = Get-Content -LiteralPath (Join-Path $apiRoot "package-lock.json") -Raw -Encoding UTF8 | ConvertFrom-Json
+        # npm lockfile 可能合法地使用空字符串作为 packages 的根键；
+        # PowerShell ConvertFrom-Json 在遇到该键时会拒绝解析，改用 Node
+        # 原生 JSON.parse 做纯语法校验，避免把有效 lockfile 误判为坏包。
+        foreach ($jsonPath in @(
+                (Join-Path $apiRoot "package.json"),
+                (Join-Path $apiRoot "package-lock.json")
+            )) {
+            $parseOutput = & node -e "const fs=require('fs'); JSON.parse(fs.readFileSync(process.argv[1], 'utf8'));" -- $jsonPath 2>&1
+            if ($LASTEXITCODE -ne 0) {
+                throw "云函数 JSON 预检失败：$jsonPath`n$($parseOutput -join "`n")"
+            }
+        }
         $syntax = & node --check (Join-Path $apiRoot "index.js") 2>&1
         if ($LASTEXITCODE -ne 0) { throw "云函数 index.js 语法预检失败：$($syntax -join "`n")" }
         Write-GateHost "preflight" "未发现 node_modules，已完成 JSON/语法预检；CI 或部署阶段再做完整依赖检查。"
     }
+}
+
+function Invoke-GateUtf8Preflight {
+    param([Parameter(Mandatory = $true)][string]$SourceRoot)
+    $checker = Join-Path $SourceRoot "scripts/check-utf8.js"
+    if (-not (Test-Path -LiteralPath $checker -PathType Leaf)) {
+        throw "来源缺少 UTF-8 检查脚本：$checker"
+    }
+    $output = & node $checker $SourceRoot 2>&1
+    $text = ($output | ForEach-Object { [string]$_ }) -join "`n"
+    if ($LASTEXITCODE -ne 0) { throw "UTF-8/乱码预检失败：$text" }
+    try { $result = $text | ConvertFrom-Json } catch { throw "UTF-8 检查没有返回 JSON：$text" }
+    if ([string]$result.status -ne "succeeded") { throw "UTF-8 检查未通过：$text" }
+    Write-GateHost "preflight" "UTF-8 和乱码检查通过，共扫描 $([int]$result.scanned) 个文本文件。"
+    return $result
+}
+
+function Invoke-GateCloudBasePreflight {
+    param([Parameter(Mandatory = $true)][string]$ProjectRoot)
+    $checker = Join-Path $ProjectRoot "scripts/check-cloudbase-env.ps1"
+    if (-not (Test-Path -LiteralPath $checker -PathType Leaf)) {
+        Write-GateHost "preflight" "未找到 CloudBase 环境检查脚本，状态记为 missing。"
+        return [pscustomobject]@{ status = "missing"; configured = $false; source = ""; environmentId = ""; appId = ""; projectPath = $ProjectRoot; message = "缺少检查脚本" }
+    }
+    $output = & pwsh -NoProfile -ExecutionPolicy Bypass -File $checker -ProjectPath $ProjectRoot 2>&1
+    $text = ($output | ForEach-Object { [string]$_ }) -join "`n"
+    if ($LASTEXITCODE -ne 0) { throw "CloudBase 环境检查失败：$text" }
+    try { $result = $text | ConvertFrom-Json } catch { throw "CloudBase 环境检查没有返回 JSON：$text" }
+    if ([string]$result.status -eq "configured") {
+        Write-GateHost "preflight" "CloudBase 环境已配置：$([string]$result.environmentId)。"
+    }
+    else {
+        Write-GateHost "preflight" "CloudBase 环境未配置；本次仍可打包，部署 CloudBase 时会阻止继续。"
+    }
+    return $result
 }
 
 try {
@@ -415,6 +463,9 @@ try {
         [IO.File]::WriteAllText($versionFile, $newText, [Text.UTF8Encoding]::new($false))
     }
 
+    $utf8Preflight = Invoke-GateUtf8Preflight -SourceRoot $releaseWorktree
+    $cloudbasePreflight = Invoke-GateCloudBasePreflight -ProjectRoot $releaseWorktree
+
     $allowed = New-Object System.Collections.Generic.List[string]
     foreach ($path in $includePaths) { Add-GateUniquePath -List $allowed -Path $path }
     foreach ($path in $releaseToolPaths) { Add-GateUniquePath -List $allowed -Path $path }
@@ -509,6 +560,8 @@ try {
     $contextHash.releaseWorktree = [IO.Path]::GetFullPath($releaseWorktree)
     $contextHash.packageSha256 = $packageSha
     $contextHash.packageSizeBytes = [int64]$artifact.Length
+    $contextHash.utf8Preflight = $utf8Preflight
+    $contextHash.cloudbaseEnvironment = $cloudbasePreflight
     $contextHash.status = "prepared"
     Write-ReleaseGateJsonAtomic -Path $contextPath -Value $contextHash
     Write-GateHost "package" "不可变发布包已生成：$artifactPath（$($artifact.Length) bytes，SHA256=$packageSha）。"
@@ -773,6 +826,8 @@ try {
         sourceSha256 = $preSha; packageSha256 = $packageSha; packagePath = $artifactPath; contextPath = $contextPath
         changedFiles = @($allowed); generatedAt = [DateTimeOffset]::UtcNow.ToString("o"); releaseBranch = $pr.branch; pullRequest = $pr.pr
     }
+    if ($contextHash.Contains("utf8Preflight")) { $record.utf8Preflight = $contextHash.utf8Preflight }
+    if ($contextHash.Contains("cloudbaseEnvironment")) { $record.cloudbaseEnvironment = $contextHash.cloudbaseEnvironment }
     if ($contextHash.Contains("mainCommit")) { $record.mainCommit = [string]$contextHash.mainCommit }
     if ($contextHash.Contains("mergedAt")) { $record.mergedAt = [string]$contextHash.mergedAt }
     $record.phase = [string]$contextHash.phase

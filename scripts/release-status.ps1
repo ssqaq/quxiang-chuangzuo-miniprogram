@@ -70,6 +70,7 @@ function New-StatusFallbackReport {
             main = [pscustomobject]@{ status = "pending"; message = "无法生成报告"; issues = @($Message) }
             artifact = [pscustomobject]@{ status = "pending"; message = "无法生成报告"; issues = @($Message) }
             qr = [pscustomobject]@{ status = "pending"; message = "无法生成报告"; issues = @($Message) }
+            previewImport = [pscustomobject]@{ status = "pending"; message = "无法生成报告"; issues = @($Message) }
             cloudbase = [pscustomobject]@{ status = "pending"; message = "无法生成报告"; issues = @($Message) }
             reservation = [pscustomobject]@{ status = "pending"; message = "无法生成报告"; issues = @($Message) }
         }
@@ -100,6 +101,7 @@ function Get-StatusIcon {
         "pass" { return "✅" }
         "succeeded" { return "✅" }
         "pending" { return "⏳" }
+        "skipped" { return "⏭️" }
         "recoverable" { return "⚠️" }
         "fail" { return "❌" }
         "failed" { return "❌" }
@@ -112,8 +114,8 @@ function Format-StatusHuman {
     $lines = New-Object System.Collections.Generic.List[string]
     [void]$lines.Add("微信小程序发布状态（只读汇总）")
     [void]$lines.Add("")
-    [void]$lines.Add("| 序号 | 操作 ID | 版本 | 当前阶段 | 总状态 | GitHub main | ZIP | 二维码 | CloudBase |")
-    [void]$lines.Add("|---:|---|---|---|---|---|---|---|---|")
+    [void]$lines.Add("| 序号 | 操作 ID | 版本 | 当前阶段 | 总状态 | GitHub main | ZIP | 开发者工具 | 二维码 | CloudBase |")
+    [void]$lines.Add("|---:|---|---|---|---|---|---|---|---|---|")
     foreach ($report in @($Reports)) {
         $queue = $report.queue; $e = $report.evidence
         $sequence = [int](Get-ReleaseReportProperty $queue "sequence" 0)
@@ -125,12 +127,13 @@ function Format-StatusHuman {
         $cell = @(
             (Get-ReleaseReportProperty $e.main "status" "pending"),
             (Get-ReleaseReportProperty $e.artifact "status" "pending"),
+            (Get-ReleaseReportProperty $e.previewImport "status" "skipped"),
             (Get-ReleaseReportProperty $e.qr "status" "pending"),
             (Get-ReleaseReportProperty $e.cloudbase "status" "pending")
         ) | ForEach-Object { "$(Get-StatusIcon ([string]$_)) $($_)" }
-        [void]$lines.Add("| $sequence | $shortOp | $([string](Get-ReleaseReportProperty $report "version" "-")) | $phase | $(Get-StatusIcon $status) $status | $($cell[0]) | $($cell[1]) | $($cell[2]) | $($cell[3]) |")
+        [void]$lines.Add("| $sequence | $shortOp | $([string](Get-ReleaseReportProperty $report "version" "-")) | $phase | $(Get-StatusIcon $status) $status | $($cell[0]) | $($cell[1]) | $($cell[2]) | $($cell[3]) | $($cell[4]) |")
     }
-    if (@($Reports).Count -eq 0) { [void]$lines.Add("| - | - | - | - | ⏳ pending | pending | pending | pending | pending |") }
+    if (@($Reports).Count -eq 0) { [void]$lines.Add("| - | - | - | - | ⏳ pending | pending | pending | pending | pending | pending |") }
     [void]$lines.Add("")
     if ($Single -and @($Reports).Count -gt 0) {
         $r = $Reports[0]

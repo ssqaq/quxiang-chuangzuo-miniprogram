@@ -841,10 +841,97 @@ function Invoke-ReleaseDevToolsCommand {
     } else { "" }
     $hasPendingTask = $response.PSObject.Properties["taskId"] -or
         ($response.PSObject.Properties["result"] -and $response.result -and $response.result.PSObject.Properties["taskId"])
-    if ($hasPendingTask -or $resultStatus -match '(?i)^(pending|queued|waiting|awaiting[_-]?confirmation)$') {
+    if (($hasPendingTask -or $resultStatus -match '(?i)^(pending|queued|waiting|awaiting[_-]?confirmation)$') -and
+        $ToolName -ne "simulator_refresh") {
         throw "$Label返回待确认任务，未完成：$text"
     }
-    return [pscustomobject]@{ tool = $ToolName; text = $text; response = $response }
+    return [pscustomobject]@{
+        tool = $ToolName
+        text = $text
+        response = $response
+        pending = [bool]$hasPendingTask -or $resultStatus -match '(?i)^(pending|queued|waiting|awaiting[_-]?confirmation)$'
+    }
+}
+
+function Invoke-ReleaseDevToolsCompileVerification {
+    <# simulator_refresh 只表示刷新请求已受理。连续读取模拟器控制台，
+       确认没有 WXML/WXSS/JS 编译错误后才把发布回执标成 succeeded。 #>
+    param(
+        [Parameter(Mandatory = $true)][string]$CliPath,
+        [Parameter(Mandatory = $true)][string]$ClientName,
+        [Parameter(Mandatory = $true)][string]$ProjectPath,
+        [ValidateRange(1, 60)][int]$WaitSeconds = 20,
+        [ValidateRange(1, 10)][int]$StablePolls = 3
+    )
+    $startedAt = [DateTimeOffset]::UtcNow
+    $deadline = [DateTime]::UtcNow.AddSeconds($WaitSeconds)
+    $polls = New-Object System.Collections.Generic.List[object]
+    $stable = 0
+    $lastConsole = ""
+    $errorPattern = '(?i)(syntaxerror|compile\s*failed|编译失败|编译错误|wxml[^\r\n]*(error|错误)|wxss[^\r\n]*(error|错误)|module not found|module_not_found|\[error\]|error:\s|exception:)'
+    $knownWarningPattern = '(?i)(云端上报失败|cloudbase.*环境|还没有配置\s*cloudbase|cloudbase environment)'
+    while ([DateTime]::UtcNow -lt $deadline) {
+        $consoleText = ""
+        try {
+            $consoleStep = Invoke-ReleaseDevToolsCommand `
+                -CliPath $CliPath `
+                -ClientName $ClientName `
+                -ToolName "get_simulator_console" `
+                -Arguments @("--project", $ProjectPath, "--command", "grep -i error") `
+                -Label "微信开发者工具读取编译控制台"
+            $result = $consoleStep.response.result
+            if ($result -is [string]) { $consoleText = [string]$result }
+            elseif ($null -ne $result) { $consoleText = ($result | ConvertTo-Json -Depth 12 -Compress) }
+        }
+        catch {
+            $polls.Add([pscustomobject]@{ at = [DateTimeOffset]::UtcNow.ToString("o"); status = "read-failed"; message = (ConvertTo-ReleaseSafeMessage $_.Exception.Message) })
+            Start-Sleep -Milliseconds 500
+            continue
+        }
+        $lastConsole = $consoleText
+        $actualErrors = @(
+            ($consoleText -split "`r?`n") |
+                Where-Object { $_ -match $errorPattern -and $_ -notmatch $knownWarningPattern }
+        )
+        $pollStatus = if ($actualErrors.Count) { "failed" } elseif ([string]::IsNullOrWhiteSpace($consoleText)) { "clean" } else { "warning" }
+        $polls.Add([pscustomobject]@{
+            at = [DateTimeOffset]::UtcNow.ToString("o")
+            status = $pollStatus
+            lines = @($actualErrors | Select-Object -First 8)
+        })
+        if ($actualErrors.Count) {
+            return [pscustomobject]@{
+                status = "failed"
+                completedAt = [DateTimeOffset]::UtcNow.ToString("o")
+                elapsedMs = [int](([DateTimeOffset]::UtcNow - $startedAt).TotalMilliseconds)
+                attempts = $polls.Count
+                console = @($actualErrors | Select-Object -First 8)
+                polls = @($polls.ToArray())
+            }
+        }
+        # 控制台可能持续保留 CloudBase 未配置等提醒；只要没有实际编译
+        # 错误，这些提醒不应阻塞“编译已完成”的确认。
+        if ($actualErrors.Count -eq 0) { $stable++ } else { $stable = 0 }
+        if ($stable -ge $StablePolls) {
+            return [pscustomobject]@{
+                status = "succeeded"
+                completedAt = [DateTimeOffset]::UtcNow.ToString("o")
+                elapsedMs = [int](([DateTimeOffset]::UtcNow - $startedAt).TotalMilliseconds)
+                attempts = $polls.Count
+                console = @()
+                polls = @($polls.ToArray())
+            }
+        }
+        Start-Sleep -Milliseconds 500
+    }
+    return [pscustomobject]@{
+        status = "timeout"
+        completedAt = [DateTimeOffset]::UtcNow.ToString("o")
+        elapsedMs = [int](([DateTimeOffset]::UtcNow - $startedAt).TotalMilliseconds)
+        attempts = $polls.Count
+        console = if ([string]::IsNullOrWhiteSpace($lastConsole)) { @() } else { @($lastConsole -split "`r?`n" | Select-Object -First 8) }
+        polls = @($polls.ToArray())
+    }
 }
 
 function Invoke-ReleasePreviewImport {
@@ -864,6 +951,12 @@ function Invoke-ReleasePreviewImport {
     $importStep = Invoke-ReleaseDevToolsCommand -CliPath $CliPath -ClientName $ClientName -ToolName "project_import" -Arguments @("--project", $resolvedProject) -Label "微信开发者工具导入预览项目"
     $openStep = Invoke-ReleaseDevToolsCommand -CliPath $CliPath -ClientName $ClientName -ToolName "open_project_window" -Arguments @("--project", $resolvedProject, "--window-mode", "liteMode") -Label "微信开发者工具打开项目窗口"
     $refreshStep = Invoke-ReleaseDevToolsCommand -CliPath $CliPath -ClientName $ClientName -ToolName "simulator_refresh" -Arguments @("--project", $resolvedProject) -Label "微信开发者工具重新编译模拟器"
+    $compileVerification = Invoke-ReleaseDevToolsCompileVerification -CliPath $CliPath -ClientName $ClientName -ProjectPath $resolvedProject
+    if ($compileVerification.status -ne "succeeded") {
+        $detail = @($compileVerification.console) -join "；"
+        if ([string]::IsNullOrWhiteSpace($detail)) { $detail = "开发者工具在限定时间内没有返回稳定的无错误结果。" }
+        throw "微信开发者工具重新编译未通过（$($compileVerification.status)）：$detail"
+    }
     return [pscustomobject]@{
         status = "imported"
         projectPath = $resolvedProject
@@ -871,8 +964,12 @@ function Invoke-ReleasePreviewImport {
         importedAt = [DateTimeOffset]::UtcNow.ToString("o")
         openStatus = "opened"
         openResponse = $openStep.response
-        compileStatus = "triggered"
+        compileStatus = "succeeded"
         compileTriggeredAt = [DateTimeOffset]::UtcNow.ToString("o")
+        compileCompletedAt = $compileVerification.completedAt
+        compileElapsedMs = $compileVerification.elapsedMs
+        compileAttempts = $compileVerification.attempts
+        compileVerification = $compileVerification
         compileResponse = $refreshStep.response
         steps = @("project_import", "open_project_window", "simulator_refresh")
     }
@@ -1427,7 +1524,7 @@ function Write-ReleaseAcceptanceReport {
             $compileStatus = Get-ReleaseReceiptField $importReceipt "compileStatus"
             $importPass = (Get-ReleaseReceiptField $importReceipt "status") -eq "imported" -and
                 (Get-ReleaseReceiptField $importReceipt "openStatus") -eq "opened" -and
-                $compileStatus -eq "triggered" -and
+                $compileStatus -eq "succeeded" -and
                 (Get-ReleaseReceiptField $importReceipt "operationId") -eq $operationId -and
                 (Get-ReleaseReceiptField $importReceipt "version") -eq [string]$Context.version -and
                 [string]::Equals((Get-ReleaseReceiptField $importReceipt "releaseCommit"), [string]$Context.releaseCommit, [StringComparison]::OrdinalIgnoreCase) -and
@@ -1435,7 +1532,7 @@ function Write-ReleaseAcceptanceReport {
                 [string]::Equals((Get-ReleaseReceiptField $importReceipt "sourceSha256"), [string]$Context.sourceSha256, [StringComparison]::OrdinalIgnoreCase) -and
                 -not [string]::IsNullOrWhiteSpace($importPath) -and
                 $importPath.StartsWith($worktreeRoot, [StringComparison]::OrdinalIgnoreCase)
-            $importReason = if ($importPass) { "微信开发者工具已导入、打开并触发重新编译" } else { "预览导入/打开/编译回执与 context 不一致" }
+            $importReason = if ($importPass) { "微信开发者工具已导入、打开并确认编译完成" } else { "预览导入/打开/编译回执与 context 不一致" }
         }
     }
     $checks.previewImport = [ordered]@{ status = if (-not $importRequested) { "skipped" } elseif ($importPass) { "pass" } else { "fail" }; reason = $importReason; receipt = $importReceipt }

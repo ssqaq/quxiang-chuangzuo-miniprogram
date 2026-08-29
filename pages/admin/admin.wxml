@@ -30,6 +30,158 @@
   <view wx:if="{{!loading && isAdmin}}" class="admin-content">
     <view wx:if="{{message}}" class="admin-message">{{message}}</view>
 
+    <view wx:if="{{compactModelMode}}" class="compact-model-shell">
+      <view class="compact-model-header">
+        <view class="compact-model-back" bindtap="backToWorkbench" hover-class="control-tap" role="button" aria-label="返回工作台">‹</view>
+        <view class="compact-model-heading">
+          <view class="compact-model-title">模型配置</view>
+          <view class="compact-model-subtitle">主模型与备用模型统一管理</view>
+        </view>
+        <view class="compact-provider-link" bindtap="openCompactProviderDirectory" hover-class="control-tap" role="button" aria-label="打开服务商目录">服务商目录 <text>›</text></view>
+      </view>
+
+      <view class="compact-overview-card">
+        <view class="compact-card-head">
+          <view>
+            <view class="compact-card-title">配置总览</view>
+            <view class="compact-card-caption">四项能力随时可切换</view>
+          </view>
+          <view class="compact-status-pill compact-status-{{compactOverview.tone}}">{{compactOverview.status}}</view>
+        </view>
+        <view class="compact-overview-grid">
+          <view class="compact-overview-item">
+            <view class="compact-overview-label">已配置能力</view>
+            <view class="compact-overview-value">{{compactOverview.readyCount}} / 4</view>
+          </view>
+          <view class="compact-overview-item">
+            <view class="compact-overview-label">备用模型</view>
+            <view class="compact-overview-value">{{compactOverview.backupCount}} 个已启用</view>
+          </view>
+          <view class="compact-overview-item compact-overview-item-wide">
+            <view class="compact-overview-label">CloudBase 环境</view>
+            <view class="compact-overview-value compact-cloudbase-{{compactOverview.cloudTone}}">{{compactOverview.cloudStatus}}</view>
+          </view>
+        </view>
+      </view>
+
+      <scroll-view class="compact-model-tabs" scroll-x="true" enhanced="true" show-scrollbar="false">
+        <view class="compact-model-tabs-inner">
+          <view
+            wx:for="{{compactModelTabs}}"
+            wx:key="value"
+            class="compact-model-tab {{compactActiveSection === item.value ? 'is-active' : ''}}"
+            data-section="{{item.value}}"
+            bindtap="switchCompactModelTab"
+            hover-class="control-tap"
+            role="tab"
+            aria-selected="{{compactActiveSection === item.value}}"
+          >{{item.label}}</view>
+        </view>
+      </scroll-view>
+
+        <view class="compact-primary-card">
+        <view class="compact-section-head">
+          <view>
+            <view class="compact-section-title">{{compactActiveModel.title}}</view>
+            <view class="compact-section-caption">{{compactActiveModel.description}}</view>
+          </view>
+          <view class="compact-primary-badge">主模型</view>
+        </view>
+        <view wx:if="{{compactActiveSection !== 'tencentFaceFusion'}}" class="compact-summary-grid">
+          <view class="compact-summary-cell">
+            <view class="compact-summary-label">服务商</view>
+            <view class="compact-summary-value compact-ellipsis">{{compactActiveModel.provider || '未配置'}}</view>
+          </view>
+          <view class="compact-summary-cell">
+            <view class="compact-summary-label">模型</view>
+            <view class="compact-summary-value compact-ellipsis">{{compactActiveModel.model || '未配置'}}</view>
+          </view>
+          <view class="compact-summary-cell compact-summary-cell-wide">
+            <view class="compact-summary-label">Base URL</view>
+            <view class="compact-summary-value compact-ellipsis">{{compactActiveModel.baseUrl || '未配置'}}</view>
+          </view>
+          <view class="compact-summary-cell">
+            <view class="compact-summary-label">公共 Key</view>
+            <view class="compact-summary-value {{compactActiveModel.keyReady ? 'is-ready' : 'is-off'}}">{{compactActiveModel.keyText}}</view>
+          </view>
+          <view class="compact-summary-cell">
+            <view class="compact-summary-label">超时</view>
+            <view class="compact-summary-value">{{compactActiveModel.timeoutText}}</view>
+          </view>
+        </view>
+        <view wx:else class="compact-special-note">
+          腾讯融合使用独立参数。服务商资料统一在“服务商目录”维护，避免重复修改。
+        </view>
+        <view class="compact-card-footer">
+          <view class="compact-card-footer-note">服务商资料、Key 和能力参数统一由服务商目录管理</view>
+          <view class="compact-card-footer-link" data-provider-key="{{compactActiveModel.providerKey}}" data-tab="{{compactActiveSection}}" bindtap="openCompactProviderEditor" hover-class="control-tap" role="button">管理当前服务商 <text>›</text></view>
+        </view>
+      </view>
+
+      <view wx:if="{{compactBackupSection}}" class="compact-failover-card">
+        <view class="compact-section-head compact-failover-head">
+          <view>
+            <view class="compact-section-title">故障切换</view>
+            <view class="compact-section-caption">主模型失败时自动尝试备用模型</view>
+          </view>
+          <view class="compact-section-caption">{{compactBackupEnabledText}}</view>
+        </view>
+        <view class="compact-backup-row" bindtap="toggleCompactBackup" hover-class="control-tap" role="button" aria-expanded="{{compactBackupExpanded}}" aria-label="{{compactBackupExpanded ? '收起备用模型参数' : '展开备用模型参数'}}">
+          <view class="compact-backup-icon">↗</view>
+          <view class="compact-backup-copy">
+            <view class="compact-backup-title">{{compactActiveBackup.title}}</view>
+            <view class="compact-backup-caption">{{compactActiveBackup.caption}}</view>
+          </view>
+          <view class="compact-backup-action">{{compactBackupExpanded ? '收起' : '展开'}} <text class="compact-chevron {{compactBackupExpanded ? 'is-open' : ''}}">⌄</text></view>
+        </view>
+        <view wx:if="{{compactBackupExpanded}}" class="compact-backup-panel">
+          <view class="compact-inline-switch-row">
+            <view>
+              <view class="compact-field-label">启用备用模型</view>
+              <view class="compact-field-hint">关闭后会保留参数，下次可直接恢复</view>
+            </view>
+            <switch checked="{{compactActiveBackup.enabled}}" color="#1fb984" data-section="{{compactBackupSection}}" bindchange="toggleCompactBackupEnabled" />
+          </view>
+          <view wx:if="{{compactActiveBackup.enabled}}" class="compact-backup-summary">
+            <view class="compact-backup-summary-row"><text>当前服务商</text><text class="compact-backup-summary-value">{{compactActiveBackup.provider || '未配置'}}</text></view>
+            <view class="compact-backup-summary-row"><text>备用模型</text><text class="compact-backup-summary-value">{{compactActiveBackup.model || '未配置'}}</text></view>
+            <view class="compact-backup-summary-row"><text>Key 状态</text><text class="compact-backup-summary-value {{compactActiveBackup.keyReady ? 'is-ready' : 'is-off'}}">{{compactActiveBackup.keyText}}</text></view>
+            <view class="compact-backup-summary-row"><text>超时</text><text class="compact-backup-summary-value">{{compactActiveBackup.timeoutText}}</text></view>
+          </view>
+          <view class="compact-backup-actions">
+            <view class="compact-secondary-action" data-provider-key="{{compactActiveBackup.providerKey}}" data-tab="{{compactActiveSection}}" bindtap="openCompactBackupEditor" hover-class="control-tap" role="button">去服务商目录配置备用模型 <text>›</text></view>
+            <view class="compact-secondary-action is-light" bindtap="startCompactProvider" hover-class="control-tap" role="button">新增服务商 <text>＋</text></view>
+          </view>
+        </view>
+      </view>
+
+      <view class="compact-advanced-card">
+        <view class="compact-advanced-head" bindtap="toggleCompactAdvanced" hover-class="control-tap" role="button" aria-expanded="{{compactAdvancedExpanded}}">
+          <view>
+            <view class="compact-section-title">服务商管理</view>
+            <view class="compact-section-caption">新增、编辑、删除和查看服务商档案</view>
+          </view>
+          <view class="compact-advanced-action">{{compactAdvancedExpanded ? '收起' : '展开'}} <text class="compact-chevron {{compactAdvancedExpanded ? 'is-open' : ''}}">⌄</text></view>
+        </view>
+        <view wx:if="{{compactAdvancedExpanded}}" class="compact-management-panel">
+          <view class="compact-management-copy">服务商档案是唯一维护入口。这里不会重复编辑 Base URL、API Key 或模型参数，避免同一服务商在两处出现不同内容。</view>
+          <view class="compact-management-actions">
+            <view class="compact-secondary-action" data-provider-key="{{compactActiveModel.providerKey}}" data-tab="{{compactActiveSection}}" bindtap="openCompactProviderEditor" hover-class="control-tap" role="button">编辑当前服务商 <text>›</text></view>
+            <view class="compact-secondary-action is-light" bindtap="startCompactProvider" hover-class="control-tap" role="button">新增服务商 <text>＋</text></view>
+          </view>
+        </view>
+      </view>
+
+      <view class="compact-save-bar">
+        <view class="compact-save-hint">服务商资料请在服务商目录保存；这里的开关会保存当前能力配置</view>
+        <button class="compact-save-button" loading="{{saving}}" disabled="{{saving}}" bindtap="saveConfig">{{saving ? '保存中…' : '保存当前配置'}}</button>
+        <view class="compact-full-link" bindtap="openCompactProviderDirectory" hover-class="control-tap" role="button">打开服务商管理 <text>›</text></view>
+      </view>
+    </view>
+
+    <view wx:if="{{!compactModelMode}}" class="legacy-admin-layout">
+      <view class="legacy-compact-back" bindtap="backToCompactModel" hover-class="control-tap" role="button">‹ 返回 C 配置</view>
+
     <view class="status-console status-{{dashboardStatus.tone}}">
       <view class="status-console-top">
         <view>
@@ -270,6 +422,7 @@
               <view>
                 <view class="provider-list-kicker">服务商目录</view>
                 <view class="provider-list-count">{{providerRows.length}} 个档案</view>
+                <view class="provider-list-help">点档案编辑，保存或删除后立即生效</view>
               </view>
               <view class="provider-add-button" bindtap="startAddProvider" hover-class="control-tap" role="button" aria-label="新增服务商">＋ 新增</view>
             </view>
@@ -287,13 +440,16 @@
                 <view class="provider-list-row-id">{{item.id}}</view>
                 <view class="provider-list-row-meta">{{item.capabilityText}} · {{item.usedText}}</view>
               </view>
-              <view class="provider-list-row-state {{item.statusClass}}">{{item.status}}</view>
+              <view class="provider-list-row-actions">
+                <view class="provider-list-row-state {{item.statusClass}}">{{item.status}}</view>
+                <view class="provider-list-row-edit">编辑</view>
+              </view>
             </view>
           </view>
           <view class="provider-manager-form">
             <view wx:if="{{providerDraft.id || providerEditingKey === ''}}">
               <view class="provider-form-title">{{providerEditingKey ? '编辑' : '新增'}}服务商{{providerDraft.name ? ' · ' + providerDraft.name : ''}}</view>
-              <view class="provider-form-subtitle">公共地址和 Key 会被四项能力继承；页签里只填专属参数。</view>
+              <view class="provider-form-subtitle">这里统一完成服务商增删改查；公共地址和 Key 会被四项能力继承，页签里只填专属参数。</view>
               <view class="provider-form-grid">
                 <view class="admin-field">
                   <text>服务商 ID</text>
@@ -3155,6 +3311,8 @@
 
 
       </view>
+
+    </view>
 
     <view
       wx:if="{{modelFailureDetailOpen}}"

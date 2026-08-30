@@ -142,6 +142,110 @@
       "reason": "按用户读取最近积分流水"
     },
     {
+      "collection": "payment_orders",
+      "name": "uniq_out_trade_no",
+      "keys": [
+        {
+          "name": "outTradeNo",
+          "direction": 1
+        }
+      ],
+      "unique": true,
+      "reason": "保证星聚商户订单号全局唯一"
+    },
+    {
+      "collection": "payment_orders",
+      "name": "uniq_openid_hash_request_id_hash",
+      "keys": [
+        {
+          "name": "openidHash",
+          "direction": 1
+        },
+        {
+          "name": "requestIdHash",
+          "direction": 1
+        }
+      ],
+      "unique": true,
+      "reason": "保证同一用户请求只能绑定一个充值订单"
+    },
+    {
+      "collection": "payment_orders",
+      "name": "idx_openid_hash_created_at",
+      "keys": [
+        {
+          "name": "openidHash",
+          "direction": 1
+        },
+        {
+          "name": "createdAt",
+          "direction": -1
+        }
+      ],
+      "unique": false,
+      "reason": "按用户读取充值订单"
+    },
+    {
+      "collection": "payment_orders",
+      "name": "idx_reconcile_required_next_at",
+      "keys": [
+        {
+          "name": "reconcileRequired",
+          "direction": 1
+        },
+        {
+          "name": "nextReconcileAt",
+          "direction": 1
+        }
+      ],
+      "unique": false,
+      "reason": "领取到期且需要对账的支付订单"
+    },
+    {
+      "collection": "payment_orders",
+      "name": "idx_status_paid_at",
+      "keys": [
+        {
+          "name": "status",
+          "direction": 1
+        },
+        {
+          "name": "paidAt",
+          "direction": 1
+        }
+      ],
+      "unique": false,
+      "reason": "查找已支付但尚未履约的订单"
+    },
+    {
+      "collection": "payment_orders",
+      "name": "idx_created_at",
+      "keys": [
+        {
+          "name": "createdAt",
+          "direction": -1
+        }
+      ],
+      "unique": false,
+      "reason": "按创建时间审计支付订单"
+    },
+    {
+      "collection": "payment_events",
+      "name": "idx_order_id_created_at",
+      "keys": [
+        {
+          "name": "orderId",
+          "direction": 1
+        },
+        {
+          "name": "createdAt",
+          "direction": -1
+        }
+      ],
+      "unique": false,
+      "reason": "按订单读取确定性支付事件"
+    },
+    {
       "collection": "generation_records",
       "name": "idx_openid_request_id",
       "keys": [

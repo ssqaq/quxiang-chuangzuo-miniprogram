@@ -33,6 +33,17 @@ SUPPORTED_CONTEXT_SCHEMA_VERSIONS = {1, 2}
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$", re.IGNORECASE)
 COMMIT_PATTERN = re.compile(r"^[0-9a-f]{7,64}$", re.IGNORECASE)
 ARTIFACT_PATTERN = re.compile(r"^wechat-miniapp-release-v(?P<version>[^/\\]+)-(?P<commit>[^/\\]+)\.zip$")
+PAYMENT_MANIFEST_RELATIVE = Path("scripts/payment-cloudfunctions.json")
+PAYMENT_FUNCTION_TIMEOUTS = {
+    "payment-api": 15,
+    "payment-notify": 15,
+    "payment-reconcile": 120,
+}
+PAYMENT_FUNCTION_CLIENT_INVOCATION = {
+    "payment-api": True,
+    "payment-notify": False,
+    "payment-reconcile": False,
+}
 
 
 def _error(message: str) -> RuntimeError:
@@ -282,6 +293,220 @@ def _validate_lockfile_version(path: Path, version: str) -> None:
         )
 
 
+def _payment_path(source_root: Path, relative: object, label: str) -> Path:
+    if not isinstance(relative, str) or not relative.strip():
+        raise _error(f"支付云函数清单缺少路径：{label}")
+    candidate = Path(relative)
+    if candidate.is_absolute() or ".." in candidate.parts:
+        raise _error(f"支付云函数清单路径不安全：{label}={relative!r}")
+    resolved = (source_root / candidate).resolve()
+    try:
+        resolved.relative_to(source_root.resolve())
+    except ValueError as exc:
+        raise _error(f"支付云函数清单路径越出源码目录：{label}={relative!r}") from exc
+    return resolved
+
+
+def _validate_payment_manifest(source_root: Path, version: str) -> dict | None:
+    manifest_path = source_root / PAYMENT_MANIFEST_RELATIVE
+    if not manifest_path.is_file():
+        # 兼容尚未引入支付模块的历史 commit/tree；一旦清单进入源码，下面
+        # 所有函数、依赖、超时和关闭态就成为正式包硬约束。
+        return None
+    manifest = _read_json(manifest_path, "支付云函数清单")
+    if manifest.get("schemaVersion") != 1:
+        raise _error("支付云函数清单 schemaVersion 必须为 1")
+    production = manifest.get("productionDeployment")
+    if not isinstance(production, dict) or (
+        production.get("enabled") is not False
+        or production.get("automaticDeployment") is not False
+        or production.get("requiresExplicitProductionAuthorization") is not True
+    ):
+        raise _error("支付生产部署必须默认关闭并要求单独生产授权")
+
+    core = manifest.get("sharedCore")
+    if not isinstance(core, dict):
+        raise _error("支付云函数清单缺少 sharedCore")
+    if core.get("name") != "aips-payment-core" or core.get("lockRequired") is not False:
+        raise _error("payment-core 名称或 lockRequired 契约无效")
+    core_root = _payment_path(source_root, core.get("root"), "sharedCore.root")
+    if core_root != (source_root / "cloudfunctions/payment-core").resolve():
+        raise _error("payment-core 必须位于 cloudfunctions/payment-core")
+    core_package_path = _payment_path(
+        source_root, core.get("packageJson"), "sharedCore.packageJson"
+    )
+    core_package = _read_json(core_package_path, "payment-core package.json")
+    if (
+        core_package.get("name") != core.get("name")
+        or core_package.get("version") != version
+        or core_package.get("main") != "index.js"
+    ):
+        raise _error("payment-core package name/version/main 与发布契约不一致")
+    core_required = core.get("requiredFiles")
+    if not isinstance(core_required, list) or not core_required:
+        raise _error("payment-core requiredFiles 不能为空")
+    for index, relative in enumerate(core_required):
+        required_path = _payment_path(
+            source_root, relative, f"sharedCore.requiredFiles[{index}]"
+        )
+        if not required_path.is_file():
+            raise _error(f"payment-core 缺少必需文件：{relative}")
+    vendor_excluded = core.get("vendorExcludedFiles")
+    if not isinstance(vendor_excluded, list) or any(
+        not isinstance(item, str) or not item or Path(item).is_absolute() or ".." in Path(item).parts
+        for item in vendor_excluded
+    ):
+        raise _error("payment-core vendorExcludedFiles 必须是安全的相对路径数组")
+    excluded_set = {Path(item).as_posix() for item in vendor_excluded}
+    vendor_excluded_prefixes = core.get("vendorExcludedPrefixes")
+    if not isinstance(vendor_excluded_prefixes, list) or any(
+        not isinstance(item, str)
+        or not item
+        or Path(item).is_absolute()
+        or ".." in Path(item).parts
+        for item in vendor_excluded_prefixes
+    ):
+        raise _error("payment-core vendorExcludedPrefixes 必须是安全的相对路径数组")
+    excluded_prefixes = tuple(
+        Path(item).as_posix().rstrip("/") + "/" for item in vendor_excluded_prefixes
+    )
+
+    def core_file_map(directory: Path) -> dict[str, Path]:
+        output: dict[str, Path] = {}
+        for path in directory.rglob("*"):
+            if not path.is_file():
+                continue
+            relative = path.relative_to(directory)
+            relative_text = relative.as_posix()
+            if (
+                relative_text in excluded_set
+                or relative_text.startswith(excluded_prefixes)
+                or "node_modules" in relative.parts
+            ):
+                continue
+            output[relative_text] = path
+        return output
+
+    canonical_core_files = {
+        Path(str(relative)).relative_to(Path(str(core.get("root")))).as_posix():
+        _payment_path(source_root, relative, "sharedCore.requiredFiles")
+        for relative in core_required
+    }
+
+    functions = manifest.get("functions")
+    if not isinstance(functions, list) or len(functions) != 3:
+        raise _error("支付云函数清单必须恰好声明三个函数")
+    by_name = {item.get("name"): item for item in functions if isinstance(item, dict)}
+    if set(by_name) != set(PAYMENT_FUNCTION_TIMEOUTS):
+        raise _error("支付云函数清单必须且只能包含 api/notify/reconcile")
+    for name, timeout in PAYMENT_FUNCTION_TIMEOUTS.items():
+        item = by_name[name]
+        expected_root = f"cloudfunctions/{name}"
+        expected_paths = {
+            "root": expected_root,
+            "entry": f"{expected_root}/index.js",
+            "packageJson": f"{expected_root}/package.json",
+            "packageLock": f"{expected_root}/package-lock.json",
+            "config": f"{expected_root}/config.json",
+            "sharedCoreRoot": "cloudfunctions/payment-core",
+            "vendoredCoreRoot": f"{expected_root}/vendor/payment-core",
+        }
+        for field, expected in expected_paths.items():
+            if item.get(field) != expected:
+                raise _error(f"{name}.{field} 必须为 {expected}")
+        if item.get("timeoutSeconds") != timeout:
+            raise _error(f"{name} timeoutSeconds 必须为 {timeout}")
+        if item.get("deploymentEnabled") is not False:
+            raise _error(f"{name} deploymentEnabled 必须默认关闭")
+        expected_client_invocation = PAYMENT_FUNCTION_CLIENT_INVOCATION[name]
+        if item.get("clientInvocationAllowed") is not expected_client_invocation:
+            raise _error(
+                f"{name}.clientInvocationAllowed 必须为 "
+                f"{str(expected_client_invocation).lower()}"
+            )
+        switches = item.get("runtimeSwitches")
+        if not isinstance(switches, dict) or not switches or any(
+            value is not False for value in switches.values()
+        ):
+            raise _error(f"{name} 的全部业务开关必须显式为 false")
+        http_route = item.get("httpRoute")
+        timer = item.get("timer")
+        for trigger_name, trigger in (("httpRoute", http_route), ("timer", timer)):
+            if not isinstance(trigger, dict) or (
+                trigger.get("enabled") is not False
+                or trigger.get("requiresExplicitProductionAuthorization") is not True
+            ):
+                raise _error(f"{name}.{trigger_name} 必须关闭并要求单独生产授权")
+        if bool(http_route.get("declared")) != (name == "payment-notify"):
+            raise _error(f"{name}.httpRoute 声明与函数职责不一致")
+        if bool(timer.get("declared")) != (name == "payment-reconcile"):
+            raise _error(f"{name}.timer 声明与函数职责不一致")
+
+        entry_path = _payment_path(source_root, item.get("entry"), f"{name}.entry")
+        package_path = _payment_path(
+            source_root, item.get("packageJson"), f"{name}.packageJson"
+        )
+        lock_path = _payment_path(
+            source_root, item.get("packageLock"), f"{name}.packageLock"
+        )
+        config_path = _payment_path(source_root, item.get("config"), f"{name}.config")
+        if not entry_path.is_file():
+            raise _error(f"支付云函数入口不存在：{item.get('entry')}")
+        runtime_files = item.get("runtimeFiles", [])
+        if not isinstance(runtime_files, list):
+            raise _error(f"{name}.runtimeFiles 必须是数组")
+        function_root = _payment_path(source_root, item.get("root"), f"{name}.root")
+        runtime_paths: set[Path] = set()
+        for index, relative in enumerate(runtime_files):
+            runtime_path = _payment_path(
+                source_root, relative, f"{name}.runtimeFiles[{index}]"
+            )
+            try:
+                runtime_path.relative_to(function_root)
+            except ValueError as exc:
+                raise _error(
+                    f"{name}.runtimeFiles[{index}] 必须位于 {expected_root} 内"
+                ) from exc
+            if runtime_path in runtime_paths:
+                raise _error(f"{name}.runtimeFiles 包含重复路径：{relative}")
+            if not runtime_path.is_file():
+                raise _error(f"{name} 缺少运行时文件：{relative}")
+            runtime_paths.add(runtime_path)
+        package = _read_json(package_path, f"{name} package.json")
+        if (
+            package.get("name") != item.get("packageName")
+            or package.get("version") != version
+            or package.get("main") != "index.js"
+        ):
+            raise _error(f"{name} package name/version/main 与发布契约不一致")
+        dependencies = package.get("dependencies")
+        if not isinstance(dependencies, dict) or dependencies.get(core.get("name")) != "file:vendor/payment-core":
+            raise _error(f"{name} 必须通过 file:vendor/payment-core 打包共享核心")
+        _validate_lockfile_version(lock_path, version)
+        config = _read_json(config_path, f"{name} config.json")
+        if config.get("timeout") != timeout:
+            raise _error(f"{name} config.json timeout 必须为 {timeout}")
+        if config.get("triggers"):
+            raise _error(f"{name} config.json 不得自动启用 HTTP 路由或 Timer")
+        vendor_root = _payment_path(
+            source_root, item.get("vendoredCoreRoot"), f"{name}.vendoredCoreRoot"
+        )
+        vendor_files = core_file_map(vendor_root)
+        if set(vendor_files) != set(canonical_core_files):
+            missing = sorted(set(canonical_core_files) - set(vendor_files))
+            extra = sorted(set(vendor_files) - set(canonical_core_files))
+            raise _error(
+                f"{name} vendor/payment-core 文件集与 canonical core 不一致："
+                f"missing={missing}, extra={extra}"
+            )
+        for relative, canonical_path in canonical_core_files.items():
+            canonical_sha = hashlib.sha256(canonical_path.read_bytes()).hexdigest()
+            vendor_sha = hashlib.sha256(vendor_files[relative].read_bytes()).hexdigest()
+            if vendor_sha != canonical_sha:
+                raise _error(f"{name} vendor/payment-core 内容漂移：{relative}")
+    return manifest
+
+
 def validate_source(source_root: Path) -> dict:
     """执行与正式包完全一致的源码检查并返回版本、标记和源码指纹。"""
     source_root = source_root.expanduser().resolve()
@@ -341,10 +566,17 @@ def validate_source(source_root: Path) -> dict:
         )
     _validate_lockfile_version(media_root / "package-lock.json", version)
 
+    payment_manifest = _validate_payment_manifest(source_root, version)
+
     return {
         "version": version,
         "apiBuildVersion": api_version_match.group(1),
         "apiBuildMarker": api_marker_match.group(1),
+        "paymentFunctions": (
+            [item["name"] for item in payment_manifest["functions"]]
+            if payment_manifest
+            else []
+        ),
         "sourceSha256": compute_source_sha256(source_root),
     }
 
@@ -382,6 +614,13 @@ def version_entries(source_root: Path) -> dict[str, str]:
     if not api_match or api_match.group(1) != version:
         raise _error("发布包版本自动比对失败：api index.js 的 API_BUILD_VERSION 不一致")
     entries["cloudfunctions/api/index.js"] = api_match.group(1)
+    payment_manifest = _validate_payment_manifest(source_root, version)
+    if payment_manifest:
+        entries[str(payment_manifest["sharedCore"]["packageJson"])] = version
+        for item in payment_manifest["functions"]:
+            entries[str(item["packageJson"])] = version
+            entries[str(item["packageLock"])] = version
+            entries[f"{item['vendoredCoreRoot']}/package.json"] = version
     return entries
 
 
@@ -459,8 +698,9 @@ def _manifest_lines(
         "媒体解析网关：独立部署 cloudfunctions/watermark-gateway，并在云函数控制台配置 "
         "WATERMARK_PROVIDER、ZHUCEKA_API_BASE、ZHUCEKA_UID、ZHUCEKA_KEY、ZHUCEKA_TIMEOUT_MS",
         "媒体解析保存：点击保存后由 api 转存到 CloudBase 临时文件，小程序下载并保存到手机，成功立即删除，失败最多保留约 2 小时",
-        "数据库初始化：部署 api 后执行 scripts/init-cloud-database.ps1，自动补齐 22 个集合（含配置审计和图片主备统计）",
-        "数据库索引：执行 scripts/check-cloud-database-indexes.ps1，先检查再逐项确认创建 15 组必需索引",
+        "数据库初始化：部署 api 后执行 scripts/init-cloud-database.ps1，自动补齐 26 个集合（含支付订单、事件和充值配置）",
+        "数据库索引：执行 scripts/check-cloud-database-indexes.ps1，先检查再逐项确认创建 24 组必需索引（其中 2 组唯一）",
+        "支付云函数：正式包只包含 fail-closed 源码；payment-api/payment-notify/payment-reconcile 均未自动部署，HTTP 路由与 Timer 需单独生产授权后启用",
         "旧任务历史：generation_operations 默认保留 90 天，每天 04:20 自动清理，单次最多 50 条，只删除已完成或已退款且没有 pending 标记的后台任务文档",
         "用户资料：仅在首次签到时要求选择头像、填写昵称并选择男/女，保存后自动签到",
         "自动贴脸策略：直接调用云端 detectFaceCircle；云端失败保留手动圈选",
@@ -684,6 +924,26 @@ def _required_files(source_root: Path) -> set[str]:
             "RELEASE-MANIFEST.txt",
         }
     )
+    payment_manifest = _validate_payment_manifest(source_root, read_version(source_root))
+    if payment_manifest:
+        required.add(PAYMENT_MANIFEST_RELATIVE.as_posix())
+        required.add(str(payment_manifest["sharedCore"]["packageJson"]))
+        required.update(str(item) for item in payment_manifest["sharedCore"]["requiredFiles"])
+        for item in payment_manifest["functions"]:
+            required.update(
+                {
+                    str(item["entry"]),
+                    str(item["packageJson"]),
+                    str(item["packageLock"]),
+                    str(item["config"]),
+                }
+            )
+            required.update(str(path) for path in item.get("runtimeFiles", []))
+            vendor_root = Path(str(item["vendoredCoreRoot"]))
+            core_root = Path(str(payment_manifest["sharedCore"]["root"]))
+            for core_file in payment_manifest["sharedCore"]["requiredFiles"]:
+                relative = Path(str(core_file)).relative_to(core_root)
+                required.add((vendor_root / relative).as_posix())
     return required
 
 

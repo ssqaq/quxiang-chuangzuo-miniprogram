@@ -107,9 +107,27 @@ function invokeEnsure(fixture, cacheRoot, logPath, mode) {
   return JSON.parse(lines.at(-1));
 }
 
+function getCacheInfo(apiRoot, cacheRoot) {
+  const result = runPowerShellScript(
+    ". $env:HELPER; Get-NpmDependencyCacheInfo -ApiPath $env:API_ROOT -CacheRoot $env:CACHE_ROOT | ConvertTo-Json -Compress",
+    { HELPER: helper, API_ROOT: apiRoot, CACHE_ROOT: cacheRoot }
+  );
+  assertPowerShellOk(result, "读取 npm 缓存信息");
+  return JSON.parse(result.stdout.trim().split(/\r?\n/).filter(Boolean).at(-1));
+}
+
 function main() {
   assert.ok(fs.readFileSync(deploy, "utf8").includes("NpmCachePath"), "部署入口缺少 -NpmCachePath");
   const helperBytes = fs.readFileSync(helper);
+  const helperSource = helperBytes.toString("utf8");
+  assert.ok(
+    helperSource.includes("Ensure-ManifestCloudFunctionDependencies"),
+    "缓存 helper 缺少支付云函数清单入口"
+  );
+  assert.ok(
+    helperSource.includes("$functionName-$dependencyFingerprint"),
+    "缓存键必须按云函数目录隔离，不能把三个支付函数共用 api 前缀"
+  );
   assert.strictEqual(helperBytes[0], 0xef, "缓存 helper 必须使用 UTF-8 BOM 兼容 Windows PowerShell 5.1");
   const ps5 = runPowerShellScript(
     "$text=[IO.File]::ReadAllText($env:HELPER,[Text.Encoding]::UTF8); [scriptblock]::Create($text) | Out-Null; Write-Output PARSE_OK",
@@ -162,6 +180,33 @@ function main() {
       { HELPER: helper, API_ROOT: fixture.apiRoot, BAD_ROOT: path.join(tempRoot, "project", "inside-cache") }
     );
     assert.notStrictEqual(invalid.status, 0, "项目内缓存目录没有被拒绝");
+
+    const packagePath = path.join(fixture.apiRoot, "package.json");
+    const packageLockPath = path.join(fixture.apiRoot, "package-lock.json");
+    const packageJson = JSON.parse(fs.readFileSync(packagePath, "utf8"));
+    const packageLock = JSON.parse(fs.readFileSync(packageLockPath, "utf8"));
+    packageJson.dependencies["aips-payment-core"] = "file:vendor/payment-core";
+    packageLock.packages[""].dependencies["aips-payment-core"] = "file:vendor/payment-core";
+    fs.writeFileSync(packagePath, JSON.stringify(packageJson), "utf8");
+    fs.writeFileSync(packageLockPath, JSON.stringify(packageLock), "utf8");
+    const localCore = path.join(fixture.apiRoot, "vendor", "payment-core");
+    fs.mkdirSync(localCore, { recursive: true });
+    fs.writeFileSync(
+      path.join(localCore, "package.json"),
+      JSON.stringify({ name: "aips-payment-core", version: "1.0.0", main: "index.js" }),
+      "utf8"
+    );
+    fs.writeFileSync(path.join(localCore, "index.js"), "module.exports = 1;\n", "utf8");
+    const localFirst = getCacheInfo(fixture.apiRoot, cacheRoot);
+    fs.writeFileSync(path.join(localCore, "index.js"), "module.exports = 2;\n", "utf8");
+    const localSecond = getCacheInfo(fixture.apiRoot, cacheRoot);
+    assert.strictEqual(localSecond.LockSha256, localFirst.LockSha256);
+    assert.notStrictEqual(
+      localSecond.DependencyFingerprintSha256,
+      localFirst.DependencyFingerprintSha256,
+      "file: 依赖源码变化没有使缓存失效"
+    );
+    assert.notStrictEqual(localSecond.Key, localFirst.Key);
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }

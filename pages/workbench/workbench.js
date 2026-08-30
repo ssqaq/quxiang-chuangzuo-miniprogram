@@ -3,6 +3,7 @@ const cloud = require("../../services/cloud");
 const storage = require("../../utils/storage");
 const diagnosticLog = require("../../utils/diagnostic-log");
 const pointsUi = require("../../utils/points-ui");
+const accountUi = require("../../utils/account-ui");
 const app = getApp();
 const AUTHOR_QR_PATH = "/assets/contact/author-wechat-qr.jpg";
 
@@ -137,6 +138,9 @@ Page({
     appVersion: config.appVersion,
     pointsCopy: config.points.copy,
     cloudReady: false,
+    userProfileLoading: false,
+    userAvatarPath: "",
+    userNickname: "微信用户",
     adminVisible: false,
     adminEntryVisible: isPreviewEnvironment() || hasCachedAdminAccess(),
     authorQrPath: AUTHOR_QR_PATH,
@@ -180,6 +184,7 @@ Page({
     const refreshSecondary = () => {
       this.refreshAdminAccess();
       this.refreshPoints();
+      this.refreshUserCenterEntry();
     };
     if (typeof wx.nextTick === "function") {
       wx.nextTick(refreshSecondary);
@@ -200,6 +205,41 @@ Page({
     this.clearNavigationWatchdog();
     this.clearAdminAccessRetry();
     this._recordsRefreshToken = (this._recordsRefreshToken || 0) + 1;
+    this._userProfileRefreshToken = (this._userProfileRefreshToken || 0) + 1;
+  },
+
+  async refreshUserCenterEntry() {
+    const refreshToken = (this._userProfileRefreshToken || 0) + 1;
+    this._userProfileRefreshToken = refreshToken;
+    if (!cloud.isCloudReady()) {
+      this.setData({
+        userProfileLoading: false,
+        userAvatarPath: "",
+        userNickname: "微信用户"
+      });
+      return;
+    }
+    this.setData({ userProfileLoading: true });
+    try {
+      const result = await cloud.getMyUserProfile({ retryLimit: 0, silent: true });
+      if (this._pageUnloaded || refreshToken !== this._userProfileRefreshToken) return;
+      const profile = accountUi.normalizeProfile(result);
+      this.setData({
+        userProfileLoading: false,
+        userAvatarPath: profile.avatarPath,
+        userNickname: profile.nickname
+      });
+    } catch (error) {
+      if (this._pageUnloaded || refreshToken !== this._userProfileRefreshToken) return;
+      this.setData({
+        userProfileLoading: false,
+        userAvatarPath: "",
+        userNickname: "微信用户"
+      });
+      diagnosticLog.warn("account", "workbench-profile-failed", "工作台头像读取失败", {
+        error
+      });
+    }
   },
 
   refreshWorkbench() {
@@ -912,6 +952,10 @@ Page({
 
   openPoints() {
     this.openPage("/pages/points/points", "积分中心打开失败", "已打开积分中心");
+  },
+
+  openUserCenter() {
+    this.openPage("/pages/user-center/user-center", "用户中心打开失败", "已打开我的");
   },
 
   checkIn() {

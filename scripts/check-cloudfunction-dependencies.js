@@ -37,10 +37,10 @@ function isInside(parentPath, childPath) {
   );
 }
 
-function displayPath(apiRoot, filePath) {
-  const relative = path.relative(apiRoot, filePath).replace(/\\/g, "/");
+function displayPath(functionRoot, filePath) {
+  const relative = path.relative(functionRoot, filePath).replace(/\\/g, "/");
   if (!relative || relative === ".") return ".";
-  if (relative === ".." || relative.startsWith("../")) return "<outside-api>";
+  if (relative === ".." || relative.startsWith("../")) return "<outside-function>";
   return relative;
 }
 
@@ -255,8 +255,9 @@ function validatePackageDependencies(apiRoot, packageJson, errors) {
   return verified;
 }
 
-function validateSourceRequires(apiRoot, errors) {
-  const files = collectJavaScriptFiles(apiRoot).sort();
+function validateSourceRequires(functionRoot, errors, allowedRelativeRoots = []) {
+  const files = collectJavaScriptFiles(functionRoot).sort();
+  const allowedRoots = [functionRoot, ...allowedRelativeRoots].map((item) => path.resolve(item));
   let relativeModuleCount = 0;
   for (const filePath of files) {
     const source = fs.readFileSync(filePath, "utf8");
@@ -264,8 +265,8 @@ function validateSourceRequires(apiRoot, errors) {
     for (const call of calls.dynamicCalls) {
       errors.push({
         code: "DYNAMIC_REQUIRE_UNSUPPORTED",
-        subject: `${displayPath(apiRoot, filePath)}:${call.line}`,
-        message: `无法静态检查动态 require：${displayPath(apiRoot, filePath)}:${call.line}。`,
+        subject: `${displayPath(functionRoot, filePath)}:${call.line}`,
+        message: `无法静态检查动态 require：${displayPath(functionRoot, filePath)}:${call.line}。`,
       });
     }
     for (const call of calls.staticCalls) {
@@ -280,18 +281,18 @@ function validateSourceRequires(apiRoot, errors) {
       relativeModuleCount += 1;
       try {
         const resolved = resolveModule(specifier, path.dirname(filePath));
-        if (!isInside(apiRoot, resolved)) {
+        if (!allowedRoots.some((root) => isInside(root, resolved))) {
           errors.push({
-            code: "RELATIVE_REQUIRE_OUTSIDE_API",
-            subject: `${displayPath(apiRoot, filePath)}:${call.line}`,
-            message: `相对模块越出云函数目录：${displayPath(apiRoot, filePath)}:${call.line} → ${specifier}。`,
+            code: "RELATIVE_REQUIRE_OUTSIDE_FUNCTION",
+            subject: `${displayPath(functionRoot, filePath)}:${call.line}`,
+            message: `相对模块越出云函数及清单允许的共享目录：${displayPath(functionRoot, filePath)}:${call.line} → ${specifier}。`,
           });
         }
       } catch (_error) {
         errors.push({
           code: "RELATIVE_REQUIRE_MISSING",
-          subject: `${displayPath(apiRoot, filePath)}:${call.line}`,
-          message: `相对模块缺失：${displayPath(apiRoot, filePath)}:${call.line} → ${specifier}。`,
+          subject: `${displayPath(functionRoot, filePath)}:${call.line}`,
+          message: `相对模块缺失：${displayPath(functionRoot, filePath)}:${call.line} → ${specifier}。`,
         });
       }
     }
@@ -302,8 +303,13 @@ function validateSourceRequires(apiRoot, errors) {
   };
 }
 
-function runDependencyCheck(apiRootInput) {
+function runDependencyCheck(apiRootInput, options = {}) {
   const apiRoot = path.resolve(apiRootInput);
+  const subject = String(options.subject || "cloudfunctions/api");
+  const lockRequired = options.lockRequired !== false;
+  const allowedRelativeRoots = Array.isArray(options.allowedRelativeRoots)
+    ? options.allowedRelativeRoots.map((item) => path.resolve(item))
+    : [];
   const errors = [];
   if (!fs.existsSync(apiRoot) || !fs.statSync(apiRoot).isDirectory()) {
     return {
@@ -313,29 +319,32 @@ function runDependencyCheck(apiRootInput) {
       scannedFiles: 0,
       errors: [{
         code: "API_ROOT_MISSING",
-        subject: "cloudfunctions/api",
-        message: "云函数目录不存在。",
+        subject,
+        message: `云函数或共享核心目录不存在：${subject}。`,
       }],
     };
   }
   const packageJson = readJson(
     path.join(apiRoot, "package.json"),
-    "cloudfunctions/api/package.json",
+    `${subject}/package.json`,
     errors
   );
-  const packageLock = readJson(
-    path.join(apiRoot, "package-lock.json"),
-    "cloudfunctions/api/package-lock.json",
-    errors
-  );
+  const packageLock = lockRequired
+    ? readJson(
+      path.join(apiRoot, "package-lock.json"),
+      `${subject}/package-lock.json`,
+      errors
+    )
+    : null;
   validateLockDependencies(packageJson, packageLock, errors);
   const packageDependencies = validatePackageDependencies(
     apiRoot,
     packageJson,
     errors
   );
-  const source = validateSourceRequires(apiRoot, errors);
+  const source = validateSourceRequires(apiRoot, errors, allowedRelativeRoots);
   return {
+    subject,
     healthy: errors.length === 0,
     packageDependencies,
     relativeModules: source.relativeModuleCount,
@@ -344,28 +353,129 @@ function runDependencyCheck(apiRootInput) {
   };
 }
 
+function parseOption(argv, name) {
+  const index = argv.indexOf(name);
+  if (index >= 0 && argv[index + 1]) return argv[index + 1];
+  return "";
+}
+
 function parseApiRoot(argv) {
   const index = argv.indexOf("--api-root");
   if (index >= 0 && argv[index + 1]) return argv[index + 1];
   return path.resolve(__dirname, "..", "cloudfunctions", "api");
 }
 
+function runManifestDependencyCheck(manifestInput) {
+  const manifestPath = path.resolve(manifestInput);
+  const errors = [];
+  const manifest = readJson(manifestPath, "scripts/payment-cloudfunctions.json", errors);
+  if (!manifest || manifest.schemaVersion !== 1 || !Array.isArray(manifest.functions)) {
+    if (manifest) {
+      errors.push({
+        code: "PAYMENT_MANIFEST_INVALID",
+        subject: "scripts/payment-cloudfunctions.json",
+        message: "支付云函数清单版本或 functions 数组无效。",
+      });
+    }
+    return { healthy: false, targets: [], errors };
+  }
+  const projectRoot = path.resolve(path.dirname(manifestPath), "..");
+  const core = manifest.sharedCore || {};
+  const coreRoot = path.resolve(projectRoot, String(core.root || ""));
+  const functionRoots = manifest.functions.map((item) => (
+    path.resolve(projectRoot, String((item && item.root) || ""))
+  ));
+  const targets = [];
+  const coreResult = runDependencyCheck(coreRoot, {
+    subject: String(core.root || "cloudfunctions/payment-core"),
+    lockRequired: core.lockRequired === true,
+    // payment-core/tests contains cross-entry integration tests.  Runtime
+    // modules remain self-contained; only the canonical test scan may resolve
+    // the three explicitly declared function roots.
+    allowedRelativeRoots: functionRoots,
+  });
+  targets.push(coreResult);
+  const corePackage = fs.existsSync(path.join(coreRoot, "package.json"))
+    ? readJson(path.join(coreRoot, "package.json"), `${core.root}/package.json`, errors)
+    : null;
+  if (corePackage && corePackage.name !== core.name) {
+    errors.push({
+      code: "PAYMENT_CORE_PACKAGE_NAME_MISMATCH",
+      subject: String(core.root || "cloudfunctions/payment-core"),
+      message: "payment-core package name 与清单不一致。",
+    });
+  }
+
+  for (const item of manifest.functions) {
+    const functionRoot = path.resolve(projectRoot, String(item.root || ""));
+    const result = runDependencyCheck(functionRoot, {
+      subject: String(item.root || item.name || "payment-function"),
+      lockRequired: true,
+    });
+    targets.push(result);
+    const packageJson = result.healthy || fs.existsSync(path.join(functionRoot, "package.json"))
+      ? readJson(path.join(functionRoot, "package.json"), `${item.root}/package.json`, errors)
+      : null;
+    if (packageJson && packageJson.name !== item.packageName) {
+      errors.push({
+        code: "PAYMENT_PACKAGE_NAME_MISMATCH",
+        subject: String(item.name || item.root),
+        message: `支付云函数 package name 与清单不一致：${item.name}。`,
+      });
+    }
+    if (
+      packageJson
+      && (!packageJson.dependencies
+        || packageJson.dependencies[core.name] !== "file:vendor/payment-core")
+    ) {
+      errors.push({
+        code: "PAYMENT_CORE_DEPENDENCY_MISSING",
+        subject: String(item.name || item.root),
+        message: `${item.name} 必须通过 file:vendor/payment-core 打包共享核心。`,
+      });
+    }
+  }
+  for (const result of targets) errors.push(...result.errors);
+  return {
+    healthy: errors.length === 0,
+    targets,
+    errors,
+  };
+}
+
 if (require.main === module) {
-  const result = runDependencyCheck(parseApiRoot(process.argv.slice(2)));
+  const argv = process.argv.slice(2);
+  const manifestPath = parseOption(argv, "--manifest");
+  const result = manifestPath
+    ? runManifestDependencyCheck(manifestPath)
+    : runDependencyCheck(parseApiRoot(argv));
   if (!result.healthy) {
     for (const error of result.errors) {
       console.error(`❌ [${error.code}] ${error.message}`);
     }
     process.exitCode = 1;
   } else {
-    console.log(
-      `云函数依赖检查通过：${result.packageDependencies.length} 个 npm 依赖、`
-      + `${result.relativeModules} 个相对模块、${result.scannedFiles} 个源码文件。`
-    );
+    if (manifestPath) {
+      const packageCount = result.targets.reduce(
+        (total, item) => total + item.packageDependencies.length,
+        0
+      );
+      const sourceCount = result.targets.reduce((total, item) => total + item.scannedFiles, 0);
+      console.log(
+        `支付云函数依赖检查通过：${result.targets.length} 个目标、`
+        + `${packageCount} 个 npm 依赖、${sourceCount} 个源码文件。`
+      );
+    } else {
+      console.log(
+        `云函数依赖检查通过：${result.packageDependencies.length} 个 npm 依赖、`
+        + `${result.relativeModules} 个相对模块、${result.scannedFiles} 个源码文件。`
+      );
+    }
   }
 }
 
 module.exports = {
   findRequireCalls,
   runDependencyCheck,
+  runManifestDependencyCheck,
 };

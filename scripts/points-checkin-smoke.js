@@ -131,6 +131,15 @@ assert.deepStrictEqual(
   helpers.stripDocumentId({ _id: "document-id", value: 1 }),
   { value: 1 }
 );
+const legacyAccountSummary = helpers.pointsSummary({
+  pointsBalance: 12,
+  totalEarned: 20,
+  totalSpent: 8,
+  currentStreak: 0,
+  lastCheckinDate: ""
+}, { data: {} }, points, "2026-08-30");
+assert.strictEqual(legacyAccountSummary.totalPurchasedPoints, 0);
+assert.strictEqual(legacyAccountSummary.totalReversedPurchasedPoints, 0);
 
 async function main() {
   const summary = await api.main({ action: "getUserPoints", requestId: "points-anonymous" }, {});
@@ -159,6 +168,8 @@ async function main() {
     assert.strictEqual(first.earnedToday, 5);
     assert.strictEqual(first.pointsBalance, 5);
     assert.strictEqual(first.totalEarned, 5);
+    assert.strictEqual(first.totalPurchasedPoints, 0);
+    assert.strictEqual(first.totalReversedPurchasedPoints, 0);
     assert.strictEqual(first.currentStreak, 1);
     assert.strictEqual(duplicate.ok, true);
     assert.strictEqual(duplicate.duplicate, true);
@@ -172,6 +183,8 @@ async function main() {
     assert.strictEqual(accounts.length, 1);
     assert.strictEqual(accounts[0].pointsBalance, 5);
     assert.strictEqual(accounts[0].totalEarned, 5);
+    assert.strictEqual(accounts[0].totalPurchasedPoints, 0);
+    assert.strictEqual(accounts[0].totalReversedPurchasedPoints, 0);
     assert.strictEqual(accounts[0].currentStreak, 1);
     assert.strictEqual(checkinLedger.length, 1);
     assert.strictEqual(checkinLedger[0].amount, 5);

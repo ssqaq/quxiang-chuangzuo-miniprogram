@@ -8,6 +8,7 @@ const path = require("path");
 const {
   findRequireCalls,
   runDependencyCheck,
+  runManifestDependencyCheck,
 } = require("./check-cloudfunction-dependencies");
 
 function writeJson(filePath, value) {
@@ -175,6 +176,28 @@ try {
   fs.rmSync(outsideLocal.root, { recursive: true, force: true });
 }
 
+const sharedCore = createFixture({
+  indexSource: 'module.exports = require("../payment-core");\n',
+});
+try {
+  const coreRoot = path.join(sharedCore.root, "payment-core");
+  writeJson(path.join(coreRoot, "package.json"), {
+    name: "aips-payment-core",
+    version: "1.0.0",
+    main: "index.js",
+  });
+  writeFile(path.join(coreRoot, "index.js"), "module.exports = 7;\n");
+  const blocked = runDependencyCheck(sharedCore.apiRoot);
+  assert.strictEqual(blocked.healthy, false);
+  assert.ok(errorCodes(blocked).includes("RELATIVE_REQUIRE_OUTSIDE_FUNCTION"));
+  const allowed = runDependencyCheck(sharedCore.apiRoot, {
+    allowedRelativeRoots: [coreRoot],
+  });
+  assert.strictEqual(allowed.healthy, true, JSON.stringify(allowed.errors));
+} finally {
+  fs.rmSync(sharedCore.root, { recursive: true, force: true });
+}
+
 const directoryAndJson = createFixture({
   indexSource: [
     'const directory = require("./feature");',
@@ -214,5 +237,6 @@ assert.deepStrictEqual(
   realResult.packageDependencies.slice().sort(),
   ["jpeg-js", "pngjs", "wx-server-sdk", "xlsx"]
 );
+assert.strictEqual(typeof runManifestDependencyCheck, "function");
 
 console.log("cloudfunction dependency smoke: OK");

@@ -49,17 +49,59 @@ function Get-NpmDependencyCacheInfo {
   }
 
   $lockSha256 = (Get-FileHash -LiteralPath $packageLock -Algorithm SHA256).Hash.ToLowerInvariant()
-  $key = "api-$lockSha256"
+  $dependencyFingerprint = $lockSha256
+  try {
+    $package = Get-Content -LiteralPath $packageJson -Raw -Encoding UTF8 | ConvertFrom-Json -ErrorAction Stop
+  }
+  catch {
+    throw "云函数 package.json 不是有效 JSON：$packageJson"
+  }
+  $localDependencyParts = New-Object System.Collections.Generic.List[string]
+  if ($package.dependencies) {
+    foreach ($property in @($package.dependencies.PSObject.Properties | Sort-Object Name)) {
+      $value = [string]$property.Value
+      if (-not $value.StartsWith("file:", [StringComparison]::OrdinalIgnoreCase)) { continue }
+      $relativeTarget = $value.Substring(5).Trim()
+      $target = [IO.Path]::GetFullPath((Join-Path $api $relativeTarget))
+      if (-not (Test-NpmDependencyPathInside -ParentPath $api -CandidatePath $target)) {
+        throw "本地 npm 依赖越出云函数目录：$($property.Name)=$value"
+      }
+      if (-not (Test-Path -LiteralPath $target -PathType Container)) {
+        throw "本地 npm 依赖目录不存在：$($property.Name)=$value"
+      }
+      foreach ($file in @(Get-ChildItem -LiteralPath $target -Recurse -File -Force |
+          Where-Object { $_.FullName -notmatch '[\\/]node_modules[\\/]' } |
+          Sort-Object FullName)) {
+        $relativeFile = $file.FullName.Substring($target.TrimEnd('\', '/').Length).TrimStart('\', '/').Replace('\', '/')
+        $fileSha = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+        [void]$localDependencyParts.Add("$($property.Name)`0$relativeFile`0$fileSha")
+      }
+    }
+  }
+  if ($localDependencyParts.Count -gt 0) {
+    $fingerprintMaterial = $lockSha256 + "`n" + ($localDependencyParts -join "`n")
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try {
+      $fingerprintBytes = [Text.Encoding]::UTF8.GetBytes($fingerprintMaterial)
+      $dependencyFingerprint = ([BitConverter]::ToString($sha.ComputeHash($fingerprintBytes)) -replace '-', '').ToLowerInvariant()
+    }
+    finally { $sha.Dispose() }
+  }
+  $functionName = (Split-Path -Leaf $api).ToLowerInvariant() -replace '[^a-z0-9._-]', '-'
+  if ([string]::IsNullOrWhiteSpace($functionName)) { $functionName = "cloudfunction" }
+  $key = "$functionName-$dependencyFingerprint"
   $cachePath = Join-Path $root $key
   New-Item -ItemType Directory -Path $cachePath -Force | Out-Null
   return [pscustomobject]@{
     ApiPath = $api
+    FunctionName = $functionName
     ProjectPath = $project
     Root = $root
     Path = $cachePath
     LockPath = Join-Path $root "$key.lock"
     Key = $key
     LockSha256 = $lockSha256
+    DependencyFingerprintSha256 = $dependencyFingerprint
   }
 }
 
@@ -202,7 +244,7 @@ function Ensure-LocalCloudFunctionDependencies {
     if (Test-NpmDependencyTree `
       -ApiPath $cache.ApiPath `
       -DependencyCheckScript $DependencyCheckScript `
-      -LockSha256 $cache.LockSha256) {
+      -LockSha256 $cache.DependencyFingerprintSha256) {
       Write-Host "复用本地云函数依赖：缓存键 $($cache.Key)"
       return $cache
     }
@@ -246,11 +288,11 @@ function Ensure-LocalCloudFunctionDependencies {
       throw "npm ci 完成但云函数依赖检查未通过。"
     }
     $stampPath = Join-Path $cache.ApiPath "node_modules\.npm-cache-lock-sha256"
-    [IO.File]::WriteAllText($stampPath, "$($cache.LockSha256)`n", [Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText($stampPath, "$($cache.DependencyFingerprintSha256)`n", [Text.UTF8Encoding]::new($false))
     if (-not (Test-NpmDependencyTree `
       -ApiPath $cache.ApiPath `
       -DependencyCheckScript $DependencyCheckScript `
-      -LockSha256 $cache.LockSha256)) {
+      -LockSha256 $cache.DependencyFingerprintSha256)) {
       throw "云函数依赖安装完成但 lockfile 指纹校验失败。"
     }
     return $cache
@@ -260,4 +302,54 @@ function Ensure-LocalCloudFunctionDependencies {
       Exit-NpmDependencyCacheLock -LockHandle $lockHandle
     }
   }
+}
+
+function Ensure-ManifestCloudFunctionDependencies {
+  param(
+    [Parameter(Mandatory = $true)][string]$ProjectRoot,
+    [Parameter(Mandatory = $true)][string]$ManifestPath,
+    [string]$CacheRoot = "",
+    [Parameter(Mandatory = $true)][string]$DependencyCheckScript,
+    [string]$NpmPath = ""
+  )
+
+  $project = [IO.Path]::GetFullPath($ProjectRoot)
+  $manifestFullPath = [IO.Path]::GetFullPath($ManifestPath)
+  if (-not (Test-Path -LiteralPath $manifestFullPath -PathType Leaf)) {
+    throw "支付云函数清单不存在：$manifestFullPath"
+  }
+  try {
+    $manifest = Get-Content -LiteralPath $manifestFullPath -Raw -Encoding UTF8 |
+      ConvertFrom-Json -ErrorAction Stop
+  }
+  catch {
+    throw "支付云函数清单不是有效 JSON：$manifestFullPath"
+  }
+  if ([int]$manifest.schemaVersion -ne 1 -or @($manifest.functions).Count -ne 3) {
+    throw "支付云函数清单版本或函数数量无效：$manifestFullPath"
+  }
+
+  $results = New-Object System.Collections.Generic.List[object]
+  foreach ($paymentFunction in @($manifest.functions)) {
+    $relativeRoot = [string]$paymentFunction.root
+    $functionRoot = [IO.Path]::GetFullPath((Join-Path $project $relativeRoot))
+    if (-not (Test-NpmDependencyPathInside -ParentPath $project -CandidatePath $functionRoot)) {
+      throw "支付云函数目录越出项目：$relativeRoot"
+    }
+    $result = Ensure-LocalCloudFunctionDependencies `
+      -ApiPath $functionRoot `
+      -CacheRoot $CacheRoot `
+      -NpmPath $NpmPath
+    [void]$results.Add($result)
+  }
+
+  $node = Get-Command "node.exe" -ErrorAction SilentlyContinue
+  if (-not $node) { $node = Get-Command "node" -ErrorAction SilentlyContinue }
+  if (-not $node) { throw "找不到 node，无法执行支付云函数依赖清单检查。" }
+  $checkOutput = @(& $node.Source $DependencyCheckScript "--manifest" $manifestFullPath 2>&1)
+  if ($LASTEXITCODE -ne 0) {
+    throw "支付云函数依赖清单检查失败：$($checkOutput -join [Environment]::NewLine)"
+  }
+  foreach ($line in $checkOutput) { Write-Host ([string]$line) }
+  return $results.ToArray()
 }

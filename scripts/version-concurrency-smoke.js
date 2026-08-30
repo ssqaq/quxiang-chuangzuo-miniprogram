@@ -49,11 +49,17 @@ function testVersionGroupAndExactReplacement() {
   const script = `
 . '${versionScript.replace(/'/g, "''")}'
 $paths = @(Get-VersionGroupPaths -SourceRoot '${root.replace(/'/g, "''")}')
-if ($paths.Count -ne 7) { Write-Output ($paths -join '|'); exit 2 }
+if ($paths.Count -ne 21) { Write-Output ($paths -join '|'); exit 2 }
 $lock = '{"version":"0.38.3","packages":{"":{"version":"0.38.3"},"dep":{"version":"9.9.9"}}}'
 $updated = Set-VersionText -RelativePath 'cloudfunctions/api/package-lock.json' -Text $lock -TargetVersion '0.38.4'
 if ($updated -notmatch '"dep":\\{"version":"9\\.9\\.9"') { exit 3 }
 if (($updated -split '0\\.38\\.4').Count -ne 3) { exit 4 }
+$vendorPackage = '{"name":"aips-payment-core","version":"0.38.3"}'
+$vendorUpdated = Set-VersionText -RelativePath 'cloudfunctions/payment-api/vendor/payment-core/package.json' -Text $vendorPackage -TargetVersion '0.38.4'
+if ($vendorUpdated -notmatch '"version":"0\\.38\\.4"') { exit 5 }
+$paymentConfig = '{"timeout":15}'
+$configUpdated = Set-VersionText -RelativePath 'cloudfunctions/payment-api/config.json' -Text $paymentConfig -TargetVersion '0.38.4'
+if ($configUpdated -ne $paymentConfig) { exit 6 }
 Write-Output ($paths -join '|')
 `;
   const result = runPowerShell(script);
@@ -62,6 +68,15 @@ Write-Output ($paths -join '|')
     result.stdout.includes("cloudfunctions/watermark-gateway/package.json"),
     "版本组没有包含媒体解析网关"
   );
+  for (const marker of [
+    "scripts/payment-cloudfunctions.json",
+    "cloudfunctions/payment-core/package.json",
+    "cloudfunctions/payment-api/package-lock.json",
+    "cloudfunctions/payment-notify/config.json",
+    "cloudfunctions/payment-reconcile/vendor/payment-core/package.json",
+  ]) {
+    assert.ok(result.stdout.includes(marker), `支付版本组缺少 ${marker}`);
+  }
 }
 
 function testSyncConcurrencyContracts() {

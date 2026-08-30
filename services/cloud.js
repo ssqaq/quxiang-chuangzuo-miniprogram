@@ -719,6 +719,13 @@ module.exports = {
       silent: true
     });
   },
+  getAdminPaymentMonitor() {
+    return callApi({
+      action: "getAdminPaymentMonitor",
+      retryLimit: 0,
+      silent: true
+    });
+  },
   reportDiagnosticLogs(payload) {
     return callApi({
       action: "reportDiagnosticLogs",

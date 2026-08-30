@@ -11,9 +11,24 @@
         <view class="workbench-title">圈像创作</view>
         <view class="workbench-subtitle">圈定想改的，创作想要的。</view>
       </view>
-      <view class="status {{cloudReady ? 'status-ok' : 'status-offline'}}">
-        <view class="status-dot"></view>
-        <text>{{cloudReady ? '云端已连接' : '本地预览'}}</text>
+      <view
+        class="user-center-entry"
+        bindtap="openUserCenter"
+        hover-class="user-center-entry-hover"
+        role="button"
+        aria-label="我的"
+      >
+        <view class="user-center-avatar-shell">
+          <image
+            wx:if="{{userAvatarPath}}"
+            class="user-center-avatar"
+            src="{{userAvatarPath}}"
+            mode="aspectFill"
+          ></image>
+          <view wx:else class="user-center-avatar-fallback">我</view>
+          <view class="user-center-red-dot"></view>
+        </view>
+        <text class="user-center-label">我的</text>
       </view>
     </view>
 
@@ -22,6 +37,10 @@
     <view class="workbench-welcome">
       <view class="welcome-title">今天，想创作什么？</view>
       <view class="welcome-subtitle">先选入口，后面按需补素材。</view>
+      <view class="hero-connection status {{cloudReady ? 'status-ok' : 'status-offline'}}">
+        <view class="status-dot"></view>
+        <text>{{cloudReady ? '云端已连接' : '本地预览'}}</text>
+      </view>
     </view>
     </view>
 

@@ -31,12 +31,31 @@
 
     [switch]$KeepWorktree,
 
+    # 仅在明确指定时允许本次发布越过队列中等待恢复的 prepared 票据。
+    # 默认仍严格按 FIFO，避免普通发布误碰其他操作。
+    [switch]$AllowOutOfOrder,
+
+    # 当前工作区可能暂存一份尚未配齐依赖的发布工作流；显式使用时，
+    # 让发布工作树保留 origin/main 的已验证工作流，避免把别的票据带入本次发布。
+    [switch]$UseBaseWorkflow,
+
+    # 让已经在隔离来源树中成套验证过的发布工具一起进入发布树，避免
+    # 用脏的 canonical 工具覆盖来源树里的配对校验器和工作流。
+    [switch]$UseSourceTooling,
+
     [string]$ResumeOperation = "",
     [string]$OperationId = "",
     [switch]$Status
 )
 
 $ErrorActionPreference = "Stop"
+# 隐藏/分离 PowerShell 进程可能沿用系统代码页，Git 返回中文路径时会
+# 被错误解码成乱码并导致根目录比较失败。发布器统一要求原生命令使用 UTF-8。
+try {
+    [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+    $OutputEncoding = [Text.UTF8Encoding]::new($false)
+}
+catch { }
 $scriptRoot = $PSScriptRoot
 . (Join-Path $scriptRoot "release-gate.ps1")
 . (Join-Path $scriptRoot "release-lock.ps1")
@@ -182,6 +201,15 @@ $releaseToolPaths = @(
     ".githooks/post-checkout",
     "docs/superpowers/specs/2026-08-28-release-gate-design.md"
 )
+
+if ($UseBaseWorkflow) {
+    # The workflow smoke is coupled to the workflow text.  Keep both files
+    # from origin/main when the source workspace has an unpaired newer copy.
+    $releaseToolPaths = @($releaseToolPaths | Where-Object {
+            $_ -ne ".github/workflows/release-gate.yml" -and
+            $_ -ne "scripts/release-workflow-smoke.js"
+        })
+}
 
 function Write-GateHost {
     param([string]$Stage, [string]$Message)
@@ -375,6 +403,8 @@ try {
     $leaseOwner = "release-gate/$PID/$operationId"
     $queueLease = Claim-ReleaseQueueTicket `
         -TicketId ([string]$queueTicket.ticketId) `
+        -AllowOutOfOrder:$AllowOutOfOrder `
+        -AllowPrepared:$AllowOutOfOrder `
         -LeaseOwner $leaseOwner `
         -LeaseSeconds $queueLeaseSeconds `
         -QueueRoot $queueRoot `
@@ -409,11 +439,13 @@ try {
             throw "发布源文件不存在：$($entry.Key)"
         }
     }
-    # 发布器本身来自 canonical 仓库，避免旧 source clone 携带旧的打包器/闸门。
-    $toolSnapshot = Get-ReleaseFileSnapshot -SourceRoot $canonicalRepo -RelativePath $releaseToolPaths
+    # 默认仍只信任 canonical 工具；显式使用来源工具时，要求来源树自身
+    # 带齐整套工具并在下面做稳定性复核，避免混用不同发布代的校验器。
+    $toolSnapshotRoot = if ($UseSourceTooling) { $sourceRepo.Root } else { $canonicalRepo }
+    $toolSnapshot = Get-ReleaseFileSnapshot -SourceRoot $toolSnapshotRoot -RelativePath $releaseToolPaths
     foreach ($entry in $toolSnapshot.GetEnumerator()) {
         if (-not [bool]$entry.Value.exists) {
-            throw "canonical 发布工具文件不存在：$($entry.Key)"
+            throw "发布工具文件不存在：$($entry.Key)（来源：$toolSnapshotRoot）"
         }
     }
     $sourceCommit = $sourceRepo.Commit
@@ -492,7 +524,7 @@ try {
     Write-GateHost "check" "发布前只读校验通过。"
     Set-GateQueueStage -Stage "checked" -Status "running"
     Assert-ReleaseFileSnapshotStable -SourceRoot $sourceRepo.Root -Snapshot $sourceSnapshot
-    Assert-ReleaseFileSnapshotStable -SourceRoot $canonicalRepo -Snapshot $toolSnapshot
+    Assert-ReleaseFileSnapshotStable -SourceRoot $toolSnapshotRoot -Snapshot $toolSnapshot
 
     $identity = Resolve-ReleaseIdentity -WorkingDirectory $releaseWorktree -RemoteUrl ([string]$policy.remote)
     $commitMessage = "release: v$target via release gate"

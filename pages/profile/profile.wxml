@@ -1,7 +1,7 @@
 <view class="profile-page">
   <view class="profile-header">
     <image class="profile-brand" src="/assets/brand/brand-icon.png" mode="aspectFit"></image>
-    <view class="profile-title">完善用户资料</view>
+    <view class="profile-title">{{pageTitle}}</view>
     <view class="profile-steps" aria-label="资料填写进度">
       <view class="profile-step {{avatarPath ? 'is-done' : 'is-current'}}">
         <view class="profile-step-dot">1</view>

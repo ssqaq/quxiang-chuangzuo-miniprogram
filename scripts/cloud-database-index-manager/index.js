@@ -99,7 +99,7 @@ function validateManifest(manifest) {
     !isPlainObject(manifest)
     || manifest.version !== 1
     || !Array.isArray(manifest.indexes)
-    || manifest.indexes.length !== 15
+    || manifest.indexes.length !== 24
   ) {
     throw createError("INDEX_MANIFEST_INVALID");
   }
@@ -113,7 +113,7 @@ function validateManifest(manifest) {
       || !isNonBlankString(index.reason)
       || !Array.isArray(index.keys)
       || index.keys.length === 0
-      || index.unique !== false
+      || typeof index.unique !== "boolean"
     ) {
       throw createError("INDEX_MANIFEST_INVALID");
     }

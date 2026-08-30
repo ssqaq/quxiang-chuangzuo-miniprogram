@@ -69,13 +69,13 @@ jobs:
       - name: Release hooks smoke
         shell: pwsh
         run: node scripts/release-hooks-smoke.js
-      - name: Cache API npm download cache
+      - name: Cache cloud-function npm download cache
         uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}/wechat-miniapp-npm-cache
-          key: npm-api-${{ hashFiles('cloudfunctions/api/package-lock.json') }}
+          key: npm-cloudfunctions-${{ hashFiles('cloudfunctions/api/package-lock.json', 'cloudfunctions/payment-api/package-lock.json', 'cloudfunctions/payment-notify/package-lock.json', 'cloudfunctions/payment-reconcile/package-lock.json') }}
           restore-keys: |
-            npm-api-
+            npm-cloudfunctions-
       - name: Prepare API dependency cache
         shell: pwsh
         env:
@@ -86,6 +86,19 @@ jobs:
             -ApiPath "$env:GITHUB_WORKSPACE\cloudfunctions\api" `
             -DependencyCheckScript "$env:GITHUB_WORKSPACE\scripts\check-cloudfunction-dependencies.js"
           Write-Host "API npm cache key: $($info.Key)"
+      - name: Prepare fail-closed payment function dependencies
+        shell: pwsh
+        env:
+          WECHAT_MINIPROGRAM_NPM_CACHE_PATH: ${{ runner.temp }}/wechat-miniapp-npm-cache
+        run: |
+          . "$env:GITHUB_WORKSPACE\scripts\npm-dependency-cache.ps1"
+          $results = Ensure-ManifestCloudFunctionDependencies `
+            -ProjectRoot $env:GITHUB_WORKSPACE `
+            -ManifestPath "$env:GITHUB_WORKSPACE\scripts\payment-cloudfunctions.json" `
+            -DependencyCheckScript "$env:GITHUB_WORKSPACE\scripts\check-cloudfunction-dependencies.js"
+          foreach ($item in $results) {
+            Write-Host "$($item.FunctionName) npm cache key: $($item.Key)"
+          }
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -122,6 +135,27 @@ jobs:
       - name: Validate source
         shell: pwsh
         run: node scripts/validate.js
+      - name: Payment UI smoke
+        shell: pwsh
+        run: node scripts/payment-ui-smoke.js
+      - name: Payment package and deployment safety smoke
+        shell: pwsh
+        run: node scripts/payment-deployment-smoke.js
+      - name: Payment records cursor smoke
+        shell: pwsh
+        run: node scripts/payment-records-cursor-smoke.js
+      - name: Payment monitor smoke
+        shell: pwsh
+        run: node scripts/payment-monitor-smoke.js
+      - name: Database index contract smoke
+        shell: pwsh
+        run: node scripts/database-index-smoke.js
+      - name: Payment dependency manifest check
+        shell: pwsh
+        run: node scripts/check-cloudfunction-dependencies.js --manifest scripts/payment-cloudfunctions.json
+      - name: Payment core tests
+        shell: pwsh
+        run: npm test --prefix cloudfunctions/payment-core
       - name: Release safety smoke
         shell: pwsh
         run: node scripts/release-safety-smoke.js

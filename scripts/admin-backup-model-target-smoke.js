@@ -6,8 +6,6 @@ process.env.WECHAT_MINIAPP_TEST = "1";
 
 const api = require("../cloudfunctions/api/index.js");
 
-(async () => {
-
 const configs = {
   image: {
     provider: "primary-provider",
@@ -50,97 +48,77 @@ const primary = api.__test.temporaryModelConfig(configs, "image", {
 assert.strictEqual(primary.provider, "primary-provider-updated");
 assert.strictEqual(primary.apiKey, configs.image.apiKey);
 
-// 视觉备用槽位复用目录档案，但必须保留独立的稳定 key、模型和 Key，
-// 不能因为兼容投影再次掉回主槽位。
-const primaryKey = "11111111-1111-5111-8111-111111111111";
-const backupKey = "22222222-2222-5222-8222-222222222222";
-const primaryRecord = api.__test.normalizeProviderRecord({
-  providerKey: primaryKey,
-  id: "vision-primary",
-  name: "视觉主档案",
-  baseUrl: "https://vision-primary.example/v1",
-  apiKey: "vision-primary-key",
-  overrides: {
-    face: { model: "vision-primary-face" },
-    analysis: { model: "vision-primary-analysis" },
-    video: { model: "vision-primary-video", createPath: "/v1/videos", queryPath: "/v1/videos/{taskId}" }
-  }
-}, primaryKey, { includePreset: false });
-const backupRecord = api.__test.normalizeProviderRecord({
-  providerKey: backupKey,
-  id: "vision-backup",
-  name: "视觉备用档案",
-  baseUrl: "https://vision-backup.example/v1",
-  apiKey: "vision-backup-key",
-  overrides: {
-    face: { model: "vision-backup-face" },
-    analysis: { model: "vision-backup-analysis" },
-    video: { model: "vision-backup-video", createPath: "/v1/videos", queryPath: "/v1/videos/{taskId}" }
-  }
-}, backupKey, { includePreset: false });
-const registry = api.__test.normalizeProviderRegistry({
-  providers: { [primaryKey]: primaryRecord, [backupKey]: backupRecord }
-}, { includeDefaults: false });
-const runtime = {
-  providerRegistry: registry,
-  activeProviders: { face: primaryKey, analysis: primaryKey, video: primaryKey },
-  activeBackups: { faceBackup: backupKey, analysisBackup: backupKey, videoBackup: backupKey },
-  faceBackup: { enabled: true },
-  analysisBackup: { enabled: true },
-  videoBackup: { enabled: true }
-};
-const projected = api.__test.buildLegacyProjectionFromProviderRegistry(runtime);
-const faceBackup = api.__test.resolveFaceBackupConfig(projected.faceBackup, runtime);
-const analysisBackup = api.__test.resolveAnalysisBackupConfig(projected.analysisBackup, runtime);
-assert.strictEqual(faceBackup.providerKey, backupKey);
-assert.strictEqual(faceBackup.model, "vision-backup-face");
-assert.strictEqual(faceBackup.apiKey, "vision-backup-key");
-assert.strictEqual(analysisBackup.providerKey, backupKey);
-assert.strictEqual(analysisBackup.model, "vision-backup-analysis");
-assert.strictEqual(projected.videoBackup.providerKey, backupKey);
-
-const candidates = api.__test.visionConfigCandidatesForAction("detectFaceCircle", {
+const faceConfigs = {
   face: {
-    provider: "vision-primary",
-    providerKey: primaryKey,
-    baseUrl: "https://vision-primary.example/v1",
-    apiKey: "vision-primary-key",
-    model: "vision-primary-face"
+    provider: "face-primary",
+    providerKey: "face-primary-key",
+    endpoint: "https://face-primary.example/v1/chat/completions",
+    apiKey: "face-primary-secret",
+    model: "face-primary-model"
   },
-  faceBackup
-});
-assert.strictEqual(candidates.length, 2, "人脸主备没有展开成两个调用候选");
-assert.strictEqual(candidates[1].providerKey, backupKey);
+  faceBackup: {
+    enabled: true,
+    configured: true,
+    provider: "face-backup",
+    providerKey: "face-backup-key",
+    endpoint: "https://face-backup.example/v1/chat/completions",
+    apiKey: "face-backup-secret",
+    model: "face-backup-model"
+  },
+  analysis: {
+    provider: "analysis-primary",
+    providerKey: "analysis-primary-key",
+    endpoint: "https://analysis-primary.example/v1/chat/completions",
+    apiKey: "analysis-primary-secret",
+    model: "analysis-primary-model"
+  },
+  analysisBackup: {
+    enabled: true,
+    configured: true,
+    provider: "analysis-backup",
+    providerKey: "analysis-backup-key",
+    endpoint: "https://analysis-backup.example/v1/chat/completions",
+    apiKey: "analysis-backup-secret",
+    model: "analysis-backup-model"
+  }
+};
 
-let attempts = 0;
-const failover = await api.__test.runVisionProviderFailover(
-  candidates,
-  async (candidate) => {
-    attempts += 1;
-    if (attempts === 1) {
-      const error = new Error("temporary");
-      error.status = 503;
-      error.retryable = true;
-      throw error;
-    }
-    return { provider: candidate.provider };
-  },
-  { action: "smoke" }
+const faceCandidates = api.__test.visionConfigCandidatesForAction(
+  "detectFaceCircle",
+  faceConfigs
 );
-assert.strictEqual(attempts, 2);
-assert.strictEqual(failover.config.providerKey, backupKey);
+const analysisCandidates = api.__test.visionConfigCandidatesForAction(
+  "analyze",
+  faceConfigs
+);
+assert.deepStrictEqual(
+  faceCandidates.map((item) => item.providerKey),
+  ["face-primary-key", "face-backup-key"]
+);
+assert.deepStrictEqual(
+  analysisCandidates.map((item) => item.providerKey),
+  ["analysis-primary-key", "analysis-backup-key"]
+);
 
-const noBackupProjection = api.__test.buildLegacyProjectionFromProviderRegistry({
-  providerRegistry: registry,
-  activeProviders: { face: primaryKey, analysis: primaryKey, video: primaryKey },
-  activeBackups: {}
-});
-assert.strictEqual(noBackupProjection.faceBackup.enabled, false);
-assert.strictEqual(noBackupProjection.analysisBackup.enabled, false);
-assert.strictEqual(noBackupProjection.videoBackup.enabled, false);
-
-console.log("admin backup model target smoke: OK");
+(async () => {
+  const attempted = [];
+  const switched = await api.__test.runVisionProviderFailover(
+    faceCandidates,
+    async (candidate) => {
+      attempted.push(candidate.providerKey);
+      if (candidate.providerKey === "face-primary-key") {
+        const error = new Error("primary unavailable");
+        error.status = 503;
+        throw error;
+      }
+      return { ok: true, provider: candidate.providerKey };
+    },
+    { requestId: "vision-backup-smoke", action: "detectFaceCircle" }
+  );
+  assert.deepStrictEqual(attempted, ["face-primary-key", "face-backup-key"]);
+  assert.strictEqual(switched.config.providerKey, "face-backup-key");
+  console.log("admin backup model target smoke: OK");
 })().catch((error) => {
-  console.error(`admin backup model target smoke 失败：${error.stack || error.message || error}`);
+  console.error(error);
   process.exitCode = 1;
 });

@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import importlib.util
+import copy
 import json
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 
@@ -28,6 +30,91 @@ PACKAGE = load_module()
 
 
 class PackageReleaseSmoke(unittest.TestCase):
+    def test_payment_functions_are_fail_closed_formal_package_requirements(self):
+        version = PACKAGE.read_version(ROOT)
+        manifest = PACKAGE._validate_payment_manifest(ROOT, version)
+        self.assertIsNotNone(manifest)
+        self.assertFalse(manifest["productionDeployment"]["enabled"])
+        self.assertFalse(manifest["productionDeployment"]["automaticDeployment"])
+        required = PACKAGE._required_files(ROOT)
+        self.assertIn("scripts/payment-cloudfunctions.json", required)
+        self.assertIn("cloudfunctions/payment-core/index.js", required)
+        for item in manifest["functions"]:
+            self.assertIn(item["entry"], required)
+            self.assertIn(item["packageJson"], required)
+            self.assertIn(item["packageLock"], required)
+            self.assertIn(item["config"], required)
+            for runtime_file in item.get("runtimeFiles", []):
+                self.assertIn(runtime_file, required)
+            self.assertIn(f"{item['vendoredCoreRoot']}/index.js", required)
+        self.assertIn("cloudfunctions/payment-reconcile/monitor.js", required)
+
+    def test_payment_client_invocation_permissions_are_hard_gated(self):
+        version = PACKAGE.read_version(ROOT)
+        manifest_path = (ROOT / PACKAGE.PAYMENT_MANIFEST_RELATIVE).resolve()
+        original_read_json = PACKAGE._read_json
+        expected = {
+            "payment-api": True,
+            "payment-notify": False,
+            "payment-reconcile": False,
+        }
+
+        manifest = PACKAGE._validate_payment_manifest(ROOT, version)
+        self.assertEqual(
+            {item["name"]: item["clientInvocationAllowed"] for item in manifest["functions"]},
+            expected,
+        )
+
+        for function_name, allowed in expected.items():
+            with self.subTest(function_name=function_name):
+                invalid_manifest = copy.deepcopy(manifest)
+                item = next(
+                    entry for entry in invalid_manifest["functions"]
+                    if entry["name"] == function_name
+                )
+                item["clientInvocationAllowed"] = not allowed
+
+                def fake_read_json(path, label):
+                    if Path(path).resolve() == manifest_path:
+                        return invalid_manifest
+                    return original_read_json(path, label)
+
+                with mock.patch.object(PACKAGE, "_read_json", side_effect=fake_read_json):
+                    with self.assertRaises(RuntimeError):
+                        PACKAGE._validate_payment_manifest(ROOT, version)
+
+    def test_payment_runtime_files_are_formal_package_requirements(self):
+        version = PACKAGE.read_version(ROOT)
+        manifest_path = (ROOT / PACKAGE.PAYMENT_MANIFEST_RELATIVE).resolve()
+        original_read_json = PACKAGE._read_json
+        manifest = PACKAGE._validate_payment_manifest(ROOT, version)
+        reconcile = next(
+            item for item in manifest["functions"]
+            if item["name"] == "payment-reconcile"
+        )
+        self.assertEqual(
+            reconcile["runtimeFiles"],
+            ["cloudfunctions/payment-reconcile/monitor.js"],
+        )
+
+        invalid_manifest = copy.deepcopy(manifest)
+        invalid_reconcile = next(
+            item for item in invalid_manifest["functions"]
+            if item["name"] == "payment-reconcile"
+        )
+        invalid_reconcile["runtimeFiles"] = [
+            "cloudfunctions/payment-reconcile/missing-monitor.js"
+        ]
+
+        def fake_read_json(path, label):
+            if Path(path).resolve() == manifest_path:
+                return invalid_manifest
+            return original_read_json(path, label)
+
+        with mock.patch.object(PACKAGE, "_read_json", side_effect=fake_read_json):
+            with self.assertRaisesRegex(RuntimeError, "缺少运行时文件"):
+                PACKAGE._validate_payment_manifest(ROOT, version)
+
     def test_direct_write_requires_context(self):
         result = subprocess.run(
             [sys.executable, str(SCRIPT)],

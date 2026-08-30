@@ -31,6 +31,14 @@
 
     [switch]$KeepWorktree,
 
+    # 仅在明确指定时允许本次发布越过队列中等待恢复的 prepared 票据。
+    # 默认仍严格按 FIFO，避免普通发布误碰其他操作。
+    [switch]$AllowOutOfOrder,
+
+    # 当前工作区可能暂存一份尚未配齐依赖的发布工作流；显式使用时，
+    # 让发布工作树保留 origin/main 的已验证工作流，避免把别的票据带入本次发布。
+    [switch]$UseBaseWorkflow,
+
     [string]$ResumeOperation = "",
     [string]$OperationId = "",
     [switch]$Status
@@ -182,6 +190,15 @@ $releaseToolPaths = @(
     ".githooks/post-checkout",
     "docs/superpowers/specs/2026-08-28-release-gate-design.md"
 )
+
+if ($UseBaseWorkflow) {
+    # The workflow smoke is coupled to the workflow text.  Keep both files
+    # from origin/main when the source workspace has an unpaired newer copy.
+    $releaseToolPaths = @($releaseToolPaths | Where-Object {
+            $_ -ne ".github/workflows/release-gate.yml" -and
+            $_ -ne "scripts/release-workflow-smoke.js"
+        })
+}
 
 function Write-GateHost {
     param([string]$Stage, [string]$Message)
@@ -375,6 +392,8 @@ try {
     $leaseOwner = "release-gate/$PID/$operationId"
     $queueLease = Claim-ReleaseQueueTicket `
         -TicketId ([string]$queueTicket.ticketId) `
+        -AllowOutOfOrder:$AllowOutOfOrder `
+        -AllowPrepared:$AllowOutOfOrder `
         -LeaseOwner $leaseOwner `
         -LeaseSeconds $queueLeaseSeconds `
         -QueueRoot $queueRoot `

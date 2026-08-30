@@ -99,6 +99,23 @@ withEnv({
   assert.strictEqual(config.apiKey, "legacy-test-key");
 });
 
+assert.strictEqual(test.isGeminiCompatibleVision({ provider: "gemini" }), true);
+assert.strictEqual(
+  test.isGeminiCompatibleVision({
+    baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai"
+  }),
+  true
+);
+const geminiPayload = test.sanitizeVisionRequestPayload(
+  { seed: 42, enable_thinking: false, model: "gemini-3.6-flash" },
+  { provider: "gemini" }
+);
+assert.strictEqual(Object.prototype.hasOwnProperty.call(geminiPayload, "seed"), false);
+assert.strictEqual(
+  Object.prototype.hasOwnProperty.call(geminiPayload, "enable_thinking"),
+  false
+);
+
 const faces = test.normalizeFaceDetections(null, JSON.stringify({
   faces: [
     { x_min: 100, y_min: 200, x_max: 420, y_max: 650, confidence: 0.91 },
@@ -133,5 +150,6 @@ console.log(JSON.stringify({
   visionEnvPriority: true,
   legacyFallback: true,
   normalizedBoxes: true,
+  geminiPayloadSanitized: true,
   imageSizeGuard: true
 }));

@@ -3,10 +3,21 @@ const cloud = require("../../services/cloud");
 const diagnosticLog = require("../../utils/diagnostic-log");
 const pointsUi = require("../../utils/points-ui");
 
+function pointNumber(value, fallback = 0) {
+  if (value === null || value === undefined || String(value).trim() === "") {
+    return Math.round(Number(fallback || 0) * 10000) / 10000;
+  }
+  const number = Number(value);
+  if (!Number.isFinite(number)) {
+    return Math.round(Number(fallback || 0) * 10000) / 10000;
+  }
+  return Math.round(number * 10000) / 10000;
+}
+
 function buildCheckInToast(result = {}) {
   const copy = config.points.copy;
   const duplicate = Boolean(result.duplicate);
-  const earned = Number(result.earnedToday) || 0;
+  const earned = pointNumber(result.earnedToday);
   return {
     title: duplicate
       ? copy.checkInDuplicate
@@ -34,11 +45,11 @@ function normalizePoints(result = {}) {
   return {
     accountBound: Boolean(source.accountBound),
     boundMessage: source.boundMessage || config.points.copy.defaultBoundMessage,
-    pointsBalance: Math.max(0, Number(source.pointsBalance) || 0),
-    totalEarned: Math.max(0, Number(source.totalEarned) || 0),
-    totalSpent: Math.max(0, Number(source.totalSpent) || 0),
-    imageCost: Math.max(0, Number(source.imageCost) || config.points.imageCost),
-    videoCost: Math.max(0, Number(source.videoCost) || config.points.videoCost),
+    pointsBalance: Math.max(0, pointNumber(source.pointsBalance)),
+    totalEarned: Math.max(0, pointNumber(source.totalEarned)),
+    totalSpent: Math.max(0, pointNumber(source.totalSpent)),
+    imageCost: Math.max(0, pointNumber(source.imageCost, config.points.imageCost)),
+    videoCost: Math.max(0, pointNumber(source.videoCost, config.points.videoCost)),
     currentStreak: streak,
     checkedInToday: Boolean(source.checkedInToday),
     freeRemaining,
@@ -54,16 +65,17 @@ function normalizePoints(result = {}) {
       source.promoStartDate || config.points.promoStartDate,
       source.promoEndDate || config.points.promoEndDate
     ),
-    checkinPoints: Number(source.checkinPoints) || config.points.checkinPoints,
-    streakBonus: Number(source.streakBonus) || config.points.streakBonus,
+    checkinPoints: pointNumber(source.checkinPoints, config.points.checkinPoints),
+    streakBonus: pointNumber(source.streakBonus, config.points.streakBonus),
     streakDays,
     progress,
     progressPercent: Math.min(100, Math.max(0, progress / streakDays * 100)),
     nextCheckinReward: Math.max(
       0,
-      Number(source.nextCheckinReward)
-        || Number(source.checkinPoints)
-        || Number(config.points.checkinPoints)
+      pointNumber(
+        source.nextCheckinReward,
+        pointNumber(source.checkinPoints, config.points.checkinPoints)
+      )
     ),
     billingMode: source.billingMode || "daily-free"
   };
@@ -178,10 +190,10 @@ Page({
   animateDashboardNumbers(points = {}) {
     this.stopDashboardNumberAnimation();
     const targets = {
-      animatedPointsBalance: Math.max(0, Number(points.pointsBalance) || 0),
+      animatedPointsBalance: Math.max(0, pointNumber(points.pointsBalance)),
       animatedCurrentStreak: Math.max(0, Number(points.currentStreak) || 0),
       animatedFreeRemaining: Math.max(0, Number(points.freeRemaining) || 0),
-      animatedTotalEarned: Math.max(0, Number(points.totalEarned) || 0)
+      animatedTotalEarned: Math.max(0, pointNumber(points.totalEarned))
     };
     const keys = Object.keys(targets);
     const starts = keys.reduce((result, key) => {
@@ -194,11 +206,13 @@ Page({
       const progress = Math.min(1, (Date.now() - startTime) / duration);
       const eased = 1 - Math.pow(1 - progress, 3);
       const values = keys.reduce((result, key) => {
-        result[key] = Math.round(
-          starts[key] + (targets[key] - starts[key]) * eased
-        );
+        const value = starts[key] + (targets[key] - starts[key]) * eased;
+        result[key] = key === "animatedPointsBalance" || key === "animatedTotalEarned"
+          ? pointNumber(value)
+          : Math.round(value);
         return result;
       }, {});
+      if (progress >= 1) Object.assign(values, targets);
       this.setData(values);
       if (progress >= 1) {
         this._dashboardNumberTimer = null;

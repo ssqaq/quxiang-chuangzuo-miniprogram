@@ -1897,6 +1897,7 @@ function configEditorSelector(section) {
 }
 
 const MONITOR_SECTION_KEYS = Object.freeze([
+  "paymentMonitor",
   "generationQueue",
   "autoFaceFailure",
   "diagnosticLogs",
@@ -2387,6 +2388,36 @@ function emptyGenerationQueue() {
   };
 }
 
+function emptyPaymentMonitor() {
+  return {
+    available: false,
+    unavailable: false,
+    mode: "disabled",
+    stale: false,
+    severity: "disabled",
+    tone: "neutral",
+    statusText: "尚未启用",
+    summaryText: "补单监控保持关闭",
+    reasonTexts: [],
+    lastRunText: "尚未运行",
+    lastSuccessText: "尚无成功记录",
+    oldestDueText: "暂无积压",
+    durationText: "0 ms",
+    scanned: 0,
+    claimed: 0,
+    fulfilled: 0,
+    failed: 0,
+    skipped: 0,
+    dueBacklogCount: 0,
+    reviewCount: 0,
+    refundReviewCount: 0,
+    paidUnfulfilledCount: 0,
+    consecutiveFailureCount: 0,
+    metricsAvailable: true,
+    message: ""
+  };
+}
+
 function emptyCostTrend() {
   return {
     days: [],
@@ -2405,6 +2436,7 @@ function buildTodayFailureText(usageStats, moduleStates) {
 }
 
 const ADMIN_MODULE_KEYS = [
+  "paymentMonitor",
   "generationQueue",
   "usage",
   "imageProviderStats",
@@ -2630,6 +2662,91 @@ function formatQueueDuration(seconds) {
   if (value < 60) return `${Math.floor(value)}秒`;
   if (value < 3600) return `${Math.floor(value / 60)}分钟`;
   return `${Math.floor(value / 3600)}小时${Math.floor((value % 3600) / 60)}分钟`;
+}
+
+function paymentMonitorReasonText(code) {
+  const labels = {
+    RECONCILIATION_DISABLED: "补单任务未开启",
+    RECONCILE_RUN_FAILED: "本轮补单失败",
+    RECONCILE_CONSECUTIVE_FAILURES: "补单连续失败",
+    PAID_UNFULFILLED: "存在已支付未入账订单",
+    REVIEW_REQUIRED: "存在待人工复核订单",
+    REFUND_REVIEW_REQUIRED: "存在退款待复核订单",
+    DUE_BACKLOG_COUNT: "待补单数量过多",
+    DUE_BACKLOG_AGE: "最早待补单等待过久",
+    METRICS_UNAVAILABLE: "监控指标读取失败",
+    TIMER_STALE: "定时补单长时间未运行"
+  };
+  return labels[String(code || "")] || String(code || "");
+}
+
+function formatPaymentMonitor(result) {
+  const source = result && typeof result === "object" ? result : {};
+  const defaults = emptyPaymentMonitor();
+  const severity = ["disabled", "healthy", "warning", "critical"]
+    .includes(source.severity)
+    ? source.severity
+    : "disabled";
+  const tone = severity === "critical"
+    ? "danger"
+    : severity === "warning"
+      ? "warning"
+      : severity === "healthy"
+        ? "normal"
+        : "neutral";
+  const statusText = source.unavailable
+    ? "尚未部署"
+    : source.stale
+      ? "定时任务断跑"
+      : severity === "critical"
+        ? "需要立即处理"
+        : severity === "warning"
+          ? "需要检查"
+          : severity === "healthy"
+            ? "运行正常"
+            : "尚未启用";
+  const dueBacklogCount = Math.max(0, Number(source.dueBacklogCount) || 0);
+  const reviewCount = Math.max(0, Number(source.reviewCount) || 0);
+  const refundReviewCount = Math.max(0, Number(source.refundReviewCount) || 0);
+  const paidUnfulfilledCount = Math.max(0, Number(source.paidUnfulfilledCount) || 0);
+  const durationMs = Math.max(0, Number(source.durationMs) || 0);
+  return Object.assign({}, defaults, {
+    available: Boolean(source.available),
+    unavailable: Boolean(source.unavailable),
+    mode: source.mode === "enabled" ? "enabled" : "disabled",
+    stale: Boolean(source.stale),
+    severity,
+    tone,
+    statusText,
+    summaryText: `待补单 ${dueBacklogCount} · 待复核 ${reviewCount + refundReviewCount} · 支付未入账 ${paidUnfulfilledCount}`,
+    reasonTexts: (Array.isArray(source.reasonCodes) ? source.reasonCodes : [])
+      .map(paymentMonitorReasonText)
+      .filter(Boolean),
+    lastRunText: source.lastRunCompletedAt
+      ? formatAdminDate(source.lastRunCompletedAt)
+      : "尚未运行",
+    lastSuccessText: source.lastSuccessAt
+      ? formatAdminDate(source.lastSuccessAt)
+      : "尚无成功记录",
+    oldestDueText: source.oldestDueAt
+      ? formatAdminDate(source.oldestDueAt)
+      : "暂无积压",
+    durationText: durationMs >= 1000
+      ? `${(durationMs / 1000).toFixed(1)} 秒`
+      : `${durationMs} ms`,
+    scanned: Math.max(0, Number(source.scanned) || 0),
+    claimed: Math.max(0, Number(source.claimed) || 0),
+    fulfilled: Math.max(0, Number(source.fulfilled) || 0),
+    failed: Math.max(0, Number(source.failed) || 0),
+    skipped: Math.max(0, Number(source.skipped) || 0),
+    dueBacklogCount,
+    reviewCount,
+    refundReviewCount,
+    paidUnfulfilledCount,
+    consecutiveFailureCount: Math.max(0, Number(source.consecutiveFailureCount) || 0),
+    metricsAvailable: source.metricsAvailable !== false,
+    message: String(source.message || "")
+  });
 }
 
 function applyGenerationQueueFilters(queue, kind = "all", status = "all") {
@@ -5827,6 +5944,8 @@ Page({
     selectedUserDetail: null,
     diagnosticLogsLoading: false,
     diagnosticLogs: emptyAdminDiagnosticLogs(),
+    paymentMonitorLoading: false,
+    paymentMonitor: emptyPaymentMonitor(),
     generationQueueLoading: false,
     generationQueue: emptyGenerationQueue(),
     generationCleanupLoading: false,
@@ -6009,6 +6128,7 @@ Page({
     monitorExpanded: true,
     usageExpanded: true,
     monitorSections: {
+      paymentMonitor: true,
       generationQueue: true,
       autoFaceFailure: false,
       diagnosticLogs: false,
@@ -6525,6 +6645,17 @@ Page({
     return Promise.all([
       this.loadAdminModule(
         token,
+        "paymentMonitor",
+        () => cloud.getAdminPaymentMonitor(),
+        formatPaymentMonitor,
+        (paymentMonitor) => ({ paymentMonitor }),
+        {
+          label: "支付监控",
+          loadingKey: "paymentMonitorLoading"
+        }
+      ),
+      this.loadAdminModule(
+        token,
         "generationQueue",
         () => cloud.getAdminGenerationQueue(20),
         formatGenerationQueue,
@@ -6844,6 +6975,26 @@ Page({
       wx.showToast({ title: "队列已刷新", icon: "success" });
     } else if (result && !result.ok && !silent) {
       this.showError("队列刷新失败", result.error || new Error("队列读取失败"));
+    }
+  },
+
+  async refreshPaymentMonitor(silent = false) {
+    if (this.data.paymentMonitorLoading) return;
+    const result = await this.loadAdminModule(
+      this._adminLoadToken || 0,
+      "paymentMonitor",
+      () => cloud.getAdminPaymentMonitor(),
+      formatPaymentMonitor,
+      (paymentMonitor) => ({ paymentMonitor }),
+      {
+        label: "支付监控",
+        loadingKey: "paymentMonitorLoading"
+      }
+    );
+    if (result && result.ok && !silent) {
+      wx.showToast({ title: "支付监控已刷新", icon: "success" });
+    } else if (result && !result.ok && !silent) {
+      this.showError("支付监控刷新失败", result.error || new Error("支付监控读取失败"));
     }
   },
 
@@ -7508,6 +7659,7 @@ Page({
       refreshingAll: true,
       message: "正在刷新全部数据...",
       moduleStates: loadingStates,
+      paymentMonitorLoading: true,
       generationQueueLoading: true,
       usageLoading: true,
       userStatsLoading: true,
@@ -7587,6 +7739,14 @@ Page({
     })();
 
     const moduleTasks = [
+      this.loadAdminModule(
+        token,
+        "paymentMonitor",
+        () => cloud.getAdminPaymentMonitor(),
+        formatPaymentMonitor,
+        (paymentMonitor) => ({ paymentMonitor }),
+        { label: "支付监控", loadingKey: "paymentMonitorLoading" }
+      ),
       this.loadAdminModule(
         token,
         "generationQueue",

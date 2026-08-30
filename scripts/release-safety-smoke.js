@@ -20,6 +20,8 @@ const prePushHook = path.join(root, ".githooks", "pre-push");
 const postCheckoutHook = path.join(root, ".githooks", "post-checkout");
 const releaseHooksSmoke = path.join(root, "scripts", "release-hooks-smoke.js");
 const releaseWorkflow = path.join(root, ".github", "workflows", "release-gate.yml");
+const paymentManifest = path.join(root, "scripts", "payment-cloudfunctions.json");
+const paymentDeploymentSmoke = path.join(root, "scripts", "payment-deployment-smoke.js");
 
 function run(command, args, options = {}) {
   return cp.spawnSync(command, args, {
@@ -80,6 +82,11 @@ function testStaticContracts() {
   assertFileIncludes(packageScript, "源码内容 SHA256", "发布清单源码指纹");
   assertFileIncludes(packageScript, "reconfigure", "Windows CI UTF-8 输出");
   assertFileIncludes(packageScript, "scripts/install-git-hooks.ps1", "发布包包含 hooks 安装器");
+  assert.ok(fs.existsSync(paymentManifest), "支付云函数发布清单不存在");
+  assert.ok(fs.existsSync(paymentDeploymentSmoke), "支付 fail-closed smoke 不存在");
+  assertFileIncludes(versionScript, "payment-cloudfunctions.json", "支付版本组清单");
+  assertFileIncludes(packageScript, "_validate_payment_manifest", "支付正式包校验");
+  assertFileIncludes(releaseWorkflow, "payment-deployment-smoke.js", "CI 支付部署安全检查");
 }
 
 function testInstallHooks() {

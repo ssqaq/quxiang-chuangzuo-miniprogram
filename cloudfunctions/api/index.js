@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.57.65";
-const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V05765";
+const API_BUILD_VERSION = "0.57.80";
+const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V05780";
 const DEFAULT_IMAGE_MODE = "edits";
 // 图片和视频默认成本只在云函数入口维护；管理员页读取云端有效配置，
 // 避免前后端各写一份价格。入口保持单文件可启动，兼容 CloudBase 部署。
@@ -1231,6 +1231,9 @@ const {
 const DEFAULT_RETRY_STATUSES = new Set([408, 409, 425, 429, 500, 502, 503, 504]);
 const ADMIN_RUNTIME_CONFIG_COLLECTION = "admin_runtime_config";
 const ADMIN_RUNTIME_CONFIG_ID = "global";
+const PAYMENT_MONITOR_COLLECTION = "payment_monitor_status";
+const PAYMENT_MONITOR_DOCUMENT_ID = "global";
+const PAYMENT_MONITOR_STALE_MS = 5 * 60 * 1000;
 const IMAGE_RETRY_PREFERENCE_VERSION = 1;
 const DEFAULT_ADMIN_PROVIDER_LABELS = Object.freeze({
   dashscope: "阿里云百炼",
@@ -1465,6 +1468,10 @@ const REQUIRED_DATABASE_COLLECTIONS = Object.freeze([
   PHOTO_TO_VIDEO_TEMP_ASSET_COLLECTION,
   WATERMARK_TRANSFER_TEMP_COLLECTION,
   POINTS_LEDGER_COLLECTION,
+  "payment_events",
+  PAYMENT_MONITOR_COLLECTION,
+  "payment_orders",
+  "recharge_config",
   PUBLISH_EXPORT_JOB_COLLECTION,
   REPAIR_CHAIN_COLLECTION,
   POINTS_ACCOUNT_COLLECTION,
@@ -11101,6 +11108,86 @@ async function getAdminStatus(context) {
   });
 }
 
+function paymentMonitorDateMillis(value) {
+  if (!value) return 0;
+  if (value instanceof Date) return value.getTime();
+  if (typeof value.toDate === "function") return value.toDate().getTime();
+  if (typeof value.toMillis === "function") return Number(value.toMillis()) || 0;
+  const parsed = new Date(value).getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function paymentMonitorCount(value) {
+  return Math.max(0, Number(value) || 0);
+}
+
+function paymentMonitorView(value, now = new Date()) {
+  const source = value && typeof value === "object" ? value : {};
+  const available = Boolean(value);
+  const mode = source.mode === "enabled" ? "enabled" : "disabled";
+  const completedAtMs = paymentMonitorDateMillis(source.lastRunCompletedAt);
+  const nowMs = paymentMonitorDateMillis(now) || Date.now();
+  const stale = available
+    && mode === "enabled"
+    && (!completedAtMs || nowMs - completedAtMs > PAYMENT_MONITOR_STALE_MS);
+  const storedSeverity = ["disabled", "healthy", "warning", "critical"]
+    .includes(source.severity)
+    ? source.severity
+    : mode === "enabled" ? "warning" : "disabled";
+  const reasonCodes = (Array.isArray(source.reasonCodes) ? source.reasonCodes : [])
+    .map((item) => String(item || "").trim().slice(0, 80))
+    .filter((item, index, list) => /^[A-Z0-9_]+$/.test(item)
+      && list.indexOf(item) === index)
+    .slice(0, 20);
+  if (stale && !reasonCodes.includes("TIMER_STALE")) reasonCodes.push("TIMER_STALE");
+  return {
+    available,
+    mode,
+    stale,
+    severity: stale ? "critical" : storedSeverity,
+    reasonCodes,
+    lastRunStartedAt: source.lastRunStartedAt || null,
+    lastRunCompletedAt: source.lastRunCompletedAt || null,
+    lastSuccessAt: source.lastSuccessAt || null,
+    durationMs: paymentMonitorCount(source.durationMs),
+    scanned: paymentMonitorCount(source.scanned),
+    claimed: paymentMonitorCount(source.claimed),
+    fulfilled: paymentMonitorCount(source.fulfilled),
+    failed: paymentMonitorCount(source.failed),
+    skipped: paymentMonitorCount(source.skipped),
+    stoppedEarly: Boolean(source.stoppedEarly),
+    dueBacklogCount: paymentMonitorCount(source.dueBacklogCount),
+    oldestDueAt: source.oldestDueAt || null,
+    reviewCount: paymentMonitorCount(source.reviewCount),
+    refundReviewCount: paymentMonitorCount(source.refundReviewCount),
+    paidUnfulfilledCount: paymentMonitorCount(source.paidUnfulfilledCount),
+    consecutiveFailureCount: paymentMonitorCount(source.consecutiveFailureCount),
+    metricsAvailable: source.metricsAvailable !== false
+  };
+}
+
+async function getAdminPaymentMonitor(context) {
+  if (!isAdminContext(context)) return adminForbidden();
+  try {
+    const snapshot = await readDocument(
+      db.collection(PAYMENT_MONITOR_COLLECTION).doc(PAYMENT_MONITOR_DOCUMENT_ID)
+    );
+    return jsonResponse(true, paymentMonitorView(snapshot, new Date()));
+  } catch (error) {
+    if (isCollectionMissingError(error)) {
+      return jsonResponse(true, Object.assign(
+        paymentMonitorView(null, new Date()),
+        {
+          unavailable: true,
+          message: "支付监控集合尚未部署。",
+          errorCode: "PAYMENT_MONITOR_NOT_DEPLOYED"
+        }
+      ));
+    }
+    throw error;
+  }
+}
+
 async function getAdminConfig(context) {
   if (!isAdminContext(context)) return adminForbidden();
   const runtime = await loadAdminRuntimeConfig();
@@ -16244,6 +16331,8 @@ function defaultPointsAccount(openid) {
     pointsBalance: 0,
     totalEarned: 0,
     totalSpent: 0,
+    totalPurchasedPoints: 0,
+    totalReversedPurchasedPoints: 0,
     currentStreak: 0,
     lastCheckinDate: "",
     boundAt: new Date(),
@@ -17890,6 +17979,8 @@ function pointsSummary(account, quota, points, dateKey) {
     pointsBalance: Math.max(0, Number(value.pointsBalance) || 0),
     totalEarned: Math.max(0, Number(value.totalEarned) || 0),
     totalSpent: Math.max(0, Number(value.totalSpent) || 0),
+    totalPurchasedPoints: Math.max(0, Number(value.totalPurchasedPoints) || 0),
+    totalReversedPurchasedPoints: Math.max(0, Number(value.totalReversedPurchasedPoints) || 0),
     currentStreak: Math.max(0, Number(value.currentStreak) || 0),
     lastCheckinDate: value.lastCheckinDate || "",
     checkedInToday,
@@ -22331,6 +22422,9 @@ exports.main = async (event = {}, context) => {
       result = await releaseTransferMedia(requestEvent, context);
     }
     else if (action === "getAdminStatus") result = await getAdminStatus(context);
+    else if (action === "getAdminPaymentMonitor") {
+      result = await getAdminPaymentMonitor(context);
+    }
     else if (action === "getTencentFaceFusionAdminStatus") {
       result = await getTencentFaceFusionAdminStatus(context);
     }
@@ -22712,6 +22806,9 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     validateRuntimePatch,
     mergeRuntimeConfig,
     getAdminStatus,
+    paymentMonitorDateMillis,
+    paymentMonitorView,
+    getAdminPaymentMonitor,
     getAdminConfig,
     getAdminImageApiKeys,
     normalizeUserGender,

@@ -370,6 +370,10 @@ function Copy-ReleaseFileSnapshot {
 
 function Get-ReleaseVersionPaths {
     param([Parameter(Mandatory = $true)][string]$SourceRoot)
+    $versionGroupCommand = Get-Command "Get-VersionGroupPaths" -CommandType Function -ErrorAction SilentlyContinue
+    if ($null -ne $versionGroupCommand) {
+        return @(Get-VersionGroupPaths -SourceRoot $SourceRoot)
+    }
     $paths = @(
         "config.js",
         "cloudfunctions/api/index.js",
@@ -380,6 +384,28 @@ function Get-ReleaseVersionPaths {
     )
     if (Test-Path -LiteralPath (Join-Path $SourceRoot "cloudfunctions/watermark-gateway/package.json") -PathType Leaf) {
         $paths += "cloudfunctions/watermark-gateway/package.json"
+    }
+    $paymentManifestRelative = "scripts/payment-cloudfunctions.json"
+    $paymentManifestPath = Join-Path $SourceRoot $paymentManifestRelative
+    if (Test-Path -LiteralPath $paymentManifestPath -PathType Leaf) {
+        try {
+            $paymentManifest = Get-Content -LiteralPath $paymentManifestPath -Raw -Encoding UTF8 |
+                ConvertFrom-Json -ErrorAction Stop
+        }
+        catch {
+            throw "支付云函数清单不是有效 JSON：$paymentManifestPath"
+        }
+        if ([int]$paymentManifest.schemaVersion -ne 1 -or @($paymentManifest.functions).Count -ne 3) {
+            throw "支付云函数清单版本或函数数量无效：$paymentManifestPath"
+        }
+        $paths += $paymentManifestRelative
+        $paths += [string]$paymentManifest.sharedCore.packageJson
+        foreach ($paymentFunction in @($paymentManifest.functions)) {
+            $paths += [string]$paymentFunction.packageJson
+            $paths += [string]$paymentFunction.packageLock
+            $paths += [string]$paymentFunction.config
+            $paths += ([string]$paymentFunction.vendoredCoreRoot).TrimEnd('/', '\') + "/package.json"
+        }
     }
     return @($paths)
 }

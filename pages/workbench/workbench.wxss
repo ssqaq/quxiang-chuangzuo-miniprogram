@@ -58,6 +58,66 @@ page {
   margin-left: 16rpx;
 }
 
+.user-center-entry {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  width: 82rpx;
+  margin-left: 12rpx;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  color: #2d5fae;
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+
+.user-center-entry-hover {
+  opacity: 0.82;
+  transform: scale(0.96);
+}
+
+.user-center-avatar-shell {
+  position: relative;
+  width: 66rpx;
+  height: 66rpx;
+}
+
+.user-center-avatar,
+.user-center-avatar-fallback {
+  display: flex;
+  width: 66rpx;
+  height: 66rpx;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 4rpx solid rgba(255, 255, 255, 0.92);
+  border-radius: 50%;
+  background: linear-gradient(145deg, #dceaff 0%, #edf5ff 100%);
+  color: #1f6feb;
+  font-size: 26rpx;
+  font-weight: 800;
+  box-shadow: 0 8rpx 20rpx rgba(31, 111, 235, 0.18);
+}
+
+.user-center-red-dot {
+  position: absolute;
+  top: 0;
+  right: -2rpx;
+  width: 16rpx;
+  height: 16rpx;
+  border: 3rpx solid #ffffff;
+  border-radius: 50%;
+  background: #f04444;
+  box-shadow: 0 4rpx 10rpx rgba(240, 68, 68, 0.3);
+}
+
+.user-center-label {
+  margin-top: 4rpx;
+  font-size: 20rpx;
+  font-weight: 700;
+  line-height: 26rpx;
+}
+
 .workbench-title {
   color: #182132;
   font-size: 36rpx;
@@ -101,7 +161,12 @@ page {
 .workbench-welcome {
   position: relative;
   z-index: 2;
-  margin-top: 56rpx;
+  margin-top: 36rpx;
+}
+
+.hero-connection {
+  display: inline-flex;
+  margin-top: 18rpx;
 }
 
 .welcome-title {

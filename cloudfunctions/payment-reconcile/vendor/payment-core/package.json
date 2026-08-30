@@ -1,0 +1,12 @@
+{
+  "name": "aips-payment-core",
+  "version": "0.57.80",
+  "private": true,
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test tests/callback-fulfillment.test.js tests/entrypoints.test.js tests/reconcile.test.js tests/signature.test.js tests/state-idempotency-config.test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -2575,7 +2575,7 @@
       <view>
         <view class="monitor-toggle-title">运行监控</view>
         <view class="monitor-toggle-subtitle">
-          {{deployment && deployment.face.ready && deployment.analysis.ready && deployment.image.ready && deployment.video.ready ? '部署检查通过' : '部署状态待确认'}}
+          支付 {{paymentMonitor.statusText}} · {{deployment && deployment.face.ready && deployment.analysis.ready && deployment.image.ready && deployment.video.ready ? '部署检查通过' : '部署状态待确认'}}
           · 错误日志 {{diagnosticLogs.summary.errorCount || 0}} 条
         </view>
       </view>
@@ -2628,6 +2628,88 @@
           >
             <text>探针历史</text>
             <text class="monitor-overview-value">{{autoFaceProbeHistory.history.length}}</text>
+          </view>
+        </view>
+      </view>
+
+      <view
+        id="monitor-section-paymentMonitor"
+        class="card admin-section payment-monitor-card monitor-fold-card tone-{{paymentMonitor.tone}} {{monitorSections.paymentMonitor ? 'is-open' : 'is-collapsed'}}"
+      >
+        <view class="admin-section-head">
+          <view class="monitor-section-head-main">
+            <view class="monitor-section-title-row">
+              <text class="monitor-status-dot {{paymentMonitor.tone === 'danger' ? 'is-danger' : paymentMonitor.tone === 'warning' ? 'is-warning' : ''}}"></text>
+              <text class="monitor-section-title">支付与补单</text>
+            </view>
+            <text class="monitor-section-summary">
+              {{paymentMonitor.statusText}} · {{paymentMonitor.summaryText}} · 最近运行 {{paymentMonitor.lastRunText}}
+            </text>
+          </view>
+          <view class="admin-section-tools">
+            <view class="config-state {{paymentMonitor.tone === 'normal' ? 'is-ready' : 'is-off'}}">
+              {{moduleStates.paymentMonitor.label}}
+            </view>
+            <button
+              class="usage-refresh-button"
+              catchtap="refreshPaymentMonitor"
+              loading="{{paymentMonitorLoading}}"
+              disabled="{{paymentMonitorLoading}}"
+            >{{paymentMonitorLoading ? '读取中' : '刷新'}}</button>
+            <view class="admin-action-slot">
+              <view
+                class="monitor-section-toggle-button"
+                data-section="paymentMonitor"
+                catchtap="toggleMonitorSection"
+                hover-class="control-tap"
+                role="button"
+                aria-label="{{monitorSections.paymentMonitor ? '收起支付监控' : '展开支付监控'}}"
+              >
+                <text>{{monitorSections.paymentMonitor ? '收起' : '展开'}}</text>
+                <text class="monitor-section-chevron {{monitorSections.paymentMonitor ? 'is-open' : ''}}">⌄</text>
+              </view>
+            </view>
+          </view>
+        </view>
+
+        <view wx:if="{{monitorSections.paymentMonitor}}" class="monitor-fold-body payment-monitor-body">
+          <view wx:if="{{moduleStates.paymentMonitor.status === 'loading'}}" class="usage-message">
+            正在读取支付监控...
+          </view>
+          <view wx:if="{{moduleStates.paymentMonitor.status === 'failed'}}" class="usage-message is-warn">
+            {{moduleStates.paymentMonitor.message || paymentMonitor.message || '支付监控读取失败，请点击刷新。'}}
+          </view>
+          <view class="payment-monitor-grid">
+            <view class="payment-monitor-metric">
+              <text>待补单</text>
+              <text>{{paymentMonitor.dueBacklogCount}}</text>
+            </view>
+            <view class="payment-monitor-metric">
+              <text>待复核</text>
+              <text>{{paymentMonitor.reviewCount + paymentMonitor.refundReviewCount}}</text>
+            </view>
+            <view class="payment-monitor-metric {{paymentMonitor.paidUnfulfilledCount ? 'is-danger' : ''}}">
+              <text>支付未入账</text>
+              <text>{{paymentMonitor.paidUnfulfilledCount}}</text>
+            </view>
+            <view class="payment-monitor-metric {{paymentMonitor.consecutiveFailureCount ? 'is-danger' : ''}}">
+              <text>连续失败</text>
+              <text>{{paymentMonitor.consecutiveFailureCount}}</text>
+            </view>
+          </view>
+          <view class="payment-monitor-detail">
+            <view><text>本轮扫描</text><text>{{paymentMonitor.scanned}}</text></view>
+            <view><text>本轮领取</text><text>{{paymentMonitor.claimed}}</text></view>
+            <view><text>本轮入账</text><text>{{paymentMonitor.fulfilled}}</text></view>
+            <view><text>本轮耗时</text><text>{{paymentMonitor.durationText}}</text></view>
+            <view><text>最近成功</text><text>{{paymentMonitor.lastSuccessText}}</text></view>
+            <view><text>最早积压</text><text>{{paymentMonitor.oldestDueText}}</text></view>
+          </view>
+          <view wx:if="{{paymentMonitor.reasonTexts.length}}" class="payment-monitor-reasons">
+            <text wx:for="{{paymentMonitor.reasonTexts}}" wx:key="*this">{{item}}</text>
+          </view>
+          <view wx:if="{{!paymentMonitor.metricsAvailable}}" class="usage-message is-warn">
+            本轮订单指标读取失败，快照已标记为需要检查。
           </view>
         </view>
       </view>

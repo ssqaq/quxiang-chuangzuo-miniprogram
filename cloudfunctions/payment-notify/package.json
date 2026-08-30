@@ -1,0 +1,13 @@
+{
+  "name": "aips-payment-notify",
+  "version": "0.57.79",
+  "private": true,
+  "main": "index.js",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "aips-payment-core": "file:vendor/payment-core",
+    "wx-server-sdk": "4.0.2"
+  }
+}

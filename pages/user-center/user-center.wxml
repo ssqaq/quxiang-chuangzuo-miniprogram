@@ -1,0 +1,118 @@
+<view class="user-center-page">
+  <view wx:if="{{loading}}" class="user-center-loading" aria-label="正在加载用户中心">
+    <view class="skeleton skeleton-profile"></view>
+    <view class="skeleton skeleton-balance"></view>
+    <view class="skeleton skeleton-quick"></view>
+    <view class="skeleton skeleton-records"></view>
+  </view>
+
+  <block wx:else>
+    <view class="profile-card">
+      <image
+        wx:if="{{profile.avatarPath}}"
+        class="profile-avatar"
+        src="{{profile.avatarPath}}"
+        mode="aspectFill"
+      ></image>
+      <view wx:else class="profile-avatar profile-avatar-fallback">我</view>
+      <view class="profile-copy">
+        <view class="profile-kicker">微信账户</view>
+        <view class="profile-name">{{profile.nickname}}</view>
+        <view class="profile-caption">头像与昵称来自当前微信账号</view>
+      </view>
+      <view class="profile-badge">已绑定</view>
+      <view wx:if="{{profileError}}" class="profile-hint">{{profileError}}</view>
+    </view>
+
+    <view class="balance-card">
+      <view class="balance-orbit balance-orbit-large"></view>
+      <view class="balance-orbit balance-orbit-small"></view>
+      <view class="balance-content">
+        <view class="balance-label">当前积分</view>
+        <view class="balance-line">
+          <text class="balance-value {{account.pointsBalanceText === '--' ? 'balance-value-placeholder' : ''}}">{{account.pointsBalanceText}}</text>
+          <text class="balance-unit">积分</text>
+        </view>
+        <view class="balance-caption">图片与视频创作统一使用积分</view>
+        <button wx:if="{{rechargeVisible}}" class="balance-recharge" bindtap="openRecharge" aria-label="立即充值">
+          <text>立即充值</text>
+          <text class="balance-recharge-arrow">→</text>
+        </button>
+        <view wx:if="{{accountError}}" class="balance-message">{{accountError}}</view>
+      </view>
+    </view>
+
+    <view class="quick-grid">
+      <button wx:if="{{rechargeVisible}}" class="quick-card" bindtap="openRecharge" aria-label="积分充值">
+        <view class="quick-icon">充</view>
+        <view class="quick-copy">
+          <view class="quick-title">积分充值</view>
+          <view class="quick-description">固定套餐</view>
+        </view>
+      </button>
+      <button class="quick-card" bindtap="openAccountRecords" aria-label="收支记录">
+        <view class="quick-icon quick-icon-records">账</view>
+        <view class="quick-copy">
+          <view class="quick-title">收支记录</view>
+          <view class="quick-description">充值与消费</view>
+        </view>
+      </button>
+    </view>
+
+    <view wx:if="{{rechargeConfigError && !accountServicePreparing}}" class="service-message service-message-error">
+      <text>{{rechargeConfigError}}</text>
+      <button bindtap="retryLoad">重新加载</button>
+    </view>
+
+    <view class="account-panel">
+      <view class="panel-heading">
+        <view class="panel-title">最近记录</view>
+        <button class="panel-all" bindtap="openAccountRecords" aria-label="查看全部收支记录">全部 <text>›</text></button>
+      </view>
+
+      <view wx:if="{{accountServicePreparing}}" class="records-state records-state-preparing">
+        <view class="records-state-icon">待</view>
+        <view>
+          <view class="records-state-title">账户功能准备中</view>
+          <view class="records-state-description">服务启用后自动显示真实余额和最近记录</view>
+        </view>
+      </view>
+      <view wx:elif="{{recordsError}}" class="records-state records-state-error">
+        <view>
+          <view class="records-state-title">最近记录暂时无法读取</view>
+          <view class="records-state-description">请稍后重新加载</view>
+        </view>
+        <button class="records-retry" bindtap="retryLoad">重试</button>
+      </view>
+      <view wx:elif="{{!recentRecords.length}}" class="records-state records-state-empty">
+        <view class="records-state-icon">账</view>
+        <view>
+          <view class="records-state-title">还没有收支记录</view>
+          <view class="records-state-description">充值、消费或退回后会显示在这里</view>
+        </view>
+      </view>
+      <view wx:else class="record-list">
+        <view wx:for="{{recentRecords}}" wx:key="id" class="record-row">
+          <view class="record-icon record-icon-{{item.tone}}">{{item.icon}}</view>
+          <view class="record-copy">
+            <view class="record-title">{{item.description}}</view>
+            <view class="record-time">{{item.createdAt}}</view>
+          </view>
+          <view class="record-side">
+            <view class="record-amount record-amount-{{item.tone}}">{{item.amountText}}</view>
+            <view wx:if="{{item.balanceAfterText}}" class="record-balance">{{item.balanceAfterText}}</view>
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <view wx:if="{{hasAnyError}}" class="page-retry-wrap">
+      <button class="page-retry" bindtap="retryLoad">重新加载未成功的内容</button>
+    </view>
+
+    <view class="account-note {{accountServicePreparing ? 'account-note-preparing' : ''}}">
+      <view class="account-note-icon">{{accountServicePreparing ? '待' : '安'}}</view>
+      <text>{{accountServicePreparing ? '账户功能正在准备，启用后会自动显示真实余额与记录。' : '账户余额与收支记录仅绑定当前微信账号。'}}</text>
+    </view>
+  </block>
+</view>

@@ -1,0 +1,124 @@
+<view class="recharge-page">
+  <view wx:if="{{loading}}" class="recharge-loading" aria-label="正在加载充值配置">
+    <view class="skeleton skeleton-hero"></view>
+    <view class="skeleton skeleton-package"></view>
+    <view class="skeleton skeleton-package"></view>
+    <view class="skeleton skeleton-button"></view>
+  </view>
+
+  <block wx:else>
+    <view class="recharge-hero card">
+      <view class="recharge-kicker">积分充值</view>
+      <view class="recharge-title">选择适合你的积分套餐</view>
+      <view class="recharge-subtitle">套餐与到账积分由服务端确认，支付前请核对金额。</view>
+      <view class="hero-bubble hero-bubble-one"></view>
+      <view class="hero-bubble hero-bubble-two"></view>
+    </view>
+
+    <view wx:if="{{errorMessage}}" class="state-panel state-panel-error">
+      <view class="state-icon">!</view>
+      <view class="state-copy">
+        <view class="state-title">充值配置加载失败</view>
+        <view class="state-description">{{errorMessage}}</view>
+      </view>
+      <button class="state-action" bindtap="retryConfig">重试</button>
+    </view>
+
+    <block wx:else>
+      <view class="section-heading">
+        <view>
+          <view class="section-title">固定套餐</view>
+          <view class="section-subtitle">点击套餐即可选择</view>
+        </view>
+        <view class="secure-badge">服务端校验</view>
+      </view>
+
+      <view wx:if="{{!packages.length}}" class="empty-panel card">
+        <view class="empty-icon">空</view>
+        <view class="empty-title">暂无可选套餐</view>
+        <view class="empty-description">套餐更新中，请稍后下拉刷新。</view>
+      </view>
+      <view wx:else class="package-list">
+        <view
+          wx:for="{{packages}}"
+          wx:key="productId"
+          class="package-card {{selectedProductId === item.productId ? 'package-card-selected' : ''}}"
+          data-product-id="{{item.productId}}"
+          bindtap="selectPackage"
+          role="button"
+          aria-label="{{item.amountText}}购买{{item.grantPoints}}积分"
+        >
+          <view class="package-check">
+            <view class="package-check-dot"></view>
+          </view>
+          <view class="package-price">{{item.amountText}}</view>
+          <view class="package-equals">=</view>
+          <view class="package-points">
+            <text class="package-points-number">{{item.grantPoints}}</text>
+            <text class="package-points-unit">积分</text>
+          </view>
+          <view wx:if="{{item.grantPoints === 688}}" class="package-tag">最划算</view>
+        </view>
+      </view>
+
+      <view class="channel-card card">
+        <view class="channel-heading">
+          <view>
+            <view class="section-title">支付方式</view>
+            <view class="section-subtitle">当前可用通道由服务端实时控制</view>
+          </view>
+        </view>
+        <view wx:if="{{hasWxpay}}" class="channel-row">
+          <view class="channel-icon">微</view>
+          <view class="channel-copy">
+            <view class="channel-title">微信支付</view>
+            <view class="channel-description">安全支付，到账结果以服务端确认为准</view>
+          </view>
+          <view class="channel-selected">已选择</view>
+        </view>
+        <view wx:else class="channel-disabled">
+          <view class="channel-disabled-icon">…</view>
+          <view>
+            <view class="channel-disabled-title">支付通道准备中</view>
+            <view class="channel-disabled-description">{{channelMessage}}</view>
+          </view>
+        </view>
+      </view>
+
+      <view wx:if="{{paymentStatus !== 'idle'}}" class="payment-status payment-status-{{paymentStatus}}">
+        <view class="payment-status-icon">
+          {{paymentStatus === 'success' ? '✓' : paymentStatus === 'failed' ? '!' : paymentStatus === 'canceled' ? '×' : '…'}}
+        </view>
+        <view class="payment-status-copy">
+          <view class="payment-status-title">{{statusTitle}}</view>
+          <view class="payment-status-description">{{statusMessage}}</view>
+          <view wx:if="{{currentBalanceText}}" class="payment-status-balance">当前余额 {{currentBalanceText}} 积分</view>
+        </view>
+        <button wx:if="{{paymentStatus === 'success'}}" class="records-link" bindtap="openRecords">看记录</button>
+      </view>
+
+      <view wx:if="{{!eligible}}" class="state-panel state-panel-disabled">
+        <view class="state-icon">候</view>
+        <view class="state-copy">
+          <view class="state-title">充值暂未开放</view>
+          <view class="state-description">{{unavailableMessage}}</view>
+        </view>
+      </view>
+
+      <button
+        wx:if="{{eligible}}"
+        class="pay-button"
+        bindtap="submitPayment"
+        loading="{{paying}}"
+        disabled="{{paying || !hasWxpay || !selectedProductId || !packages.length}}"
+      >
+        {{paying ? '处理中...' : !hasWxpay ? '支付通道准备中' : '确认微信支付'}}
+      </button>
+
+      <view class="payment-note">
+        <view class="note-dot"></view>
+        <text>请勿重复点击支付。支付完成后如未立即到账，系统会继续确认订单。</text>
+      </view>
+    </block>
+  </block>
+</view>

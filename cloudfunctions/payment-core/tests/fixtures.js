@@ -1,0 +1,44 @@
+"use strict";
+
+// 固定非生产向量，来自星聚官方 SDK_2.0.zip 的示例配置。
+// SDK URL: https://pay.xjukeji.cn/static/files/SDK_2.0.zip
+// ZIP SHA256: 307a5ea75e27c81096b2825acdc2a093d86026858a932d07024fb709c602e1ff
+const MERCHANT_PRIVATE_KEY = "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCBIB1e5lAYtFyXq5I8UIQ6KidYZcWkn0SwVS8Rk0SNZVrvL/UJk6Q1zkJs4pUCykTBS/tTrP2rNPOsK1VO/AQHIzhvAujsv7UK2LptcsuNRPCF5GYxndQnOawAGKNQKsMuNcDzyuyTMbZIBEYSRWIoU3dMz4wWEFso/VdVS4uKTZWZnBOeCDdzDAJ7TwbmaOkT919DfZbXAoMH9n3sG4BMpqQExTDoFY6dq6EPXCWVZgoUfecAgNKSfX5TagSUaAxq4eF5vsUfvj+LFpYIrIssmSVErtZuRXLHWVSEbsNxdDPNuS3BtxWEY7GRPF9RJevtoC5L5LN7Gn+RYCqZNZv7AgMBAAECggEAEA6ZTb11hQzwsrUAM1s5MNkgbsABIDk6BnTMAfMpRC1awyxYhqoDHTnFTYWuTVwvyUW/PtGKnelbdTPSS5x6jRSr0N+GGDgNYF2Wbpkm3Ni6Jubsb7ZrtRED5Y3Vc9j4JTKZXaJaDEJ9+LNSBLWiFi0C7zH5U/O8ElB8CrxL4ZUaZv0JgV9NcDpS5jAtpPSyBLrdhbEheertJiHQU0V+FaaXq8taNcYIA/Xim6+vqcFFtUA3PBBTXHn/NE5uasXi+N+De4IT+dBmirzVSZjviDPr9RSBUi6KPUSXx6eDa26SKeEqJZvBtlASDM+ZC0yhDz0eyV49tMjk7eF5fnCIwQKBgQC2nEiR2t5Q02tHaKesZMRGOwxEyMFQj6viDW+Yffg59Tu6QYuqdR558/zmzWcJFMH3DVQzTXpzPNU9TA3/yT/Q42iKBP70K8O9tJO+gd/jLHLqgw90Wyh2b4FJXXQqVQMkxGBQKRfNi6krWigJNBs8Z8IhczorQHYNbBIUI05poQKBgQC1BRI8zKf+85GuJXTxJ93RXbkOQMUIhT/6eyFTZvCLC9Qqba1/1ouNbtmxNsFFIC+n+rHRN9btKt90m9YFvXD90m3y34M88QjvaQcA1Kng9Q6Xia8DizpVIYGAR/Pfn36BZQeHHVz9te6QJ9hVOgZO3GG62Echd9M/rwOzuU14GwKBgFGtS2Q5khByz9wLuluIYqXLCWzGoninGkksm0qIpXs+7e0cHh0q72u6rtaI7toH983Jn2ym7esXPYWCPAy5dhq3bG23WFXcMVvrpd2i94IDwo6T+lif4VRAAYLQEwJQLezHDREtoCDmo87pL1kWfkwhWJpfkJgB6AuO1/M763mhAoGBAIPEGj9plcwOzndeSp6UL3IMb/1BBmuqWyTgZiTIpMYCKUFtLsMEj/a2vv2xZsQDpsz2vmMV63weHiRKn2L0QABzIZeOPYCpz6A96lwfcT0QBLwn+95vhVmclyCiv5GDDtnviag/poYD3ZDPgDihkR/sabNRZY2mJH6RzfcQJqULAoGALkSkqr0bplhfyAA6bO42l64th4YUqwouTEgp7rE36wQ28THj0a88HLU4CeiCR6LQAEGpKk04Vst97C1Q5ZeD5rc4xKINl8K5HUH8SsdMDq3r22xur2qr4kanW4hf2P/ehOeEKGuhSL+ZWeApvt1c0rqH4MQT1/7qR/dO2MikkMg=";
+const PLATFORM_PUBLIC_KEY = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApHG7SIN16fd9uZfjZunZuAReemVQe5YNxBhbkogsRkZ86xuDVDCmhRXEzw7Ta3tXPnMIFRJFdjOCfFVarqcOLICtBiiZZ7Y4D6aIMhmOSliIJ3qWUnU75Wr2WMTIJ1o2pnPmczQ2YjAAy1DtQCc/qs35j24zuNYZw2WluSdiMckPFgge93RK6cq/Feqfuzq7y+m87x02gxbbTGVf24YH2f7H9qZSKCxRXHQoVIWTlyHULcY3OY+1CVdU2SKlIWHJ31eoPznXBLUo0UB0rNZnYrHG2mIlD2S119UTwZwx9WTG/v7Cb2lHVybjfL5/KLitddfqcLjJsYXh6KhEtsO6CwIDAQAB";
+
+const SIGN_PARAMS = Object.freeze({
+  type: "wxpay",
+  notify_url: "https://example.invalid/xingju/notify",
+  out_trade_no: "PAY00000000000000000000000000001",
+  name: "AIPS 100 积分",
+  money: "9.90",
+  pid: "1000",
+  timestamp: "1700000000"
+});
+
+const SIGN_CONTENT = "money=9.90&name=AIPS 100 积分&notify_url=https://example.invalid/xingju/notify&out_trade_no=PAY00000000000000000000000000001&pid=1000&timestamp=1700000000&type=wxpay";
+const EXPECTED_SIGNATURE = "NOXzwo3ctCqsph9rilxz+6hDZa7yEmDILt4VSsaNDAwyiu5QQVLTbuQNgDH5BBKzvt4aLWVVhMvd4aqtXeDIWp8TXy5jJLCy1Uvn/lzoA6zjfirmoSuzwEcwvNF7zxrI7c7D3ayVzwBaTQawTCpVdp1jQ7ZIcqiouDvKsZ01Q0y9rXl2ROeQ6q5pXLL5JFWd4Y3JaRgNiBTjanj5vdcUShQKkWqLqG8qFPAv0yAWT5CGjSyboriFWKlJWOeBCyrc66xH79DEEfFKCki87jUqofuF0htW5lITjQiJGFo7b2GE/hzAQi0Yw1/11aQ9AJIliSsAbpNwT9C866Rc6PrfDQ==";
+const MD5_KEY = "fixture-md5-key";
+
+function providerConfig(overrides = {}) {
+  return Object.assign({
+    apiBaseUrl: "https://example.invalid",
+    pid: "1000",
+    platformPublicKey: PLATFORM_PUBLIC_KEY,
+    merchantPrivateKey: MERCHANT_PRIVATE_KEY,
+    notifyUrl: "https://merchant.example.invalid/xingju/notify",
+    returnUrl: "",
+    signatureMode: "rsa",
+    md5Key: ""
+  }, overrides);
+}
+
+module.exports = {
+  MERCHANT_PRIVATE_KEY,
+  PLATFORM_PUBLIC_KEY,
+  SIGN_PARAMS,
+  SIGN_CONTENT,
+  EXPECTED_SIGNATURE,
+  MD5_KEY,
+  providerConfig
+};

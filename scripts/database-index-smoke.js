@@ -16,7 +16,7 @@ function assertNonBlankString(value, label) {
 
 assert.strictEqual(manifest.version, 1, "manifest.version 必须为 1");
 assert.ok(Array.isArray(manifest.indexes), "manifest.indexes 必须是数组");
-assert.strictEqual(manifest.indexes.length, 15, "manifest.indexes.length 必须为 15");
+assert.strictEqual(manifest.indexes.length, 24, "manifest.indexes.length 必须为 24");
 assert.deepStrictEqual(
   manifest.indexes.find((index) => (
     index.collection === "generation_operations"
@@ -34,6 +34,59 @@ assert.deepStrictEqual(
   },
   "generation_operations 旧任务清理索引不完整"
 );
+assert.strictEqual(
+  manifest.indexes.find((index) => (
+    index.collection === "payment_orders"
+    && index.name === "uniq_out_trade_no"
+  )).unique,
+  true,
+  "支付订单号索引必须唯一"
+);
+assert.strictEqual(
+  manifest.indexes.find((index) => (
+    index.collection === "payment_orders"
+    && index.name === "uniq_openid_hash_request_id_hash"
+  )).unique,
+  true,
+  "用户请求幂等索引必须唯一"
+);
+assert.deepStrictEqual(
+  manifest.indexes.find((index) => (
+    index.collection === "point_ledger"
+    && index.name === "idx_openid_created_at_id"
+  )),
+  {
+    collection: "point_ledger",
+    name: "idx_openid_created_at_id",
+    keys: [
+      { name: "openid", direction: 1 },
+      { name: "createdAt", direction: -1 },
+      { name: "_id", direction: -1 }
+    ],
+    unique: false,
+    reason: "按用户以时间和文档编号稳定游标分页读取积分流水"
+  },
+  "point_ledger 用户稳定游标索引不完整"
+);
+assert.deepStrictEqual(
+  manifest.indexes.find((index) => (
+    index.collection === "point_ledger"
+    && index.name === "idx_openid_type_created_at_id"
+  )),
+  {
+    collection: "point_ledger",
+    name: "idx_openid_type_created_at_id",
+    keys: [
+      { name: "openid", direction: 1 },
+      { name: "type", direction: 1 },
+      { name: "createdAt", direction: -1 },
+      { name: "_id", direction: -1 }
+    ],
+    unique: false,
+    reason: "按用户和流水类型以稳定游标分页读取积分流水"
+  },
+  "point_ledger 类型稳定游标索引不完整"
+);
 
 const identities = new Set();
 
@@ -48,7 +101,7 @@ manifest.indexes.forEach((index, indexPosition) => {
   assertNonBlankString(index.name, `${indexPath}.name`);
   assert.ok(Array.isArray(index.keys), `${indexPath}.keys 必须是数组`);
   assert.ok(index.keys.length > 0, `${indexPath}.keys 不能为空`);
-  assert.strictEqual(index.unique, false, `${indexPath}.unique 必须为 false`);
+  assert.strictEqual(typeof index.unique, "boolean", `${indexPath}.unique 必须是布尔值`);
   assertNonBlankString(index.reason, `${indexPath}.reason`);
 
   const identity = `${index.collection}\u0000${index.name}`;
@@ -977,12 +1030,6 @@ async function runManagerTests() {
       name: "keys-non-array",
       value: copyManifest((value) => {
         value.indexes[0].keys = {};
-      })
-    },
-    {
-      name: "unique-true",
-      value: copyManifest((value) => {
-        value.indexes[0].unique = true;
       })
     },
     {

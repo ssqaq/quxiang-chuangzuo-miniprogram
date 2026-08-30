@@ -1,0 +1,79 @@
+<view class="records-page">
+  <view class="records-hero card">
+    <view class="records-kicker">账户明细</view>
+    <view class="records-title">每一笔积分，都有记录</view>
+    <view class="records-subtitle">充值、消费、退回和签到奖励按时间倒序展示。</view>
+    <view class="hero-decoration"></view>
+  </view>
+
+  <scroll-view class="filter-scroll" scroll-x="true" show-scrollbar="false">
+    <view class="filter-row">
+      <button
+        wx:for="{{filters}}"
+        wx:key="id"
+        class="filter-button {{activeFilter === item.id ? 'filter-button-active' : ''}}"
+        data-filter="{{item.id}}"
+        bindtap="chooseFilter"
+        disabled="{{loading || loadingMore}}"
+      >{{item.label}}</button>
+    </view>
+  </scroll-view>
+
+  <view wx:if="{{loading}}" class="records-loading" aria-label="正在加载收支记录">
+    <view class="skeleton-row"></view>
+    <view class="skeleton-row"></view>
+    <view class="skeleton-row"></view>
+    <view class="skeleton-row"></view>
+  </view>
+
+  <view wx:elif="{{errorMessage && !records.length}}" class="state-panel state-error">
+    <view class="state-icon">!</view>
+    <view class="state-title">记录加载失败</view>
+    <view class="state-description">{{errorMessage}}</view>
+    <button class="retry-button" bindtap="retryLoad">重新加载</button>
+  </view>
+
+  <view wx:elif="{{!records.length}}" class="state-panel empty-state">
+    <view class="state-icon empty-state-icon">账</view>
+    <view class="state-title">暂无{{activeFilter === 'all' ? '' : '此类'}}记录</view>
+    <view class="state-description">产生新的积分变化后会显示在这里。</view>
+  </view>
+
+  <view wx:else class="record-list">
+    <view wx:for="{{records}}" wx:key="id" class="record-card card">
+      <view class="record-icon record-icon-{{item.tone}}">{{item.icon}}</view>
+      <view class="record-copy">
+        <view class="record-type">{{item.typeLabel}}</view>
+        <view class="record-description">{{item.description}}</view>
+        <view class="record-time">{{item.createdAt}}</view>
+      </view>
+      <view class="record-side">
+        <view class="record-amount record-amount-{{item.tone}}">{{item.amountText}}</view>
+        <view wx:if="{{item.balanceAfterText}}" class="record-balance">{{item.balanceAfterText}}</view>
+      </view>
+    </view>
+
+    <view wx:if="{{errorMessage}}" class="inline-error">
+      <text>{{errorMessage}}</text>
+      <button class="inline-retry" bindtap="retryLoad">重试</button>
+    </view>
+
+    <view wx:if="{{paginationLimited}}" class="pagination-limited">
+      <text>当前只显示最近 50 条记录</text>
+    </view>
+
+    <button
+      class="load-more-button"
+      bindtap="loadMore"
+      loading="{{loadingMore}}"
+      disabled="{{loadingMore || !hasMore}}"
+    >
+      {{loadingMore ? '加载中...' : hasMore ? '加载更多' : paginationLimited ? '已显示最近 50 条' : '已经到底了'}}
+    </button>
+  </view>
+
+  <view class="records-note">
+    <view class="note-dot"></view>
+    <text>记录仅展示当前微信账号的安全字段，不展示支付密钥或平台原始参数。</text>
+  </view>
+</view>

@@ -2,6 +2,7 @@ const cloud = require("../../services/cloud");
 const diagnosticLog = require("../../utils/diagnostic-log");
 
 const WORKBENCH_URL = "/pages/workbench/workbench";
+const USER_CENTER_URL = "/pages/user-center/user-center";
 
 function privacyAuthorization() {
   return new Promise((resolve, reject) => {
@@ -25,15 +26,19 @@ Page({
     avatarPath: "",
     avatarFileID: "",
     fromCheckIn: false,
+    fromUserCenter: false,
+    pageTitle: "完善用户资料",
     errorMessage: ""
   },
 
   onLoad(options = {}) {
     const fromCheckIn = options.from === "checkin";
-    this.setData({ fromCheckIn });
+    const fromUserCenter = options.from === "user-center";
+    const pageTitle = fromCheckIn ? "签到资料" : fromUserCenter ? "编辑个人资料" : "完善用户资料";
+    this.setData({ fromCheckIn, fromUserCenter, pageTitle });
     if (typeof wx.setNavigationBarTitle === "function") {
       wx.setNavigationBarTitle({
-        title: fromCheckIn ? "签到资料" : "完善用户资料"
+        title: pageTitle
       });
     }
     this.loadProfile();
@@ -146,7 +151,18 @@ Page({
       } else {
         wx.showToast({ title: "资料已保存", icon: "success" });
       }
-      setTimeout(() => wx.reLaunch({ url: WORKBENCH_URL }), 650);
+      setTimeout(() => {
+        if (this.data.fromUserCenter) {
+          const pages = typeof getCurrentPages === "function" ? getCurrentPages() : [];
+          if (pages.length > 1 && typeof wx.navigateBack === "function") {
+            wx.navigateBack({ delta: 1 });
+            return;
+          }
+          wx.redirectTo({ url: USER_CENTER_URL });
+          return;
+        }
+        wx.reLaunch({ url: WORKBENCH_URL });
+      }, 650);
     } catch (error) {
       const message = (error && error.message) || "资料保存失败，请重试。";
       this.setData({ saving: false, errorMessage: message });

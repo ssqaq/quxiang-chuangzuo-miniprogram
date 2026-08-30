@@ -29,12 +29,18 @@ const optionalJsonFiles = ["project.private.config.json"];
 // 新增的 smoke 单独列出，既做语法检查，也纳入必要文件检查。
 const smokeFiles = [
   "scripts/admin-provider-management-smoke.js",
-  "scripts/admin-backup-model-target-smoke.js"
+  "scripts/admin-backup-model-target-smoke.js",
+  "scripts/payment-ui-smoke.js",
+  "scripts/payment-deployment-smoke.js",
+  "scripts/payment-records-cursor-smoke.js",
+  "scripts/payment-monitor-smoke.js"
+  ,"scripts/account-points-fallback-smoke.js"
 ];
 const jsFiles = [
   "app.js",
   "config.js",
   "services/cloud.js",
+  "services/account.js",
   "services/admin-video-config.js",
   "services/admin-provider-registry.js",
   "utils/storage.js",
@@ -63,6 +69,8 @@ const jsFiles = [
   "pages/photo-guide/photo-guide.js",
   "pages/points/points.js",
   "pages/admin/admin.js",
+  "pages/user-center/user-center.js",
+  "pages/account-records/account-records.js",
   "scripts/admin-image-api-key-display-smoke.js",
   "scripts/admin-runtime-compat-smoke.js",
   "scripts/admin-loading-smoke.js",
@@ -184,6 +192,47 @@ const powerShellFiles = [
   "scripts/install-git-hooks.ps1",
   "scripts/write-release-record.ps1"
 ];
+
+const paymentManifestRelative = "scripts/payment-cloudfunctions.json";
+const paymentManifest = JSON.parse(
+  fs.readFileSync(path.join(root, paymentManifestRelative), "utf8")
+);
+if (
+  paymentManifest.schemaVersion !== 1
+  || !paymentManifest.sharedCore
+  || !Array.isArray(paymentManifest.sharedCore.requiredFiles)
+  || !Array.isArray(paymentManifest.functions)
+  || paymentManifest.functions.length !== 3
+) {
+  throw new Error("支付云函数清单结构不完整。");
+}
+const coreRootRelative = paymentManifest.sharedCore.root;
+const coreRequiredRelative = paymentManifest.sharedCore.requiredFiles.map((relative) => (
+  path.posix.relative(coreRootRelative, relative)
+));
+const paymentRequiredFiles = [
+  paymentManifestRelative,
+  paymentManifest.sharedCore.packageJson,
+  ...paymentManifest.sharedCore.requiredFiles,
+];
+for (const item of paymentManifest.functions) {
+  const runtimeFiles = item.runtimeFiles === undefined ? [] : item.runtimeFiles;
+  if (!Array.isArray(runtimeFiles)) {
+    throw new Error(`${item.name || "支付云函数"}.runtimeFiles 必须是数组。`);
+  }
+  paymentRequiredFiles.push(
+    item.entry,
+    item.packageJson,
+    item.packageLock,
+    item.config,
+    ...runtimeFiles,
+    ...coreRequiredRelative.map((relative) => path.posix.join(item.vendoredCoreRoot, relative))
+  );
+}
+for (const relative of paymentRequiredFiles) {
+  if (relative.endsWith(".json") && !jsonFiles.includes(relative)) jsonFiles.push(relative);
+  if (relative.endsWith(".js") && !jsFiles.includes(relative)) jsFiles.push(relative);
+}
 
 for (const relative of jsonFiles) {
   const file = path.join(root, relative);
@@ -396,13 +445,45 @@ const required = [
   "scripts/cloud-database-index-manager/package-lock.json",
   "scripts/cloud-database-index-manager/index.js",
   "cloudfunctions/api/vendor/xlsx/package.json",
-  "cloudfunctions/api/vendor/xlsx/xlsx.js"
+  "cloudfunctions/api/vendor/xlsx/xlsx.js",
+  ...paymentRequiredFiles
 ];
 for (const relative of required) {
   if (!fs.existsSync(path.join(root, relative))) {
     throw new Error(`缺少必要文件：${relative}`);
   }
 }
+
+cp.execFileSync(
+  process.execPath,
+  [path.join(root, "scripts/payment-ui-smoke.js")],
+  { cwd: root, stdio: "inherit" }
+);
+cp.execFileSync(
+  process.execPath,
+  [path.join(root, "scripts/payment-deployment-smoke.js")],
+  { cwd: root, stdio: "inherit" }
+);
+cp.execFileSync(
+  process.execPath,
+  [path.join(root, "scripts/payment-records-cursor-smoke.js")],
+  { cwd: root, stdio: "inherit" }
+);
+cp.execFileSync(
+  process.execPath,
+  [path.join(root, "scripts/payment-monitor-smoke.js")],
+  { cwd: root, stdio: "inherit" }
+);
+cp.execFileSync(
+  process.execPath,
+  [path.join(root, "scripts/account-points-fallback-smoke.js")],
+  { cwd: root, stdio: "inherit" }
+);
+cp.execFileSync(
+  process.execPath,
+  [path.join(root, "scripts/database-index-smoke.js")],
+  { cwd: root, stdio: "inherit" }
+);
 
 const databaseIndexes = JSON.parse(
   fs.readFileSync(path.join(root, "scripts/database-indexes.json"), "utf8")
@@ -411,10 +492,20 @@ const databaseIndexPs1 = fs.readFileSync(
   path.join(root, "scripts/check-cloud-database-indexes.ps1"),
   "utf8"
 );
+const uniqueDatabaseIndexes = databaseIndexes.indexes.filter((item) => item.unique === true);
+const uniqueDatabaseIndexNames = uniqueDatabaseIndexes
+  .map((item) => `${item.collection}/${item.name}`)
+  .sort();
 if (
   databaseIndexes.version !== 1
   || !Array.isArray(databaseIndexes.indexes)
-  || databaseIndexes.indexes.length !== 15
+  || databaseIndexes.indexes.length !== 24
+  || databaseIndexes.indexes.some((item) => typeof item.unique !== "boolean")
+  || uniqueDatabaseIndexes.length !== 2
+  || uniqueDatabaseIndexNames.join(",") !== [
+    "payment_orders/uniq_openid_hash_request_id_hash",
+    "payment_orders/uniq_out_trade_no"
+  ].sort().join(",")
   || !databaseIndexes.indexes.some((item) => (
     item
     && item.collection === "watermark_transfer_temp_assets"

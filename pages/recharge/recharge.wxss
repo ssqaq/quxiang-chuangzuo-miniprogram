@@ -1,0 +1,134 @@
+page { background: #f5f7fb; }
+
+.recharge-page {
+  min-height: 100vh;
+  padding: 24rpx 28rpx 72rpx;
+  padding-bottom: calc(72rpx + env(safe-area-inset-bottom));
+  color: #1d2433;
+}
+
+.card {
+  border: 1rpx solid #e2e9f3;
+  border-radius: 28rpx;
+  background: #ffffff;
+  box-shadow: 0 14rpx 36rpx rgba(31, 68, 118, 0.06);
+}
+
+.skeleton {
+  margin-bottom: 18rpx;
+  border-radius: 26rpx;
+  background: linear-gradient(100deg, #edf1f7 15%, #f8faff 38%, #edf1f7 62%);
+  background-size: 300% 100%;
+  animation: skeleton-shimmer 1.25s ease-in-out infinite;
+}
+.skeleton-hero { height: 240rpx; }
+.skeleton-package { height: 132rpx; }
+.skeleton-button { height: 92rpx; }
+@keyframes skeleton-shimmer { from { background-position: 100% 0; } to { background-position: 0 0; } }
+
+.recharge-hero {
+  position: relative;
+  min-height: 226rpx;
+  margin-bottom: 30rpx;
+  padding: 34rpx 30rpx;
+  overflow: hidden;
+  background: linear-gradient(135deg, #155fc9 0%, #2e7cf1 62%, #67a6ff 100%);
+  color: #ffffff;
+  border-color: transparent;
+}
+
+.recharge-kicker { color: rgba(255,255,255,.7); font-size: 21rpx; font-weight: 700; letter-spacing: 3rpx; }
+.recharge-title { position: relative; z-index: 2; width: 78%; margin-top: 14rpx; font-size: 38rpx; font-weight: 800; line-height: 50rpx; }
+.recharge-subtitle { position: relative; z-index: 2; width: 78%; margin-top: 14rpx; color: rgba(255,255,255,.78); font-size: 21rpx; line-height: 32rpx; }
+.hero-bubble { position: absolute; border-radius: 50%; pointer-events: none; }
+.hero-bubble-one { right: -54rpx; bottom: -76rpx; width: 220rpx; height: 220rpx; border: 9rpx solid rgba(255,255,255,.12); }
+.hero-bubble-two { right: 66rpx; top: 42rpx; width: 34rpx; height: 34rpx; background: #ffcf5d; box-shadow: 0 0 0 12rpx rgba(255,207,93,.14); }
+
+.section-heading,
+.channel-heading { display: flex; align-items: center; justify-content: space-between; margin: 0 4rpx 16rpx; }
+.section-title { color: #1d2c42; font-size: 30rpx; font-weight: 800; }
+.section-subtitle { margin-top: 6rpx; color: #8491a4; font-size: 21rpx; }
+.secure-badge { padding: 8rpx 14rpx; border-radius: 999rpx; color: #2e6ab7; background: #eaf3ff; font-size: 20rpx; }
+
+.package-list { display: flex; margin-bottom: 30rpx; flex-direction: column; gap: 14rpx; }
+.package-card {
+  position: relative;
+  display: flex;
+  min-height: 126rpx;
+  padding: 24rpx 28rpx 24rpx 74rpx;
+  align-items: center;
+  overflow: hidden;
+  border: 2rpx solid #e1e8f2;
+  border-radius: 24rpx;
+  background: #ffffff;
+  box-shadow: 0 8rpx 22rpx rgba(31,68,118,.04);
+  transition: border-color .12s ease, transform .12s ease, background .12s ease;
+}
+.package-card-selected { border-color: #1f6feb; background: linear-gradient(135deg, #edf5ff 0%, #ffffff 72%); box-shadow: 0 12rpx 28rpx rgba(31,111,235,.1); }
+.package-check { position: absolute; left: 26rpx; display: flex; width: 28rpx; height: 28rpx; align-items: center; justify-content: center; border: 2rpx solid #c3cdda; border-radius: 50%; background: #ffffff; }
+.package-card-selected .package-check { border-color: #1f6feb; }
+.package-check-dot { width: 14rpx; height: 14rpx; border-radius: 50%; background: transparent; }
+.package-card-selected .package-check-dot { background: #1f6feb; }
+.package-price { min-width: 132rpx; color: #18253a; font-size: 40rpx; font-weight: 800; }
+.package-equals { margin: 0 24rpx; color: #a0abba; font-size: 30rpx; }
+.package-points { display: flex; align-items: baseline; }
+.package-points-number { color: #1f6feb; font-size: 44rpx; font-weight: 800; }
+.package-points-unit { margin-left: 8rpx; color: #63748c; font-size: 23rpx; }
+.package-tag { position: absolute; top: 0; right: 0; padding: 7rpx 16rpx; border-radius: 0 22rpx 0 16rpx; color: #a15e00; background: #fff0c8; font-size: 19rpx; font-weight: 700; }
+
+.channel-card { margin-bottom: 20rpx; padding: 26rpx; }
+.channel-heading { margin: 0 0 18rpx; }
+.channel-row,
+.channel-disabled { display: flex; min-height: 96rpx; padding: 18rpx; align-items: center; border-radius: 20rpx; }
+.channel-row { border: 1rpx solid #cfe9dc; background: #f2fbf6; }
+.channel-icon { display: flex; width: 62rpx; height: 62rpx; flex: none; align-items: center; justify-content: center; border-radius: 20rpx; color: #ffffff; background: #20a665; font-size: 23rpx; font-weight: 800; }
+.channel-copy { min-width: 0; flex: 1; margin-left: 16rpx; }
+.channel-title { font-size: 26rpx; font-weight: 800; }
+.channel-description { margin-top: 5rpx; color: #789084; font-size: 20rpx; line-height: 28rpx; }
+.channel-selected { color: #188650; font-size: 21rpx; font-weight: 700; }
+.channel-disabled { color: #69778a; background: #f2f4f7; }
+.channel-disabled-icon { display: flex; width: 62rpx; height: 62rpx; margin-right: 16rpx; align-items: center; justify-content: center; border-radius: 20rpx; background: #e4e8ee; font-size: 26rpx; font-weight: 800; }
+.channel-disabled-title { font-size: 25rpx; font-weight: 800; }
+.channel-disabled-description { margin-top: 5rpx; color: #929dad; font-size: 20rpx; }
+
+.pay-button { width: 100%; height: 92rpx; min-height: 92rpx; margin: 22rpx 0 0; border-radius: 22rpx; color: #ffffff; background: #1f6feb; font-size: 28rpx; font-weight: 800; line-height: 92rpx; box-shadow: 0 14rpx 30rpx rgba(31,111,235,.2); }
+.pay-button[disabled] { color: #929eae !important; background: #e5e9ef !important; box-shadow: none; }
+
+.state-panel { display: flex; min-height: 118rpx; margin-bottom: 20rpx; padding: 22rpx; align-items: center; border-radius: 22rpx; }
+.state-panel-error { color: #a93d3d; background: #fff0f0; }
+.state-panel-disabled { color: #627087; background: #edf1f6; }
+.state-icon { display: flex; width: 58rpx; height: 58rpx; flex: none; align-items: center; justify-content: center; border-radius: 18rpx; background: rgba(255,255,255,.7); font-size: 23rpx; font-weight: 800; }
+.state-copy { min-width: 0; flex: 1; margin-left: 16rpx; }
+.state-title { font-size: 25rpx; font-weight: 800; }
+.state-description { margin-top: 5rpx; font-size: 20rpx; line-height: 29rpx; opacity: .82; }
+.state-action { width: 86rpx; height: 54rpx; min-height: 54rpx; margin: 0 0 0 14rpx; padding: 0; border-radius: 14rpx; color: #a93d3d; background: #ffffff; font-size: 21rpx; line-height: 54rpx; }
+
+.payment-status { display: flex; min-height: 124rpx; margin: 20rpx 0; padding: 22rpx; align-items: center; border-radius: 22rpx; background: #edf4ff; color: #315d99; }
+.payment-status-success { color: #19764c; background: #e9f8f0; }
+.payment-status-failed { color: #ad4242; background: #fff0f0; }
+.payment-status-canceled { color: #7a6640; background: #fff8e8; }
+.payment-status-icon { display: flex; width: 58rpx; height: 58rpx; flex: none; align-items: center; justify-content: center; border-radius: 50%; background: rgba(255,255,255,.78); font-size: 25rpx; font-weight: 900; }
+.payment-status-copy { min-width: 0; flex: 1; margin-left: 16rpx; }
+.payment-status-title { font-size: 25rpx; font-weight: 800; }
+.payment-status-description { margin-top: 5rpx; font-size: 20rpx; line-height: 29rpx; opacity: .82; }
+.payment-status-balance { margin-top: 8rpx; font-size: 22rpx; font-weight: 800; }
+.records-link { width: 92rpx; height: 56rpx; min-height: 56rpx; margin: 0 0 0 12rpx; padding: 0; border-radius: 14rpx; color: #19764c; background: #ffffff; font-size: 21rpx; line-height: 56rpx; }
+
+.empty-panel { margin-bottom: 24rpx; padding: 48rpx 20rpx; text-align: center; }
+.empty-icon { display: flex; width: 66rpx; height: 66rpx; margin: 0 auto; align-items: center; justify-content: center; border-radius: 20rpx; color: #75859a; background: #edf1f6; font-size: 21rpx; font-weight: 800; }
+.empty-title { margin-top: 16rpx; color: #46546a; font-size: 26rpx; font-weight: 800; }
+.empty-description { margin-top: 8rpx; color: #929eae; font-size: 21rpx; }
+.payment-note { display: flex; margin-top: 18rpx; padding: 0 8rpx; align-items: flex-start; color: #8c98a9; font-size: 20rpx; line-height: 31rpx; }
+.note-dot { width: 9rpx; height: 9rpx; margin: 10rpx 12rpx 0 0; flex: none; border-radius: 50%; background: #1f6feb; }
+
+@media (max-width: 340px) {
+  .recharge-page { padding-right: 22rpx; padding-left: 22rpx; }
+  .recharge-hero { padding: 28rpx 24rpx; }
+  .recharge-title { font-size: 34rpx; }
+  .package-card { padding-right: 20rpx; padding-left: 66rpx; }
+  .package-price { min-width: 116rpx; font-size: 36rpx; }
+  .package-equals { margin: 0 14rpx; }
+  .package-points-number { font-size: 38rpx; }
+}
+
+@media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } }

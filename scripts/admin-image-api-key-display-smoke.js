@@ -7,27 +7,8 @@ const Module = require("module");
 
 process.env.WECHAT_MINIAPP_TEST = "1";
 process.env.ADMIN_OPENIDS = "admin-image-key-smoke";
-process.env.AI_VISION_API_KEY = "smoke-vision-value";
-process.env.AI_FACE_BACKUP_API_KEY = "smoke-face-backup-value";
-process.env.AI_ANALYSIS_BACKUP_API_KEY = "smoke-analysis-backup-value";
 process.env.AI_IMAGE_PRIMARY_API_KEY = "smoke-primary-value";
 process.env.AI_IMAGE_BACKUP_API_KEY = "smoke-backup-value";
-process.env.AI_VIDEO_API_KEY = "smoke-video-value";
-
-const root = path.resolve(__dirname, "..");
-const dependencyRoots = [
-  path.join(root, "cloudfunctions", "api", "node_modules"),
-  path.join(path.dirname(path.dirname(root)), "cloudfunctions", "api", "node_modules")
-].filter((candidate, index, list) => (
-  fs.existsSync(candidate) && list.indexOf(candidate) === index
-));
-if (dependencyRoots.length) {
-  process.env.NODE_PATH = [
-    ...dependencyRoots,
-    process.env.NODE_PATH || ""
-  ].filter(Boolean).join(path.delimiter);
-  Module._initPaths();
-}
 
 const api = require("../cloudfunctions/api/index.js");
 
@@ -35,46 +16,17 @@ function redactedConfig() {
   return {
     ok: true,
     effective: {
-      providerLabels: {
-        xingju: "星炬",
-        lingyun: "凌云",
-        "face-provider": "人脸服务商",
-        "face-backup-provider": "备用人脸服务商",
-        "analysis-provider": "分析服务商",
-        "analysis-backup-provider": "备用分析服务商",
-        "video-provider": "视频服务商"
-      },
       face: {
         provider: "face-provider",
         model: "face-model",
         apiKey: "",
         apiKeyConfigured: true
       },
-      faceBackup: {
-        enabled: true,
-        provider: "face-backup-provider",
-        providerKey: "face-backup-provider-key",
-        baseUrl: "https://face-backup.example/v1",
-        model: "face-backup-model",
-        apiKey: "",
-        apiKeyConfigured: true,
-        configured: true
-      },
       analysis: {
         provider: "analysis-provider",
         model: "analysis-model",
         apiKey: "",
         apiKeyConfigured: true
-      },
-      analysisBackup: {
-        enabled: true,
-        provider: "analysis-backup-provider",
-        providerKey: "analysis-backup-provider-key",
-        baseUrl: "https://analysis-backup.example/v1",
-        model: "analysis-backup-model",
-        apiKey: "",
-        apiKeyConfigured: true,
-        configured: true
       },
       image: {
         provider: "xingju",
@@ -101,17 +53,6 @@ function redactedConfig() {
         retryEnabled: false,
         apiKey: "",
         apiKeyConfigured: true
-      },
-      tencentFaceFusion: {
-        region: "ap-guangzhou",
-        endpoint: "https://facefusion.tencentcloudapi.com",
-        apiVersion: "2022-09-27",
-        action: "FuseFaceUltra",
-        model: "FuseFaceUltra",
-        swapModelType: 4,
-        logoAdd: false,
-        timeoutMs: 75000,
-        maxImageBytes: 5 * 1024 * 1024
       },
       video: {
         provider: "video-provider",
@@ -176,31 +117,18 @@ async function verifyCloudAction() {
   assert.strictEqual(allowed.ok, true);
   assert.deepStrictEqual(Object.keys(allowed).sort(), [
     "analysis",
-    "analysisBackup",
     "face",
-    "faceBackup",
     "image",
     "imageBackup",
     "ok",
-    "providerProfiles",
     "requestId",
-    "video",
-    "videoBackup"
+    "video"
   ]);
-  assert.strictEqual(allowed.face.apiKey, "smoke-vision-value");
-  assert.strictEqual(allowed.faceBackup.apiKey, "smoke-face-backup-value");
-  assert.strictEqual(allowed.analysis.apiKey, "smoke-vision-value");
-  assert.strictEqual(allowed.analysisBackup.apiKey, "smoke-analysis-backup-value");
   assert.strictEqual(allowed.image.apiKey, "smoke-primary-value");
   assert.strictEqual(allowed.imageBackup.apiKey, "smoke-backup-value");
-  assert.strictEqual(allowed.video.apiKey, "smoke-video-value");
-  ["face", "analysis", "image", "imageBackup", "video"].forEach((section) => {
-    assert.ok(
-      allowed.providerProfiles[section]
-      && typeof allowed.providerProfiles[section] === "object",
-      `专用接口必须返回 ${section} 的服务商 Key 档案`
-    );
-  });
+  assert.strictEqual(allowed.face.apiKey, "");
+  assert.strictEqual(allowed.analysis.apiKey, "");
+  assert.strictEqual(allowed.video.apiKey, "");
   ["tencent", "secretId", "secretKey"].forEach((key) => {
     assert.strictEqual(
       Object.prototype.hasOwnProperty.call(allowed, key),
@@ -228,13 +156,8 @@ async function verifyAdminPage() {
   let keyReadFailure = false;
   const savePayloads = [];
   const liveKeys = {
-    face: "page-face-value",
-    faceBackup: "page-face-backup-value",
-    analysis: "page-analysis-value",
-    analysisBackup: "page-analysis-backup-value",
     image: "page-primary-value",
-    imageBackup: "page-backup-value",
-    video: "page-video-value"
+    imageBackup: "page-backup-value"
   };
   const cloudMock = {
     isCloudReady: () => true,
@@ -243,20 +166,8 @@ async function verifyAdminPage() {
     getAdminImageApiKeys: async () => {
       if (keyReadFailure) throw new Error("专用接口暂时不可用");
       return {
-        face: { apiKey: liveKeys.face },
-        faceBackup: { apiKey: liveKeys.faceBackup },
-        analysis: { apiKey: liveKeys.analysis },
-        analysisBackup: { apiKey: liveKeys.analysisBackup },
         image: { apiKey: liveKeys.image },
-        imageBackup: { apiKey: liveKeys.imageBackup },
-        video: { apiKey: liveKeys.video },
-        providerProfiles: {
-          face: {},
-          analysis: {},
-          image: {},
-          imageBackup: {},
-          video: {}
-        }
+        imageBackup: { apiKey: liveKeys.imageBackup }
       };
     },
     saveAdminConfig: async (config) => {
@@ -323,23 +234,20 @@ async function verifyAdminPage() {
   page.runModelProbe = async () => {};
 
   await page.loadAdminPage();
-  assert.strictEqual(page.data.form.face.apiKey, liveKeys.face);
-  assert.strictEqual(page.data.form.faceBackup.apiKey, liveKeys.faceBackup);
-  assert.strictEqual(page.data.form.analysis.apiKey, liveKeys.analysis);
-  assert.strictEqual(page.data.form.analysisBackup.apiKey, liveKeys.analysisBackup);
   assert.strictEqual(page.data.form.image.apiKey, liveKeys.image);
   assert.strictEqual(page.data.form.imageBackup.apiKey, liveKeys.imageBackup);
-  assert.strictEqual(page.data.form.video.apiKey, liveKeys.video);
 
   await page.saveConfig();
-  ["face", "faceBackup", "analysis", "analysisBackup", "image", "imageBackup", "video"].forEach((section) => {
-    const sectionPayload = savePayloads[0][section] || {};
-    assert.strictEqual(
-      Object.prototype.hasOwnProperty.call(sectionPayload, "apiKey"),
-      false,
-      `${section} Key 未修改时不应提交`
-    );
-  });
+  assert.strictEqual(
+    Object.prototype.hasOwnProperty.call(savePayloads[0].image, "apiKey"),
+    false,
+    "主用 Key 未修改时不应提交"
+  );
+  assert.strictEqual(
+    Object.prototype.hasOwnProperty.call(savePayloads[0].imageBackup, "apiKey"),
+    false,
+    "备用 Key 未修改时不应提交"
+  );
   assert.strictEqual(page.data.form.image.apiKey, liveKeys.image);
   assert.strictEqual(page.data.form.imageBackup.apiKey, liveKeys.imageBackup);
 
@@ -377,9 +285,8 @@ async function verifyAdminPage() {
 
   keyReadFailure = true;
   await page.loadAdminPage();
-  ["face", "faceBackup", "analysis", "analysisBackup", "image", "imageBackup", "video"].forEach((section) => {
-    assert.strictEqual(page.data.form[section].apiKey, "");
-  });
+  assert.strictEqual(page.data.form.image.apiKey, "");
+  assert.strictEqual(page.data.form.imageBackup.apiKey, "");
   assert.ok(page.data.message.includes("完整 Key 读取失败"));
 
   keyReadFailure = false;
@@ -413,22 +320,21 @@ function verifyMarkupAndStaticBoundaries() {
     "utf8"
   );
   const inputs = inputBySection(wxml);
-  assert.strictEqual(Object.keys(inputs).length, 8);
-  ["face", "faceBackup", "analysis", "analysisBackup", "image", "imageBackup"].forEach((section) => {
+  assert.strictEqual(Object.keys(inputs).length, 5);
+  ["image", "imageBackup"].forEach((section) => {
     assert.ok(inputs[section]);
     assert.strictEqual(/\bpassword\b/.test(inputs[section]), false);
   });
-  assert.ok(inputs.video);
-  assert.strictEqual(/\bdisabled\b/.test(inputs.video), true);
-  assert.strictEqual(/\bpassword\b/.test(inputs.video), false);
-  assert.ok(inputs.videoBackup);
-  assert.strictEqual(/\bdisabled\b/.test(inputs.videoBackup), true);
-  assert.strictEqual(/\bpassword\b/.test(inputs.videoBackup), false);
-  assert.ok((wxml.match(/已显示完整 Key/g) || []).length >= 5);
-  assert.ok(wxml.includes("已显示完整内容"));
-  assert.ok(
-    /<input[^>]*value="\{\{form\.imageBackup\.mode\}\}"[^>]*bindinput="onInput"[^>]*>/.test(wxml)
-  );
+  ["face", "analysis", "video"].forEach((section) => {
+    assert.ok(inputs[section]);
+    if (section === "video") {
+      assert.strictEqual(/\bdisabled\b/.test(inputs[section]), true);
+      assert.strictEqual(/\bpassword\b/.test(inputs[section]), false);
+    } else {
+      assert.strictEqual(/\bpassword\b/.test(inputs[section]), true);
+    }
+  });
+  assert.ok(wxml.includes("已显示完整 Key"));
   assert.ok(serviceJs.includes('action: "getAdminImageApiKeys"'));
   assert.ok(pageJs.includes("_imageApiKeyBaseline"));
   assert.strictEqual(

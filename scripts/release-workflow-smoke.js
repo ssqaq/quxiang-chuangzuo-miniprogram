@@ -64,7 +64,7 @@ function testWorkflowContract(workflow) {
   // The first executable step after checkout/setup must reject an unsafe
   // event before caches, dependency installs, or any future publish action.
   const preflight = workflow.indexOf("node scripts/release-workflow-smoke.js --runtime");
-  const cache = workflow.indexOf("- name: Cache API npm download cache");
+  const cache = workflow.indexOf("- name: Cache cloud-function npm download cache");
   assert.ok(preflight >= 0, "缺少发布保护预检 smoke");
   assert.ok(cache < 0 || preflight < cache, "保护预检必须先于依赖缓存/安装");
   for (const envName of [
@@ -100,6 +100,10 @@ function testWorkflowContract(workflow) {
     "Resume release recovery smoke",
     "Cloud deploy safety smoke",
     "Cloud deploy entry smoke",
+    "Payment UI smoke",
+    "Payment package and deployment safety smoke",
+    "Payment dependency manifest check",
+    "Payment core tests",
     "Package smoke",
     "Package read-only check",
   ]) {

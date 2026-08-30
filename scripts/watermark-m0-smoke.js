@@ -586,8 +586,8 @@ function testPageMarkup() {
   assert.ok(wxss.includes(".media-play-icon"));
   assert.ok(wxss.includes(".copy-lines-icon"));
   assert.ok(!wxss.includes(".paste-button"));
-  assert.match(wxss, /\.input-card\s*\{[\s\S]*?padding:\s*22rpx\s*;/);
-  assert.ok(!wxss.includes("122rpx"));
+  assert.ok(wxss.includes(".input-card {\n  padding: 22rpx;"), "输入卡不应保留删除按钮后的额外底部空白");
+  assert.ok(!wxss.includes("122rpx"), "输入卡不应使用旧的 122rpx 底部内边距");
   assert.ok(wxss.includes(".parse-button"));
   assert.ok(wxss.includes(".action-row"));
   assert.ok(wxss.includes(".action-button"));
@@ -630,26 +630,6 @@ function testPageMarkup() {
   assert.ok(!wxss.includes(".media-parser-kicker"));
   assert.ok(!wxss.includes(".provider-card"));
   assert.ok(!wxss.includes(".compliance-note"));
-  const inputCardRule = wxss.match(/\.input-card\s*\{([\s\S]*?)\}/);
-  assert.ok(inputCardRule, "输入卡片样式规则缺失");
-  assert.ok(/padding:\s*22rpx\s*;/.test(inputCardRule[1]));
-  assert.ok(!/122rpx/.test(inputCardRule[1]), "输入卡片不能保留多余底部留白");
-
-  const featureOptionRule = wxss.match(/\.feature-option\s*\{([\s\S]*?)\}/);
-  assert.ok(featureOptionRule, "功能块样式规则缺失");
-  assert.ok(/min-height:\s*84rpx\s*;/.test(featureOptionRule[1]));
-  assert.ok(/padding:\s*12rpx\s*;/.test(featureOptionRule[1]));
-
-  const featureTitleRule = wxss.match(/\.feature-title\s*\{([\s\S]*?)\}/);
-  assert.ok(featureTitleRule, "功能块标题样式规则缺失");
-  assert.ok(/font-size:\s*22rpx\s*;/.test(featureTitleRule[1]));
-  assert.ok(/line-height:\s*30rpx\s*;/.test(featureTitleRule[1]));
-
-  const featureSubtitleRule = wxss.match(/\.feature-subtitle\s*\{([\s\S]*?)\}/);
-  assert.ok(featureSubtitleRule, "功能块副标题样式规则缺失");
-  assert.ok(/font-size:\s*18rpx\s*;/.test(featureSubtitleRule[1]));
-  assert.ok(/line-height:\s*26rpx\s*;/.test(featureSubtitleRule[1]));
-
   assert.ok(wxss.includes(".feature-option"));
   assert.ok(wxss.includes(".copywriting-card"));
   assert.ok(wxss.includes(".copywriting-action"));

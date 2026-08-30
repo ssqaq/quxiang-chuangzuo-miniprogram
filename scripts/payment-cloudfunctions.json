@@ -1,0 +1,121 @@
+{
+  "schemaVersion": 1,
+  "productionDeployment": {
+    "enabled": false,
+    "automaticDeployment": false,
+    "requiresExplicitProductionAuthorization": true
+  },
+  "sharedCore": {
+    "name": "aips-payment-core",
+    "root": "cloudfunctions/payment-core",
+    "packageJson": "cloudfunctions/payment-core/package.json",
+    "lockRequired": false,
+    "vendorExcludedFiles": [
+      ".env.example"
+    ],
+    "vendorExcludedPrefixes": [
+      "tests/"
+    ],
+    "requiredFiles": [
+      "cloudfunctions/payment-core/index.js",
+      "cloudfunctions/payment-core/package.json",
+      "cloudfunctions/payment-core/config.js",
+      "cloudfunctions/payment-core/constants.js",
+      "cloudfunctions/payment-core/crypto.js",
+      "cloudfunctions/payment-core/errors.js",
+      "cloudfunctions/payment-core/idempotency.js",
+      "cloudfunctions/payment-core/operations.js",
+      "cloudfunctions/payment-core/products.js",
+      "cloudfunctions/payment-core/provider-xingju.js",
+      "cloudfunctions/payment-core/signature.js",
+      "cloudfunctions/payment-core/state-machine.js",
+      "cloudfunctions/payment-core/storage.js"
+    ]
+  },
+  "functions": [
+    {
+      "name": "payment-api",
+      "packageName": "aips-payment-api",
+      "root": "cloudfunctions/payment-api",
+      "entry": "cloudfunctions/payment-api/index.js",
+      "packageJson": "cloudfunctions/payment-api/package.json",
+      "packageLock": "cloudfunctions/payment-api/package-lock.json",
+      "config": "cloudfunctions/payment-api/config.json",
+      "timeoutSeconds": 15,
+      "sharedCoreRoot": "cloudfunctions/payment-core",
+      "vendoredCoreRoot": "cloudfunctions/payment-api/vendor/payment-core",
+      "deploymentEnabled": false,
+      "clientInvocationAllowed": true,
+      "runtimeSwitches": {
+        "orderCreationEnabled": false
+      },
+      "httpRoute": {
+        "declared": false,
+        "enabled": false,
+        "requiresExplicitProductionAuthorization": true
+      },
+      "timer": {
+        "declared": false,
+        "enabled": false,
+        "requiresExplicitProductionAuthorization": true
+      }
+    },
+    {
+      "name": "payment-notify",
+      "packageName": "aips-payment-notify",
+      "root": "cloudfunctions/payment-notify",
+      "entry": "cloudfunctions/payment-notify/index.js",
+      "packageJson": "cloudfunctions/payment-notify/package.json",
+      "packageLock": "cloudfunctions/payment-notify/package-lock.json",
+      "config": "cloudfunctions/payment-notify/config.json",
+      "timeoutSeconds": 15,
+      "sharedCoreRoot": "cloudfunctions/payment-core",
+      "vendoredCoreRoot": "cloudfunctions/payment-notify/vendor/payment-core",
+      "deploymentEnabled": false,
+      "clientInvocationAllowed": false,
+      "runtimeSwitches": {
+        "callbackProcessingEnabled": false
+      },
+      "httpRoute": {
+        "declared": true,
+        "enabled": false,
+        "requiresExplicitProductionAuthorization": true
+      },
+      "timer": {
+        "declared": false,
+        "enabled": false,
+        "requiresExplicitProductionAuthorization": true
+      }
+    },
+    {
+      "name": "payment-reconcile",
+      "packageName": "aips-payment-reconcile",
+      "root": "cloudfunctions/payment-reconcile",
+      "entry": "cloudfunctions/payment-reconcile/index.js",
+      "packageJson": "cloudfunctions/payment-reconcile/package.json",
+      "packageLock": "cloudfunctions/payment-reconcile/package-lock.json",
+      "config": "cloudfunctions/payment-reconcile/config.json",
+      "timeoutSeconds": 120,
+      "runtimeFiles": [
+        "cloudfunctions/payment-reconcile/monitor.js"
+      ],
+      "sharedCoreRoot": "cloudfunctions/payment-core",
+      "vendoredCoreRoot": "cloudfunctions/payment-reconcile/vendor/payment-core",
+      "deploymentEnabled": false,
+      "clientInvocationAllowed": false,
+      "runtimeSwitches": {
+        "reconciliationEnabled": false
+      },
+      "httpRoute": {
+        "declared": false,
+        "enabled": false,
+        "requiresExplicitProductionAuthorization": true
+      },
+      "timer": {
+        "declared": true,
+        "enabled": false,
+        "requiresExplicitProductionAuthorization": true
+      }
+    }
+  ]
+}

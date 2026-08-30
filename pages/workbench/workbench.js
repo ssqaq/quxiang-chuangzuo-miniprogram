@@ -37,12 +37,10 @@ function hasDraft(project) {
 function normalizeRecord(record) {
   const item = record && typeof record === "object" ? record : {};
   return {
-    id: item.id || item._id || `record-${Date.now()}`,
-    fileID: String(item.fileID || item.fileId || "").trim(),
+    id: item.id || `record-${Date.now()}`,
     projectName: item.projectName || "未命名项目",
     createdAt: item.createdAt || "刚刚生成",
-    tempFileURL: item.tempFileURL || "",
-    imagePath: item.tempFileURL || item.path || item.imagePath || "",
+    imagePath: item.tempFileURL || item.path || "",
     prompt: item.prompt || ""
   };
 }
@@ -120,10 +118,21 @@ function summarizeAsset(asset) {
   };
 }
 
+function pointNumber(value, fallback = 0) {
+  if (value === null || value === undefined || String(value).trim() === "") {
+    return Math.round(Number(fallback || 0) * 10000) / 10000;
+  }
+  const number = Number(value);
+  if (!Number.isFinite(number)) {
+    return Math.round(Number(fallback || 0) * 10000) / 10000;
+  }
+  return Math.round(number * 10000) / 10000;
+}
+
 function buildCheckInToast(result = {}) {
   const copy = config.points.copy;
   const duplicate = Boolean(result.duplicate);
-  const earned = Number(result.earnedToday) || 0;
+  const earned = pointNumber(result.earnedToday);
   return {
     title: duplicate
       ? copy.checkInDuplicate
@@ -173,7 +182,6 @@ Page({
   },
 
   onShow() {
-    this._pageUnloaded = false;
     this.clearNavigationWatchdog();
     this._navigating = false;
     this.refreshWorkbench();
@@ -195,262 +203,24 @@ Page({
   },
 
   onUnload() {
-    this._pageUnloaded = true;
     this.clearPromoRefreshTimer();
     this.clearNavigationWatchdog();
     this.clearAdminAccessRetry();
-    this._recordsRefreshToken = (this._recordsRefreshToken || 0) + 1;
   },
 
   refreshWorkbench() {
-    const refreshToken = (this._recordsRefreshToken || 0) + 1;
-    this._recordsRefreshToken = refreshToken;
     const project = storage.loadProject();
     const draftExists = hasDraft(project);
-    const cloudReady = cloud.isCloudReady();
-    const localRecords = (storage.loadRecords() || [])
+    const records = (storage.loadRecords() || [])
       .slice(0, 1)
       .map(normalizeRecord);
 
     this.setData({
-      cloudReady,
+      cloudReady: cloud.isCloudReady(),
       hasDraft: draftExists,
-      records: localRecords
+      records
     });
-    if (cloudReady) {
-      void this.refreshRemoteRecords(refreshToken, localRecords);
-    }
     return draftExists;
-  },
-
-  resolveRecordTempUrl(fileID) {
-    const normalizedFileID = String(fileID || "").trim();
-    if (
-      !normalizedFileID
-      || !cloud.isCloudReady()
-      || typeof cloud.getTempUrl !== "function"
-    ) {
-      return Promise.resolve("");
-    }
-    if (!this._recordTempUrlInflight) this._recordTempUrlInflight = new Map();
-    const existing = this._recordTempUrlInflight.get(normalizedFileID);
-    if (existing) return existing;
-
-    let request;
-    try {
-      request = Promise.resolve(cloud.getTempUrl(normalizedFileID));
-    } catch (error) {
-      request = Promise.reject(error);
-    }
-    const tracked = request.then((url) => String(url || "").trim());
-    this._recordTempUrlInflight.set(normalizedFileID, tracked);
-    tracked.then(
-      () => {
-        if (this._recordTempUrlInflight.get(normalizedFileID) === tracked) {
-          this._recordTempUrlInflight.delete(normalizedFileID);
-        }
-      },
-      () => {
-        if (this._recordTempUrlInflight.get(normalizedFileID) === tracked) {
-          this._recordTempUrlInflight.delete(normalizedFileID);
-        }
-      }
-    );
-    return tracked;
-  },
-
-  async hydrateRecordImages(records = [], refreshToken) {
-    if (
-      !Array.isArray(records)
-      || !records.length
-      || !cloud.isCloudReady()
-      || typeof cloud.getTempUrl !== "function"
-    ) return;
-    const token = refreshToken === undefined
-      ? this._recordsRefreshToken
-      : refreshToken;
-    const candidateFileIDs = new Set();
-    const candidates = records.filter((item) => {
-      const fileID = String(item && (item.fileID || item.fileId) || "").trim();
-      if (!item || !fileID || item.imagePath) return false;
-      if (candidateFileIDs.has(fileID)) return false;
-      candidateFileIDs.add(fileID);
-      return true;
-    });
-    if (!candidates.length) return;
-
-    const resolved = await Promise.all(candidates.map(async (item) => {
-      try {
-        return {
-          fileID: String(item.fileID || item.fileId).trim(),
-          tempFileURL: await this.resolveRecordTempUrl(item.fileID || item.fileId)
-        };
-      } catch (error) {
-        diagnosticLog.warn("records", "workbench-temp-url-failed", "工作台记录临时地址获取失败", {
-          fileID: item.fileID,
-          error
-        });
-        return { fileID: String(item.fileID), tempFileURL: "" };
-      }
-    }));
-    if (
-      this._pageUnloaded
-      || token !== this._recordsRefreshToken
-    ) return;
-
-    const urls = new Map();
-    resolved.forEach((item) => {
-      if (item.tempFileURL) urls.set(item.fileID, item.tempFileURL);
-    });
-    if (!urls.size) return;
-
-    const currentRecords = Array.isArray(this.data.records) ? this.data.records : [];
-    const nextRecords = currentRecords.map((item) => {
-      const fileID = String(item && (item.fileID || item.fileId) || "");
-      const tempFileURL = urls.get(fileID);
-      const hasCurrentImage = Boolean(
-        item && (item.tempFileURL || item.imagePath || item.path)
-      );
-      return tempFileURL && !hasCurrentImage
-        ? Object.assign({}, item, { tempFileURL, imagePath: tempFileURL })
-        : item;
-    });
-    if (nextRecords.some((item, index) => item !== currentRecords[index])) {
-      this.setData({ records: nextRecords });
-    }
-
-    const cachedRecords = storage.loadRecords() || [];
-    const nextCachedRecords = cachedRecords.map((item) => {
-      const fileID = String(item && (item.fileID || item.fileId) || "");
-      const tempFileURL = urls.get(fileID);
-      const hasCachedImage = Boolean(
-        item && (item.tempFileURL || item.imagePath || item.path)
-      );
-      return tempFileURL && !hasCachedImage
-        ? Object.assign({}, item, { tempFileURL })
-        : item;
-    });
-    storage.saveRecords(nextCachedRecords);
-  },
-
-  async refreshRemoteRecords(refreshToken, fallbackRecords = []) {
-    if (!cloud.isCloudReady() || typeof cloud.listRecords !== "function") return;
-    const token = refreshToken === undefined
-      ? (this._recordsRefreshToken || 0) + 1
-      : refreshToken;
-    if (refreshToken === undefined) {
-      this._recordsRefreshToken = token;
-    } else if (token !== this._recordsRefreshToken) {
-      return;
-    }
-    try {
-      const result = await cloud.listRecords();
-      if (token !== this._recordsRefreshToken) return;
-      const remoteRecords = Array.isArray(result && result.records)
-        ? result.records
-        : [];
-      const localRecords = Array.isArray(fallbackRecords) && fallbackRecords.length
-        ? fallbackRecords
-        : (Array.isArray(this.data.records) ? this.data.records : []);
-      if (!remoteRecords.length) {
-        await this.hydrateRecordImages(localRecords, token);
-        return;
-      }
-      const cachedRecords = storage.loadRecords() || [];
-      const sameRecord = (left, right) => (
-        String(left && (left.id || left._id) || "")
-          && String(left && (left.id || left._id) || "")
-            === String(right && (right.id || right._id) || "")
-        || (
-          String(left && (left.fileID || left.fileId) || "")
-          && String(left && (left.fileID || left.fileId) || "")
-            === String(right && (right.fileID || right.fileId) || "")
-        )
-      );
-      const mergedRemoteRecords = remoteRecords.map((record) => {
-        const hasImage = Boolean(
-          record && (record.tempFileURL || record.path || record.imagePath)
-        );
-        if (hasImage) return record;
-        const cached = cachedRecords.find((item) => sameRecord(item, record));
-        return cached && (cached.tempFileURL || cached.path || cached.imagePath)
-          ? Object.assign({}, record, {
-            tempFileURL: cached.tempFileURL || "",
-            path: cached.path || "",
-            imagePath: cached.imagePath || ""
-          })
-          : record;
-      });
-      storage.saveRecords(mergedRemoteRecords);
-      const normalizedRecords = mergedRemoteRecords.slice(0, 1).map(normalizeRecord);
-      this.setData({
-        records: normalizedRecords
-      });
-      await this.hydrateRecordImages(normalizedRecords, token);
-    } catch (error) {
-      diagnosticLog.warn("records", "workbench-refresh-failed", "工作台记录缩略图刷新失败", {
-        error
-      });
-      const localRecords = Array.isArray(fallbackRecords) && fallbackRecords.length
-        ? fallbackRecords
-        : (Array.isArray(this.data.records) ? this.data.records : []);
-      await this.hydrateRecordImages(localRecords, token);
-    }
-  },
-
-  async onRecordImageError(event = {}) {
-    const id = String(
-      event.currentTarget
-      && event.currentTarget.dataset
-      && event.currentTarget.dataset.id
-      || ""
-    );
-    const record = (this.data.records || []).find(
-      (item) => String(item && item.id) === id
-    );
-    if (!record || !record.fileID || !cloud.isCloudReady()) return;
-    if (!this._recordImageRetryIds) this._recordImageRetryIds = new Set();
-    if (this._recordImageRetryIds.has(id)) return;
-    this._recordImageRetryIds.add(id);
-    const refreshToken = this._recordsRefreshToken;
-    try {
-      const tempFileURL = await this.resolveRecordTempUrl(record.fileID);
-      if (
-        !tempFileURL
-        || this._pageUnloaded
-        || refreshToken !== this._recordsRefreshToken
-      ) return;
-      const matchesRecord = (item) => (
-        String(item && (item.id || item._id) || "") === id
-        || (
-          record.fileID
-          && String(item && (item.fileID || item.fileId) || "") === String(record.fileID)
-        )
-      );
-      const records = (this.data.records || []).map((item) => (
-        matchesRecord(item)
-          ? Object.assign({}, item, { tempFileURL, imagePath: tempFileURL })
-          : item
-      ));
-      this.setData({ records });
-      const cachedRecords = storage.loadRecords() || [];
-      storage.saveRecords(cachedRecords.map((item) => (
-        String(item && (item.id || item._id) || "") === id
-          || (
-            record.fileID
-            && String(item && (item.fileID || item.fileId) || "") === String(record.fileID)
-          )
-          ? Object.assign({}, item, { tempFileURL })
-          : item
-      )));
-    } catch (error) {
-      diagnosticLog.warn("records", "workbench-image-retry-failed", "工作台缩略图重试失败", {
-        recordId: id,
-        error
-      });
-    } finally {
-      this._recordImageRetryIds.delete(id);
-    }
   },
 
   normalizePoints(result = {}) {
@@ -465,7 +235,7 @@ Page({
       currentStreak: 0,
       progress: 0,
       streakDays,
-      nextCheckinReward: Number(config.points.checkinPoints) || 0,
+      nextCheckinReward: pointNumber(config.points.checkinPoints),
       checkingIn: false,
       checkedInToday: false,
       freeRemaining: config.points.dailyFreeLimit,
@@ -479,15 +249,16 @@ Page({
       ),
       billingMode: "daily-free"
     }, result, {
-      pointsBalance: Math.max(0, Number(result.pointsBalance) || 0),
+      pointsBalance: Math.max(0, pointNumber(result.pointsBalance)),
       currentStreak,
       progress,
       progressPercent: Math.min(100, Math.max(0, progress / streakDays * 100)),
       nextCheckinReward: Math.max(
         0,
-        Number(result.nextCheckinReward)
-          || Number(result.checkinPoints)
-          || Number(config.points.checkinPoints)
+        pointNumber(
+          result.nextCheckinReward,
+          pointNumber(result.checkinPoints, config.points.checkinPoints)
+        )
       ),
       streakDays,
       promoStartDate: result.promoStartDate || config.points.promoStartDate,
@@ -583,7 +354,6 @@ Page({
     try {
       const result = await cloud.getAdminStatus();
       if (result && result.unavailable) {
-        this.setData({ adminVisible: false });
         this.scheduleAdminAccessRetry(attempt);
         return;
       }
@@ -595,7 +365,6 @@ Page({
         adminEntryVisible: isPreviewEnvironment() || adminVisible
       });
     } catch (error) {
-      this.setData({ adminVisible: false });
       this.scheduleAdminAccessRetry(attempt);
       diagnosticLog.warn("admin", "status-failed", "管理员入口状态读取失败", { error });
     }
@@ -878,7 +647,6 @@ Page({
   },
 
   openTencentFaceFusion() {
-    if (!this.data.adminVisible) return;
     this.openPage(
       TENCENT_FACE_FUSION_ROUTE,
       "腾讯版制作页打开失败",

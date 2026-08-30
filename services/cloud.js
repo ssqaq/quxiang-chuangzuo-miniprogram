@@ -719,6 +719,13 @@ module.exports = {
       silent: true
     });
   },
+  getPaymentMonitor() {
+    return callApi({
+      action: "getPaymentMonitor",
+      retryLimit: 0,
+      silent: true
+    });
+  },
   reportDiagnosticLogs(payload) {
     return callApi({
       action: "reportDiagnosticLogs",
@@ -824,9 +831,6 @@ module.exports = {
       expectedVersion: source.expectedVersion,
       providerKey: source.providerKey,
       provider: source.provider,
-      activeProviders: source.activeProviders,
-      activeSlot: source.activeSlot,
-      setActive: source.setActive,
       retryLimit: 0
     });
   },
@@ -857,15 +861,6 @@ module.exports = {
     };
     if (modelConfig && typeof modelConfig === "object") data.config = modelConfig;
     return callApi(data);
-  },
-  testAdminProviderConnection(section, providerId, options = {}) {
-    return callApi({
-      action: "testAdminProviderConnection",
-      section: String(section || "").trim(),
-      providerId: String(providerId || "").trim(),
-      requestId: String(options.requestId || "").trim(),
-      retryLimit: 0
-    });
   },
   listModels(modelType, modelConfig = null) {
     const data = {

@@ -726,7 +726,9 @@ try {
     if (-not $apiMarkerMatch.Success -or [string]::IsNullOrWhiteSpace($apiMarkerMatch.Groups[1].Value)) {
         throw "最终发布树缺少 API_BUILD_MARKER，拒绝生成无构建标记的 CloudBase 回执。"
     }
-    $contextHash.apiBuildMarker = $apiMarkerMatch.Groups[1].Value
+    # contextHash is an OrderedDictionary.  Use its indexer when adding a new
+    # key; the PowerShell property adapter silently drops unknown dot members.
+    $contextHash["apiBuildMarker"] = $apiMarkerMatch.Groups[1].Value
     Write-ReleaseGateJsonAtomic -Path $contextPath -Value $contextHash
 
     if ($effectivePreview) {
@@ -784,7 +786,7 @@ try {
             mainCommit = if ($contextHash.Contains("mainCommit")) { [string]$contextHash.mainCommit } else { "" }
             idempotencyKey = "cloud:$operationId`:$finalCommit`:$finalTree"
             onlineBuildVersion = $target
-            onlineBuildMarker = [string]$contextHash.apiBuildMarker
+            onlineBuildMarker = [string]$contextHash["apiBuildMarker"]
             verifiedAt = [DateTimeOffset]::UtcNow.ToString("o")
             status = "verified"
         }

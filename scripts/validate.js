@@ -32,9 +32,11 @@ const jsonFiles = [
 const optionalJsonFiles = ["project.private.config.json"];
 const adminV2ExecutableSmokeFiles = [
   "scripts/admin-config-v2-smoke.js",
+  "scripts/admin-v2-slot-api-smoke.js",
   "scripts/admin-v2-layout-smoke.js",
   "scripts/admin-v2-pages-smoke.js",
-  "scripts/admin-v2-pages-runtime-smoke.js"
+  "scripts/admin-v2-pages-runtime-smoke.js",
+  "scripts/admin-provider-secret-contract-smoke.js"
 ];
 // 新增的 smoke 单独列出，既做语法检查，也纳入必要文件检查。
 const smokeFiles = [

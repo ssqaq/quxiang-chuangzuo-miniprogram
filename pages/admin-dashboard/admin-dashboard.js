@@ -29,8 +29,60 @@ const FALLBACK = {
   bindings: []
 };
 
+function navigationLayout() {
+  let windowInfo = {};
+  let menuButton = {};
+  try {
+    if (typeof wx !== "undefined" && typeof wx.getWindowInfo === "function") {
+      windowInfo = wx.getWindowInfo() || {};
+    } else if (typeof wx !== "undefined" && typeof wx.getSystemInfoSync === "function") {
+      windowInfo = wx.getSystemInfoSync() || {};
+    }
+  } catch (error) {
+    windowInfo = {};
+  }
+  try {
+    if (typeof wx !== "undefined" && typeof wx.getMenuButtonBoundingClientRect === "function") {
+      menuButton = wx.getMenuButtonBoundingClientRect() || {};
+    }
+  } catch (error) {
+    menuButton = {};
+  }
+  const statusBarHeight = Math.max(0, Number(windowInfo.statusBarHeight) || 0);
+  const windowWidth = Math.max(320, Number(windowInfo.windowWidth || windowInfo.screenWidth) || 375);
+  const menuTop = Number(menuButton.top);
+  const menuHeight = Number(menuButton.height);
+  const menuLeft = Number(menuButton.left);
+  const hasMenuButton = Number.isFinite(menuTop)
+    && Number.isFinite(menuHeight)
+    && Number.isFinite(menuLeft)
+    && menuHeight > 0
+    && menuLeft > 0;
+  const navigationBarHeight = hasMenuButton
+    ? Math.max(52, (menuTop - statusBarHeight) * 2 + menuHeight)
+    : 52;
+  const navigationHeight = Math.round(statusBarHeight + navigationBarHeight);
+  const capsuleRightInset = hasMenuButton
+    ? Math.round(Math.max(14, windowWidth - menuLeft + 8))
+    : 14;
+  return {
+    appbarStyle: `height:${navigationHeight}px;padding-top:${Math.round(statusBarHeight)}px;padding-right:${capsuleRightInset}px`,
+    dashboardScrollStyle: `height:calc(100vh - ${navigationHeight}px)`
+  };
+}
+
+const INITIAL_NAVIGATION_LAYOUT = navigationLayout();
+
 function bindingFor(bindings, slot) {
   return (bindings || []).find(item => item && item.slot === slot) || {};
+}
+
+function primaryBindingFor(bindings, slot) {
+  return (bindings || []).find(item => (
+    item
+    && item.slot === slot
+    && (item.role || "primary") === "primary"
+  )) || {};
 }
 
 function statusText(binding) {
@@ -44,6 +96,8 @@ function isReady(binding) {
 
 Page({
   data: {
+    appbarStyle: INITIAL_NAVIGATION_LAYOUT.appbarStyle,
+    dashboardScrollStyle: INITIAL_NAVIGATION_LAYOUT.dashboardScrollStyle,
     loading: true,
     refreshing: false,
     source: "local",
@@ -63,15 +117,24 @@ Page({
       provider: "凌云"
     },
     metrics: [
-      { key: "usage", label: "用量", detail: "查看", icon: "量" },
-      { key: "points", label: "积分", detail: "管理", icon: "积" },
-      { key: "cost", label: "成本", detail: "统计", icon: "￥" },
-      { key: "users", label: "用户", detail: "管理", icon: "人" }
+      { key: "usage", label: "用量", detail: "查看" },
+      { key: "points", label: "积分", detail: "管理" },
+      { key: "cost", label: "成本", detail: "统计" },
+      { key: "users", label: "用户", detail: "管理" }
     ]
   },
 
   onLoad() {
+    this.applyNavigationLayout();
     this.loadConfig();
+  },
+
+  applyNavigationLayout() {
+    this.setData(navigationLayout());
+  },
+
+  onResize() {
+    this.applyNavigationLayout();
   },
 
   onPullDownRefresh() {
@@ -113,21 +176,18 @@ Page({
         model: binding.modelId || binding.model || "待配置"
       });
     });
-    const video = bindingFor(bindings, "shared.video");
-    const readyCount = bindings.filter(item => (
-      item
-      && item.slot !== "shared.video"
-      && (item.role || "primary") === "primary"
-      && isReady(item)
-    )).length;
+    const video = primaryBindingFor(bindings, "shared.video");
+    const featureSlots = GROUPS.reduce((slots, group) => slots.concat(group.items.map(item => item.slot)), []);
+    const readyCount = featureSlots.reduce((count, slot) => count + (isReady(primaryBindingFor(bindings, slot)) ? 1 : 0), 0)
+      + (isReady(video) ? 1 : 0);
     this.setData({
       loading: false,
       refreshing: false,
       source: fromCloud ? "cloud" : "local",
-      statusLabel: fromCloud ? "云端配置已同步" : "配置读取失败",
+      statusLabel: fromCloud ? "模型配置已连接" : "配置读取失败",
       statusTone: fromCloud ? "ready" : "warning",
       configuredCount: readyCount,
-      totalCount: 8,
+      totalCount: featureSlots.length + 1,
       standardItems,
       tencentItems,
       sharedVideo: {

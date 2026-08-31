@@ -27,7 +27,8 @@ const jsonFiles = [
   "cloudfunctions/watermark-gateway/package.json",
   "cloudfunctions/api/config.json",
   "scripts/database-indexes.json",
-  "scripts/cloud-database-index-manager/package.json"
+  "scripts/cloud-database-index-manager/package.json",
+  "visual-evidence/admin-v2-pixel-manifest.json"
 ];
 const optionalJsonFiles = ["project.private.config.json"];
 const adminV2ExecutableSmokeFiles = [
@@ -40,6 +41,7 @@ const adminV2ExecutableSmokeFiles = [
   "scripts/admin-v2-pixel-regression-smoke.js",
   "scripts/admin-preview-fixtures-smoke.js",
   "scripts/admin-v2-pixel-baseline-smoke.js",
+  "scripts/qr-decode-smoke.js",
   "scripts/admin-preview-pages-runtime-smoke.js"
 ];
 // 新增的 smoke 单独列出，既做语法检查，也纳入必要文件检查。
@@ -203,7 +205,9 @@ const jsFiles = [
   "scripts/qr-real-device-smoke.js",
   "scripts/deployment-script-smoke.js",
   "scripts/admin-v2-pixel-regression.js",
-  "scripts/admin-v2-pixel-baseline.js"
+  "scripts/admin-v2-pixel-baseline.js",
+  "scripts/qr-decode.js",
+  "scripts/vendor/qrcode-reader.js"
 ];
 for (const relative of smokeFiles) {
   if (!jsFiles.includes(relative)) jsFiles.push(relative);
@@ -388,6 +392,8 @@ const required = [
   "services/admin-preview-fixtures.js",
   "scripts/admin-v2-pixel-regression.js",
   "scripts/admin-v2-pixel-baseline.js",
+  "scripts/qr-decode.js",
+  "scripts/vendor/qrcode-reader.js",
   "cloudfunctions/api/lib/admin-config-v2.js",
   "pages/admin/admin.js",
   "pages/admin/admin.json",

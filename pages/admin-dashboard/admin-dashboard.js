@@ -101,6 +101,7 @@ Page({
     dashboardScrollStyle: INITIAL_NAVIGATION_LAYOUT.dashboardScrollStyle,
     loading: true,
     demoMode: false,
+    showDemoControl: false,
     refreshing: false,
     source: "local",
     statusLabel: "本地配置待同步",
@@ -128,7 +129,8 @@ Page({
 
   onLoad(options) {
     this.demoMode = previewFixtures.isEnabled(options);
-    this.setData({ demoMode: this.demoMode });
+    this.showDemoControl = previewFixtures.isControlVisible(options);
+    this.setData({ demoMode: this.demoMode, showDemoControl: this.showDemoControl });
     this.applyNavigationLayout();
     this.loadConfig();
   },
@@ -137,8 +139,34 @@ Page({
     this.setData(navigationLayout());
   },
 
+  previewQuery(separator = "?") {
+    const params = [];
+    if (this.demoMode) params.push("demo=1");
+    if (this.data.showDemoControl) params.push("demoControl=1");
+    return params.length ? `${separator}${params.join("&")}` : "";
+  },
+
   onResize() {
     this.applyNavigationLayout();
+  },
+
+  toggleDemoMode(event) {
+    if (this.data.loading || this.data.refreshing) return;
+    const rawValue = event && event.detail ? event.detail.value : undefined;
+    const next = typeof rawValue === "boolean"
+      ? rawValue
+      : (rawValue === "1" || rawValue === 1 ? true : (rawValue === "0" || rawValue === 0 ? false : !this.demoMode));
+    previewFixtures.setEnabled(next);
+    this.demoMode = next;
+    this.setData({ demoMode: next });
+    if (next) {
+      this.loadConfig();
+      return;
+    }
+    this._configLoadSerial = Number(this._configLoadSerial || 0) + 1;
+    this.applyConfig(FALLBACK, false, false);
+    this.setData({ statusLabel: "演示已关闭，下拉刷新读取线上配置" });
+    if (wx.showToast) wx.showToast({ title: "下拉刷新读取真实数据", icon: "none" });
   },
 
   onPullDownRefresh() {
@@ -146,6 +174,8 @@ Page({
   },
 
   async loadConfig(refreshing = false) {
+    const loadSerial = Number(this._configLoadSerial || 0) + 1;
+    this._configLoadSerial = loadSerial;
     this.setData({ loading: !refreshing, refreshing });
     if (this.demoMode) {
       this.applyConfig(previewFixtures.adminConfig(), false, true);
@@ -160,6 +190,7 @@ Page({
         result = null;
       }
     }
+    if (loadSerial !== this._configLoadSerial) return;
     const config = result && result.ok !== false && result.data ? result.data : (result && result.ok !== false ? result : null);
     this.applyConfig(config || FALLBACK, Boolean(config), false);
     if (refreshing && typeof wx !== "undefined" && wx.stopPullDownRefresh) wx.stopPullDownRefresh();
@@ -211,7 +242,7 @@ Page({
   },
 
   openProvider() {
-    wx.navigateTo({ url: `/pages/admin-provider/admin-provider${this.demoMode ? "?demo=1" : ""}` });
+    wx.navigateTo({ url: `/pages/admin-provider/admin-provider${this.previewQuery()}` });
   },
 
   openConfig(event) {
@@ -219,18 +250,18 @@ Page({
     const parts = String(slot).split(".");
     const group = parts[0] === "shared" ? "shared" : parts[0];
     const tab = parts[1] || "face";
-    wx.navigateTo({ url: `/pages/admin-config/admin-config?group=${group}&tab=${tab}${this.demoMode ? "&demo=1" : ""}` });
+    wx.navigateTo({ url: `/pages/admin-config/admin-config?group=${group}&tab=${tab}${this.previewQuery("&")}` });
   },
 
   openSharedVideo() {
-    wx.navigateTo({ url: `/pages/admin-config/admin-config?group=shared&tab=video${this.demoMode ? "&demo=1" : ""}` });
+    wx.navigateTo({ url: `/pages/admin-config/admin-config?group=shared&tab=video${this.previewQuery("&")}` });
   },
 
   openMetric(event) {
     const key = event.currentTarget.dataset.key || "usage";
     const sectionMap = { usage: "usage", points: "points", cost: "cost", users: "users" };
     const section = sectionMap[key] || "usage";
-    wx.navigateTo({ url: `/pages/admin-operations/admin-operations?view=${section}${this.demoMode ? "&demo=1" : ""}` });
+    wx.navigateTo({ url: `/pages/admin-operations/admin-operations?view=${section}${this.previewQuery("&")}` });
   },
 
   refreshAll() {

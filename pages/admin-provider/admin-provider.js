@@ -293,6 +293,7 @@ Page({
   data: {
     loading: true,
     demoMode: false,
+    showDemoControl: false,
     source: "local",
     currentVersion: 1,
     providers: [],
@@ -320,7 +321,8 @@ Page({
 
   onLoad(options) {
     this.demoMode = previewFixtures.isEnabled(options);
-    this.setData({ demoMode: this.demoMode });
+    this.showDemoControl = previewFixtures.isControlVisible(options);
+    this.setData({ demoMode: this.demoMode, showDemoControl: this.showDemoControl });
     this.applyNavigationLayout();
     this.loadRegistry();
   },
@@ -329,8 +331,59 @@ Page({
     this.applyNavigationLayout();
   },
 
+  toggleDemoMode(event) {
+    if (this.data.loading || this.data.busy) return;
+    const rawValue = event && event.detail ? event.detail.value : undefined;
+    const next = typeof rawValue === "boolean"
+      ? rawValue
+      : (rawValue === "1" || rawValue === 1 ? true : (rawValue === "0" || rawValue === 0 ? false : !this.demoMode));
+    previewFixtures.setEnabled(next);
+    this.demoMode = next;
+    this._secretReadSerial = Number(this._secretReadSerial || 0) + 1;
+    this.setData({ demoMode: next });
+    if (next) {
+      this.loadRegistry();
+      return;
+    }
+    this._registryLoadSerial = Number(this._registryLoadSerial || 0) + 1;
+    this._secretCache = Object.create(null);
+    const secretDirty = cleanSecretDirty();
+    this.setData({
+      loading: false,
+      source: "local",
+      currentVersion: 1,
+      providers: [],
+      providerCountText: "0 个档案",
+      selectedIndex: 0,
+      editing: false,
+      draft: blankProvider(),
+      authIsTc3: false,
+      capabilities: markCapabilities([]),
+      fetchedModels: [],
+      selectedFetchedModel: "",
+      modelPickerOpen: false,
+      modelStatus: "尚未选择模型",
+      modelStatusTone: "off",
+      secretDirty,
+      secretReadState: "idle",
+      secretStatus: secretStatusFor("idle", emptySecretValues(), secretDirty),
+      busy: false,
+      message: "演示已关闭，下拉刷新读取真实数据。",
+      canMoveUp: false,
+      canMoveDown: false
+    });
+    if (wx.showToast) wx.showToast({ title: "下拉刷新读取真实数据", icon: "none" });
+  },
+
   applyNavigationLayout() {
     this.setData(navigationLayout());
+  },
+
+  previewQuery(separator = "?") {
+    const params = [];
+    if (this.demoMode) params.push("demo=1");
+    if (this.data.showDemoControl) params.push("demoControl=1");
+    return params.length ? `${separator}${params.join("&")}` : "";
   },
 
   onPullDownRefresh() {
@@ -338,6 +391,8 @@ Page({
   },
 
   async loadRegistry(refreshing = false) {
+    const loadSerial = Number(this._registryLoadSerial || 0) + 1;
+    this._registryLoadSerial = loadSerial;
     this.setData({ loading: !refreshing, message: "" });
     let result = null;
     if (!this.demoMode && cloud && typeof cloud.getAdminConfigV2 === "function") {
@@ -347,6 +402,7 @@ Page({
         result = null;
       }
     }
+    if (loadSerial !== this._registryLoadSerial) return;
     const payload = this.demoMode
       ? previewFixtures.adminConfig()
       : (result && result.ok !== false && result.data ? result.data : (result && result.ok !== false ? result : null));
@@ -826,7 +882,7 @@ Page({
   },
 
   openConfig() {
-    wx.navigateTo({ url: `/pages/admin-config/admin-config${this.demoMode ? "?demo=1" : ""}` });
+    wx.navigateTo({ url: `/pages/admin-config/admin-config${this.previewQuery()}` });
   },
 
   goBack() {

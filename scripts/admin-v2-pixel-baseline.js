@@ -6,12 +6,24 @@ const regression = require("./admin-v2-pixel-regression");
 
 const ROOT = path.resolve(__dirname, "..");
 const DEFAULT_MAX_DIFF_RATIO = 0.5;
-const BASELINES = [
-  { name: "dashboard", actual: "visual-evidence/final-dashboard-v5-390x844.png", reference: "visual-evidence/pixel-baselines/dashboard-operations-reference.jpg" },
-  { name: "operations", actual: "visual-evidence/final-operations-v5-390x844.png", reference: "visual-evidence/pixel-baselines/operations-usage-reference.jpg" },
+const MANIFEST_PATH = path.join(ROOT, "visual-evidence", "admin-v2-pixel-manifest.json");
+const FALLBACK_BASELINES = [
+  { name: "dashboard", actual: "visual-evidence/final-dashboard-v5-390x844.png", reference: "visual-evidence/pixel-baselines/dashboard-operations-reference-390x844.png" },
+  { name: "operations", actual: "visual-evidence/final-operations-v5-390x844.png", reference: "visual-evidence/pixel-baselines/operations-usage-reference-390x844.png" },
   { name: "config", actual: "visual-evidence/final-config-v6-390x844.png", reference: "visual-evidence/pixel-baselines/config-reference.png" },
   { name: "provider", actual: "visual-evidence/final-provider-v6-390x844.png", reference: "visual-evidence/pixel-baselines/provider-reference.png" }
 ];
+
+function readBaselines() {
+  if (!fs.existsSync(MANIFEST_PATH)) return FALLBACK_BASELINES;
+  const manifest = JSON.parse(fs.readFileSync(MANIFEST_PATH, "utf8"));
+  if (!manifest || manifest.schemaVersion !== 1 || !Array.isArray(manifest.pages)) {
+    throw new Error(`像素基线 manifest 无效：${MANIFEST_PATH}`);
+  }
+  return manifest.pages.map(item => ({ name: item.name, actual: item.actual, reference: item.reference }));
+}
+
+const BASELINES = readBaselines();
 
 function parseArgs(argv) {
   const result = { maxDiffRatio: DEFAULT_MAX_DIFF_RATIO, threshold: 32 };

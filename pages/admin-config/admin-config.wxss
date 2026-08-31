@@ -26,6 +26,55 @@ page {
   border-bottom: 2rpx solid #d9e4f2;
 }
 
+.appbar-tools {
+  flex: 0 0 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+}
+
+.demo-control {
+  display: flex;
+  align-items: center;
+  gap: 2rpx;
+  color: #61799a;
+  font-size: 17rpx;
+  font-weight: 900;
+}
+
+.demo-control.locked {
+  opacity: .48;
+}
+
+.demo-toggle {
+  width: 56rpx;
+  height: 32rpx;
+  margin-left: 5rpx;
+  padding: 3rpx;
+  box-sizing: border-box;
+  border-radius: 18rpx;
+  background: #cbd6e4;
+}
+
+.demo-toggle.on {
+  background: #2f73ee;
+}
+
+.demo-knob {
+  width: 26rpx;
+  height: 26rpx;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 2rpx 6rpx rgba(16, 41, 75, .18);
+  transform: translateX(0);
+  transition: transform .16s ease;
+}
+
+.demo-toggle.on .demo-knob {
+  transform: translateX(24rpx);
+}
+
 .appbar-title {
   flex: 1;
   min-width: 0;
@@ -52,8 +101,8 @@ page {
   width: 100%;
   height: calc(100vh - 104rpx - constant(safe-area-inset-top));
   height: calc(100vh - 104rpx - env(safe-area-inset-top));
-  padding: 20rpx 20rpx calc(48rpx + constant(safe-area-inset-bottom));
-  padding: 20rpx 20rpx calc(48rpx + env(safe-area-inset-bottom));
+  padding: 24rpx 24rpx calc(48rpx + constant(safe-area-inset-bottom));
+  padding: 24rpx 24rpx calc(48rpx + env(safe-area-inset-bottom));
   box-sizing: border-box;
   overflow-x:hidden;
 }
@@ -71,7 +120,7 @@ page {
   padding: 14rpx;
   box-sizing: border-box;
   overflow: hidden;
-  border: 2rpx solid #c8dbf3;
+  border: 2rpx solid #b9d4f5;
   border-radius: 22rpx;
   background: #ffffff;
 }
@@ -234,7 +283,7 @@ page {
   padding: 20rpx;
   box-sizing: border-box;
   overflow: hidden;
-  border: 2rpx solid #c8dbf3;
+  border: 2rpx solid #b9d4f5;
   border-radius: 28rpx;
   background: #ffffff;
 }

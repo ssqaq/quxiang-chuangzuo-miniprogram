@@ -8,10 +8,15 @@ assert.strictEqual(fixtures.isEnabled({ demo: "true" }), true, "demo=true 应打
 assert.strictEqual(fixtures.isEnabled({ demo: "0" }), false, "demo=0 应关闭演示模式");
 assert.strictEqual(fixtures.isEnabled({ demo: "false" }), false, "demo=false 应关闭演示模式");
 assert.strictEqual(fixtures.isEnabled({ demo: "unknown" }), false, "未知开关值应保持默认关闭");
+assert.strictEqual(fixtures.isControlVisible({}), false, "默认不应显示演示控件以保持定稿顶栏");
+assert.strictEqual(fixtures.isControlVisible({ demoControl: "1" }), true, "demoControl=1 应显示演示控件");
+assert.strictEqual(fixtures.isControlVisible({ demoControl: "0" }), false, "demoControl=0 应隐藏演示控件");
 
 const config = fixtures.adminConfig();
 assert.strictEqual(config.source, "demo");
 assert.strictEqual(config.suppliers.length, 10, "演示供应商目录应覆盖十个视觉档案");
+assert.deepStrictEqual(config.suppliers.slice(0, 5).map(item => item.providerKey), ["dashscope", "xingju", "lingyun", "laoli", "panda"], "供应商目录顺序必须跟右图一致");
+assert.ok(config.bindings.some(item => item.slot === "tencent.face" && item.status === "not-ready"), "腾讯换脸演示状态必须待配置");
 assert.ok(config.bindings.some(item => item.slot === "shared.video" && item.role === "backup"), "演示配置必须包含共享视频备用模型");
 assert.ok(config.bindings.some(item => item.metadata && item.metadata.advanced && item.metadata.advanced.mode === "edits"), "生图演示配置必须包含 mode/size");
 const serialized = JSON.stringify(config);
@@ -19,6 +24,9 @@ assert.ok(!serialized.includes("apiKey") || !serialized.match(/apiKey\\"\\s*:\\s
 
 const usage = fixtures.operations("usage");
 assert.strictEqual(usage.today.total, 128);
+assert.strictEqual(usage.eventCount, 3842);
+assert.strictEqual(usage.errorLogCount, 199);
+assert.strictEqual(usage.failureStats.total, 7);
 assert.strictEqual(fixtures.operations("cost").last30d.estimatedCost, 68.42);
 assert.strictEqual(fixtures.operations("users").total, 1286);
 assert.strictEqual(fixtures.operations("points").effective.points.dailyFreeLimit, 3);

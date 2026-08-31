@@ -1501,7 +1501,7 @@ function Write-ReleaseAcceptanceReport {
         -not [string]::IsNullOrWhiteSpace((Get-ReleaseReceiptField $Context "previewQrPath")) -or
         -not [string]::IsNullOrWhiteSpace((Get-ReleaseReceiptField $Context "previewInfoPath"))
     )
-    $qrPass = $false; $qrReason = "未要求二维码"; $qrPath = Get-ReleaseReceiptField $Context "previewQrPath"; $infoPath = Get-ReleaseReceiptField $Context "previewInfoPath"
+    $qrPass = $false; $qrPayload = ""; $qrReason = "未要求二维码"; $qrPath = Get-ReleaseReceiptField $Context "previewQrPath"; $infoPath = Get-ReleaseReceiptField $Context "previewInfoPath"
     if ($previewRequested) {
         $qrReason = "二维码证据缺失"
         if (-not [string]::IsNullOrWhiteSpace($qrPath) -and -not [string]::IsNullOrWhiteSpace($infoPath) -and (Test-Path -LiteralPath $qrPath -PathType Leaf) -and (Test-Path -LiteralPath $infoPath -PathType Leaf)) {
@@ -1520,7 +1520,26 @@ function Write-ReleaseAcceptanceReport {
                 $qrItem = Get-Item -LiteralPath $resolvedQr
                 if ($qrItem.Length -le 0) { throw "二维码文件为空。" }
                 $info = Get-Content -LiteralPath $infoPath -Raw -Encoding UTF8 | ConvertFrom-Json
-                $qrSha = (Get-FileHash -LiteralPath $qrPath -Algorithm SHA256).Hash.ToLowerInvariant()
+                $qrSha = (Get-FileHash -LiteralPath $resolvedQr -Algorithm SHA256).Hash.ToLowerInvariant()
+                $qrDecodeScript = Join-Path $PSScriptRoot "qr-decode.js"
+                if (-not (Test-Path -LiteralPath $qrDecodeScript -PathType Leaf)) {
+                    throw "二维码解码脚本缺失：$qrDecodeScript"
+                }
+                $qrDecodeOutput = @(& node $qrDecodeScript --image $resolvedQr --json 2>&1)
+                if ($LASTEXITCODE -ne 0) {
+                    throw "二维码真实解码失败：$($qrDecodeOutput -join ' ')"
+                }
+                try {
+                    $qrDecode = ($qrDecodeOutput -join "`n") | ConvertFrom-Json -ErrorAction Stop
+                }
+                catch {
+                    throw "二维码解码回执不是有效 JSON：$($qrDecodeOutput -join ' ')"
+                }
+                $qrPayload = Get-ReleaseReceiptField $qrDecode "payload"
+                $qrOk = (Get-ReleaseReceiptField $qrDecode "ok").ToLowerInvariant() -eq "true"
+                if (-not $qrOk -or [string]::IsNullOrWhiteSpace($qrPayload)) {
+                    throw "二维码解码回执缺少非空 payload。"
+                }
                 $infoMain = Get-ReleaseReceiptField $info "mainCommit"
                 $expectedMain = Get-ReleaseReceiptField $Context "mainCommit"
                 $qrPass = [int](Get-ReleaseReceiptField $info "schemaVersion") -eq 1 -and
@@ -1534,11 +1553,11 @@ function Write-ReleaseAcceptanceReport {
                     (Get-ReleaseReceiptField $info "artifactPath") -eq [string]$Context.artifactPath -and
                     -not [string]::IsNullOrWhiteSpace($expectedMain) -and
                     [string]::Equals($infoMain, $expectedMain, [StringComparison]::OrdinalIgnoreCase)
-                $qrReason = if ($qrPass) { "二维码 info 与 context 一致" } else { "二维码 SHA 或绑定字段不一致" }
+                $qrReason = if ($qrPass) { "二维码已真实解码，且 info/SHA 与 context 一致" } else { "二维码 SHA 或绑定字段不一致" }
             } catch { $qrReason = $_.Exception.Message }
         }
     }
-    $checks.qr = [ordered]@{ status = if (-not $previewRequested) { "skipped" } elseif ($qrPass) { "pass" } else { "fail" }; qrPath = $qrPath; infoPath = $infoPath; reason = $qrReason }
+    $checks.qr = [ordered]@{ status = if (-not $previewRequested) { "skipped" } elseif ($qrPass) { "pass" } else { "fail" }; qrPath = $qrPath; infoPath = $infoPath; payload = if ($null -ne $qrPayload) { $qrPayload } else { "" }; reason = $qrReason }
 
     # When preview was requested, the DevTools project import is a separate
     # auditable step.  A QR file alone does not prove that the newly packaged

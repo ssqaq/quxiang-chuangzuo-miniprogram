@@ -135,6 +135,12 @@ jobs:
       - name: Validate source
         shell: pwsh
         run: node scripts/validate.js
+      - name: Four-page pixel regression
+        shell: pwsh
+        run: node scripts/admin-v2-pixel-baseline.js --threshold 32 --max-diff-ratio 0.5
+      - name: Preview QR decode
+        shell: pwsh
+        run: node scripts/qr-decode-smoke.js
       - name: Payment UI smoke
         shell: pwsh
         run: node scripts/payment-ui-smoke.js

@@ -13,12 +13,14 @@ module.exports = {
   paymentCloudFunctionName: "payment-api",
   imageMode: "edits",
   adminPreviewDemo: false,
+  // 正常页面保持和设计稿一致；调试时可用 ?demoControl=1 显示页内开关。
+  adminPreviewDemoControl: false,
   imageCompression: {
     enabled: true,
     quality: 82,
     minBytes: 262144
   },
-  appVersion: "0.57.102",
+  appVersion: "0.57.103",
   points: {
     dailyFreeLimit: 3,
     imageCost: 10,

@@ -24,6 +24,10 @@
       },
       {
         "type": "folder",
+        "value": "visual-evidence"
+      },
+      {
+        "type": "folder",
         "value": "media-worker"
       },
       {

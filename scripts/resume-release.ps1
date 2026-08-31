@@ -8,7 +8,10 @@ param(
     [switch]$DeployCloud,
     [switch]$ResumePendingDeploy,
     [ValidateRange(1, 7200)][int]$LockWaitSeconds = 1800,
-    [switch]$KeepWorktree
+    [switch]$KeepWorktree,
+    # 仅用于已明确指定 operationId 的恢复；不改变队头票据内容。
+    [switch]$AllowOutOfOrder,
+    [switch]$AllowPrepared
 )
 
 $ErrorActionPreference = "Stop"
@@ -674,7 +677,7 @@ try {
     # remains the FIFO head.  Only this explicit resume path may claim that
     # special phase; ordinary release workers are rejected by the queue.
     $allowPreparedClaim = ([string]$ticket.phase -notin @("queued", ""))
-    $queueLease = Claim-ReleaseQueueTicket -TicketId ([string]$ticket.ticketId) -LeaseOwner "release-resume/$PID/$OperationId" -LeaseSeconds $queueLeaseSeconds -AllowPrepared:$allowPreparedClaim -QueueRoot $queueRoot -WaitSeconds $LockWaitSeconds -PollMilliseconds $queuePollMilliseconds
+    $queueLease = Claim-ReleaseQueueTicket -TicketId ([string]$ticket.ticketId) -LeaseOwner "release-resume/$PID/$OperationId" -LeaseSeconds $queueLeaseSeconds -AllowOutOfOrder:$AllowOutOfOrder -AllowPrepared:($allowPreparedClaim -or $AllowPrepared) -QueueRoot $queueRoot -WaitSeconds $LockWaitSeconds -PollMilliseconds $queuePollMilliseconds
     if ($null -eq $queueLease) { throw "恢复操作未能领取队列票据，仍有更早操作排队：$OperationId" }
     $queueLease = Start-ReleaseQueueTicket -TicketId ([string]$queueLease.ticketId) -LeaseId ([string]$queueLease.leaseId) -LeaseOwner ([string]$queueLease.leaseOwner) -QueueRoot $queueRoot -WaitSeconds $LockWaitSeconds -PollMilliseconds $queuePollMilliseconds
     # A preparation can be resumed later with stronger intent flags. Record

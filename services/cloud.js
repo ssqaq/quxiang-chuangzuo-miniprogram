@@ -837,6 +837,97 @@ module.exports = {
       retryLimit: 0
     });
   },
+  // V2 管理接口：供应商基础档案、模型确认和功能绑定分开写入。
+  // 公开目录不携带密钥；明文只通过管理员专用的单供应商接口读取。
+  getAdminConfigV2(options = {}) {
+    return callApi({
+      action: "getAdminConfigV2",
+      retryLimit: options.retryLimit === undefined ? 0 : options.retryLimit,
+      silent: options.silent === undefined ? true : Boolean(options.silent)
+    });
+  },
+  saveAdminProviderV2(payload = {}) {
+    const source = payload && typeof payload === "object" ? payload : {};
+    return callApi({
+      action: "saveAdminProviderV2",
+      operation: source.operation || "upsert",
+      expectedVersion: source.expectedVersion,
+      providerKey: source.providerKey,
+      provider: source.provider,
+      secret: source.secret,
+      credentials: source.credentials,
+      models: Array.isArray(source.models) ? source.models : undefined,
+      order: Array.isArray(source.order)
+        ? source.order
+        : Array.isArray(source.providerOrder) ? source.providerOrder : undefined,
+      retryLimit: 0
+    });
+  },
+  confirmAdminModelsV2(payload = {}) {
+    const source = payload && typeof payload === "object" ? payload : {};
+    return callApi({
+      action: "confirmAdminModelsV2",
+      providerKey: source.providerKey,
+      modelIds: Array.isArray(source.modelIds) ? source.modelIds : [],
+      candidates: Array.isArray(source.candidates) ? source.candidates : undefined,
+      capabilities: Array.isArray(source.capabilities) ? source.capabilities : undefined,
+      expectedVersion: source.expectedVersion,
+      retryLimit: 0
+    });
+  },
+  saveAdminBindingV2(payload = {}) {
+    const source = payload && typeof payload === "object" ? payload : {};
+    return callApi({
+      action: "saveAdminBindingV2",
+      binding: source.binding,
+      slot: source.slot,
+      role: source.role,
+      providerKey: source.providerKey,
+      modelId: source.modelId,
+      status: source.status,
+      expectedVersion: source.expectedVersion,
+      retryLimit: 0
+    });
+  },
+  listAdminProviderModelsV2(providerKey, options = {}) {
+    const source = providerKey && typeof providerKey === "object"
+      ? providerKey
+      : Object.assign({}, options, { providerKey });
+    return callApi({
+      action: "listAdminProviderModelsV2",
+      providerKey: String(source.providerKey || "").trim(),
+      provider: source.provider,
+      slot: source.slot,
+      modelType: source.modelType,
+      cachedOnly: source.cachedOnly,
+      readOnly: source.readOnly,
+      retryLimit: source.retryLimit === undefined ? 0 : source.retryLimit,
+      silent: source.silent === undefined ? true : Boolean(source.silent)
+    });
+  },
+  probeAdminProviderV2(payload = {}) {
+    const source = payload && typeof payload === "object" ? payload : {};
+    return callApi({
+      action: "probeAdminProviderV2",
+      providerKey: source.providerKey,
+      provider: source.provider,
+      slot: source.slot,
+      modelType: source.modelType,
+      modelId: source.modelId,
+      retryLimit: 0
+    });
+  },
+  getAdminProviderSecretsV2(providerKey, options = {}) {
+    const source = providerKey && typeof providerKey === "object"
+      ? providerKey
+      : Object.assign({}, options, { providerKey });
+    return callApi({
+      action: "getAdminProviderSecretsV2",
+      providerKey: String(source.providerKey || "").trim(),
+      retryLimit: source.retryLimit === undefined ? 0 : source.retryLimit,
+      silent: source.silent === undefined ? true : Boolean(source.silent)
+    });
+  },
   getAdminConfigAuditLogs(limit = 20) {
     return callApi({
       action: "getAdminConfigAuditLogs",

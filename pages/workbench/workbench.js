@@ -643,7 +643,7 @@ Page({
 
   openAdmin() {
     if (!this.data.adminEntryVisible) return;
-    wx.navigateTo({ url: "/pages/admin/admin" });
+    wx.navigateTo({ url: "/pages/admin-dashboard/admin-dashboard" });
   },
 
   recordInteraction(event, message, details = {}) {

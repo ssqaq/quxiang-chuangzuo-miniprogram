@@ -1,0 +1,72 @@
+<view class="provider-page">
+  <view class="appbar">
+    <view class="back" bindtap="goBack" hover-class="tap">‹</view>
+    <view class="appbar-title">供应商管理</view>
+    <view class="appbar-link" bindtap="openConfig" hover-class="tap">功能配置 <text>›</text></view>
+  </view>
+
+  <scroll-view class="provider-scroll" scroll-y="true" enable-back-to-top="true">
+    <view class="notice">这里只维护供应商、连接和模型库；主备模型由各功能配置页选择。API Key 仅管理员可见，保存后保持明文显示。</view>
+    <view class="provider-layout">
+      <view class="directory-panel">
+        <view class="directory-title"><text>供应商目录</text><text class="directory-count">{{providerCountText}}</text></view>
+        <button class="primary-btn add-btn" bindtap="startAddProvider" hover-class="tap">＋ 新增供应商</button>
+        <view class="order-row">
+          <button class="small-btn" data-direction="up" disabled="{{!canMoveUp}}" bindtap="moveProvider" hover-class="tap">↑ 上移</button>
+          <button class="small-btn" data-direction="down" disabled="{{!canMoveDown}}" bindtap="moveProvider" hover-class="tap">↓ 下移</button>
+        </view>
+        <scroll-view class="provider-list" scroll-y="true" show-scrollbar="false" enhanced="true" scroll-into-view="{{activeProviderId}}">
+          <view wx:for="{{providers}}" wx:key="providerKey" id="provider-{{index}}" class="provider-row {{selectedIndex === index ? 'active' : ''}}" data-index="{{index}}" bindtap="selectProvider" hover-class="tap">
+            <view class="provider-name {{item.enabled ? '' : 'off'}}"><text>{{item.name}}</text></view>
+            <view class="provider-ability"><text wx:for="{{item.capabilityRows}}" wx:key="*this" wx:for-item="abilityRow" wx:for-index="abilityIndex">{{abilityRow}}</text></view>
+            <text class="status-tag {{item.enabled ? '' : 'off'}}">{{item.enabled ? '已配置' : '未配置'}}</text>
+          </view>
+        </scroll-view>
+      </view>
+
+      <view class="editor-panel">
+        <view class="editor-title">{{editing ? '编辑供应商' : '新增供应商'}}<text wx:if="{{draft.name}}"> · {{draft.name}}</text></view>
+        <view class="editor-copy">这里保存连接与模型清单；功能页只负责选择主备供应商和模型。</view>
+        <view class="field"><text class="field-label">供应商 ID</text><input value="{{draft.providerKey}}" data-field="providerKey" disabled="{{editing}}" placeholder="例如 dashscope" bindinput="onDraftInput" /></view>
+        <view class="field"><text class="field-label">中文名称</text><input value="{{draft.name}}" data-field="name" placeholder="例如 阿里云百炼" bindinput="onDraftInput" /></view>
+
+        <view class="auth-switch">
+          <view class="auth-tab {{!authIsTc3 ? 'active' : ''}}" data-auth="apiKey" bindtap="switchAuth">API Key</view>
+          <view class="auth-tab {{authIsTc3 ? 'active' : ''}}" data-auth="tc3" bindtap="switchAuth">腾讯 TC3</view>
+        </view>
+        <view wx:if="{{!authIsTc3}}" class="auth-panel">
+          <view class="field"><text class="field-label">API 端点</text><input value="{{draft.endpoint}}" data-field="endpoint" placeholder="https://api.example.com/v1" bindinput="onDraftInput" /></view>
+          <view class="field key-field"><text class="field-label">API Key</text><input password="{{false}}" value="{{draft.apiKey}}" data-field="apiKey" placeholder="管理员可见" bindinput="onDraftInput" /></view>
+        </view>
+        <view wx:else class="auth-panel tc3-panel">
+          <view class="tc3-title">人脸融合依赖 · 腾讯 TC3</view>
+          <view class="field"><text class="field-label">SecretId</text><input value="{{draft.tc3.secretId}}" data-field="tc3.secretId" bindinput="onDraftInput" /></view>
+          <view class="field key-field"><text class="field-label">SecretKey</text><input password="{{false}}" value="{{draft.tc3.secretKey}}" data-field="tc3.secretKey" bindinput="onDraftInput" /></view>
+          <view class="two-fields"><view class="field"><text class="field-label">Region</text><input value="{{draft.tc3.region}}" data-field="tc3.region" bindinput="onDraftInput" /></view><view class="field"><text class="field-label">Endpoint</text><input value="{{draft.tc3.endpoint}}" data-field="tc3.endpoint" bindinput="onDraftInput" /></view></view>
+          <view class="two-fields"><view class="field"><text class="field-label">API Version</text><input value="{{draft.tc3.apiVersion}}" data-field="tc3.apiVersion" bindinput="onDraftInput" /></view><view class="field"><text class="field-label">Action</text><input value="{{draft.tc3.action}}" data-field="tc3.action" bindinput="onDraftInput" /></view></view>
+        </view>
+
+        <view class="model-tools">
+          <view class="model-tools-head"><view><text class="tools-title">模型配置</text><text class="tools-status {{modelStatusTone}}">{{modelStatus}}</text></view></view>
+          <view class="tools-actions"><button class="secondary-btn" loading="{{busy}}" bindtap="testConnection" hover-class="tap">测试连接</button><button class="primary-btn" loading="{{busy}}" bindtap="fetchModels" hover-class="tap">获取模型</button></view>
+          <view wx:if="{{modelPickerOpen}}" class="model-picker">
+            <view class="picker-head"><text>选择模型</text><text>已获取 {{fetchedModels.length}} 个</text></view>
+            <scroll-view class="model-options" scroll-y="true" show-scrollbar="false">
+              <view wx:for="{{fetchedModels}}" wx:key="*this" class="model-option {{selectedFetchedModel === item ? 'selected' : ''}}" data-model="{{item}}" bindtap="chooseFetchedModel" hover-class="tap"><radio value="{{item}}" checked="{{selectedFetchedModel === item}}" color="#2f73ee" /><text>{{item}}</text></view>
+            </scroll-view>
+            <view class="picker-actions"><button class="small-btn" bindtap="closeModelPicker">取消</button><button class="primary-btn small-btn" disabled="{{!selectedFetchedModel}}" bindtap="confirmModel">手动确认模型</button></view>
+          </view>
+        </view>
+
+        <view class="capability-box">
+          <view class="capability-title">可用功能（用于功能页筛选）</view>
+          <view class="capability-grid"><view wx:for="{{capabilities}}" wx:key="key" class="capability"><switch type="checkbox" checked="{{item.checked}}" data-cap="{{item.key}}" bindchange="onCapabilityChange" color="#2f73ee" /><text>{{item.label}}</text></view></view>
+        </view>
+        <view class="editor-note">功能配置页只读取这里保存的供应商和模型清单。删除前若仍被主备模型使用，系统会要求先改绑。</view>
+        <view wx:if="{{message}}" class="message">{{message}}</view>
+        <view class="editor-actions"><button wx:if="{{editing}}" class="danger-btn" loading="{{busy}}" bindtap="deleteProvider" hover-class="tap">删除供应商</button><button class="primary-btn" loading="{{busy}}" bindtap="saveProvider" hover-class="tap">保存供应商</button></view>
+      </view>
+    </view>
+    <view class="bottom-space"></view>
+  </scroll-view>
+</view>

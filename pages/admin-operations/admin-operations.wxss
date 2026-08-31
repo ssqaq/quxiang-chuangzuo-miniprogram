@@ -1,6 +1,19 @@
 page { background:#f4f8fe; color:#10294b; font-family:"Microsoft YaHei","PingFang SC","SimHei",system-ui,sans-serif; }
 .operations-page { min-height:100vh; overflow-x:hidden; background:#f4f8fe; }
 .appbar { width:100%; min-height:0; padding:0 30rpx 24rpx; display:flex; align-items:flex-end; justify-content:space-between; gap:12rpx; box-sizing:border-box; background:#fff; border-bottom:2rpx solid #d9e4f2; }
+.appbar-tools { flex:0 0 auto; min-width:0; display:flex; align-items:center; gap:12rpx; }
+.demo-control { display:flex; align-items:center; gap:2rpx; color:#61799a; font-size:17rpx; font-weight:900; }
+.demo-control.locked { opacity:.48; }
+.demo-toggle { width:56rpx; height:32rpx; margin-left:5rpx; padding:3rpx; box-sizing:border-box; border-radius:18rpx; background:#cbd6e4; }
+.demo-toggle.on { background:#2f73ee; }
+.demo-knob { width:26rpx; height:26rpx; border-radius:50%; background:#fff; box-shadow:0 2rpx 6rpx rgba(16,41,75,.18); transform:translateX(0); transition:transform .16s ease; }
+.demo-toggle.on .demo-knob { transform:translateX(24rpx); }
+
+/* 用量页按浏览器评审稿保留纵向可读空间，数字较长时仍不横向溢出。 */
+.operations-page .overview-card { min-height:290rpx; box-sizing:border-box; padding:27rpx; }
+.operations-page .summary-item { min-height:118rpx; box-sizing:border-box; }
+.operations-page .detail-card { min-height:112rpx; box-sizing:border-box; }
+.operations-page .detail-toggle { min-height:65rpx; }
 .appbar-title { flex:1; min-width:0; overflow:hidden; color:#10294b; font-size:42rpx; line-height:38rpx; font-weight:900; text-overflow:ellipsis; white-space:nowrap; }
 .appbar-link { flex:0 0 auto; color:#2f73ee; font-size:24rpx; line-height:38rpx; font-weight:900; white-space:nowrap; }
 .appbar-link text { margin-left:4rpx; font-size:30rpx; }
@@ -9,8 +22,8 @@ page { background:#f4f8fe; color:#10294b; font-family:"Microsoft YaHei","PingFan
 .overview-eyebrow { display:block; color:#dce9ff; font-size:17rpx; line-height:1; font-weight:900; letter-spacing:2rpx; }
 .overview-title { display:block; margin-top:8rpx; color:#fff; font-size:40rpx; line-height:1.15; font-weight:900; }
 .overview-description { display:block; margin-top:6rpx; color:#e3edff; font-size:17rpx; line-height:1.45; }
-.overview-actions { margin-top:21rpx; display:flex; align-items:center; gap:13rpx; }
-.overview-button { flex:0 0 auto; min-width:0; width:auto; height:65rpx; margin:0; padding:0 23rpx; border:2rpx solid rgba(255,255,255,.42); border-radius:15rpx; background:rgba(255,255,255,.1); color:#fff; font-size:19rpx; line-height:65rpx; font-weight:900; white-space:nowrap; }
+.overview-actions { margin-top:21rpx; display:flex; align-items:center; justify-content:flex-start; gap:13rpx; text-align:left; }
+.overview-button { display:inline-flex; align-items:center; justify-content:center; flex:0 0 auto; min-width:0 !important; width:auto !important; height:65rpx; margin:0 !important; margin-left:0 !important; margin-right:0 !important; padding:0 32rpx; border:2rpx solid rgba(255,255,255,.42); border-radius:15rpx; background:rgba(255,255,255,.1); color:#fff; font-size:19rpx; line-height:1; font-weight:900; white-space:nowrap; }
 .overview-button[disabled] { opacity:.55; }
 .summary-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:13rpx; margin-bottom:19rpx; }
 .summary-item { min-width:0; min-height:0; padding:19rpx 12rpx; display:flex; flex-direction:column; align-items:center; justify-content:center; border:2rpx solid #c8dbf3; border-radius:21rpx; background:#fff; text-align:center; }

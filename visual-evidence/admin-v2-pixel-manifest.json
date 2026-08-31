@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "viewport": {
+    "width": 390,
+    "height": 844,
+    "device": "iPhone 12/13 simulator"
+  },
+  "mode": "demo=1",
+  "threshold": 32,
+  "maxDiffRatio": 0.5,
+  "capture": {
+    "tool": "微信开发者工具 simulator_screenshot",
+    "command": "wechatide -c default simulator_open_page --project <project> --page <page> --query demo=1; wechatide -c default simulator_screenshot --optimize=false --wait-for-selector <page-selector>",
+    "generatedAt": "2026-09-01"
+  },
+  "pages": [
+    {
+      "name": "dashboard",
+      "route": "/pages/admin-dashboard/admin-dashboard?demo=1",
+      "actual": "visual-evidence/final-dashboard-v5-390x844.png",
+      "reference": "visual-evidence/pixel-baselines/dashboard-operations-reference-390x844.png"
+    },
+    {
+      "name": "operations",
+      "route": "/pages/admin-operations/admin-operations?demo=1",
+      "actual": "visual-evidence/final-operations-v5-390x844.png",
+      "reference": "visual-evidence/pixel-baselines/operations-usage-reference-390x844.png"
+    },
+    {
+      "name": "config",
+      "route": "/pages/admin-config/admin-config?demo=1",
+      "actual": "visual-evidence/final-config-v6-390x844.png",
+      "reference": "visual-evidence/pixel-baselines/config-reference.png"
+    },
+    {
+      "name": "provider",
+      "route": "/pages/admin-provider/admin-provider?demo=1",
+      "actual": "visual-evidence/final-provider-v6-390x844.png",
+      "reference": "visual-evidence/pixel-baselines/provider-reference.png"
+    }
+  ]
+}

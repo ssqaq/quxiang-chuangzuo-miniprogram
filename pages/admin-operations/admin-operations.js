@@ -173,7 +173,11 @@ function emptyViewData() {
 function buildUsageView(source) {
   const today = source.today || {};
   const summary = source.summary || {};
-  const rangeTotal = summaryTotal(summary);
+  // 右侧设计稿的“本月调用”对应统计接口的事件总数；只有旧接口没有
+  // eventCount 时才退回按功能汇总，避免把 128 显示成整月总量。
+  const rangeTotal = source.eventCount === undefined
+    ? summaryTotal(summary)
+    : numberValue(source.eventCount, summaryTotal(summary));
   const failureStats = source.failureStats || {};
   const failureTotal = numberValue(failureStats.total, numberValue(today.failure, 0));
   const totalForRate = rangeTotal || numberValue(failureStats.total, 0);
@@ -184,11 +188,11 @@ function buildUsageView(source) {
     summary: [
       { label: "今日调用", value: formatNumber(today.total) },
       { label: "本月调用", value: formatNumber(rangeTotal) },
-      { label: "失败", value: formatNumber(today.failure) }
+      { label: "失败", value: formatNumber(failureTotal) }
     ],
     detailRows: [
       row("模型调用失败统计", `失败 ${formatNumber(failureTotal)} 次 · 失败率 ${formatPercent(failureRate)}`, (Array.isArray(failureStats.topFailureReasons) ? failureStats.topFailureReasons : []).slice(0, 5).map(item => `${item.label || "未提供错误原因"}：${formatNumber(item.count)} 次`)),
-      row("运行监控", `统计范围 ${formatNumber(source.days || 30)} 天 · 记录 ${source.eventCount === undefined ? "—" : formatNumber(source.eventCount)} 条`, [source.truncated ? "记录达到读取上限，结果可能被截断。" : "统计接口已返回当前范围数据。", source.todayKey ? `最新统计日：${source.todayKey}` : "暂无最新统计日期。"]),
+      row("运行监控", `统计范围 ${formatNumber(source.days || 30)} 天 · 错误日志 ${source.errorLogCount === undefined ? "—" : formatNumber(source.errorLogCount)} 条`, [source.truncated ? "记录达到读取上限，结果可能被截断。" : "统计接口已返回当前范围数据。", source.todayKey ? `最新统计日：${source.todayKey}` : "暂无最新统计日期。"]),
       row("功能用量明细", typeLines.join(" · "), typeLines.concat(modelLines))
     ],
     footNote: "统计数据按功能和供应商汇总；点击展开后可继续查看单个模型明细。",
@@ -286,6 +290,7 @@ Page({
     operationsScrollStyle: INITIAL_NAVIGATION_LAYOUT.operationsScrollStyle,
     loading: true,
     demoMode: false,
+    showDemoControl: false,
     busy: false,
     source: "local",
     activeView: "usage",
@@ -304,7 +309,8 @@ Page({
 
   onLoad(options) {
     this.demoMode = previewFixtures.isEnabled(options);
-    this.setData({ demoMode: this.demoMode });
+    this.showDemoControl = previewFixtures.isControlVisible(options);
+    this.setData({ demoMode: this.demoMode, showDemoControl: this.showDemoControl });
     this.applyNavigationLayout();
     const key = options && options.view ? options.view : "usage";
     this.setView(key, false);
@@ -314,8 +320,40 @@ Page({
     this.setData(navigationLayout());
   },
 
+  previewQuery(separator = "?") {
+    const params = [];
+    if (this.demoMode) params.push("demo=1");
+    if (this.data.showDemoControl) params.push("demoControl=1");
+    return params.length ? `${separator}${params.join("&")}` : "";
+  },
+
   onResize() {
     this.applyNavigationLayout();
+  },
+
+  toggleDemoMode(event) {
+    if (this.data.loading || this.data.busy) return;
+    const rawValue = event && event.detail ? event.detail.value : undefined;
+    const next = typeof rawValue === "boolean"
+      ? rawValue
+      : (rawValue === "1" || rawValue === 1 ? true : (rawValue === "0" || rawValue === 0 ? false : !this.demoMode));
+    previewFixtures.setEnabled(next);
+    this.demoMode = next;
+    this.setData({ demoMode: next });
+    if (next) {
+      this.loadData();
+      return;
+    }
+    this._dataLoadSerial = Number(this._dataLoadSerial || 0) + 1;
+    this.setData(Object.assign({}, emptyViewData(), {
+      loading: false,
+      busy: false,
+      source: "local",
+      empty: true,
+      footNote: "演示已关闭，点击刷新读取真实数据。",
+      message: ""
+    }));
+    if (wx.showToast) wx.showToast({ title: "点击刷新读取真实数据", icon: "none" });
   },
 
   onPullDownRefresh() {
@@ -343,6 +381,8 @@ Page({
   },
 
   async loadData(refreshing = false) {
+    const loadSerial = Number(this._dataLoadSerial || 0) + 1;
+    this._dataLoadSerial = loadSerial;
     const activeView = this.data.activeView;
     this.setData({ loading: !refreshing, busy: true, message: "" });
     if (this.demoMode) {
@@ -380,6 +420,7 @@ Page({
     } catch (error) {
       errorMessage = error && error.message ? String(error.message) : "读取数据失败。";
     }
+    if (loadSerial !== this._dataLoadSerial) return;
     const source = unwrap(result);
     let built = emptyViewData();
     if (source) {
@@ -453,11 +494,11 @@ Page({
   },
 
   openProvider() {
-    wx.navigateTo({ url: "/pages/admin-provider/admin-provider" });
+    wx.navigateTo({ url: `/pages/admin-provider/admin-provider${this.previewQuery()}` });
   },
 
   openConfig() {
-    wx.navigateTo({ url: "/pages/admin-config/admin-config" });
+    wx.navigateTo({ url: `/pages/admin-config/admin-config${this.previewQuery()}` });
   },
 
   backToDashboard() {
@@ -465,6 +506,6 @@ Page({
       wx.navigateBack({ delta: 1 });
       return;
     }
-    wx.navigateTo({ url: "/pages/admin-dashboard/admin-dashboard" });
+    wx.navigateTo({ url: `/pages/admin-dashboard/admin-dashboard${this.previewQuery()}` });
   }
 });

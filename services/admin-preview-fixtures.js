@@ -134,7 +134,7 @@ const BINDINGS = [
   ["standard.styleAnalysis", "primary", "lingyun", "凌云", "vision-pro", "ready"],
   ["standard.imageGeneration", "primary", "dashscope", "阿里云百炼", "jw-gpt-image-2", "ready"],
   ["standard.imageGeneration", "backup", "xingju", "星矩", "jw-gpt-image-2", "ready"],
-  ["tencent.face", "primary", "tencent", "腾讯云", "FuseFace", "ready"],
+  ["tencent.face", "primary", "", "", "", "not-ready"],
   ["tencent.imageAnalysis", "primary", "xingju", "星矩", "qwen-vl-max", "ready"],
   ["tencent.styleAnalysis", "primary", "zhipu", "智谱", "glm-4v", "ready"],
   ["tencent.imageGeneration", "primary", "xingju", "星矩", "jw-gpt-image-2", "ready"],
@@ -199,6 +199,14 @@ function isEnabled(options) {
   return Boolean(config && config.adminPreviewDemo === true);
 }
 
+function isControlVisible(options) {
+  const explicit = options && Object.prototype.hasOwnProperty.call(options, "demoControl")
+    ? booleanValue(options.demoControl)
+    : null;
+  if (explicit !== null) return explicit;
+  return Boolean(config && config.adminPreviewDemoControl === true);
+}
+
 function setEnabled(enabled) {
   const value = Boolean(enabled);
   try {
@@ -219,9 +227,15 @@ function supplierModels() {
 }
 
 function adminConfig() {
+  const preferredOrder = ["dashscope", "xingju", "lingyun", "laoli", "panda", "qwen", "zhipu", "volcengine", "tencent", "local"];
+  const order = new Map(preferredOrder.map((providerKey, index) => [providerKey, index]));
+  const suppliers = SUPPLIERS.slice().sort((left, right) => (
+    (order.get(left.providerKey) === undefined ? Number.MAX_SAFE_INTEGER : order.get(left.providerKey))
+      - (order.get(right.providerKey) === undefined ? Number.MAX_SAFE_INTEGER : order.get(right.providerKey))
+  ));
   return {
     version: 42,
-    suppliers: clone(SUPPLIERS),
+    suppliers: clone(suppliers),
     supplierModels: supplierModels(),
     bindings: clone(BINDINGS),
     providerConfigV2: { version: 42 },
@@ -233,7 +247,8 @@ function usage() {
   return {
     days: 30,
     todayKey: "2026-09-01",
-    eventCount: 4862,
+    eventCount: 3842,
+    errorLogCount: 199,
     today: { total: 128, failure: 3, estimatedCost: 2.86 },
     summary: {
       face: { total: 38, estimatedCost: 0.72 },
@@ -242,10 +257,10 @@ function usage() {
       video: { total: 19, estimatedCost: 0.4 }
     },
     failureStats: {
-      total: 3,
+      total: 7,
       topFailureReasons: [
-        { label: "网络超时", count: 2 },
-        { label: "供应商限流", count: 1 }
+        { label: "网络超时", count: 4 },
+        { label: "供应商限流", count: 3 }
       ]
     },
     models: [
@@ -308,6 +323,7 @@ function operations(view) {
 module.exports = {
   DEMO_STORAGE_KEY,
   isEnabled,
+  isControlVisible,
   setEnabled,
   adminConfig,
   providers: adminConfig,

@@ -287,6 +287,7 @@ Page({
   data: {
     loading: true,
     demoMode: false,
+    showDemoControl: false,
     source: "local",
     currentVersion: 1,
     groups: [],
@@ -313,7 +314,8 @@ Page({
 
   onLoad(options) {
     this.demoMode = previewFixtures.isEnabled(options);
-    this.setData({ demoMode: this.demoMode });
+    this.showDemoControl = previewFixtures.isControlVisible(options);
+    this.setData({ demoMode: this.demoMode, showDemoControl: this.showDemoControl });
     this.applyNavigationLayout();
     this.initialGroup = options && options.group ? options.group : "standard";
     this.initialTab = options && options.tab ? options.tab : "face";
@@ -324,8 +326,50 @@ Page({
     this.applyNavigationLayout();
   },
 
+  toggleDemoMode(event) {
+    if (this.data.loading || this.data.saving) return;
+    const rawValue = event && event.detail ? event.detail.value : undefined;
+    const next = typeof rawValue === "boolean"
+      ? rawValue
+      : (rawValue === "1" || rawValue === 1 ? true : (rawValue === "0" || rawValue === 0 ? false : !this.demoMode));
+    previewFixtures.setEnabled(next);
+    this.demoMode = next;
+    this._secretLoadSerial = Number(this._secretLoadSerial || 0) + 1;
+    this.setData({ demoMode: next });
+    if (next) {
+      this.loadConfig();
+      return;
+    }
+    this._configLoadSerial = Number(this._configLoadSerial || 0) + 1;
+    this.setData({
+      loading: false,
+      source: "local",
+      currentVersion: 1,
+      groups: [],
+      suppliers: [],
+      selectedGroupIndex: 0,
+      selectedTabIndex: 0,
+      selectedTab: null,
+      mainExpanded: false,
+      backupExpanded: false,
+      advancedExpanded: false,
+      configuredCount: 0,
+      totalCount: 0,
+      backupCount: 0,
+      message: "演示已关闭，下拉刷新读取真实数据。"
+    });
+    if (wx.showToast) wx.showToast({ title: "下拉刷新读取真实数据", icon: "none" });
+  },
+
   applyNavigationLayout() {
     this.setData(navigationLayout());
+  },
+
+  previewQuery(separator = "?") {
+    const params = [];
+    if (this.demoMode) params.push("demo=1");
+    if (this.data.showDemoControl) params.push("demoControl=1");
+    return params.length ? `${separator}${params.join("&")}` : "";
   },
 
   onPullDownRefresh() {
@@ -333,6 +377,8 @@ Page({
   },
 
   async loadConfig(refreshing = false) {
+    const loadSerial = Number(this._configLoadSerial || 0) + 1;
+    this._configLoadSerial = loadSerial;
     this.setData({ loading: !refreshing, message: "" });
     let result = null;
     if (!this.demoMode && cloud && typeof cloud.getAdminConfigV2 === "function") {
@@ -342,6 +388,7 @@ Page({
         result = null;
       }
     }
+    if (loadSerial !== this._configLoadSerial) return;
     const payload = this.demoMode
       ? previewFixtures.adminConfig()
       : (result && result.ok !== false && result.data ? result.data : (result && result.ok !== false ? result : null));
@@ -419,6 +466,8 @@ Page({
   },
 
   async loadVisibleSecrets() {
+    const loadSerial = Number(this._secretLoadSerial || 0) + 1;
+    this._secretLoadSerial = loadSerial;
     const tab = this.currentTab();
     if (!tab) return;
     const slot = tab.slot;
@@ -437,6 +486,7 @@ Page({
       this.readProviderSecret(providerKey),
       this.readProviderSecret(backupProviderKey)
     ]);
+    if (loadSerial !== this._secretLoadSerial) return;
     const current = this.currentTab();
     if (!current || current.slot !== slot || current.providerKey !== providerKey || current.backupProviderKey !== backupProviderKey) return;
     this.updateCurrentTab({
@@ -613,7 +663,7 @@ Page({
   },
 
   openProvider() {
-    wx.navigateTo({ url: `/pages/admin-provider/admin-provider${this.demoMode ? "?demo=1" : ""}` });
+    wx.navigateTo({ url: `/pages/admin-provider/admin-provider${this.previewQuery()}` });
   },
 
   goBack() {

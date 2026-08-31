@@ -13,6 +13,9 @@ const previewScript = path.join(root, "scripts", "refresh-preview.ps1");
 const deployScript = path.join(root, "scripts", "deploy-and-verify-api.ps1");
 const protectionScript = path.join(root, "scripts", "configure-github-protection.ps1");
 const resumeScript = path.join(root, "scripts", "resume-release.ps1");
+const qrDecodeScript = path.join(root, "scripts", "qr-decode.js");
+const qrDecodeSmokeScript = path.join(root, "scripts", "qr-decode-smoke.js");
+const pixelManifest = path.join(root, "visual-evidence", "admin-v2-pixel-manifest.json");
 const policyCandidates = [
   process.env.MINIPROGRAM_RELEASE_POLICY,
   path.resolve(root, "..", "wechat-miniapp-release-policy.json"),
@@ -53,8 +56,11 @@ function testFilesAndPolicy() {
   assert.ok(fs.existsSync(deployScript), "deploy-and-verify-api.ps1 不存在");
   assert.ok(fs.existsSync(protectionScript), "configure-github-protection.ps1 不存在");
   assert.ok(fs.existsSync(resumeScript), "resume-release.ps1 不存在");
+  assert.ok(fs.existsSync(qrDecodeScript), "qr-decode.js 不存在");
+  assert.ok(fs.existsSync(qrDecodeSmokeScript), "qr-decode-smoke.js 不存在");
+  assert.ok(fs.existsSync(pixelManifest), "四页像素基线 manifest 不存在");
   assert.ok(fs.existsSync(policyPath), "外部发布策略不存在");
-  for (const file of [gateScript, entryScript, previewScript, deployScript, protectionScript, resumeScript]) {
+  for (const file of [gateScript, entryScript, previewScript, deployScript, protectionScript, resumeScript, qrDecodeScript, qrDecodeSmokeScript, pixelManifest]) {
     assertNoInteriorBom(file, path.basename(file));
   }
   const policy = JSON.parse(fs.readFileSync(policyPath, "utf8"));
@@ -149,6 +155,11 @@ function testStaticContracts() {
   assert.ok(entry.includes('"scripts/cloud-deploy-safety-smoke.js"'), "发布工具快照必须包含 Cloud 快照 smoke");
   assert.ok(entry.includes('"scripts/deployment-script-smoke.js"'), "发布工具快照必须包含部署 smoke");
   assert.ok(entry.includes('"scripts/release-report.ps1"'), "发布工具快照必须包含验收报告");
+  assert.ok(entry.includes('"scripts/qr-decode.js"'), "发布工具快照必须包含二维码解码脚本");
+  assert.ok(entry.includes('"scripts/qr-decode-smoke.js"'), "发布工具快照必须包含二维码 smoke");
+  assert.ok(entry.includes('"scripts/vendor/qrcode-reader.js"'), "发布工具快照必须包含二维码解码器");
+  assert.ok(entry.includes('"scripts/admin-v2-pixel-baseline.js"'), "发布工具快照必须包含四页像素基线脚本");
+  assert.ok(gate.includes("二维码真实解码失败"), "验收报告必须执行真实二维码解码");
   assert.ok(entry.includes('"scripts/rollback-release.ps1"'), "发布工具快照必须包含回滚入口");
   assert.ok(entry.includes('"scripts/release-maintenance.ps1"'), "发布工具快照必须包含 reservation 维护");
   assert.ok(entry.includes('"scripts/install-git-hooks.ps1"'), "发布工具快照必须包含 Git hooks 安装器");

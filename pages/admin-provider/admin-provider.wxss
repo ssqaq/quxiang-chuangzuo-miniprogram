@@ -1,6 +1,13 @@
 page { background:#f4f8fe; color:#10294b; font-family:"Microsoft YaHei","PingFang SC","SimHei",system-ui,sans-serif; }
 .provider-page { width:100%; min-height:100vh; overflow-x:hidden; background:#f4f8fe; }
 .appbar { width:100%; height:calc(104rpx + env(safe-area-inset-top)); padding:env(safe-area-inset-top) 28rpx 20rpx; display:flex; align-items:flex-end; box-sizing:border-box; background:#fff; border-bottom:2rpx solid #d9e4f2; }
+.appbar-tools { flex:0 0 auto; min-width:0; display:flex; align-items:center; gap:12rpx; }
+.demo-control { display:flex; align-items:center; gap:2rpx; color:#61799a; font-size:17rpx; font-weight:900; }
+.demo-control.locked { opacity:.48; }
+.demo-toggle { width:56rpx; height:32rpx; margin-left:5rpx; padding:3rpx; box-sizing:border-box; border-radius:18rpx; background:#cbd6e4; }
+.demo-toggle.on { background:#2f73ee; }
+.demo-knob { width:26rpx; height:26rpx; border-radius:50%; background:#fff; box-shadow:0 2rpx 6rpx rgba(16,41,75,.18); transform:translateX(0); transition:transform .16s ease; }
+.demo-toggle.on .demo-knob { transform:translateX(24rpx); }
 .appbar-title { flex:1; min-width:0; color:#10294b; font-size:42rpx; line-height:38rpx; font-weight:900; }
 .appbar-link { color:#2f73ee; font-size:23rpx; line-height:1; font-weight:900; }
 .appbar-link text { font-size:30rpx; }

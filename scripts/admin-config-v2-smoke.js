@@ -187,6 +187,74 @@ function testCrudCasAndGuards() {
   assert.strictEqual(free.suppliers.length, 0);
 }
 
+function testAtomicSlotTransition() {
+  const config = readyFixture();
+  const previousPrimary = config.bindings.find((item) => item.slot === "standard.face" && item.role === "primary");
+  previousPrimary.metadata = {
+    preserved: { nested: true },
+    advanced: { mode: "legacy-mode", customFlag: "keep-me" }
+  };
+  previousPrimary.futureBindingField = { nested: "keep-future-shape" };
+  const previousBackup = config.bindings.find((item) => item.slot === "standard.face" && item.role === "backup");
+  const next = v2.transitionSlot(config, {
+    slot: "standard.face",
+    primaryPatch: {
+      providerKey: "provider-a",
+      modelId: "model-main",
+      status: "ready",
+      confirmed: true,
+      metadata: { path: "/v1/faces", preserved: { added: true } }
+    },
+    backupPatch: {
+      providerKey: "provider-a",
+      modelId: "model-backup",
+      status: "not-ready",
+      confirmed: true
+    },
+    advancedPatch: { mode: "edits", size: "1080x1440", apiKey: "must-not-persist" }
+  }, {
+    expectedVersion: config.version,
+    now: "2026-08-31T00:00:00.000Z",
+    confirmedBy: "smoke"
+  });
+  assert.strictEqual(next.version, config.version + 1, "一次 slot mutation 只能增加一次根版本");
+  const primary = next.bindings.find((item) => item.slot === "standard.face" && item.role === "primary");
+  const backup = next.bindings.find((item) => item.slot === "standard.face" && item.role === "backup");
+  assert.strictEqual(primary.version, previousPrimary.version + 1);
+  assert.deepStrictEqual(primary.futureBindingField, { nested: "keep-future-shape" }, "未知 binding 字段必须保留");
+  assert.strictEqual(backup.version, previousBackup.version + 1);
+  assert.deepStrictEqual(primary.metadata.preserved, { nested: true, added: true }, "metadata 未提交字段必须保留");
+  assert.deepStrictEqual(primary.metadata.advanced, {
+    mode: "edits",
+    customFlag: "keep-me",
+    size: "1080x1440"
+  }, "advanced 必须深合并到 primary metadata");
+  assert.strictEqual(JSON.stringify(primary.metadata).includes("must-not-persist"), false, "advanced 不能持久化明文 Key");
+  assert.strictEqual(backup.status, "not-ready");
+  assert.strictEqual(backup.providerKey, "provider-a", "关闭备用必须保留供应商");
+  assert.strictEqual(backup.modelId, "model-backup", "关闭备用必须保留模型");
+  assert.deepStrictEqual(backup.metadata, previousBackup.metadata, "advanced 不能写入 backup metadata");
+
+  const advancedOnly = v2.transitionSlot(next, {
+    slot: "standard.face",
+    advancedPatch: { size: "1440x1080" }
+  }, { expectedVersion: next.version });
+  const advancedPrimary = advancedOnly.bindings.find((item) => item.slot === "standard.face" && item.role === "primary");
+  assert.strictEqual(advancedOnly.version, next.version + 1);
+  assert.strictEqual(advancedPrimary.metadata.advanced.mode, "edits");
+  assert.strictEqual(advancedPrimary.metadata.advanced.customFlag, "keep-me");
+  assert.strictEqual(advancedPrimary.metadata.advanced.size, "1440x1080");
+  expectCode(() => v2.transitionSlot(next, {
+    slot: "standard.face",
+    backupPatch: { status: "disabled" }
+  }, { expectedVersion: next.version }), "BINDING_STATUS_INVALID");
+  expectCode(() => v2.transitionSlot(next, {
+    slot: "standard.face",
+    primaryPatch: { status: "not-ready" }
+  }, { expectedVersion: 999 }), "VERSION_CONFLICT");
+  assert.strictEqual(v2.validateV2Config(next).valid, true);
+}
+
 function testTc3AndPixelPolicy() {
   const config = v2.normalizeV2Config({
     schemaVersion: 2,
@@ -221,6 +289,7 @@ function testEncodingAndCloudCopy() {
 testSchemaAndMigration();
 testConfirmationAndFailover();
 testCrudCasAndGuards();
+testAtomicSlotTransition();
 testTc3AndPixelPolicy();
 testEncodingAndCloudCopy();
-console.log("admin-config-v2-smoke: PASS (schema/migration/confirm/failover/CAS/guard/TC3/pixel/encoding)");
+console.log("admin-config-v2-smoke: PASS (schema/migration/confirm/failover/atomic-slot/CAS/guard/TC3/pixel/encoding)");

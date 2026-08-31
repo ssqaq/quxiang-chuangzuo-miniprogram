@@ -1,7 +1,7 @@
 page {
   background: #f4f8fe;
   color: #10294b;
-  font-family:"PingFang SC","Helvetica Neue",Arial,sans-serif;
+  font-family:"Microsoft YaHei","PingFang SC","SimHei",system-ui,sans-serif;
   overflow-x:hidden;
 }
 
@@ -16,14 +16,14 @@ page {
   width: 100%;
   height: calc(104rpx + constant(safe-area-inset-top));
   height: calc(104rpx + env(safe-area-inset-top));
-  padding: 0 28rpx 20rpx;
+  padding: 0 30rpx 24rpx;
   padding-top: constant(safe-area-inset-top);
   padding-top: env(safe-area-inset-top);
   display: flex;
   align-items: flex-end;
   box-sizing: border-box;
   background: #ffffff;
-  border-bottom: 1rpx solid #d9e4f2;
+  border-bottom: 2rpx solid #d9e4f2;
 }
 
 .appbar-title {
@@ -52,8 +52,8 @@ page {
   width: 100%;
   height: calc(100vh - 104rpx - constant(safe-area-inset-top));
   height: calc(100vh - 104rpx - env(safe-area-inset-top));
-  padding: 24rpx 24rpx calc(48rpx + constant(safe-area-inset-bottom));
-  padding: 24rpx 24rpx calc(48rpx + env(safe-area-inset-bottom));
+  padding: 20rpx 20rpx calc(48rpx + constant(safe-area-inset-bottom));
+  padding: 20rpx 20rpx calc(48rpx + env(safe-area-inset-bottom));
   box-sizing: border-box;
   overflow-x:hidden;
 }
@@ -68,12 +68,24 @@ page {
 .group-row {
   width: 100%;
   min-width: 0;
-  padding: 16rpx;
+  padding: 14rpx;
   box-sizing: border-box;
   overflow: hidden;
-  border: 1rpx solid #b9d4f5;
+  border: 2rpx solid #c8dbf3;
   border-radius: 22rpx;
   background: #ffffff;
+}
+
+.standard-group {
+  min-height: 150rpx;
+}
+
+.tencent-group {
+  min-height: 154rpx;
+}
+
+.shared-group {
+  min-height: 112rpx;
 }
 
 .group-row-top {
@@ -125,7 +137,7 @@ page {
   padding: 8rpx;
   display: grid;
   grid-template-columns:repeat(4,minmax(0,1fr));
-  gap: 8rpx;
+  gap: 4rpx;
   box-sizing: border-box;
   border-radius: 16rpx;
   background: #edf5ff;
@@ -134,14 +146,14 @@ page {
 .tab {
   width: 100%;
   min-width: 0;
-  height: 68rpx;
+  height: 64rpx;
   padding: 0 4rpx;
   display: flex;
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
   overflow: hidden;
-  border: 1rpx solid transparent;
+  border: 2rpx solid transparent;
   border-radius: 12rpx;
   background: transparent;
   color: #10294b;
@@ -203,7 +215,7 @@ page {
   justify-content: center;
   box-sizing: border-box;
   overflow: hidden;
-  border: 1rpx solid #d2e1f4;
+  border: 2rpx solid #d2e1f4;
   border-radius: 12rpx;
   background: #edf5ff;
   color: #10294b;
@@ -219,13 +231,21 @@ page {
 .failure-card {
   width: 100%;
   min-width: 0;
-  margin-top: 20rpx;
-  padding: 24rpx;
+  padding: 20rpx;
   box-sizing: border-box;
   overflow: hidden;
-  border: 1rpx solid #b9d4f5;
+  border: 2rpx solid #c8dbf3;
   border-radius: 28rpx;
   background: #ffffff;
+}
+
+.summary-card {
+  margin-top: 17rpx;
+}
+
+.failure-card {
+  margin-top: 20rpx;
+  margin-bottom: 20rpx;
 }
 
 .summary-top,
@@ -237,6 +257,10 @@ page {
   align-items: center;
   justify-content: space-between;
   gap: 12rpx;
+}
+
+.summary-top {
+  min-height: 72rpx;
 }
 
 .summary-top > view:first-child,
@@ -262,11 +286,15 @@ page {
   margin-top: 5rpx;
   overflow: hidden;
   color: #61799a;
-  font-size: 21rpx;
+  font-size: 18rpx;
   font-weight: 400;
   line-height: 1.25;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.summary-subtitle {
+  font-size: 20rpx;
 }
 
 .summary-actions {
@@ -287,7 +315,7 @@ page {
   border-radius: 999rpx;
   background: #e4f8f0;
   color: #07875c;
-  font-size: 20rpx;
+  font-size: 18rpx;
   font-weight: 900;
   line-height: 22rpx;
   text-overflow: ellipsis;
@@ -310,7 +338,7 @@ page {
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
-  border: 1rpx solid #8db9f7;
+  border: 2rpx solid #8db9f7;
   border-radius: 14rpx;
   color: #2f73ee;
   font-size: 17rpx;
@@ -331,7 +359,7 @@ page {
 
 .summary-stats > view {
   min-width: 0;
-  min-height: 118rpx;
+  min-height: 127rpx;
   padding: 18rpx;
   display: flex;
   flex-direction: column;
@@ -371,7 +399,7 @@ page {
   padding: 16rpx;
   box-sizing: border-box;
   overflow: hidden;
-  border: 1rpx dashed #9ec5f7;
+  border: 2rpx dashed #9ec5f7;
   border-radius: 18rpx;
   background: #f9fbff;
 }
@@ -383,7 +411,7 @@ page {
   padding: 20rpx;
   box-sizing: border-box;
   overflow: hidden;
-  border: 1rpx solid #b9d4f5;
+  border: 2rpx solid #c8dbf3;
   border-radius: 28rpx;
   background: #ffffff;
 }
@@ -447,17 +475,21 @@ page {
   min-width: 0;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10rpx;
+  gap: 14rpx;
+}
+
+.two-fields .full {
+  grid-column: 1 / -1;
 }
 
 .field {
   width: 100%;
   min-width: 0;
-  margin-bottom: 10rpx;
-  padding: 16rpx 20rpx;
+  margin-bottom: 14rpx;
+  padding: 14rpx 16rpx;
   box-sizing: border-box;
   overflow: hidden;
-  border: 1rpx solid #c8dbf3;
+  border: 2rpx solid #c8dbf3;
   border-radius: 18rpx;
   background: #ffffff;
 }
@@ -515,12 +547,12 @@ page {
   word-break: break-all;
 }
 
-.key-field {
-  border-color: #87d9b7;
-  background: #effbf6;
+.read-failed .field-value {
+  color: #ad6500;
 }
 
 .failure-head {
+  min-height: 79rpx;
   margin-bottom: 14rpx;
 }
 
@@ -532,7 +564,7 @@ page {
 .accordion-head {
   width: 100%;
   min-width: 0;
-  min-height: 112rpx;
+  min-height: 108rpx;
   padding: 20rpx 24rpx;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
@@ -540,7 +572,7 @@ page {
   gap: 10rpx;
   box-sizing: border-box;
   overflow: hidden;
-  border: 1rpx solid #9fc5f6;
+  border: 2rpx solid #9fc5f6;
   border-radius: 22rpx;
   background: #f2f7ff;
 }
@@ -601,6 +633,28 @@ page {
   font-weight: 900;
 }
 
+.backup-checkbox {
+  width: 28rpx;
+  height: 28rpx;
+  flex: 0 0 28rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border: 2rpx solid #8db9f7;
+  border-radius: 5rpx;
+  background: #ffffff;
+  color: #ffffff;
+  font-size: 20rpx;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.backup-checkbox.checked {
+  border-color: #2f73ee;
+  background: #2f73ee;
+}
+
 .backup-head {
   position: relative;
   display: flex;
@@ -632,7 +686,7 @@ page {
 .advanced-head {
   min-height: 64rpx;
   padding: 16rpx 6rpx;
-  border-top: 1rpx solid #d8e5f4;
+  border-top: 2rpx solid #d8e5f4;
 }
 
 .advanced-head .card-title {
@@ -665,7 +719,7 @@ page {
   height: 46rpx;
   padding: 0 56rpx;
   box-sizing: border-box;
-  border: 1rpx solid #c9dcf3;
+  border: 2rpx solid #c9dcf3;
   border-radius: 9rpx;
   background: #fbfdff;
   color: #10294b;
@@ -687,6 +741,10 @@ page {
 }
 
 .advanced-grid-row {
+  margin-bottom: 14rpx;
+}
+
+.image-options {
   margin-bottom: 14rpx;
 }
 
@@ -787,11 +845,11 @@ page {
   justify-content: center;
   box-sizing: border-box;
   overflow: hidden;
-  border-radius: 14rpx;
+  border-radius: 18rpx;
   background: #2f73ee;
   color: #ffffff;
   font-size: 28rpx;
-  font-weight: 600;
+  font-weight: 900;
   line-height: 96rpx;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -802,6 +860,10 @@ page {
   max-width: 100%;
   margin-right: 0;
   margin-left: 0;
+}
+
+.save-btn::after {
+  border: 0;
 }
 
 .save-btn[disabled] {
@@ -823,6 +885,16 @@ page {
 .config-page input {
   max-width: 100%;
   box-sizing: border-box;
+}
+
+@media (max-width: 390px) {
+  .config-page .tab {
+    height: 64rpx;
+  }
+
+  .config-page .tab-label {
+    font-size: 17rpx;
+  }
 }
 
 @media (max-width: 350px) {

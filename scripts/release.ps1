@@ -718,6 +718,17 @@ try {
     Write-ReleaseGateJsonAtomic -Path $contextPath -Value $contextHash
     Write-GateHost "backup" "已登记上一版备份清单：$backupPath"
 
+    $apiMarkerPath = Join-Path $releaseWorktree "cloudfunctions\api\index.js"
+    $apiMarkerText = if (Test-Path -LiteralPath $apiMarkerPath -PathType Leaf) {
+        Get-Content -LiteralPath $apiMarkerPath -Raw -Encoding UTF8
+    } else { "" }
+    $apiMarkerMatch = [regex]::Match($apiMarkerText, 'const API_BUILD_MARKER = "([^"]+)"')
+    if (-not $apiMarkerMatch.Success -or [string]::IsNullOrWhiteSpace($apiMarkerMatch.Groups[1].Value)) {
+        throw "最终发布树缺少 API_BUILD_MARKER，拒绝生成无构建标记的 CloudBase 回执。"
+    }
+    $contextHash.apiBuildMarker = $apiMarkerMatch.Groups[1].Value
+    Write-ReleaseGateJsonAtomic -Path $contextPath -Value $contextHash
+
     if ($effectivePreview) {
         # 每次正式更新都先把同一隔离工作树导入微信开发者工具，再生成
         # 绑定 commit 的二维码；导入失败会保留原 context 供恢复，不会换号重打。
@@ -773,7 +784,7 @@ try {
             mainCommit = if ($contextHash.Contains("mainCommit")) { [string]$contextHash.mainCommit } else { "" }
             idempotencyKey = "cloud:$operationId`:$finalCommit`:$finalTree"
             onlineBuildVersion = $target
-            onlineBuildMarker = if ($contextHash.Contains("apiBuildMarker")) { [string]$contextHash.apiBuildMarker } else { "" }
+            onlineBuildMarker = [string]$contextHash.apiBuildMarker
             verifiedAt = [DateTimeOffset]::UtcNow.ToString("o")
             status = "verified"
         }

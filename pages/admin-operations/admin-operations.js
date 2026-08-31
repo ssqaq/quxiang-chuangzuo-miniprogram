@@ -82,6 +82,50 @@ function viewByKey(key) {
   return VIEW_DEFS.find(item => item.key === key) || VIEW_DEFS[0];
 }
 
+function navigationLayout() {
+  let windowInfo = {};
+  let menuButton = {};
+  try {
+    if (typeof wx !== "undefined" && typeof wx.getWindowInfo === "function") {
+      windowInfo = wx.getWindowInfo() || {};
+    } else if (typeof wx !== "undefined" && typeof wx.getSystemInfoSync === "function") {
+      windowInfo = wx.getSystemInfoSync() || {};
+    }
+  } catch (error) {
+    windowInfo = {};
+  }
+  try {
+    if (typeof wx !== "undefined" && typeof wx.getMenuButtonBoundingClientRect === "function") {
+      menuButton = wx.getMenuButtonBoundingClientRect() || {};
+    }
+  } catch (error) {
+    menuButton = {};
+  }
+  const statusBarHeight = Math.max(0, Number(windowInfo.statusBarHeight) || 0);
+  const windowWidth = Math.max(320, Number(windowInfo.windowWidth || windowInfo.screenWidth) || 375);
+  const menuTop = Number(menuButton.top);
+  const menuHeight = Number(menuButton.height);
+  const menuLeft = Number(menuButton.left);
+  const hasMenuButton = Number.isFinite(menuTop)
+    && Number.isFinite(menuHeight)
+    && Number.isFinite(menuLeft)
+    && menuHeight > 0
+    && menuLeft > 0;
+  const navigationBarHeight = hasMenuButton
+    ? Math.max(52, (menuTop - statusBarHeight) * 2 + menuHeight)
+    : 52;
+  const navigationHeight = Math.round(statusBarHeight + navigationBarHeight);
+  const capsuleRightInset = hasMenuButton
+    ? Math.round(Math.max(14, windowWidth - menuLeft + 8))
+    : 14;
+  return {
+    appbarStyle: `height:${navigationHeight}px;padding-top:${Math.round(statusBarHeight)}px;padding-right:${capsuleRightInset}px`,
+    operationsScrollStyle: `height:calc(100vh - ${navigationHeight}px)`
+  };
+}
+
+const INITIAL_NAVIGATION_LAYOUT = navigationLayout();
+
 function counterTotal(counter) {
   return numberValue(counter && counter.total, 0);
 }
@@ -138,7 +182,7 @@ function buildUsageView(source) {
   return {
     summary: [
       { label: "今日调用", value: formatNumber(today.total) },
-      { label: "统计范围调用", value: formatNumber(rangeTotal) },
+      { label: "本月调用", value: formatNumber(rangeTotal) },
       { label: "失败", value: formatNumber(today.failure) }
     ],
     detailRows: [
@@ -237,6 +281,8 @@ function buildPointsView(points) {
 
 Page({
   data: {
+    appbarStyle: INITIAL_NAVIGATION_LAYOUT.appbarStyle,
+    operationsScrollStyle: INITIAL_NAVIGATION_LAYOUT.operationsScrollStyle,
     loading: true,
     busy: false,
     source: "local",
@@ -255,8 +301,17 @@ Page({
   },
 
   onLoad(options) {
+    this.applyNavigationLayout();
     const key = options && options.view ? options.view : "usage";
     this.setView(key, false);
+  },
+
+  applyNavigationLayout() {
+    this.setData(navigationLayout());
+  },
+
+  onResize() {
+    this.applyNavigationLayout();
   },
 
   onPullDownRefresh() {

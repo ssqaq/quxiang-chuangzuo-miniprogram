@@ -16,10 +16,10 @@
           <button class="small-btn" data-direction="down" disabled="{{!canMoveDown}}" bindtap="moveProvider" hover-class="tap">↓ 下移</button>
         </view>
         <scroll-view class="provider-list" scroll-y="true" show-scrollbar="false" enhanced="true" scroll-into-view="{{activeProviderId}}">
-          <view wx:for="{{providers}}" wx:key="providerKey" id="provider-{{index}}" class="provider-row {{selectedIndex === index ? 'active' : ''}}" data-index="{{index}}" bindtap="selectProvider" hover-class="tap">
-            <view class="provider-name {{item.enabled ? '' : 'off'}}"><text>{{item.name}}</text></view>
+          <view wx:for="{{providers}}" wx:key="providerKey" id="provider-{{index}}" class="provider-row {{index > 0 ? 'spaced' : ''}} {{selectedIndex === index ? 'active' : ''}}" data-index="{{index}}" bindtap="selectProvider" hover-class="tap">
+            <view class="provider-name {{item.configured ? '' : 'off'}}"><text>{{item.name}}</text></view>
             <view class="provider-ability"><text wx:for="{{item.capabilityRows}}" wx:key="*this" wx:for-item="abilityRow" wx:for-index="abilityIndex">{{abilityRow}}</text></view>
-            <text class="status-tag {{item.enabled ? '' : 'off'}}">{{item.enabled ? '已配置' : '未配置'}}</text>
+            <text class="status-tag {{item.configured ? '' : 'off'}}">{{item.configured ? '已配置' : '未配置'}}</text>
           </view>
         </scroll-view>
       </view>
@@ -36,12 +36,12 @@
         </view>
         <view wx:if="{{!authIsTc3}}" class="auth-panel">
           <view class="field"><text class="field-label">API 端点</text><input value="{{draft.endpoint}}" data-field="endpoint" placeholder="https://api.example.com/v1" bindinput="onDraftInput" /></view>
-          <view class="field key-field"><text class="field-label">API Key</text><input password="{{false}}" value="{{draft.apiKey}}" data-field="apiKey" placeholder="管理员可见" bindinput="onDraftInput" /></view>
+          <view class="field key-field"><view class="field-heading"><text class="field-label">API Key</text><text class="secret-state {{secretStatus.apiKey.tone}}">{{secretStatus.apiKey.text}}</text></view><input password="{{false}}" value="{{draft.apiKey}}" data-field="apiKey" placeholder="管理员可见" bindinput="onDraftInput" /></view>
         </view>
         <view wx:else class="auth-panel tc3-panel">
           <view class="tc3-title">人脸融合依赖 · 腾讯 TC3</view>
-          <view class="field"><text class="field-label">SecretId</text><input value="{{draft.tc3.secretId}}" data-field="tc3.secretId" bindinput="onDraftInput" /></view>
-          <view class="field key-field"><text class="field-label">SecretKey</text><input password="{{false}}" value="{{draft.tc3.secretKey}}" data-field="tc3.secretKey" bindinput="onDraftInput" /></view>
+          <view class="field"><view class="field-heading"><text class="field-label">SecretId</text><text class="secret-state {{secretStatus.secretId.tone}}">{{secretStatus.secretId.text}}</text></view><input value="{{draft.tc3.secretId}}" data-field="tc3.secretId" bindinput="onDraftInput" /></view>
+          <view class="field key-field"><view class="field-heading"><text class="field-label">SecretKey</text><text class="secret-state {{secretStatus.secretKey.tone}}">{{secretStatus.secretKey.text}}</text></view><input password="{{false}}" value="{{draft.tc3.secretKey}}" data-field="tc3.secretKey" bindinput="onDraftInput" /></view>
           <view class="two-fields"><view class="field"><text class="field-label">Region</text><input value="{{draft.tc3.region}}" data-field="tc3.region" bindinput="onDraftInput" /></view><view class="field"><text class="field-label">Endpoint</text><input value="{{draft.tc3.endpoint}}" data-field="tc3.endpoint" bindinput="onDraftInput" /></view></view>
           <view class="two-fields"><view class="field"><text class="field-label">API Version</text><input value="{{draft.tc3.apiVersion}}" data-field="tc3.apiVersion" bindinput="onDraftInput" /></view><view class="field"><text class="field-label">Action</text><input value="{{draft.tc3.action}}" data-field="tc3.action" bindinput="onDraftInput" /></view></view>
         </view>

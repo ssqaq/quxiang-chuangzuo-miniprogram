@@ -14,6 +14,16 @@ const GROUP_DEFS = [
   { key: "shared", label: "共享视频模型", note: "照片转实况共用" }
 ];
 
+const IMAGE_MODES = [
+  { value: "edits", label: "图片编辑模式" }
+];
+
+const IMAGE_SIZES = [
+  { value: "1080x1440", label: "照片：1080×1440" },
+  { value: "1024x1024", label: "正方形：1024×1024" },
+  { value: "1440x1080", label: "横图：1440×1080" }
+];
+
 const SAMPLE_SUPPLIERS = [
   { providerKey: "dashscope", name: "阿里云百炼", endpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1", apiKey: "", capabilities: ["face", "imageAnalysis", "styleAnalysis", "imageGeneration", "video"], models: ["qwen3-vl-flash", "qwen-vl-max", "jw-gpt-image-2"], confirmedModels: ["qwen3-vl-flash", "qwen-vl-max", "jw-gpt-image-2"] },
   { providerKey: "xingju", name: "星矩", endpoint: "https://newapi.akiyo.fun/v1", apiKey: "", capabilities: ["face", "imageAnalysis", "imageGeneration", "video"], models: ["qwen3-vl-flash", "qwen-vl-max", "jw-gpt-image-2", "kling-video-v2"], confirmedModels: ["qwen3-vl-flash", "qwen-vl-max", "jw-gpt-image-2", "kling-video-v2"] },
@@ -164,6 +174,9 @@ function makeTab(groupKey, def, bindings, suppliers) {
   const primarySupplier = suppliers.find(item => item.providerKey === providerKey) || {};
   const backupSupplier = suppliers.find(item => item.providerKey === backupProviderKey) || {};
   const metadata = primary.metadata && typeof primary.metadata === "object" ? primary.metadata : {};
+  const advanced = metadata.advanced && typeof metadata.advanced === "object" ? metadata.advanced : {};
+  const mode = advanced.mode || "edits";
+  const size = advanced.size || "1080x1440";
   const providerOptions = suppliers.filter(provider => {
     return candidateModels([provider], provider.providerKey, def.key).length > 0;
   }).map(provider => ({ providerKey: provider.providerKey, name: provider.name }));
@@ -181,6 +194,7 @@ function makeTab(groupKey, def, bindings, suppliers) {
     model: primary.modelId || "",
     endpoint: primary.endpoint || primarySupplier.endpoint || "尚未配置",
     keyText: providerKey ? "已保存 · 明文仅管理员可见" : "尚未配置",
+    keyLoadState: providerKey ? "loading" : "success",
     status: statusLabel(primary),
     ready,
     pendingText: primary.pending || (groupKey === "tencent" && def.key === "face" ? "换脸供应商待配置" : "供应商和模型待配置"),
@@ -195,6 +209,7 @@ function makeTab(groupKey, def, bindings, suppliers) {
     backupTitle: `备用${def.label}${def.label.endsWith("模型") ? "" : "模型"}`,
     backupEndpoint: backup.endpoint || backupSupplier.endpoint || "尚未配置",
     backupKeyText: backupProviderKey ? "已保存 · 明文仅管理员可见" : "尚未配置",
+    backupKeyLoadState: backupProviderKey ? "loading" : "success",
     backupProviderOptions: providerOptions.filter(item => item.providerKey !== providerKey),
     backupProviderIndex: Math.max(0, providerOptions.filter(item => item.providerKey !== providerKey).findIndex(item => item.providerKey === backupProviderKey)),
     backupModelOptions,
@@ -204,6 +219,12 @@ function makeTab(groupKey, def, bindings, suppliers) {
     retry: Number(metadata.retry === undefined ? (primary.retry === undefined ? 1 : primary.retry) : metadata.retry),
     resolution: metadata.resolution || primary.resolution || (def.key === "video" ? "720p" : "1K"),
     aspectRatio: metadata.aspectRatio || primary.aspectRatio || "3:4",
+    mode,
+    modeIndex: Math.max(0, IMAGE_MODES.findIndex(item => item.value === mode)),
+    modeLabel: (IMAGE_MODES.find(item => item.value === mode) || IMAGE_MODES[0]).label,
+    size,
+    sizeIndex: Math.max(0, IMAGE_SIZES.findIndex(item => item.value === size)),
+    sizeLabel: (IMAGE_SIZES.find(item => item.value === size) || IMAGE_SIZES[0]).label,
     keepExistingKey: metadata.keepExistingKey !== false,
     validateBeforeSave: metadata.validateBeforeSave !== false
   };
@@ -251,10 +272,14 @@ function secretPayload(result) {
   return Object.assign({}, payload.credentials || payload.secrets || {}, payload);
 }
 
-function secretText(secret) {
-  if (secret && secret.apiKey) return String(secret.apiKey);
-  if (secret && secret.secretKey) return `SecretKey：${secret.secretKey}`;
-  return "尚未配置";
+function hasVisibleSecret(secret) {
+  return Boolean(secret && (secret.apiKey || secret.secretId || secret.secretKey));
+}
+
+function secretReadText(result, providerKey) {
+  if (!providerKey) return "尚未配置";
+  if (!result || result.status === "failure") return "读取失败 · 保留已保存状态";
+  return hasVisibleSecret(result.value) ? "已保存 · 明文仅管理员可见" : "尚未配置";
 }
 
 Page({
@@ -271,6 +296,8 @@ Page({
     backupExpanded: false,
     advancedExpanded: false,
     imageResolutions: ["1K", "2K", "4K"],
+    imageModes: IMAGE_MODES,
+    imageSizes: IMAGE_SIZES,
     videoResolutions: ["480p", "720p", "1080p"],
     aspectRatios: ["3:4", "9:16", "16:9"],
     configuredCount: 0,
@@ -368,15 +395,19 @@ Page({
   },
 
   async readProviderSecret(providerKey) {
-    if (!providerKey || !cloud) return {};
+    if (!providerKey) return { status: "success", value: null };
+    if (!cloud) return { status: "failure", error: "SECRET_READ_UNAVAILABLE" };
     const getter = typeof cloud.getAdminProviderSecretsV2 === "function"
       ? cloud.getAdminProviderSecretsV2
       : cloud.getAdminProviderSecrets;
-    if (typeof getter !== "function") return {};
+    if (typeof getter !== "function") return { status: "failure", error: "SECRET_READ_UNAVAILABLE" };
     try {
-      return secretPayload(await getter.call(cloud, providerKey, { retryLimit: 0 }));
+      const result = await getter.call(cloud, providerKey, { retryLimit: 0 });
+      if (!result || result.ok === false) throw new Error("SECRET_READ_FAILED");
+      const value = secretPayload(result);
+      return { status: "success", value: hasVisibleSecret(value) ? value : null };
     } catch (error) {
-      return {};
+      return { status: "failure", error: error && error.message ? error.message : "SECRET_READ_FAILED" };
     }
   },
 
@@ -393,8 +424,10 @@ Page({
     const current = this.currentTab();
     if (!current || current.slot !== slot || current.providerKey !== providerKey || current.backupProviderKey !== backupProviderKey) return;
     this.updateCurrentTab({
-      keyText: providerKey ? secretText(values[0]) : "尚未配置",
-      backupKeyText: backupProviderKey ? secretText(values[1]) : "尚未配置"
+      keyText: secretReadText(values[0], providerKey),
+      keyLoadState: values[0] && values[0].status || "failure",
+      backupKeyText: secretReadText(values[1], backupProviderKey),
+      backupKeyLoadState: values[1] && values[1].status || "failure"
     });
   },
 
@@ -419,9 +452,9 @@ Page({
     const models = candidateModels(this.data.suppliers, provider.providerKey, tab.key);
     const backupProviderOptions = tab.providerOptions.filter(item => item.providerKey !== provider.providerKey);
     const backupStillValid = backupProviderOptions.some(item => item.providerKey === tab.backupProviderKey);
-    const patch = { providerKey: provider.providerKey, provider: provider.name, providerIndex: index, modelOptions: models, modelIndex: 0, model: models[0] || "", endpoint: ((this.data.suppliers.find(item => item.providerKey === provider.providerKey) || {}).endpoint || "尚未配置"), keyText: "正在读取...", ready: Boolean(models.length), status: models.length ? "正常" : "待配置", backupProviderOptions };
+    const patch = { providerKey: provider.providerKey, provider: provider.name, providerIndex: index, modelOptions: models, modelIndex: 0, model: models[0] || "", endpoint: ((this.data.suppliers.find(item => item.providerKey === provider.providerKey) || {}).endpoint || "尚未配置"), keyText: "正在读取...", keyLoadState: "loading", ready: Boolean(models.length), status: models.length ? "正常" : "待配置", backupProviderOptions };
     if (tab.backupProviderKey && !backupStillValid) {
-      Object.assign(patch, { backupEnabled: false, backupStatus: "未启用", backupProviderKey: "", backupProvider: "", backupModel: "", backupEndpoint: "尚未配置", backupKeyText: "尚未配置", backupProviderIndex: 0, backupModelIndex: 0, backupModelOptions: [] });
+      Object.assign(patch, { backupEnabled: false, backupStatus: "未启用", backupProviderKey: "", backupProvider: "", backupModel: "", backupEndpoint: "尚未配置", backupKeyText: "尚未配置", backupKeyLoadState: "success", backupProviderIndex: 0, backupModelIndex: 0, backupModelOptions: [] });
     } else {
       patch.backupProviderIndex = Math.max(0, backupProviderOptions.findIndex(item => item.providerKey === tab.backupProviderKey));
     }
@@ -438,11 +471,14 @@ Page({
   },
 
   onBackupEnabledChange(event) {
-    const checked = event.detail && event.detail.value !== undefined ? Boolean(event.detail.value) : Boolean(event.detail && event.detail.checked);
-    const tab = this.updateCurrentTab(checked
-      ? { backupEnabled: true, backupStatus: "已启用" }
-      : { backupEnabled: false, backupStatus: "未启用", backupProviderKey: "", backupProvider: "", backupModel: "", backupEndpoint: "尚未配置", backupKeyText: "尚未配置", backupProviderIndex: 0, backupModelIndex: 0, backupModelOptions: [] });
-    if (tab && !checked) this.setData({ message: "备用模型已停用，主模型不受影响" });
+    const current = this.currentTab();
+    if (!current) return;
+    const hasExplicitValue = event && event.detail && (event.detail.value !== undefined || event.detail.checked !== undefined);
+    const checked = hasExplicitValue
+      ? Boolean(event.detail.value !== undefined ? event.detail.value : event.detail.checked)
+      : !current.backupEnabled;
+    const tab = this.updateCurrentTab({ backupEnabled: checked, backupStatus: checked ? "已启用" : "未启用" });
+    if (tab && !checked) this.setData({ message: "备用模型已停用，已保留已选供应商和模型" });
   },
 
   onBackupProviderChange(event) {
@@ -453,7 +489,7 @@ Page({
     const provider = options[index];
     if (!provider) return;
     const models = candidateModels(this.data.suppliers, provider.providerKey, tab.key);
-    this.updateCurrentTab({ backupProviderKey: provider.providerKey, backupProvider: provider.name, backupProviderIndex: index, backupModelOptions: models, backupModelIndex: 0, backupModel: models[0] || "", backupEndpoint: ((this.data.suppliers.find(item => item.providerKey === provider.providerKey) || {}).endpoint || "尚未配置"), backupKeyText: "正在读取...", backupEnabled: true, backupStatus: "已启用" });
+    this.updateCurrentTab({ backupProviderKey: provider.providerKey, backupProvider: provider.name, backupProviderIndex: index, backupModelOptions: models, backupModelIndex: 0, backupModel: models[0] || "", backupEndpoint: ((this.data.suppliers.find(item => item.providerKey === provider.providerKey) || {}).endpoint || "尚未配置"), backupKeyText: "正在读取...", backupKeyLoadState: "loading", backupEnabled: true, backupStatus: "已启用" });
     this.loadVisibleSecrets();
   },
 
@@ -484,6 +520,18 @@ Page({
     this.updateCurrentTab({ aspectRatio: options[Number(event.detail.value) || 0] || "3:4" });
   },
 
+  onImageModeChange(event) {
+    const index = Number(event.detail.value) || 0;
+    const option = IMAGE_MODES[index] || IMAGE_MODES[0];
+    this.updateCurrentTab({ mode: option.value, modeIndex: index, modeLabel: option.label });
+  },
+
+  onImageSizeChange(event) {
+    const index = Number(event.detail.value) || 0;
+    const option = IMAGE_SIZES[index] || IMAGE_SIZES[0];
+    this.updateCurrentTab({ size: option.value, sizeIndex: index, sizeLabel: option.label });
+  },
+
   onAdvancedOptionsChange(event) {
     const values = event && event.detail && Array.isArray(event.detail.value) ? event.detail.value : [];
     this.updateCurrentTab({
@@ -498,17 +546,15 @@ Page({
     if (!tab) return;
     this.setData({ saving: true, message: "正在保存当前功能配置..." });
     let saved = false;
-    let primarySaved = false;
-    let partialSave = false;
     try {
-      if (!cloud || typeof cloud.saveAdminBindingV2 !== "function") {
-        throw new Error("BINDING_SAVE_UNAVAILABLE");
+      if (!cloud || typeof cloud.saveAdminSlotV2 !== "function") {
+        throw new Error("SLOT_SAVE_UNAVAILABLE");
       }
-      const first = await cloud.saveAdminBindingV2({
+      const backupReady = Boolean(tab.backupEnabled && tab.backupProviderKey && tab.backupModel);
+      const result = await cloud.saveAdminSlotV2({
+        slot: tab.slot,
         expectedVersion: this.data.currentVersion,
-        binding: {
-          slot: tab.slot,
-          role: "primary",
+        primaryPatch: {
           providerKey: tab.providerKey,
           modelId: tab.model,
           status: tab.ready ? "ready" : "not-ready",
@@ -522,43 +568,28 @@ Page({
             keepExistingKey: tab.keepExistingKey !== false,
             validateBeforeSave: tab.validateBeforeSave !== false
           }
-        }
-      });
-      if (!first || first.ok === false) throw new Error("PRIMARY_BINDING_SAVE_FAILED");
-      const nextVersion = Number(first && (first.version || first.providerConfigV2 && first.providerConfigV2.version)) || this.data.currentVersion + 1;
-      primarySaved = true;
-      this.setData({ currentVersion: nextVersion });
-      const backupReady = Boolean(tab.backupEnabled && tab.backupProviderKey && tab.backupModel);
-      const second = await cloud.saveAdminBindingV2({
-        expectedVersion: nextVersion,
-        binding: {
-          slot: tab.slot,
-          role: "backup",
-          providerKey: backupReady ? tab.backupProviderKey : "",
-          modelId: backupReady ? tab.backupModel : "",
+        },
+        backupPatch: {
+          providerKey: tab.backupProviderKey,
+          modelId: tab.backupModel,
           status: backupReady ? "ready" : "not-ready",
           confirmed: true
-        }
+        },
+        advancedPatch: tab.key === "imageGeneration"
+          ? { mode: tab.mode || "edits", size: tab.size || "1080x1440" }
+          : {}
       });
-      if (!second || second.ok === false) throw new Error("BACKUP_BINDING_SAVE_FAILED");
-      const finalVersion = Number(second && (second.version || second.providerConfigV2 && second.providerConfigV2.version)) || nextVersion + 1;
+      if (!result || result.ok === false) throw new Error("SLOT_SAVE_FAILED");
+      const payload = result.data && typeof result.data === "object" ? result.data : result;
+      const finalVersion = Number(payload.version || payload.providerConfigV2 && payload.providerConfigV2.version) || this.data.currentVersion + 1;
       saved = true;
       this.setData({ currentVersion: finalVersion, message: "已保存到云端" });
     } catch (error) {
-      if (primarySaved) {
-        partialSave = true;
-        const group = this.data.groups[this.data.selectedGroupIndex];
-        this.initialGroup = group && group.key || "standard";
-        this.initialTab = tab.key || "face";
-        await this.loadConfig();
-        this.setData({ message: "主模型已保存，备用模型保存失败，已重新载入云端配置，请重试" });
-      } else {
-        this.setData({ message: "保存失败，请检查云端接口" });
-      }
+      this.setData({ message: "保存失败，主备配置均未更改" });
     } finally {
       this.setData({ saving: false });
     }
-    if (wx.showToast) wx.showToast({ title: saved ? "保存成功" : (partialSave ? "备用保存失败" : "保存失败"), icon: "none" });
+    if (wx.showToast) wx.showToast({ title: saved ? "保存成功" : "保存失败", icon: "none" });
   },
 
   openProvider() {

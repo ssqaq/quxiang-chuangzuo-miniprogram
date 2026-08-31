@@ -1,17 +1,10 @@
 <view class="operations-page">
-  <view class="appbar">
-    <view class="back" bindtap="backToDashboard" hover-class="tap">‹</view>
+  <view class="appbar" style="{{appbarStyle}}">
     <view class="appbar-title">{{viewTitle}}</view>
-    <view class="appbar-link" bindtap="backToDashboard" hover-class="tap">控制台 <text>›</text></view>
+    <view class="appbar-link" bindtap="backToDashboard" hover-class="tap">返回控制台 <text>›</text></view>
   </view>
 
-  <scroll-view class="operations-scroll" scroll-y="true" enable-back-to-top="true">
-    <view class="view-tabs">
-      <view wx:for="{{viewTabs}}" wx:key="key" class="view-tab {{activeView === item.key ? 'active' : ''}}" data-view="{{item.key}}" bindtap="switchView" hover-class="tap"><text>{{item.label}}</text></view>
-    </view>
-
-    <view class="quick-links"><view bindtap="openConfig" hover-class="tap">功能配置 <text>›</text></view><view bindtap="openProvider" hover-class="tap">供应商管理 <text>›</text></view></view>
-
+  <scroll-view class="operations-scroll" style="{{operationsScrollStyle}}" scroll-y="true" enable-back-to-top="true">
     <view class="overview-card">
       <text class="overview-eyebrow">{{eyebrow}}</text>
       <text class="overview-title">{{viewTitle}}</text>
@@ -32,7 +25,7 @@
       </view>
     </view>
 
-    <view class="foot-note">{{footNote}}</view>
+    <view wx:if="{{!loading && !empty}}" class="foot-note">{{footNote}}</view>
     <view wx:if="{{message}}" class="message">{{message}}</view>
     <view class="bottom-space"></view>
   </scroll-view>

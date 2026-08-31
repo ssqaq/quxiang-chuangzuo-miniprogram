@@ -344,7 +344,14 @@ function normalizeBinding(raw, context, options) {
   } else if (status === "ready" && (!model.confirmed || supplier.enabled === false)) {
     status = "needsReview";
   }
-  return {
+  const output = {};
+  Object.keys(source).forEach((key) => {
+    if (!["slot", "capability", "feature", "role", "kind", "providerKey", "provider", "key", "internalKey", "id", "modelId", "model", "name", "status", "sourceHash", "confirmedAt", "confirmedBy", "confirmedByOpenid", "version", "fallbackUsed", "lastFailureAt", "metadata", "confirmed"].includes(key)) {
+      const item = sanitizeSecrets(source[key], key);
+      if (item !== undefined) output[key] = item;
+    }
+  });
+  return Object.assign(output, {
     slot,
     role,
     providerKey,
@@ -357,7 +364,7 @@ function normalizeBinding(raw, context, options) {
     fallbackUsed: Boolean(source.fallbackUsed),
     lastFailureAt: source.lastFailureAt ? String(source.lastFailureAt) : null,
     metadata: sanitizeSecrets(isObject(source.metadata) ? source.metadata : {})
-  };
+  });
 }
 
 function normalizeCostAdapter(raw, keyHint) {
@@ -942,6 +949,114 @@ function transitionBinding(value, change, options) {
   return normalizeV2Config(config);
 }
 
+function mergeMetadata(previous, patch) {
+  const output = isObject(previous) ? clone(previous) : {};
+  if (!isObject(patch)) return output;
+  const sanitized = sanitizeSecrets(patch) || {};
+  Object.keys(sanitized).forEach((key) => {
+    output[key] = isObject(output[key]) && isObject(sanitized[key])
+      ? mergeMetadata(output[key], sanitized[key])
+      : clone(sanitized[key]);
+  });
+  return output;
+}
+
+/*
+ * 一次修改同一槽位的主、备绑定。两个 binding 共用一次根 CAS 和版本递增，
+ * advanced 只落在 primary.metadata.advanced，避免主备参数形成双状态。
+ */
+function transitionSlot(value, change, options) {
+  const opts = isObject(options) ? options : {};
+  const config = normalizeV2Config(value);
+  assertCas(config, opts.expectedVersion);
+  const request = isObject(change) ? change : { slot: change };
+  const slot = canonicalSlot(request.slot);
+  if (!slot) {
+    const error = new Error("无效功能槽位");
+    error.code = "INVALID_SLOT";
+    throw error;
+  }
+  const primaryPatch = isObject(request.primaryPatch)
+    ? request.primaryPatch
+    : isObject(request.primary) ? request.primary : null;
+  const backupPatch = isObject(request.backupPatch)
+    ? request.backupPatch
+    : isObject(request.backup) ? request.backup : null;
+  const rawAdvanced = isObject(request.advancedPatch)
+    ? request.advancedPatch
+    : isObject(request.advanced) ? request.advanced : null;
+  const advancedPatch = rawAdvanced ? sanitizeSecrets(rawAdvanced) || {} : null;
+  const hasAdvancedPatch = Boolean(advancedPatch && Object.keys(advancedPatch).length);
+  if (!primaryPatch && !backupPatch && !hasAdvancedPatch) {
+    const error = new Error("槽位保存至少需要一项修改");
+    error.code = "SLOT_PATCH_REQUIRED";
+    throw error;
+  }
+
+  const suppliers = Object.fromEntries(config.suppliers.map((item) => [item.providerKey, item]));
+  const models = Object.fromEntries(config.supplierModels.map((item) => [modelKey(item.providerKey, item.modelId), item]));
+  const context = { suppliersByKey: suppliers, modelsByKey: models };
+  const applyRolePatch = (role, rawPatch) => {
+    const patch = isObject(rawPatch) ? rawPatch : {};
+    const index = config.bindings.findIndex((item) => item.slot === slot && item.role === role);
+    const previous = index >= 0
+      ? config.bindings[index]
+      : normalizeBinding({ slot, role }, context, opts);
+    if (Object.prototype.hasOwnProperty.call(patch, "status")) {
+      const submittedStatus = text(patch.status);
+      if (!VALID_STATUSES.includes(submittedStatus)
+          || role === "backup" && !["ready", "not-ready"].includes(submittedStatus)) {
+        const error = new Error(`无效绑定状态：${submittedStatus}`);
+        error.code = "BINDING_STATUS_INVALID";
+        throw error;
+      }
+    }
+    const nextProvider = Object.prototype.hasOwnProperty.call(patch, "providerKey")
+      ? text(patch.providerKey)
+      : providerKeyOf(patch, previous && previous.providerKey);
+    const nextModel = Object.prototype.hasOwnProperty.call(patch, "modelId")
+      ? text(patch.modelId)
+      : modelIdOf(patch, previous && previous.modelId);
+    const desired = canonicalStatus(patch.status, previous && previous.status || "not-ready");
+    const model = models[modelKey(nextProvider, nextModel)];
+    const supplier = suppliers[nextProvider];
+    if (desired === "ready" && (!supplier || supplier.enabled === false || !model || !model.confirmed)) {
+      const error = new Error("绑定必须引用已确认且可用的供应商模型");
+      error.code = "BINDING_NOT_READY";
+      throw error;
+    }
+    if (desired === "ready" && previous && previous.status === "not-ready" && !patch.confirmed) {
+      const error = new Error("未确认的空槽不能直接启用");
+      error.code = "BINDING_CONFIRM_REQUIRED";
+      throw error;
+    }
+    let metadata = mergeMetadata(previous && previous.metadata, patch.metadata);
+    if (role === "primary" && hasAdvancedPatch) {
+      metadata = mergeMetadata(metadata, {
+        advanced: mergeMetadata(metadata.advanced, advancedPatch)
+      });
+    }
+    const updated = normalizeBinding(Object.assign({}, previous || {}, patch, {
+      slot,
+      role,
+      providerKey: nextProvider,
+      modelId: nextModel,
+      status: desired,
+      confirmedAt: desired === "ready" ? (patch.confirmedAt || nowValue(opts)) : patch.confirmedAt,
+      confirmedBy: desired === "ready" ? text(patch.confirmedBy || opts.confirmedBy, "admin") : patch.confirmedBy,
+      version: number(previous && previous.version, 1, 1) + 1,
+      metadata
+    }), context, opts);
+    if (index >= 0) config.bindings[index] = updated;
+    else config.bindings.push(updated);
+  };
+
+  if (primaryPatch || hasAdvancedPatch) applyRolePatch("primary", primaryPatch);
+  if (backupPatch) applyRolePatch("backup", backupPatch);
+  config.version = nextRootVersion(config);
+  return normalizeV2Config(config);
+}
+
 function runtimeReadyBinding(config, binding) {
   if (!binding || binding.status !== "ready") return null;
   const supplier = config.suppliers.find((item) => item.providerKey === binding.providerKey);
@@ -1152,6 +1267,7 @@ module.exports = {
   isValidV2Config,
   confirmModels,
   transitionBinding,
+  transitionSlot,
   resolveBinding,
   resolveFailover,
   canDeleteSupplier,
@@ -1169,6 +1285,7 @@ module.exports = {
   /* 兼容 API/页面调用方的别名。 */
   confirmAdminModels: confirmModels,
   saveBinding: transitionBinding,
+  saveSlot: transitionSlot,
   resolveEffectiveBinding: resolveBinding,
   resolveProviderFailover: resolveFailover,
   deleteSupplierGuard: canDeleteSupplier,

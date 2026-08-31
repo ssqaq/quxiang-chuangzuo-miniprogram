@@ -856,6 +856,16 @@ module.exports = {
       provider: source.provider,
       secret: source.secret,
       credentials: source.credentials,
+      credentialDirty: source.credentialDirty,
+      credentialsDirty: source.credentialsDirty,
+      dirtyCredentials: source.dirtyCredentials,
+      apiKeyDirty: source.apiKeyDirty,
+      secretIdDirty: source.secretIdDirty,
+      secretKeyDirty: source.secretKeyDirty,
+      clearApiKey: source.clearApiKey,
+      clearSecretId: source.clearSecretId,
+      clearSecretKey: source.clearSecretKey,
+      clearCredentials: source.clearCredentials,
       models: Array.isArray(source.models) ? source.models : undefined,
       order: Array.isArray(source.order)
         ? source.order
@@ -885,6 +895,18 @@ module.exports = {
       providerKey: source.providerKey,
       modelId: source.modelId,
       status: source.status,
+      expectedVersion: source.expectedVersion,
+      retryLimit: 0
+    });
+  },
+  saveAdminSlotV2(payload = {}) {
+    const source = payload && typeof payload === "object" ? payload : {};
+    return callApi({
+      action: "saveAdminSlotV2",
+      slot: source.slot,
+      primaryPatch: source.primaryPatch || source.primary,
+      backupPatch: source.backupPatch || source.backup,
+      advancedPatch: source.advancedPatch || source.advanced,
       expectedVersion: source.expectedVersion,
       retryLimit: 0
     });

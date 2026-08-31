@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.57.88";
-const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V05788";
+const API_BUILD_VERSION = "0.57.95";
+const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V05795";
 const DEFAULT_IMAGE_MODE = "edits";
 // 图片和视频默认成本只在云函数入口维护；管理员页读取云端有效配置，
 // 避免前后端各写一份价格。入口保持单文件可启动，兼容 CloudBase 部署。
@@ -9992,6 +9992,8 @@ function isLegacyLingyunImageConfig(value) {
 }
 
 const ADMIN_CONFIG_AUDIT_SECTIONS = Object.freeze([
+  "providerConfigV2",
+  "providerSecretsV2",
   "providerLabels",
   "providerProfiles",
   "providerRegistry",
@@ -10135,16 +10137,16 @@ function buildAdminConfigAuditChanges(previous = {}, next = {}, patch = {}) {
         const configuredAfter = Boolean(
           newValue && newValue.secret && newValue.configured
         );
-        const submittedRaw = adminAuditPathValue(patchSection, field);
-        const submittedKey = submittedRaw === undefined
-          ? ""
-          : normalizeApiKey(submittedRaw);
         const previousKey = normalizeApiKey(
           adminAuditPathValue(before[section], field)
         );
+        const nextKey = normalizeApiKey(
+          adminAuditPathValue(after[section], field)
+        );
         const updated = Boolean(
-          submittedKey
-          && submittedKey !== previousKey
+          configuredBefore
+          && configuredAfter
+          && previousKey !== nextKey
         );
         if (
           configuredBefore !== configuredAfter
@@ -10212,7 +10214,19 @@ function normalizeAdminConfigAuditRow(value = {}) {
   return {
     _id: compactUsageText(source._id, 80),
     createdAt: Number.isNaN(createdAt.getTime()) ? new Date() : createdAt,
-    source: ["system-auto-correct", "admin-provider-save", "admin-provider-delete", "admin-save"].includes(source.source)
+    source: [
+      "system-auto-correct",
+      "admin-provider-save",
+      "admin-provider-delete",
+      "admin-provider-v2-create",
+      "admin-provider-v2-update",
+      "admin-provider-v2-delete",
+      "admin-provider-v2-reorder",
+      "admin-model-confirm-v2",
+      "admin-slot-v2",
+      "admin-binding-v2",
+      "admin-save"
+    ].includes(source.source)
       ? source.source
       : "admin-save",
     actorHash: compactUsageText(source.actorHash, 80) || "system",
@@ -12144,13 +12158,15 @@ function v2SecretRecord(value) {
   // 只允许协议所需的凭证字段，避免把任意请求体写进运行时文档。
   ["apiKey", "secretId", "secretKey", "accessToken", "token", "credentialRef"].forEach((key) => {
     if (source[key] !== undefined && source[key] !== null) {
-      output[key] = String(source[key]);
+      const submitted = String(source[key]).trim();
+      if (submitted) output[key] = submitted;
     }
   });
   if (v2Object(source.credentials)) {
     ["apiKey", "secretId", "secretKey", "accessToken", "token", "credentialRef"].forEach((key) => {
       if (source.credentials[key] !== undefined && source.credentials[key] !== null) {
-        output[key] = String(source.credentials[key]);
+        const submitted = String(source.credentials[key]).trim();
+        if (submitted) output[key] = submitted;
       }
     });
     if (v2Object(source.credentials.tc3)) {
@@ -12166,6 +12182,55 @@ function v2SecretRecord(value) {
   return output;
 }
 
+function v2SecretRequestObjects(source, candidate) {
+  return [
+    candidate,
+    candidate && candidate.credentials,
+    candidate && candidate.secret,
+    candidate && candidate.tc3,
+    source,
+    source && source.credentials,
+    source && source.secret,
+    source && source.tc3
+  ].filter(v2Object);
+}
+
+function v2SecretDirtyState(objects) {
+  const fields = ["apiKey", "secretId", "secretKey", "accessToken", "token", "credentialRef"];
+  const maps = ["dirty", "credentialDirty", "credentialsDirty", "dirtyCredentials"];
+  const output = { specified: false, fields: {} };
+  fields.forEach((field) => {
+    objects.forEach((item) => {
+      if (hasOwn(item, `${field}Dirty`)) {
+        output.specified = true;
+        if (item[`${field}Dirty`] === true) output.fields[field] = true;
+      }
+      maps.forEach((mapName) => {
+        const map = item[mapName];
+        if (v2Object(map) && hasOwn(map, field)) {
+          output.specified = true;
+          if (map[field] === true) output.fields[field] = true;
+        }
+      });
+      if (item.dirty === true && hasOwn(item, field)) {
+        output.specified = true;
+        output.fields[field] = true;
+      }
+    });
+  });
+  return output;
+}
+
+function v2SecretClearState(objects) {
+  const clearCredentials = objects.some((item) => item.clearCredentials === true);
+  const fields = {};
+  ["apiKey", "secretId", "secretKey", "accessToken", "token", "credentialRef"].forEach((field) => {
+    const flag = `clear${field.charAt(0).toUpperCase()}${field.slice(1)}`;
+    if (objects.some((item) => item[flag] === true)) fields[field] = true;
+  });
+  return { clearCredentials, fields };
+}
+
 function v2SecretPatch(event, providerKey) {
   const source = v2Payload(event);
   const candidate = v2Object(source.supplier)
@@ -12175,7 +12240,7 @@ function v2SecretPatch(event, providerKey) {
       : v2Object(source.record)
         ? source.record
         : source;
-  const secret = Object.assign(
+  let secret = Object.assign(
     {},
     v2SecretRecord(candidate),
     v2SecretRecord(source.credentials),
@@ -12183,12 +12248,24 @@ function v2SecretPatch(event, providerKey) {
     v2SecretRecord(source.tc3),
     v2SecretRecord(source)
   );
-  const explicitClear = candidate.clearApiKey === true
-    || candidate.clearCredentials === true
-    || source.clearApiKey === true
-    || source.clearCredentials === true;
+  const requestObjects = v2SecretRequestObjects(source, candidate);
+  const dirty = v2SecretDirtyState(requestObjects);
+  if (dirty.specified) {
+    secret = Object.fromEntries(
+      Object.entries(secret).filter(([field]) => dirty.fields[field] === true)
+    );
+  }
+  const clear = v2SecretClearState(requestObjects);
+  const explicitClear = clear.clearCredentials || Object.keys(clear.fields).length > 0;
   const key = String(providerKey || candidate.providerKey || candidate.id || "").trim();
-  return { key, secret, explicitClear };
+  return {
+    key,
+    secret,
+    dirty,
+    clear,
+    explicitClear,
+    hasMutation: explicitClear || Object.keys(secret).length > 0
+  };
 }
 
 function v2PublicConfig(config) {
@@ -12227,12 +12304,23 @@ function v2MergeSecrets(current, patch, providerKey, clear) {
   const output = v2ProviderSecrets({ [ADMIN_PROVIDER_SECRETS_V2_FIELD]: current });
   const key = String(providerKey || "").trim();
   if (!key) return output;
-  if (clear) {
+  const clearState = clear === true
+    ? { clearCredentials: true, fields: {} }
+    : v2Object(clear) && v2Object(clear.clear)
+      ? clear.clear
+      : v2Object(clear) ? clear : { clearCredentials: false, fields: {} };
+  if (clearState.clearCredentials === true) {
     delete output[key];
     return output;
   }
   const incoming = v2SecretRecord(patch);
-  if (Object.keys(incoming).length) output[key] = Object.assign({}, output[key] || {}, incoming);
+  const record = Object.assign({}, output[key] || {}, incoming);
+  const clearFields = v2Object(clearState.fields) ? clearState.fields : {};
+  Object.keys(clearFields).forEach((field) => {
+    if (clearFields[field] === true) delete record[field];
+  });
+  if (Object.keys(record).length) output[key] = record;
+  else delete output[key];
   return output;
 }
 
@@ -12303,8 +12391,9 @@ function v2SupplierInput(source) {
   return {};
 }
 
-function v2PersistedState(runtime, config, secrets, context, version) {
+function v2PersistedState(runtime, config, secrets, context, version, options) {
   const source = v2Object(runtime) ? runtime : {};
+  const opts = v2Object(options) ? options : {};
   const nextConfig = adminConfigV2.normalizeV2Config(config);
   nextConfig.schemaVersion = 2;
   nextConfig.version = Number(version) || v2RuntimeVersion(source);
@@ -12316,7 +12405,9 @@ function v2PersistedState(runtime, config, secrets, context, version) {
   });
   // 旧字段里的明文只在首次切换 V2 时迁移一次。V2 writer 已启用后，
   // 再次补种会让管理员刚清除的 Key 被旧 section 悄悄恢复。
-  const persistedSecrets = v2WriterActive(source)
+  const persistedSecrets = opts.secretsPrepared === true
+    ? v2ProviderSecrets({ [ADMIN_PROVIDER_SECRETS_V2_FIELD]: secrets })
+    : v2WriterActive(source)
     ? v2ProviderSecrets({ [ADMIN_PROVIDER_SECRETS_V2_FIELD]: secrets })
     : v2SeedLegacySecrets(source, nextConfig, secrets);
   const next = Object.assign({}, source, {
@@ -12828,10 +12919,18 @@ async function saveAdminProviderV2(event = {}, context) {
       const currentVersion = v2RuntimeVersion(current) || Number(config.version) || 1;
       if (expected !== null && expected !== currentVersion) throw v2Conflict(expected, currentVersion);
       const currentSupplier = (config.suppliers || []).find((item) => item.providerKey === providerKey);
+      const currentSecrets = v2WriterActive(current)
+        ? v2ProviderSecrets(current)
+        : v2SeedLegacySecrets(current, config, v2ProviderSecrets(current));
+      const nextSecrets = v2MergeSecrets(
+        currentSecrets,
+        submittedSecretPatch.secret,
+        providerKey,
+        action === "delete" ? { clearCredentials: true, fields: {} } : submittedSecretPatch.clear
+      );
       const mutationInput = Object.assign({}, input);
       if (currentSupplier && (v2Object(input.auth)
-          || Object.keys(submittedSecretPatch.secret).length
-          || submittedSecretPatch.explicitClear)) {
+          || submittedSecretPatch.hasMutation)) {
         mutationInput.auth = Object.assign({}, currentSupplier.auth || {}, input.auth || {});
         mutationInput.auth.extra = Object.assign(
           {},
@@ -12839,14 +12938,21 @@ async function saveAdminProviderV2(event = {}, context) {
           input.auth && input.auth.extra || {}
         );
       }
-      if (submittedSecretPatch.explicitClear) {
+      if (submittedSecretPatch.hasMutation) {
         const credentialRef = String(
           mutationInput.auth && mutationInput.auth.credentialRef || ""
         ).trim();
+        const nextCredential = nextSecrets[providerKey] || {};
         mutationInput.auth = Object.assign({}, mutationInput.auth || {}, {
-          configured: Boolean(credentialRef)
+          configured: Boolean(
+            credentialRef
+            || nextCredential.apiKey
+            || nextCredential.secretId && nextCredential.secretKey
+            || nextCredential.accessToken
+            || nextCredential.token
+          )
         });
-        mutationInput.credentialConfigured = Boolean(credentialRef);
+        mutationInput.credentialConfigured = Boolean(mutationInput.auth.configured);
       }
       const nextConfig = adminConfigV2.applySupplierMutation(config, {
         action,
@@ -12855,14 +12961,15 @@ async function saveAdminProviderV2(event = {}, context) {
         order,
         expectedVersion: currentVersion
       }, { expectedVersion: currentVersion });
-      const nextSecrets = v2MergeSecrets(
-        current[ADMIN_PROVIDER_SECRETS_V2_FIELD],
-        submittedSecretPatch.secret,
-        providerKey,
-        submittedSecretPatch.explicitClear || action === "delete"
-      );
       const nextVersion = Number(nextConfig.version) || currentVersion + 1;
-      const persisted = v2PersistedState(current, nextConfig, nextSecrets, context, nextVersion);
+      const persisted = v2PersistedState(
+        current,
+        nextConfig,
+        nextSecrets,
+        context,
+        nextVersion,
+        { secretsPrepared: true }
+      );
       await ref.set({ data: stripDocumentId(persisted) });
       return {
         previous: current,
@@ -12972,6 +13079,125 @@ async function confirmAdminModelsV2(event = {}, context) {
   });
 }
 
+function v2AssertBindingRuntimeReady(config, binding, secrets) {
+  if (!binding || String(binding.status || "") !== "ready") return;
+  const supplier = (config.suppliers || []).find((item) => item.providerKey === binding.providerKey);
+  const model = (config.supplierModels || []).find((item) => (
+    item.providerKey === binding.providerKey
+    && item.modelId === binding.modelId
+    && item.confirmed
+  ));
+  const credential = secrets[binding.providerKey] || {};
+  const protocol = String(supplier && supplier.auth && supplier.auth.protocol || "openai");
+  const endpointReady = Boolean(model && (model.endpointRef || supplier && (supplier.endpoint || supplier.baseUrl)));
+  const credentialReady = protocol === "tencent-tc3"
+    ? Boolean(credential.secretId && credential.secretKey)
+    : Boolean(
+        credential.apiKey
+        || credential.accessToken
+        || credential.token
+        || supplier && supplier.auth && supplier.auth.credentialRef
+      );
+  if (!supplier || supplier.enabled === false || !model || !endpointReady || !credentialReady) {
+    const error = new Error("绑定必须引用已确认、已有端点和服务端凭证的供应商模型。");
+    error.code = "BINDING_NOT_READY";
+    throw error;
+  }
+}
+
+async function saveAdminSlotV2(event = {}, context) {
+  if (!isAdminContext(context)) return adminForbidden();
+  const source = v2Payload(event);
+  const expected = v2ExpectedVersion(source, {}, {});
+  if (expected === null) {
+    return fail("保存功能槽位必须携带当前配置版本。", "EXPECTED_VERSION_REQUIRED");
+  }
+  const mutation = {
+    slot: source.slot,
+    primaryPatch: v2Object(source.primaryPatch)
+      ? Object.assign({}, source.primaryPatch)
+      : v2Object(source.primary) ? Object.assign({}, source.primary) : undefined,
+    backupPatch: v2Object(source.backupPatch)
+      ? Object.assign({}, source.backupPatch)
+      : v2Object(source.backup) ? Object.assign({}, source.backup) : undefined,
+    advancedPatch: v2Object(source.advancedPatch)
+      ? Object.assign({}, source.advancedPatch)
+      : v2Object(source.advanced) ? Object.assign({}, source.advanced) : undefined
+  };
+  let outcome;
+  try {
+    outcome = await db.runTransaction(async (transaction) => {
+      const ref = transaction.collection(ADMIN_RUNTIME_CONFIG_COLLECTION).doc(ADMIN_RUNTIME_CONFIG_ID);
+      const current = (await readDocument(ref)) || {};
+      const config = v2ConfigFromRuntime(current);
+      const currentVersion = v2RuntimeVersion(current) || Number(config.version) || 1;
+      if (expected !== currentVersion) throw v2Conflict(expected, currentVersion);
+      const nextConfig = adminConfigV2.transitionSlot(config, mutation, {
+        expectedVersion: currentVersion,
+        confirmedBy: getOpenId(context) || "admin"
+      });
+      const seededSecrets = v2WriterActive(current)
+        ? v2ProviderSecrets(current)
+        : v2SeedLegacySecrets(current, nextConfig, v2ProviderSecrets(current));
+      ["primary", "backup"].forEach((role) => {
+        const binding = (nextConfig.bindings || []).find((item) => (
+          item.slot === adminConfigV2.canonicalSlot(mutation.slot) && item.role === role
+        ));
+        v2AssertBindingRuntimeReady(nextConfig, binding, seededSecrets);
+      });
+      const nextVersion = Number(nextConfig.version) || currentVersion + 1;
+      const persisted = v2PersistedState(
+        current,
+        nextConfig,
+        seededSecrets,
+        context,
+        nextVersion,
+        { secretsPrepared: true }
+      );
+      await ref.set({ data: stripDocumentId(persisted) });
+      return {
+        previous: current,
+        runtime: persisted,
+        config: persisted[ADMIN_PROVIDER_CONFIG_V2_FIELD],
+        version: nextVersion
+      };
+    }, 5);
+  } catch (error) {
+    const code = String(error && error.code || "");
+    if ([
+      "VERSION_CONFLICT",
+      "BINDING_NOT_READY",
+      "BINDING_CONFIRM_REQUIRED",
+      "BINDING_STATUS_INVALID",
+      "SLOT_PATCH_REQUIRED",
+      "INVALID_SLOT"
+    ].includes(code)) {
+      return fail(error.message, code === "VERSION_CONFLICT" ? "ADMIN_CONFIG_CONFLICT" : code, {
+        versionConflict: code === "VERSION_CONFLICT",
+        currentVersion: error.currentVersion
+      });
+    }
+    throw error;
+  }
+  adminRuntimeCache = { value: outcome.runtime, expiresAt: Date.now() + ADMIN_RUNTIME_CACHE_TTL_MS };
+  await writeAdminConfigAuditLog({
+    source: "admin-slot-v2",
+    openid: getOpenId(context),
+    configVersion: outcome.version,
+    previous: outcome.previous || {},
+    next: outcome.runtime,
+    patch: adminConfigV2.sanitizeSecrets(mutation)
+  });
+  const canonical = adminConfigV2.canonicalSlot(mutation.slot);
+  const primary = (outcome.config.bindings || []).find((item) => item.slot === canonical && item.role === "primary") || null;
+  const backup = (outcome.config.bindings || []).find((item) => item.slot === canonical && item.role === "backup") || null;
+  return v2Response(outcome.config, outcome.runtime, {
+    slot: canonical,
+    primary,
+    backup
+  });
+}
+
 async function saveAdminBindingV2(event = {}, context) {
   if (!isAdminContext(context)) return adminForbidden();
   const source = v2Payload(event);
@@ -12987,33 +13213,10 @@ async function saveAdminBindingV2(event = {}, context) {
       const config = v2ConfigFromRuntime(current);
       const currentVersion = v2RuntimeVersion(current) || Number(config.version) || 1;
       if (expected !== null && expected !== currentVersion) throw v2Conflict(expected, currentVersion);
-      if (String(binding.status || "") === "ready") {
-        const supplier = (config.suppliers || []).find((item) => item.providerKey === binding.providerKey);
-        const model = (config.supplierModels || []).find((item) => (
-          item.providerKey === binding.providerKey
-          && item.modelId === binding.modelId
-          && item.confirmed
-        ));
-        const seededSecrets = v2WriterActive(current)
-          ? v2ProviderSecrets(current)
-          : v2SeedLegacySecrets(current, config, v2ProviderSecrets(current));
-        const credential = seededSecrets[binding.providerKey] || {};
-        const protocol = String(supplier && supplier.auth && supplier.auth.protocol || "openai");
-        const endpointReady = Boolean(model && (model.endpointRef || supplier && (supplier.endpoint || supplier.baseUrl)));
-        const credentialReady = protocol === "tencent-tc3"
-          ? Boolean(credential.secretId && credential.secretKey)
-          : Boolean(
-              credential.apiKey
-              || credential.accessToken
-              || credential.token
-              || supplier && supplier.auth && supplier.auth.credentialRef
-            );
-        if (!supplier || supplier.enabled === false || !model || !endpointReady || !credentialReady) {
-          const error = new Error("绑定必须引用已确认、已有端点和服务端凭证的供应商模型。");
-          error.code = "BINDING_NOT_READY";
-          throw error;
-        }
-      }
+      const seededSecrets = v2WriterActive(current)
+        ? v2ProviderSecrets(current)
+        : v2SeedLegacySecrets(current, config, v2ProviderSecrets(current));
+      v2AssertBindingRuntimeReady(config, binding, seededSecrets);
       const nextConfig = adminConfigV2.transitionBinding(config, binding, {
         expectedVersion: currentVersion,
         confirmedBy: getOpenId(context) || "admin"
@@ -23666,6 +23869,9 @@ exports.main = async (event = {}, context) => {
     else if (action === "saveAdminBindingV2") {
       result = await saveAdminBindingV2(requestEvent, context);
     }
+    else if (action === "saveAdminSlotV2") {
+      result = await saveAdminSlotV2(requestEvent, context);
+    }
     else if (action === "getAdminImageApiKeys") {
       result = await getAdminImageApiKeys(context);
     }
@@ -24086,6 +24292,7 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     probeAdminProviderV2,
     confirmAdminModelsV2,
     saveAdminBindingV2,
+    saveAdminSlotV2,
     adminConfigV2,
     v2ConfigFromRuntime,
     v2PublicConfig,
@@ -24093,6 +24300,8 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     v2WriterActive,
     v2MutationAction,
     v2SecretPatch,
+    v2MergeSecrets,
+    v2AssertBindingRuntimeReady,
     v2RuntimeRequestEndpoint,
     v2InheritedFunctionParameters,
     v2BindingRuntimeSection,

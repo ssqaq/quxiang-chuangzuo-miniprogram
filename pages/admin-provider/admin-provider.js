@@ -1,4 +1,5 @@
 const cloud = require("../../services/cloud");
+const previewFixtures = require("../../services/admin-preview-fixtures");
 
 const CAPABILITIES = [
   { key: "face", label: "人脸识别" },
@@ -291,6 +292,7 @@ const INITIAL_NAVIGATION_LAYOUT = navigationLayout();
 Page({
   data: {
     loading: true,
+    demoMode: false,
     source: "local",
     currentVersion: 1,
     providers: [],
@@ -316,7 +318,9 @@ Page({
     providerScrollStyle: INITIAL_NAVIGATION_LAYOUT.providerScrollStyle
   },
 
-  onLoad() {
+  onLoad(options) {
+    this.demoMode = previewFixtures.isEnabled(options);
+    this.setData({ demoMode: this.demoMode });
     this.applyNavigationLayout();
     this.loadRegistry();
   },
@@ -336,21 +340,23 @@ Page({
   async loadRegistry(refreshing = false) {
     this.setData({ loading: !refreshing, message: "" });
     let result = null;
-    if (cloud && typeof cloud.getAdminConfigV2 === "function") {
+    if (!this.demoMode && cloud && typeof cloud.getAdminConfigV2 === "function") {
       try {
         result = await cloud.getAdminConfigV2({ retryLimit: 0, silent: true });
       } catch (error) {
         result = null;
       }
     }
-    const payload = result && result.ok !== false && result.data ? result.data : (result && result.ok !== false ? result : null);
+    const payload = this.demoMode
+      ? previewFixtures.adminConfig()
+      : (result && result.ok !== false && result.data ? result.data : (result && result.ok !== false ? result : null));
     const savedProviders = payload && Array.isArray(payload.suppliers)
       ? this.mergeModels(payload.suppliers, payload.supplierModels)
       : [];
     const providers = mergeDirectoryTemplates(savedProviders);
     this.setData({
       loading: false,
-      source: payload ? "cloud" : "local",
+      source: this.demoMode ? "demo" : (payload ? "cloud" : "local"),
       currentVersion: Number(payload && (payload.version || payload.providerConfigV2 && payload.providerConfigV2.version)) || 1,
       providers,
       providerCountText: `${providers.length} 个档案`
@@ -412,7 +418,13 @@ Page({
       canMoveDown: !provider.isTemplate && index < this.data.providers.length - 1 && nextProvider && !nextProvider.isTemplate,
       activeProviderId: `provider-${index}`
     });
-    if (!provider.isTemplate) this.loadProviderSecret(provider.providerKey);
+    if (!provider.isTemplate && !this.demoMode) this.loadProviderSecret(provider.providerKey);
+    if (!provider.isTemplate && this.demoMode) {
+      this.setData({
+        secretReadState: "empty",
+        secretStatus: secretStatusFor("empty", emptySecretValues(), secretDirty)
+      });
+    }
   },
 
   async loadProviderSecret(providerKey) {
@@ -530,6 +542,10 @@ Page({
   },
 
   async moveProvider(event) {
+    if (this.demoMode) {
+      this.setData({ message: "演示数据不调整供应商顺序。" });
+      return;
+    }
     const direction = event.currentTarget.dataset.direction === "up" ? -1 : 1;
     const index = this.data.selectedIndex;
     const next = index + direction;
@@ -564,6 +580,10 @@ Page({
   },
 
   async testConnection() {
+    if (this.demoMode) {
+      this.setData({ message: "演示数据不连接供应商。" });
+      return;
+    }
     const draft = this.data.draft;
     if (isExampleEndpoint(providerEndpoint(draft))) {
       this.setData({ message: "示例地址不可运行，请先填写真实 API 端点并保存" });
@@ -614,6 +634,10 @@ Page({
   },
 
   async fetchModels() {
+    if (this.demoMode) {
+      this.setData({ message: "演示数据不读取线上模型。" });
+      return;
+    }
     const draft = this.data.draft;
     if (isExampleEndpoint(providerEndpoint(draft))) {
       this.setData({ message: "示例地址不可运行，请先填写真实 API 端点并保存" });
@@ -649,6 +673,10 @@ Page({
   },
 
   async confirmModel() {
+    if (this.demoMode) {
+      this.setData({ message: "演示数据不保存模型确认。" });
+      return;
+    }
     const modelId = this.data.selectedFetchedModel;
     if (!modelId) return;
     const draft = clone(this.data.draft);
@@ -680,6 +708,10 @@ Page({
   },
 
   async saveProvider() {
+    if (this.demoMode) {
+      this.setData({ message: "演示数据只用于视觉预览，不会保存到线上。" });
+      return;
+    }
     const draft = normaliseProvider(this.data.draft);
     if (!draft.name || !draft.providerKey) {
       if (wx.showToast) wx.showToast({ title: "请填写供应商 ID 和名称", icon: "none" });
@@ -749,6 +781,10 @@ Page({
   },
 
   deleteProvider() {
+    if (this.demoMode) {
+      this.setData({ message: "演示数据不允许删除供应商。" });
+      return;
+    }
     const index = this.data.selectedIndex;
     if (!this.data.editing || index < 0 || index >= this.data.providers.length) return;
     const provider = this.data.providers[index];
@@ -790,7 +826,7 @@ Page({
   },
 
   openConfig() {
-    wx.navigateTo({ url: "/pages/admin-config/admin-config" });
+    wx.navigateTo({ url: `/pages/admin-config/admin-config${this.demoMode ? "?demo=1" : ""}` });
   },
 
   goBack() {

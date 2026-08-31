@@ -753,9 +753,6 @@ try {
                 verifiedAt = [DateTimeOffset]::UtcNow.ToString("o")
                 status = "verified"
             }
-            # [ordered] creates an OrderedDictionary. The strict receipt validator
-            # reads PSObject properties, so normalize it before the immediate check.
-            $receipt = [pscustomobject]$receipt
             Assert-ResumeCloudReceipt -Receipt $receipt -Context $context | Out-Null
             $context = Save-ResumeContext -Values @{ phase = "deployed"; cloudReceipt = $receipt; cloudDeployment = [ordered]@{ state = "verified"; idempotencyKey = $receipt.idempotencyKey; receipt = $receipt; updatedAt = [DateTimeOffset]::UtcNow.ToString("o") } }
             Set-ReleaseQueuePhase -QueueRoot $queueRoot -OperationId $OperationId -Phase "deployed" -Status "running" -Version ([string]$context.version) -BaseHead ([string]$context.baseHead) -ContextPath $contextPath -Lease $queueLease | Out-Null

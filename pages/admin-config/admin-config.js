@@ -1,4 +1,5 @@
 const cloud = require("../../services/cloud");
+const previewFixtures = require("../../services/admin-preview-fixtures");
 
 const TAB_DEFS = [
   { key: "face", slot: "face", label: "人脸识别", icon: "脸", path: "/v1/chat/completions", timeout: 30 },
@@ -285,6 +286,7 @@ function secretReadText(result, providerKey) {
 Page({
   data: {
     loading: true,
+    demoMode: false,
     source: "local",
     currentVersion: 1,
     groups: [],
@@ -310,6 +312,8 @@ Page({
   },
 
   onLoad(options) {
+    this.demoMode = previewFixtures.isEnabled(options);
+    this.setData({ demoMode: this.demoMode });
     this.applyNavigationLayout();
     this.initialGroup = options && options.group ? options.group : "standard";
     this.initialTab = options && options.tab ? options.tab : "face";
@@ -331,14 +335,16 @@ Page({
   async loadConfig(refreshing = false) {
     this.setData({ loading: !refreshing, message: "" });
     let result = null;
-    if (cloud && typeof cloud.getAdminConfigV2 === "function") {
+    if (!this.demoMode && cloud && typeof cloud.getAdminConfigV2 === "function") {
       try {
         result = await cloud.getAdminConfigV2({ retryLimit: 0, silent: true });
       } catch (error) {
         result = null;
       }
     }
-    const payload = result && result.ok !== false && result.data ? result.data : (result && result.ok !== false ? result : null);
+    const payload = this.demoMode
+      ? previewFixtures.adminConfig()
+      : (result && result.ok !== false && result.data ? result.data : (result && result.ok !== false ? result : null));
     const suppliers = normaliseSuppliers(payload && payload.suppliers, payload && payload.supplierModels);
     const bindings = payload && Array.isArray(payload.bindings) ? payload.bindings : [];
     const groups = buildGroups(bindings, suppliers);
@@ -349,7 +355,7 @@ Page({
     const summary = summaryForGroup(groups[groupIndex]);
     this.setData({
       loading: false,
-      source: payload ? "cloud" : "local",
+      source: this.demoMode ? "demo" : (payload ? "cloud" : "local"),
       currentVersion: Number(payload && (payload.version || payload.providerConfigV2 && payload.providerConfigV2.version)) || 1,
       suppliers,
       groups,
@@ -396,6 +402,7 @@ Page({
 
   async readProviderSecret(providerKey) {
     if (!providerKey) return { status: "success", value: null };
+    if (this.demoMode) return { status: "success", value: null };
     if (!cloud) return { status: "failure", error: "SECRET_READ_UNAVAILABLE" };
     const getter = typeof cloud.getAdminProviderSecretsV2 === "function"
       ? cloud.getAdminProviderSecretsV2
@@ -417,6 +424,15 @@ Page({
     const slot = tab.slot;
     const providerKey = tab.providerKey;
     const backupProviderKey = tab.backupProviderKey;
+    if (this.demoMode) {
+      this.updateCurrentTab({
+        keyText: providerKey ? "已保存 · 明文仅管理员可见" : "尚未配置",
+        keyLoadState: "success",
+        backupKeyText: backupProviderKey ? "已保存 · 明文仅管理员可见" : "尚未配置",
+        backupKeyLoadState: "success"
+      });
+      return;
+    }
     const values = await Promise.all([
       this.readProviderSecret(providerKey),
       this.readProviderSecret(backupProviderKey)
@@ -541,6 +557,10 @@ Page({
   },
 
   async saveCurrent() {
+    if (this.demoMode) {
+      this.setData({ message: "演示数据只用于视觉预览，不会保存到线上。" });
+      return;
+    }
     if (this.data.saving) return;
     const tab = this.currentTab();
     if (!tab) return;
@@ -593,7 +613,7 @@ Page({
   },
 
   openProvider() {
-    wx.navigateTo({ url: "/pages/admin-provider/admin-provider" });
+    wx.navigateTo({ url: `/pages/admin-provider/admin-provider${this.demoMode ? "?demo=1" : ""}` });
   },
 
   goBack() {

@@ -85,6 +85,12 @@ const cloudMock = {
 };
 
 global.wx = {
+  getWindowInfo() {
+    return { windowWidth: 390, statusBarHeight: 47 };
+  },
+  getMenuButtonBoundingClientRect() {
+    return { left: 298, top: 51, right: 385, bottom: 83, width: 87, height: 32 };
+  },
   stopPullDownRefresh() {},
   navigateTo() {},
   navigateBack() {},
@@ -110,45 +116,117 @@ function loadPage(relativePath) {
   return page;
 }
 
+function assertAllSectionsCollapsed(page, stage) {
+  assert.strictEqual(page.data.mainExpanded, false, `${stage}主模型必须默认收起`);
+  assert.strictEqual(page.data.backupExpanded, false, `${stage}备用模型必须默认收起`);
+  assert.strictEqual(page.data.advancedExpanded, false, `${stage}高级参数必须默认收起`);
+}
+
 async function run() {
   const configPage = loadPage("../pages/admin-config/admin-config");
+  assertAllSectionsCollapsed(configPage, "页面初始化时");
+  configPage.applyNavigationLayout();
+  assert.ok(configPage.data.appbarStyle.includes("height:99px"), "导航总高度必须按状态栏、胶囊和右图导航基准计算");
+  assert.ok(configPage.data.appbarStyle.includes("padding-right:100px"), "导航右侧必须给微信胶囊留出空间");
+  assert.strictEqual(configPage.data.configScrollStyle, "height:calc(100vh - 99px)", "滚动区高度必须扣掉实测导航高度");
+  ["toggleMain", "toggleBackup", "toggleAdvanced"].forEach((method, index) => {
+    const field = ["mainExpanded", "backupExpanded", "advancedExpanded"][index];
+    configPage[method]();
+    assert.strictEqual(configPage.data[field], true, `${method} 第一次点击必须展开`);
+    configPage[method]();
+    assert.strictEqual(configPage.data[field], false, `${method} 第二次点击必须收起`);
+  });
   configPage.initialGroup = "standard";
   configPage.initialTab = "face";
   await configPage.loadConfig();
   await configPage.loadVisibleSecrets();
+  assertAllSectionsCollapsed(configPage, "真实配置加载后");
   assert.deepStrictEqual(configPage.data.selectedTab.modelOptions, ["confirmed-face"]);
   assert.ok(!configPage.data.selectedTab.modelOptions.includes("pending-face"));
+  assert.deepStrictEqual(configPage.data.groups[0].tabs.map(tab => tab.slot), ["standard.face", "standard.imageAnalysis", "standard.styleAnalysis", "standard.imageGeneration"]);
   assert.strictEqual(configPage.data.configuredCount, 1);
   assert.strictEqual(configPage.data.totalCount, 4);
   assert.strictEqual(configPage.data.backupCount, 1);
+  assert.strictEqual(configPage.data.selectedTab.backupTitle, "备用人脸识别模型");
   assert.strictEqual(configPage.data.selectedTab.endpoint, "https://one.example/v1");
   assert.strictEqual(configPage.data.selectedTab.backupEndpoint, "https://two.example/v1");
   assert.strictEqual(configPage.data.selectedTab.keyText, visibleKeyOne);
   assert.strictEqual(configPage.data.selectedTab.backupKeyText, "测试明文二号");
   assert.strictEqual(configPage.data.selectedTab.timeout, 42);
   assert.strictEqual(configPage.data.selectedTab.retry, 2);
-  await configPage.saveCurrent();
+  const firstSave = configPage.saveCurrent();
+  const duplicateSave = configPage.saveCurrent();
+  await Promise.all([firstSave, duplicateSave]);
   assert.strictEqual(bindingWrites.length, 2);
   assert.strictEqual(bindingWrites[0].expectedVersion, 12);
   assert.strictEqual(bindingWrites[1].expectedVersion, 13);
-  assert.deepStrictEqual(bindingWrites[0].binding.metadata, { path: "/v1/chat/completions", timeout: 42, retry: 2, resolution: "1K", aspectRatio: "3:4" });
+  assert.deepStrictEqual(bindingWrites[0].binding.metadata, { path: "/v1/chat/completions", timeout: 42, retry: 2, resolution: "1K", aspectRatio: "3:4", keepExistingKey: true, validateBeforeSave: true });
+  assert.strictEqual(configPage.data.currentVersion, 14);
+  assert.strictEqual(configPage.data.saving, false, "保存完成后必须释放按钮锁");
 
   configPage.onMainProviderChange({ detail: { value: 1 } });
   assert.strictEqual(configPage.data.selectedTab.providerKey, "two");
   assert.strictEqual(configPage.data.selectedTab.backupEnabled, false, "主供应商切换为原备用供应商后必须清空备用配置");
   assert.strictEqual(configPage.data.selectedTab.backupProviderKey, "");
 
+  configPage.setData({ mainExpanded: true, backupExpanded: true, advancedExpanded: true });
   configPage.selectTab({ currentTarget: { dataset: { groupIndex: 2, tabIndex: 0 } } });
+  assertAllSectionsCollapsed(configPage, "切换功能后");
+  assert.deepStrictEqual(configPage.data.groups[2].tabs.map(tab => tab.slot), ["shared.video"]);
   assert.strictEqual(configPage.data.configuredCount, 1);
   assert.strictEqual(configPage.data.totalCount, 1);
   assert.strictEqual(configPage.data.backupCount, 1);
+
+  const originalSaveBinding = cloudMock.saveAdminBindingV2;
+  const originalGetConfigForPartial = cloudMock.getAdminConfigV2;
+  const partialPage = loadPage("../pages/admin-config/admin-config");
+  partialPage.initialGroup = "standard";
+  partialPage.initialTab = "face";
+  await partialPage.loadConfig();
+  partialPage.setData({ currentVersion: 30 });
+  const partialWrites = [];
+  let partialReloads = 0;
+  cloudMock.saveAdminBindingV2 = async payload => {
+    partialWrites.push(payload);
+    if (partialWrites.length === 1) return { ok: true, version: 31 };
+    throw new Error("backup offline");
+  };
+  cloudMock.getAdminConfigV2 = async () => {
+    partialReloads += 1;
+    return {
+      ok: true,
+      data: {
+        version: 31,
+        suppliers,
+        supplierModels,
+        bindings: bindings.map(item => item.slot === "standard.face" && item.role === "backup"
+          ? Object.assign({}, item, { status: "not-ready" })
+          : item)
+      }
+    };
+  };
+  await partialPage.saveCurrent();
+  assert.deepStrictEqual(partialWrites.map(item => item.expectedVersion), [30, 31]);
+  assert.strictEqual(partialReloads, 1, "备用保存失败后必须重新读取云端状态");
+  assert.strictEqual(partialPage.data.currentVersion, 31);
+  assert.strictEqual(partialPage.data.selectedTab.backupEnabled, false, "not-ready 的历史备用引用不能继续显示为已启用");
+  assert.ok(partialPage.data.message.includes("主模型已保存"));
+  assert.strictEqual(partialPage.data.saving, false);
+  cloudMock.saveAdminBindingV2 = originalSaveBinding;
+  cloudMock.getAdminConfigV2 = originalGetConfigForPartial;
 
   const dashboardPage = loadPage("../pages/admin-dashboard/admin-dashboard");
   await dashboardPage.loadConfig();
   assert.strictEqual(dashboardPage.data.configuredCount, 1, "备用绑定不能重复计入控制台就绪数");
 
   const providerPage = loadPage("../pages/admin-provider/admin-provider");
+  providerPage.applyNavigationLayout();
+  assert.ok(providerPage.data.appbarStyle.includes("height:99px"));
+  assert.strictEqual(providerPage.data.providerScrollStyle, "height:calc(100vh - 99px)");
   await providerPage.loadRegistry();
+  assert.strictEqual(providerPage.data.providers.length, 12, "三条云端档案后应按名称去重补齐未保存模板，保证目录可滚动且首屏铺满");
+  assert.strictEqual(providerPage.data.providers.slice(3).every(item => item.isTemplate && item.enabled === false), true);
+  assert.strictEqual(providerPage.data.providers.filter(item => item.name === "腾讯云").length, 1, "同名云端档案与目录模板不能重复显示");
   assert.deepStrictEqual(providerPage.data.providers[0].capabilityRows, ["人脸识别 · 图片分析", "网感分析 · 生图模型", "视频模型"]);
   assert.strictEqual(providerPage.data.providers[2].authProtocol, "tencent-tc3");
   assert.strictEqual(providerPage.data.providers[2].tc3.apiVersion, "2020-03-04");
@@ -159,7 +237,7 @@ async function run() {
   assert.strictEqual(modelWrites[0].expectedVersion, 12);
   assert.strictEqual(providerPage.data.currentVersion, 13);
   await providerPage.moveProvider({ currentTarget: { dataset: { direction: "down" } } });
-  assert.deepStrictEqual(providerWrites[0].order, ["two", "one", "tc3"]);
+  assert.deepStrictEqual(providerWrites[0].order, ["two", "one", "tc3"], "目录模板不得写入云端排序");
   assert.strictEqual(providerWrites[0].expectedVersion, 13);
 
   const originalGetConfig = cloudMock.getAdminConfigV2;
@@ -170,7 +248,8 @@ async function run() {
   cloudMock.listAdminProviderModelsV2 = async () => ({ ok: true, models: [] });
   const offlineProviderPage = loadPage("../pages/admin-provider/admin-provider");
   await offlineProviderPage.loadRegistry();
-  assert.deepStrictEqual(offlineProviderPage.data.providers, [], "接口失败时不得显示演示供应商");
+  assert.strictEqual(offlineProviderPage.data.providers.length, 10, "接口失败时仍显示十个未配置模板，避免目录空白");
+  assert.strictEqual(offlineProviderPage.data.providers.every(item => item.isTemplate && item.enabled === false), true);
   offlineProviderPage.setData({
     draft: Object.assign({}, offlineProviderPage.data.draft, {
       providerKey: "offline",
@@ -183,13 +262,13 @@ async function run() {
   assert.deepStrictEqual(offlineProviderPage.data.fetchedModels, [], "接口空结果时不得伪造模型");
   assert.strictEqual(offlineProviderPage.data.modelPickerOpen, false);
   await offlineProviderPage.saveProvider();
-  assert.deepStrictEqual(offlineProviderPage.data.providers, [], "云端保存失败时不得假装新增供应商");
+  assert.strictEqual(offlineProviderPage.data.providers.some(item => item.providerKey === "offline"), false, "云端保存失败时不得假装新增供应商");
   assert.ok(offlineProviderPage.data.message.includes("保存失败"));
   cloudMock.getAdminConfigV2 = originalGetConfig;
   cloudMock.saveAdminProviderV2 = originalSaveProvider;
   cloudMock.listAdminProviderModelsV2 = originalListModels;
 
-  console.log("admin-v2-pages-runtime-smoke: PASS (confirmed-models/group-summary/plaintext-secrets/TC3/CAS/reorder/primary-count/fail-closed)");
+  console.log("admin-v2-pages-runtime-smoke: PASS (collapsed-sections/confirmed-models/dynamic-group-summary/plaintext-secrets/TC3/CAS/reorder/primary-count/fail-closed)");
 }
 
 run().catch((error) => {

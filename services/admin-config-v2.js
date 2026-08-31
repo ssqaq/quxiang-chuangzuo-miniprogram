@@ -905,8 +905,12 @@ function transitionBinding(value, change, options) {
     suppliersByKey: Object.fromEntries(config.suppliers.map((item) => [item.providerKey, item])),
     modelsByKey: Object.fromEntries(config.supplierModels.map((item) => [modelKey(item.providerKey, item.modelId), item]))
   });
-  const nextProvider = providerKeyOf(request, previous && previous.providerKey);
-  const nextModel = modelIdOf(request, previous && previous.modelId);
+  const nextProvider = Object.prototype.hasOwnProperty.call(request, "providerKey")
+    ? text(request.providerKey)
+    : providerKeyOf(request, previous && previous.providerKey);
+  const nextModel = Object.prototype.hasOwnProperty.call(request, "modelId")
+    ? text(request.modelId)
+    : modelIdOf(request, previous && previous.modelId);
   const desired = canonicalStatus(request.status, previous && previous.status || "not-ready");
   const suppliers = Object.fromEntries(config.suppliers.map((item) => [item.providerKey, item]));
   const models = Object.fromEntries(config.supplierModels.map((item) => [modelKey(item.providerKey, item.modelId), item]));

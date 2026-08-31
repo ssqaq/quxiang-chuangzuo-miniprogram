@@ -1,6 +1,6 @@
 {
   "name": "aips-payment-notify",
-  "version": "0.57.82",
+  "version": "0.57.88",
   "private": true,
   "main": "index.js",
   "engines": {

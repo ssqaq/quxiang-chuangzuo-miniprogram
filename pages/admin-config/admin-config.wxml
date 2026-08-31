@@ -1,56 +1,63 @@
 <view class="config-page">
-  <view class="appbar">
-    <view class="back" bindtap="goBack" hover-class="tap">‹</view>
+  <view class="appbar" style="{{appbarStyle}}">
     <view class="appbar-title">功能配置</view>
     <view class="appbar-link" bindtap="openProvider" hover-class="tap">供应商管理 <text>›</text></view>
   </view>
-  <scroll-view class="config-scroll" scroll-y="true" enable-back-to-top="true">
-    <view class="group-stack">
-      <view wx:for="{{groups}}" wx:key="key" class="group-row {{item.key === 'shared' ? 'shared-group' : ''}}">
-        <view class="group-row-top"><text class="group-title">{{item.label}}</text><text class="group-note">{{item.note}}</text></view>
-        <view class="tab-grid {{item.key === 'shared' ? 'one-tab' : ''}}">
-          <view wx:for="{{item.tabs}}" wx:key="slot" wx:for-item="tab" wx:for-index="tabIndex" class="tab {{selectedGroupIndex === index && selectedTabIndex === tabIndex ? 'active' : ''}}" data-group-index="{{index}}" data-tab-index="{{tabIndex}}" bindtap="selectTab" hover-class="tap"><text class="tab-icon">{{tab.icon}}</text><text>{{tab.label}}</text><text class="tab-status {{tab.ready ? '' : 'pending'}}">{{tab.status}}</text></view>
+  <scroll-view class="config-scroll" style="{{configScrollStyle}}" scroll-y="true" enable-back-to-top="true">
+    <view wx:if="{{groups.length}}" class="group-stack">
+      <view class="group-row standard-group">
+        <view class="group-row-top"><text class="group-title">{{groups[0].label}}</text><text class="group-note">{{groups[0].note}}</text></view>
+        <view class="tab-grid">
+          <view wx:for="{{groups[0].tabs}}" wx:key="slot" wx:for-item="tab" wx:for-index="tabIndex" class="tab {{selectedGroupIndex === 0 && selectedTabIndex === tabIndex ? 'active' : ''}}" data-group-index="0" data-tab-index="{{tabIndex}}" bindtap="selectTab" hover-class="tap"><text class="tab-label">{{tab.label}}</text></view>
+        </view>
+      </view>
+      <view class="group-row tencent-group">
+        <view class="group-row-top"><text class="group-title">{{groups[1].label}}</text><text wx:if="{{groups[1].pendingCount}}" class="group-pending">{{groups[1].pendingText}}</text><text wx:else class="group-note">{{groups[1].note}}</text></view>
+        <view class="tab-grid">
+          <view wx:for="{{groups[1].tabs}}" wx:key="slot" wx:for-item="tab" wx:for-index="tabIndex" class="tab {{selectedGroupIndex === 1 && selectedTabIndex === tabIndex ? 'active' : ''}}" data-group-index="1" data-tab-index="{{tabIndex}}" bindtap="selectTab" hover-class="tap"><text class="tab-label">{{tab.label}}</text></view>
+        </view>
+      </view>
+      <view class="group-row shared-group">
+        <view class="shared-row">
+          <view class="shared-copy"><text class="group-title">{{groups[2].label}}</text><text class="group-note">{{groups[2].note}}</text></view>
+          <view wx:for="{{groups[2].tabs}}" wx:key="slot" wx:for-item="tab" wx:for-index="tabIndex" class="shared-tab {{selectedGroupIndex === 2 && selectedTabIndex === tabIndex ? 'active' : ''}}" data-group-index="2" data-tab-index="{{tabIndex}}" bindtap="selectTab" hover-class="tap">{{tab.label}}</view>
         </view>
       </view>
     </view>
 
     <view wx:if="{{selectedTab}}" class="summary-card">
-      <view class="summary-top"><view><text class="summary-title">配置总览</text><text class="summary-subtitle">{{groups[selectedGroupIndex].label}} · {{groups[selectedGroupIndex].key === 'shared' ? '共享视频功能' : '四项功能'}}</text></view><text class="summary-status {{selectedTab.ready ? '' : 'pending'}}">{{selectedTab.ready ? '主模型正常' : '待配置'}}</text></view>
+      <view class="summary-top"><view><text class="summary-title">配置总览</text><text class="summary-subtitle">{{groups[selectedGroupIndex].label}} · {{groups[selectedGroupIndex].key === 'shared' ? '共享视频功能' : '四项功能'}}</text></view><view class="summary-actions"><text class="summary-status {{selectedTab.ready ? '' : 'pending'}}">{{selectedTab.ready ? '主模型正常' : '待配置'}}</text><view class="summary-toggle" bindtap="toggleMain" hover-class="tap">{{mainExpanded ? '收回' : '展开'}}</view></view></view>
       <view class="summary-stats"><view><text>{{groups[selectedGroupIndex].key === 'shared' ? '已配置功能' : '已配置四项功能'}}</text><text class="summary-number">{{configuredCount}} / {{totalCount}}</text></view><view><text>备用模型</text><text class="summary-number">{{backupCount}} 个已启用</text></view></view>
     </view>
 
-    <view wx:if="{{selectedTab}}" class="model-card {{selectedTab.ready ? '' : 'pending'}}">
-      <view class="card-head"><view><text class="card-title">主模型</text><text class="card-state {{selectedTab.ready ? '' : 'pending'}}">{{selectedTab.ready ? '正常 · 已从供应商模型库选用' : selectedTab.pendingText}}</text></view><view class="toggle-link" bindtap="toggleMain" hover-class="tap">{{mainExpanded ? '收回' : '展开'}} <text>{{mainExpanded ? '⌃' : '⌄'}}</text></view></view>
-      <view wx:if="{{mainExpanded}}" class="main-body">
-        <view class="two-fields"><view class="field center"><text class="field-label">供应商</text><picker mode="selector" range="{{selectedTab.providerOptions}}" range-key="name" value="{{selectedTab.providerIndex}}" bindchange="onMainProviderChange"><view class="picker-value">{{selectedTab.provider || '请选择供应商'}} <text>⌄</text></view></picker></view><view class="field center"><text class="field-label">模型</text><picker mode="selector" range="{{selectedTab.modelOptions}}" value="{{selectedTab.modelIndex}}" bindchange="onMainModelChange"><view class="picker-value">{{selectedTab.model || '请选择模型'}} <text>⌄</text></view></picker></view></view>
-        <view class="field wrap-field"><text class="field-label">API 端点</text><text class="field-value">{{selectedTab.endpoint}}</text></view>
-        <view class="field key-field"><text class="field-label">API Key</text><text class="field-value">{{selectedTab.keyText}}</text></view>
-      </view>
+    <view wx:if="{{selectedTab && mainExpanded}}" class="main-model-card {{selectedTab.ready ? '' : 'pending'}}">
+      <view class="main-grid"><view class="field center"><text class="field-label">供应商</text><picker mode="selector" range="{{selectedTab.providerOptions}}" range-key="name" value="{{selectedTab.providerIndex}}" bindchange="onMainProviderChange"><view class="picker-value">{{selectedTab.provider || '请选择供应商'}} <text>⌄</text></view></picker></view><view class="field center"><text class="field-label">模型</text><picker mode="selector" range="{{selectedTab.modelOptions}}" value="{{selectedTab.modelIndex}}" bindchange="onMainModelChange"><view class="picker-value">{{selectedTab.model || '请选择模型'}} <text>⌄</text></view></picker></view><view class="field center full readonly-field"><text class="field-label">API 端点</text><text class="field-value">{{selectedTab.endpoint}}</text></view><view class="field center full readonly-field"><text class="field-label">API Key</text><text class="field-value">{{selectedTab.keyText}}</text></view></view>
+      <view class="model-state {{selectedTab.ready ? '' : 'pending'}}">{{selectedTab.ready ? '已从供应商模型库选用' : selectedTab.pendingText}}</view>
     </view>
 
     <view wx:if="{{selectedTab}}" class="failure-card">
       <view class="failure-head"><view><text class="card-title">故障切换</text><text class="helper">主模型失败后只切换一次</text></view><text class="helper">按功能保存</text></view>
-      <view class="accordion-head" bindtap="toggleBackup" hover-class="tap"><view><text class="accordion-title">备用{{selectedTab.label}}</text><text class="accordion-subtitle">同一功能的备用供应商和模型</text></view><view class="backup-status {{selectedTab.backupEnabled ? '' : 'off'}}">● {{selectedTab.backupStatus}}</view><text class="chev">{{backupExpanded ? '⌃' : '⌄'}}</text></view>
+      <view class="accordion-head backup-head" bindtap="toggleBackup" hover-class="tap"><text class="accordion-title">{{selectedTab.backupTitle}}</text><text class="backup-status {{selectedTab.backupEnabled ? '' : 'off'}}">● {{selectedTab.backupStatus}}</text><text class="chev">{{backupExpanded ? '⌃' : '⌄'}}</text></view>
       <view wx:if="{{backupExpanded}}" class="accordion-body">
-        <view class="backup-line"><text>启用备用模型</text><switch checked="{{selectedTab.backupEnabled}}" bindchange="onBackupEnabledChange" color="#2f73ee" /></view>
+        <view class="backup-line"><text>启用当前功能的备用模型</text><switch checked="{{selectedTab.backupEnabled}}" bindchange="onBackupEnabledChange" color="#2f73ee" /></view>
         <view class="two-fields"><view class="field center"><text class="field-label">备用供应商</text><picker mode="selector" range="{{selectedTab.backupProviderOptions}}" range-key="name" value="{{selectedTab.backupProviderIndex}}" bindchange="onBackupProviderChange"><view class="picker-value">{{selectedTab.backupProvider || '请选择备用供应商'}} <text>⌄</text></view></picker></view><view class="field center"><text class="field-label">备用模型</text><picker mode="selector" range="{{selectedTab.backupModelOptions}}" value="{{selectedTab.backupModelIndex}}" bindchange="onBackupModelChange"><view class="picker-value">{{selectedTab.backupModel || '请选择备用模型'}} <text>⌄</text></view></picker></view></view>
-        <view class="field wrap-field"><text class="field-label">备用 API 端点</text><text class="field-value">{{selectedTab.backupEndpoint}}</text></view>
-        <view class="field key-field"><text class="field-label">备用 API Key</text><text class="field-value">{{selectedTab.backupKeyText}}</text></view>
+        <view class="field center readonly-field"><text class="field-label">备用 API 端点</text><text class="field-value">{{selectedTab.backupEndpoint}}</text></view>
+        <view class="field center readonly-field"><text class="field-label">备用 API Key</text><text class="field-value">{{selectedTab.backupKeyText}}</text></view>
       </view>
-    </view>
-
-    <view wx:if="{{selectedTab}}" class="advanced-card">
-      <view class="advanced-head" bindtap="toggleAdvanced" hover-class="tap"><view><text class="card-title">高级参数</text><text class="helper">只影响当前功能，不改供应商档案</text></view><text class="toggle-link">{{advancedExpanded ? '收回 ⌃' : '展开 ⌄'}}</text></view>
-      <view wx:if="{{advancedExpanded}}" class="advanced-body">
-        <view wx:if="{{selectedTab.key === 'imageGeneration'}}" class="field"><text class="field-label">清晰度</text><picker mode="selector" range="{{imageResolutions}}" value="{{selectedTab.resolution === '2K' ? 1 : (selectedTab.resolution === '4K' ? 2 : 0)}}" bindchange="onResolutionChange"><view class="picker-value">{{selectedTab.resolution}} <text>⌄</text></view></picker></view>
-        <view wx:if="{{selectedTab.key === 'video'}}" class="two-fields"><view class="field"><text class="field-label">清晰度</text><picker mode="selector" range="{{videoResolutions}}" value="{{selectedTab.resolution === '480p' ? 0 : (selectedTab.resolution === '1080p' ? 2 : 1)}}" bindchange="onResolutionChange"><view class="picker-value">{{selectedTab.resolution}} <text>⌄</text></view></picker></view><view class="field"><text class="field-label">宽高比</text><picker mode="selector" range="{{aspectRatios}}" value="{{selectedTab.aspectRatio === '9:16' ? 1 : (selectedTab.aspectRatio === '16:9' ? 2 : 0)}}" bindchange="onAspectRatioChange"><view class="picker-value">{{selectedTab.aspectRatio}} <text>⌄</text></view></picker></view></view>
-        <view class="field"><text class="field-label">请求路径</text><text class="field-value">{{selectedTab.path}}</text></view>
-        <view class="field"><text class="field-label">超时策略</text><view class="input-unit"><input type="number" value="{{selectedTab.timeout}}" data-field="timeout" bindinput="onAdvancedInput" /><text>秒</text></view></view>
-        <view class="two-fields"><view class="field strategy-field"><text class="field-label">失败策略</text><text class="field-value multiline">网络 / 429 / 5xx 时切备用一次</text></view><view class="field"><text class="field-label">重试次数</text><view class="input-unit"><input type="number" min="0" max="5" value="{{selectedTab.retry}}" data-field="retry" bindinput="onAdvancedInput" /><text>次</text></view></view></view>
+      <view class="advanced-section">
+        <view class="advanced-head" bindtap="toggleAdvanced" hover-class="tap"><view><text class="card-title">高级参数</text><text class="helper">只影响当前功能，不改供应商档案</text></view><text class="toggle-link">{{advancedExpanded ? '收回 ⌃' : '展开 ⌄'}}</text></view>
+        <view wx:if="{{advancedExpanded}}" class="advanced-body">
+          <view wx:if="{{selectedTab.key === 'imageGeneration'}}" class="field"><text class="field-label">清晰度</text><picker mode="selector" range="{{imageResolutions}}" value="{{selectedTab.resolution === '2K' ? 1 : (selectedTab.resolution === '4K' ? 2 : 0)}}" bindchange="onResolutionChange"><view class="picker-value">{{selectedTab.resolution}} <text>⌄</text></view></picker></view>
+          <view wx:if="{{selectedTab.key === 'video'}}" class="two-fields"><view class="field"><text class="field-label">清晰度</text><picker mode="selector" range="{{videoResolutions}}" value="{{selectedTab.resolution === '480p' ? 0 : (selectedTab.resolution === '1080p' ? 2 : 1)}}" bindchange="onResolutionChange"><view class="picker-value">{{selectedTab.resolution}} <text>⌄</text></view></picker></view><view class="field"><text class="field-label">宽高比</text><picker mode="selector" range="{{aspectRatios}}" value="{{selectedTab.aspectRatio === '9:16' ? 1 : (selectedTab.aspectRatio === '16:9' ? 2 : 0)}}" bindchange="onAspectRatioChange"><view class="picker-value">{{selectedTab.aspectRatio}} <text>⌄</text></view></picker></view></view>
+          <view class="two-fields advanced-grid-row"><view class="field"><text class="field-label">请求路径</text><text class="field-value request-path">{{selectedTab.path}}</text></view><view class="field"><text class="field-label">超时策略</text><view class="input-unit"><input type="number" value="{{selectedTab.timeout}}" data-field="timeout" bindinput="onAdvancedInput" /><text>秒</text></view></view></view>
+          <view class="two-fields advanced-grid-row"><view class="field strategy-field"><text class="field-label">失败策略</text><text class="field-value multiline">网络 / 429 / 5xx 时切备用一次</text></view><view class="field"><text class="field-label">重试次数</text><view class="input-unit"><input type="number" min="0" max="5" value="{{selectedTab.retry}}" data-field="retry" bindinput="onAdvancedInput" /><text>次</text></view></view></view>
+          <checkbox-group class="advanced-checks" bindchange="onAdvancedOptionsChange"><label class="check-row"><checkbox value="keepExistingKey" checked="{{selectedTab.keepExistingKey}}" color="#2f73ee" />保留原 Key</label><label class="check-row"><checkbox value="validateBeforeSave" checked="{{selectedTab.validateBeforeSave}}" color="#2f73ee" />保存前校验</label></checkbox-group>
+          <view class="advanced-note">高级参数只影响当前功能，不会改动供应商档案。</view>
+        </view>
       </view>
     </view>
     <view wx:if="{{message}}" class="message">{{message}}</view>
-    <button wx:if="{{selectedTab}}" class="save-btn" bindtap="saveCurrent" hover-class="tap">保存当前功能配置</button>
+    <view wx:if="{{selectedTab}}" class="save-wrap"><button class="save-btn" bindtap="saveCurrent" disabled="{{saving}}" hover-class="tap">{{saving ? '保存中...' : '保存当前功能配置'}}</button></view>
     <view class="bottom-space"></view>
   </scroll-view>
 </view>

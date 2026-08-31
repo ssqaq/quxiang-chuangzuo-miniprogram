@@ -53,7 +53,7 @@ const bindings = [
   { slot: "shared.video", role: "backup", providerKey: "two", modelId: "backup-video", status: "ready" }
 ];
 
-const bindingWrites = [];
+const slotWrites = [];
 const providerWrites = [];
 const modelWrites = [];
 
@@ -70,8 +70,8 @@ const cloudMock = {
         : { apiKey: providerKey === "one" ? visibleKeyOne : "测试明文二号" }
     };
   },
-  async saveAdminBindingV2(payload) {
-    bindingWrites.push(payload);
+  async saveAdminSlotV2(payload) {
+    slotWrites.push(payload);
     return { ok: true, version: Number(payload.expectedVersion) + 1 };
   },
   async saveAdminProviderV2(payload) {
@@ -150,19 +150,46 @@ async function run() {
   assert.strictEqual(configPage.data.selectedTab.backupTitle, "备用人脸识别模型");
   assert.strictEqual(configPage.data.selectedTab.endpoint, "https://one.example/v1");
   assert.strictEqual(configPage.data.selectedTab.backupEndpoint, "https://two.example/v1");
-  assert.strictEqual(configPage.data.selectedTab.keyText, visibleKeyOne);
-  assert.strictEqual(configPage.data.selectedTab.backupKeyText, "测试明文二号");
+  assert.strictEqual(configPage.data.selectedTab.keyText, "已保存 · 明文仅管理员可见");
+  assert.strictEqual(configPage.data.selectedTab.backupKeyText, "已保存 · 明文仅管理员可见");
   assert.strictEqual(configPage.data.selectedTab.timeout, 42);
   assert.strictEqual(configPage.data.selectedTab.retry, 2);
+  const savedBackupProviderKey = configPage.data.selectedTab.backupProviderKey;
+  const savedBackupModel = configPage.data.selectedTab.backupModel;
+  configPage.onBackupEnabledChange({ detail: {} });
+  assert.strictEqual(configPage.data.selectedTab.backupEnabled, false);
+  assert.strictEqual(configPage.data.selectedTab.backupProviderKey, savedBackupProviderKey, "关闭备用时必须保留供应商");
+  assert.strictEqual(configPage.data.selectedTab.backupModel, savedBackupModel, "关闭备用时必须保留模型");
+  configPage.onBackupEnabledChange({ detail: {} });
+  assert.strictEqual(configPage.data.selectedTab.backupEnabled, true);
   const firstSave = configPage.saveCurrent();
   const duplicateSave = configPage.saveCurrent();
   await Promise.all([firstSave, duplicateSave]);
-  assert.strictEqual(bindingWrites.length, 2);
-  assert.strictEqual(bindingWrites[0].expectedVersion, 12);
-  assert.strictEqual(bindingWrites[1].expectedVersion, 13);
-  assert.deepStrictEqual(bindingWrites[0].binding.metadata, { path: "/v1/chat/completions", timeout: 42, retry: 2, resolution: "1K", aspectRatio: "3:4", keepExistingKey: true, validateBeforeSave: true });
-  assert.strictEqual(configPage.data.currentVersion, 14);
+  assert.strictEqual(slotWrites.length, 1, "同一功能的主备必须一次原子保存");
+  assert.strictEqual(slotWrites[0].expectedVersion, 12);
+  assert.strictEqual(slotWrites[0].slot, "standard.face");
+  assert.deepStrictEqual(slotWrites[0].primaryPatch.metadata, { path: "/v1/chat/completions", timeout: 42, retry: 2, resolution: "1K", aspectRatio: "3:4", keepExistingKey: true, validateBeforeSave: true });
+  assert.strictEqual(slotWrites[0].backupPatch.providerKey, "two");
+  assert.strictEqual(slotWrites[0].backupPatch.modelId, "backup-face");
+  assert.strictEqual(slotWrites[0].backupPatch.status, "ready");
+  assert.deepStrictEqual(slotWrites[0].advancedPatch, {});
+  assert.ok(!JSON.stringify(slotWrites[0]).includes(visibleKeyOne), "功能保存不得携带 API Key");
+  assert.strictEqual(configPage.data.currentVersion, 13);
   assert.strictEqual(configPage.data.saving, false, "保存完成后必须释放按钮锁");
+
+  configPage.selectTab({ currentTarget: { dataset: { groupIndex: 0, tabIndex: 3 } } });
+  assert.strictEqual(configPage.data.selectedTab.mode, "edits", "旧生图数据缺 mode 时必须使用默认值");
+  assert.strictEqual(configPage.data.selectedTab.modeLabel, "图片编辑模式");
+  assert.strictEqual(configPage.data.selectedTab.size, "1080x1440", "旧生图数据缺 size 时必须使用默认值");
+  assert.strictEqual(configPage.data.selectedTab.sizeLabel, "照片：1080×1440");
+  await configPage.saveCurrent();
+  assert.strictEqual(slotWrites.length, 2);
+  assert.strictEqual(slotWrites[1].expectedVersion, 13);
+  assert.strictEqual(slotWrites[1].slot, "standard.imageGeneration");
+  assert.deepStrictEqual(slotWrites[1].advancedPatch, { mode: "edits", size: "1080x1440" });
+  assert.strictEqual(configPage.data.currentVersion, 14);
+
+  configPage.selectTab({ currentTarget: { dataset: { groupIndex: 0, tabIndex: 0 } } });
 
   configPage.onMainProviderChange({ detail: { value: 1 } });
   assert.strictEqual(configPage.data.selectedTab.providerKey, "two");
@@ -177,47 +204,47 @@ async function run() {
   assert.strictEqual(configPage.data.totalCount, 1);
   assert.strictEqual(configPage.data.backupCount, 1);
 
-  const originalSaveBinding = cloudMock.saveAdminBindingV2;
-  const originalGetConfigForPartial = cloudMock.getAdminConfigV2;
-  const partialPage = loadPage("../pages/admin-config/admin-config");
-  partialPage.initialGroup = "standard";
-  partialPage.initialTab = "face";
-  await partialPage.loadConfig();
-  partialPage.setData({ currentVersion: 30 });
-  const partialWrites = [];
-  let partialReloads = 0;
-  cloudMock.saveAdminBindingV2 = async payload => {
-    partialWrites.push(payload);
-    if (partialWrites.length === 1) return { ok: true, version: 31 };
-    throw new Error("backup offline");
+  const originalSaveSlot = cloudMock.saveAdminSlotV2;
+  const failedPage = loadPage("../pages/admin-config/admin-config");
+  failedPage.initialGroup = "standard";
+  failedPage.initialTab = "face";
+  await failedPage.loadConfig();
+  failedPage.setData({ currentVersion: 30 });
+  const failedWrites = [];
+  cloudMock.saveAdminSlotV2 = async payload => {
+    failedWrites.push(payload);
+    throw new Error("atomic slot offline");
   };
-  cloudMock.getAdminConfigV2 = async () => {
-    partialReloads += 1;
-    return {
-      ok: true,
-      data: {
-        version: 31,
-        suppliers,
-        supplierModels,
-        bindings: bindings.map(item => item.slot === "standard.face" && item.role === "backup"
-          ? Object.assign({}, item, { status: "not-ready" })
-          : item)
-      }
-    };
-  };
-  await partialPage.saveCurrent();
-  assert.deepStrictEqual(partialWrites.map(item => item.expectedVersion), [30, 31]);
-  assert.strictEqual(partialReloads, 1, "备用保存失败后必须重新读取云端状态");
-  assert.strictEqual(partialPage.data.currentVersion, 31);
-  assert.strictEqual(partialPage.data.selectedTab.backupEnabled, false, "not-ready 的历史备用引用不能继续显示为已启用");
-  assert.ok(partialPage.data.message.includes("主模型已保存"));
-  assert.strictEqual(partialPage.data.saving, false);
-  cloudMock.saveAdminBindingV2 = originalSaveBinding;
-  cloudMock.getAdminConfigV2 = originalGetConfigForPartial;
+  await failedPage.saveCurrent();
+  assert.strictEqual(failedWrites.length, 1);
+  assert.strictEqual(failedPage.data.currentVersion, 30, "原子保存失败时版本不得前移");
+  assert.ok(failedPage.data.message.includes("主备配置均未更改"));
+  assert.strictEqual(failedPage.data.saving, false);
+  cloudMock.saveAdminSlotV2 = originalSaveSlot;
+
+  const originalSecretGetter = cloudMock.getAdminProviderSecretsV2;
+  cloudMock.getAdminProviderSecretsV2 = async () => { throw new Error("secret offline"); };
+  const secretFailurePage = loadPage("../pages/admin-config/admin-config");
+  secretFailurePage.initialGroup = "standard";
+  secretFailurePage.initialTab = "face";
+  await secretFailurePage.loadConfig();
+  await secretFailurePage.loadVisibleSecrets();
+  assert.strictEqual(secretFailurePage.data.selectedTab.keyLoadState, "failure");
+  assert.ok(secretFailurePage.data.selectedTab.keyText.includes("读取失败"), "密钥读取失败不得误显示为尚未配置");
+  cloudMock.getAdminProviderSecretsV2 = async providerKey => ({ ok: true, providerKey, credentials: {} });
+  const secretEmptyPage = loadPage("../pages/admin-config/admin-config");
+  secretEmptyPage.initialGroup = "standard";
+  secretEmptyPage.initialTab = "face";
+  await secretEmptyPage.loadConfig();
+  await secretEmptyPage.loadVisibleSecrets();
+  assert.strictEqual(secretEmptyPage.data.selectedTab.keyLoadState, "success");
+  assert.strictEqual(secretEmptyPage.data.selectedTab.keyText, "尚未配置");
+  cloudMock.getAdminProviderSecretsV2 = originalSecretGetter;
 
   const dashboardPage = loadPage("../pages/admin-dashboard/admin-dashboard");
   await dashboardPage.loadConfig();
-  assert.strictEqual(dashboardPage.data.configuredCount, 1, "备用绑定不能重复计入控制台就绪数");
+  assert.strictEqual(dashboardPage.data.configuredCount, 2, "控制台必须统计八项主功能和共享视频，备用绑定不能重复计入");
+  assert.strictEqual(dashboardPage.data.totalCount, 9, "控制台总数必须包含八项主功能和共享视频");
 
   const providerPage = loadPage("../pages/admin-provider/admin-provider");
   providerPage.applyNavigationLayout();
@@ -226,6 +253,8 @@ async function run() {
   await providerPage.loadRegistry();
   assert.strictEqual(providerPage.data.providers.length, 12, "三条云端档案后应按名称去重补齐未保存模板，保证目录可滚动且首屏铺满");
   assert.strictEqual(providerPage.data.providers.slice(3).every(item => item.isTemplate && item.enabled === false), true);
+  assert.strictEqual(providerPage.data.providers.slice(0, 3).every(item => item.configured === true), true, "目录已配置状态必须来自 auth.configured");
+  assert.strictEqual(providerPage.data.providers.slice(3).every(item => item.configured === false), true, "未保存模板即使带默认能力也必须显示未配置");
   assert.strictEqual(providerPage.data.providers.filter(item => item.name === "腾讯云").length, 1, "同名云端档案与目录模板不能重复显示");
   assert.deepStrictEqual(providerPage.data.providers[0].capabilityRows, ["人脸识别 · 图片分析", "网感分析 · 生图模型", "视频模型"]);
   assert.strictEqual(providerPage.data.providers[2].authProtocol, "tencent-tc3");
@@ -254,7 +283,7 @@ async function run() {
     draft: Object.assign({}, offlineProviderPage.data.draft, {
       providerKey: "offline",
       name: "离线草稿",
-      endpoint: "https://offline.example/v1",
+      endpoint: "https://offline.invalid/v1",
       apiKey: "只存在页面草稿"
     })
   });
@@ -268,7 +297,7 @@ async function run() {
   cloudMock.saveAdminProviderV2 = originalSaveProvider;
   cloudMock.listAdminProviderModelsV2 = originalListModels;
 
-  console.log("admin-v2-pages-runtime-smoke: PASS (collapsed-sections/confirmed-models/dynamic-group-summary/plaintext-secrets/TC3/CAS/reorder/primary-count/fail-closed)");
+  console.log("admin-v2-pages-runtime-smoke: PASS (collapsed-sections/confirmed-models/atomic-slot-save/image-advanced/secret-tristate/backup-retention/reorder/fail-closed)");
 }
 
 run().catch((error) => {

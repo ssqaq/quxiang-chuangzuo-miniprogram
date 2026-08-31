@@ -13,6 +13,17 @@ const CAPABILITY_LABELS = CAPABILITIES.reduce((map, item) => {
   return map;
 }, {});
 
+const SECRET_FIELDS = [
+  { key: "apiKey", path: "apiKey", clear: "clearApiKey" },
+  { key: "secretId", path: "tc3.secretId", clear: "clearSecretId" },
+  { key: "secretKey", path: "tc3.secretKey", clear: "clearSecretKey" }
+];
+
+const SECRET_FIELD_BY_PATH = SECRET_FIELDS.reduce((map, item) => {
+  map[item.path] = item;
+  return map;
+}, {});
+
 const SAMPLE_PROVIDERS = [
   { providerKey: "dashscope", name: "阿里云百炼", authProtocol: "openai", endpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1", apiKey: "", capabilities: ["face", "imageAnalysis", "styleAnalysis", "imageGeneration", "video"], models: ["qwen3-vl-flash", "qwen-vl-max", "wan2.1-t2v-turbo"], selectedModel: "qwen3-vl-flash", confirmedModels: ["qwen3-vl-flash", "qwen-vl-max", "wan2.1-t2v-turbo"], enabled: true },
   { providerKey: "xingju", name: "星矩", authProtocol: "openai", endpoint: "https://newapi.akiyo.fun/v1", apiKey: "", capabilities: ["imageGeneration", "video"], models: ["jw-gpt-image-2", "kling-video-v2"], selectedModel: "jw-gpt-image-2", confirmedModels: ["jw-gpt-image-2", "kling-video-v2"], enabled: true },
@@ -42,6 +53,7 @@ function blankProvider() {
     confirmedModels: [],
     selectedModel: "",
     enabled: true,
+    configured: false,
     tc3: { secretId: "", secretKey: "", region: "ap-guangzhou", endpoint: "ft.tencentcloudapi.com", apiVersion: "2020-03-04", action: "FuseFace" }
   };
 }
@@ -57,6 +69,13 @@ function normaliseProvider(source) {
       ? metadata.capabilities.slice()
     : Object.keys(input.capabilities || {}).filter(key => input.capabilities[key] && input.capabilities[key].enabled);
   const inputTc3 = input.tc3 && typeof input.tc3 === "object" ? input.tc3 : {};
+  const configured = typeof auth.configured === "boolean"
+    ? auth.configured
+    : typeof input.credentialConfigured === "boolean"
+      ? input.credentialConfigured
+      : typeof input.configured === "boolean"
+        ? input.configured
+        : Boolean(input.apiKey || inputTc3.secretId && inputTc3.secretKey);
   const tc3 = Object.assign({}, authExtra, inputTc3, {
     apiVersion: inputTc3.apiVersion || authExtra.version || ""
   });
@@ -69,6 +88,7 @@ function normaliseProvider(source) {
     capabilities,
     models: Array.isArray(input.models) ? input.models.slice() : [],
     confirmedModels: Array.isArray(input.confirmedModels) ? input.confirmedModels.slice() : [],
+    configured,
     tc3: Object.assign(blankProvider().tc3, tc3),
     capabilityText: capabilities.map(key => CAPABILITY_LABELS[key] || key).join(" · ") || "暂未选择能力",
     capabilityRows: capabilityRows(capabilities)
@@ -92,6 +112,115 @@ function capabilityRows(capabilities) {
 
 function secretValue(value) {
   return value === null || value === undefined ? "" : String(value);
+}
+
+function cleanSecretDirty() {
+  return { apiKey: false, secretId: false, secretKey: false };
+}
+
+function emptySecretValues() {
+  return { apiKey: null, secretId: null, secretKey: null };
+}
+
+function secretValuesFromDraft(draft) {
+  const source = draft && typeof draft === "object" ? draft : {};
+  const tc3 = source.tc3 && typeof source.tc3 === "object" ? source.tc3 : {};
+  return {
+    apiKey: secretValue(source.apiKey) || null,
+    secretId: secretValue(tc3.secretId) || null,
+    secretKey: secretValue(tc3.secretKey) || null
+  };
+}
+
+function applySecretValues(draft, values, dirty) {
+  const next = clone(draft || blankProvider());
+  const source = values && typeof values === "object" ? values : emptySecretValues();
+  const changed = dirty && typeof dirty === "object" ? dirty : cleanSecretDirty();
+  if (!next.tc3 || typeof next.tc3 !== "object") next.tc3 = clone(blankProvider().tc3);
+  if (!changed.apiKey) next.apiKey = secretValue(source.apiKey);
+  if (!changed.secretId) next.tc3.secretId = secretValue(source.secretId);
+  if (!changed.secretKey) next.tc3.secretKey = secretValue(source.secretKey);
+  return next;
+}
+
+function parseSecretReadResult(result) {
+  if (!result || result.ok === false || result.unavailable === true) {
+    return { state: "failure", values: null };
+  }
+  const payload = result.data !== undefined ? result.data : result;
+  if (payload && payload.ok === false) return { state: "failure", values: null };
+  const nested = payload && Object.prototype.hasOwnProperty.call(payload, "credentials")
+    ? payload.credentials
+    : payload && Object.prototype.hasOwnProperty.call(payload, "secrets")
+      ? payload.secrets
+      : payload;
+  if (nested !== null && nested !== undefined && typeof nested !== "object") {
+    return { state: "failure", values: null };
+  }
+  const source = nested && typeof nested === "object" ? nested : {};
+  const values = emptySecretValues();
+  SECRET_FIELDS.forEach((item) => {
+    const fallback = payload && typeof payload === "object" ? payload[item.key] : undefined;
+    const value = source[item.key] !== undefined ? source[item.key] : fallback;
+    const text = secretValue(value);
+    values[item.key] = text ? text : null;
+  });
+  return {
+    state: SECRET_FIELDS.some(item => values[item.key] !== null) ? "success" : "empty",
+    values
+  };
+}
+
+function secretStatusFor(state, values, dirty) {
+  const source = values && typeof values === "object" ? values : emptySecretValues();
+  const changed = dirty && typeof dirty === "object" ? dirty : cleanSecretDirty();
+  const output = {};
+  SECRET_FIELDS.forEach((item) => {
+    if (changed[item.key]) {
+      output[item.key] = { text: "已修改", tone: "dirty" };
+    } else if (state === "loading") {
+      output[item.key] = { text: "读取中", tone: "loading" };
+    } else if (state === "failure") {
+      output[item.key] = { text: "读取失败 · 已保留", tone: "failure" };
+    } else if (source[item.key] !== null && source[item.key] !== "") {
+      output[item.key] = { text: "已读取明文", tone: "ready" };
+    } else {
+      output[item.key] = { text: "未配置", tone: "empty" };
+    }
+  });
+  return output;
+}
+
+function secretMutation(draft, dirty) {
+  const values = secretValuesFromDraft(draft);
+  const changed = dirty && typeof dirty === "object" ? dirty : cleanSecretDirty();
+  const credentials = {};
+  const clearFlags = {};
+  SECRET_FIELDS.forEach((item) => {
+    if (!changed[item.key]) return;
+    const value = secretValue(values[item.key]).trim();
+    if (value) credentials[item.key] = value;
+    else {
+      credentials[item.clear] = true;
+      clearFlags[item.clear] = true;
+    }
+  });
+  return { credentials, clearFlags };
+}
+
+function isExampleEndpoint(value) {
+  const text = String(value || "").trim();
+  if (!text) return false;
+  return /^(?:https?:\/\/)?(?:[^/?#]+\.)?example(?::\d+)?(?:[/?#]|$)/i.test(text)
+    || /^(?:https?:\/\/)?[^/?#]*\.example(?::\d+)?(?:[/?#]|$)/i.test(text);
+}
+
+function providerEndpoint(provider) {
+  const source = provider && typeof provider === "object" ? provider : {};
+  if (source.authProtocol === "tencent-tc3") {
+    return source.tc3 && source.tc3.endpoint || source.endpoint || "";
+  }
+  return source.endpoint || "";
 }
 
 function mergeDirectoryTemplates(providers) {
@@ -176,6 +305,9 @@ Page({
     modelPickerOpen: false,
     modelStatus: "尚未选择模型",
     modelStatusTone: "off",
+    secretDirty: cleanSecretDirty(),
+    secretReadState: "idle",
+    secretStatus: secretStatusFor("idle", emptySecretValues(), cleanSecretDirty()),
     busy: false,
     message: "",
     canMoveUp: false,
@@ -249,47 +381,86 @@ Page({
       : event && event.index;
     const index = Math.max(0, Math.min(Number(rawIndex) || 0, Math.max(0, this.data.providers.length - 1)));
     const provider = normaliseProvider(this.data.providers[index] || blankProvider());
+    this._secretReadSerial = Number(this._secretReadSerial || 0) + 1;
+    if (!this._secretCache) this._secretCache = Object.create(null);
+    const cached = this._secretCache[provider.providerKey];
+    const secretDirty = cleanSecretDirty();
+    const initialValues = cached && cached.values
+      ? cached.values
+      : secretValuesFromDraft(provider);
+    const initialState = provider.isTemplate
+      ? "empty"
+      : cached && cached.state
+        ? cached.state
+        : "loading";
+    const draft = applySecretValues(provider, initialValues, secretDirty);
     const nextProvider = this.data.providers[index + 1];
     const previousProvider = this.data.providers[index - 1];
     if (closePicker) this.closeModelPicker();
     this.setData({
       selectedIndex: index,
       editing: true,
-      draft: clone(provider),
+      draft,
       authIsTc3: provider.authProtocol === "tencent-tc3",
       capabilities: markCapabilities(provider.capabilities),
       modelStatus: provider.selectedModel ? `已选 ${provider.selectedModel}` : "尚未选择模型",
       modelStatusTone: provider.selectedModel ? "ready" : "off",
+      secretDirty,
+      secretReadState: initialState,
+      secretStatus: secretStatusFor(initialState, secretValuesFromDraft(draft), secretDirty),
       canMoveUp: !provider.isTemplate && index > 0 && previousProvider && !previousProvider.isTemplate,
       canMoveDown: !provider.isTemplate && index < this.data.providers.length - 1 && nextProvider && !nextProvider.isTemplate,
       activeProviderId: `provider-${index}`
     });
-    this.loadProviderSecret(provider.providerKey);
+    if (!provider.isTemplate) this.loadProviderSecret(provider.providerKey);
   },
 
   async loadProviderSecret(providerKey) {
-    if (!providerKey || !cloud) return;
+    if (!providerKey || !cloud) return { state: "failure", values: null };
     const isV2 = typeof cloud.getAdminProviderSecretsV2 === "function";
     const getter = isV2 ? cloud.getAdminProviderSecretsV2 : cloud.getAdminProviderSecrets;
-    if (typeof getter !== "function") return;
-    try {
-      const result = await getter.call(cloud, providerKey, { retryLimit: 0 });
-      const payload = result && result.data && typeof result.data === "object" ? result.data : result;
-      const secret = payload && (payload.credentials || payload.secrets || payload);
-      if (!secret || this.data.draft.providerKey !== providerKey) return;
-      const draft = clone(this.data.draft);
-      if (secret.apiKey !== undefined) draft.apiKey = secretValue(secret.apiKey);
-      if (secret.secretId !== undefined) draft.tc3.secretId = secretValue(secret.secretId);
-      if (secret.secretKey !== undefined) draft.tc3.secretKey = secretValue(secret.secretKey);
-      this.setData({ draft });
-    } catch (error) {
-      // 没有云端凭据时保留本地草稿，不阻塞页面编辑。
+    if (typeof getter !== "function") return { state: "failure", values: null };
+    const requestId = Number(this._secretReadSerial || 0) + 1;
+    this._secretReadSerial = requestId;
+    if (this.data.draft.providerKey === providerKey) {
+      this.setData({
+        secretReadState: "loading",
+        secretStatus: secretStatusFor("loading", secretValuesFromDraft(this.data.draft), this.data.secretDirty)
+      });
     }
+    let parsed;
+    try {
+      const result = await getter.call(cloud, providerKey, { retryLimit: 0, silent: true });
+      parsed = parseSecretReadResult(result);
+    } catch (error) {
+      parsed = { state: "failure", values: null };
+    }
+    if (requestId !== this._secretReadSerial || this.data.draft.providerKey !== providerKey) return parsed;
+    if (parsed.state === "failure") {
+      const values = secretValuesFromDraft(this.data.draft);
+      this.setData({
+        secretReadState: "failure",
+        secretStatus: secretStatusFor("failure", values, this.data.secretDirty)
+      });
+      return parsed;
+    }
+    if (!this._secretCache) this._secretCache = Object.create(null);
+    this._secretCache[providerKey] = { state: parsed.state, values: clone(parsed.values) };
+    const dirty = this.data.secretDirty || cleanSecretDirty();
+    const draft = applySecretValues(this.data.draft, parsed.values, dirty);
+    this.setData({
+      draft,
+      secretReadState: parsed.state,
+      secretStatus: secretStatusFor(parsed.state, secretValuesFromDraft(draft), dirty)
+    });
+    return parsed;
   },
 
   startAddProvider() {
     this.closeModelPicker();
+    this._secretReadSerial = Number(this._secretReadSerial || 0) + 1;
     const providers = this.data.providers || [];
+    const secretDirty = cleanSecretDirty();
     this.setData({
       editing: false,
       selectedIndex: providers.length,
@@ -298,6 +469,9 @@ Page({
       capabilities: markCapabilities([]),
       modelStatus: "尚未选择模型",
       modelStatusTone: "off",
+      secretDirty,
+      secretReadState: "empty",
+      secretStatus: secretStatusFor("empty", emptySecretValues(), secretDirty),
       canMoveUp: false,
       canMoveDown: false
     });
@@ -308,7 +482,18 @@ Page({
     const value = event.detail && event.detail.value !== undefined ? event.detail.value : "";
     const draft = clone(this.data.draft);
     this.setNested(draft, field, value);
-    this.setData({ draft });
+    const secretField = SECRET_FIELD_BY_PATH[field];
+    if (!secretField) {
+      this.setData({ draft });
+      return;
+    }
+    const secretDirty = Object.assign(cleanSecretDirty(), this.data.secretDirty || {});
+    secretDirty[secretField.key] = true;
+    this.setData({
+      draft,
+      secretDirty,
+      secretStatus: secretStatusFor(this.data.secretReadState, secretValuesFromDraft(draft), secretDirty)
+    });
   },
 
   setNested(target, path, value) {
@@ -380,6 +565,11 @@ Page({
 
   async testConnection() {
     const draft = this.data.draft;
+    if (isExampleEndpoint(providerEndpoint(draft))) {
+      this.setData({ message: "示例地址不可运行，请先填写真实 API 端点并保存" });
+      if (wx.showToast) wx.showToast({ title: "请填写真实端点", icon: "none" });
+      return;
+    }
     this.setData({ busy: true, message: "正在测试连接..." });
     let ok = false;
     if (cloud && typeof cloud.probeAdminProviderV2 === "function") {
@@ -394,7 +584,7 @@ Page({
     if (wx.showToast) wx.showToast({ title: ok ? "连接成功" : "连接未通过", icon: "none" });
   },
 
-  publicDraft(draft) {
+  publicDraft(draft, dirty = this.data.secretDirty) {
     const source = draft || {};
     const tc3 = source.tc3 || {};
     const copy = clone(source);
@@ -404,10 +594,13 @@ Page({
     delete copy.credentials;
     delete copy.tc3;
     delete copy.isTemplate;
+    const existingConfigured = Boolean(source.auth && source.auth.configured || source.credentialConfigured || source.configured);
+    const tc3Dirty = Boolean(dirty && (dirty.secretId || dirty.secretKey));
+    const apiKeyDirty = Boolean(dirty && dirty.apiKey);
     copy.auth = source.authProtocol === "tencent-tc3"
       ? {
         protocol: "tencent-tc3",
-        configured: Boolean(tc3.secretId && tc3.secretKey),
+        configured: tc3Dirty ? Boolean(tc3.secretId && tc3.secretKey) : Boolean(tc3.secretId && tc3.secretKey || existingConfigured),
         extra: {
           region: tc3.region || "",
           endpoint: tc3.endpoint || "",
@@ -415,13 +608,18 @@ Page({
           action: tc3.action || ""
         }
       }
-      : { protocol: "openai", configured: Boolean(source.apiKey) };
+      : { protocol: "openai", configured: apiKeyDirty ? Boolean(source.apiKey) : Boolean(source.apiKey || existingConfigured) };
     copy.metadata = Object.assign({}, copy.metadata || {}, { capabilities: (source.capabilities || []).slice() });
     return copy;
   },
 
   async fetchModels() {
     const draft = this.data.draft;
+    if (isExampleEndpoint(providerEndpoint(draft))) {
+      this.setData({ message: "示例地址不可运行，请先填写真实 API 端点并保存" });
+      if (wx.showToast) wx.showToast({ title: "请填写真实端点", icon: "none" });
+      return;
+    }
     this.setData({ busy: true, message: "正在获取模型列表..." });
     let models = [];
     if (cloud && typeof cloud.listAdminProviderModelsV2 === "function") {
@@ -490,6 +688,7 @@ Page({
     const providers = clone(this.data.providers);
     const index = this.data.editing ? this.data.selectedIndex : providers.length;
     const creatingFromTemplate = Boolean(draft.isTemplate);
+    if (creatingFromTemplate) draft.enabled = true;
     delete draft.isTemplate;
     if (this.data.editing && index >= 0 && index < providers.length) providers[index] = draft;
     else providers.push(draft);
@@ -497,15 +696,19 @@ Page({
     let saved = false;
     if (cloud && typeof cloud.saveAdminProviderV2 === "function") {
       try {
-        const publicProvider = this.publicDraft(draft);
-        const tc3 = draft.tc3 || {};
-        const result = await cloud.saveAdminProviderV2({
+        const publicProvider = this.publicDraft(draft, this.data.secretDirty);
+        draft.auth = clone(publicProvider.auth);
+        draft.configured = Boolean(publicProvider.auth && publicProvider.auth.configured);
+        const mutation = secretMutation(draft, this.data.secretDirty);
+        const request = {
           operation: this.data.editing && !creatingFromTemplate ? "update" : "create",
           expectedVersion: this.data.currentVersion,
           providerKey: draft.providerKey,
-          provider: publicProvider,
-          credentials: { apiKey: draft.apiKey, secretId: tc3.secretId, secretKey: tc3.secretKey }
-        });
+          provider: publicProvider
+        };
+        if (Object.keys(mutation.credentials).length) request.credentials = mutation.credentials;
+        Object.assign(request, mutation.clearFlags);
+        const result = await cloud.saveAdminProviderV2(request);
         saved = Boolean(result && result.ok !== false);
         const savedVersion = Number(result && (result.version || result.providerConfigV2 && result.providerConfigV2.version));
         if (savedVersion) this.setData({ currentVersion: savedVersion });
@@ -531,7 +734,16 @@ Page({
       if (wx.showToast) wx.showToast({ title: "保存失败", icon: "none" });
       return;
     }
-    this.setData({ busy: false, providers, providerCountText: `${providers.length} 个档案`, message: "供应商已保存到云端" });
+    const dirty = this.data.secretDirty || cleanSecretDirty();
+    if (SECRET_FIELDS.some(item => dirty[item.key])) {
+      if (!this._secretCache) this._secretCache = Object.create(null);
+      const values = secretValuesFromDraft(draft);
+      this._secretCache[draft.providerKey] = {
+        state: SECRET_FIELDS.some(item => values[item.key]) ? "success" : "empty",
+        values
+      };
+    }
+    this.setData({ busy: false, providers, providerCountText: `${providers.length} 个档案`, message: "供应商已保存到云端", secretDirty: cleanSecretDirty() });
     this.selectProvider({ index });
     if (wx.showToast) wx.showToast({ title: "保存成功", icon: "none" });
   },

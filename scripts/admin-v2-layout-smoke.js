@@ -64,6 +64,14 @@ const providerJs = read("pages/admin-provider/admin-provider.js");
 const providerWxml = read("pages/admin-provider/admin-provider.wxml");
 const providerWxss = read("pages/admin-provider/admin-provider.wxss");
 const validate = read("scripts/validate.js");
+const dashboardJson = JSON.parse(read("pages/admin-dashboard/admin-dashboard.json"));
+const dashboardWxml = read("pages/admin-dashboard/admin-dashboard.wxml");
+const dashboardJs = read("pages/admin-dashboard/admin-dashboard.js");
+const dashboardWxss = read("pages/admin-dashboard/admin-dashboard.wxss");
+const operationsJson = JSON.parse(read("pages/admin-operations/admin-operations.json"));
+const operationsWxml = read("pages/admin-operations/admin-operations.wxml");
+const operationsJs = read("pages/admin-operations/admin-operations.js");
+const operationsWxss = read("pages/admin-operations/admin-operations.wxss");
 
 assert.strictEqual(json.navigationStyle, "custom", "功能配置页必须使用自定义导航，不能重复显示微信原生标题栏");
 assert.ok(wxml.includes('class="appbar"') && wxml.includes("功能配置") && wxml.includes("供应商管理"), "自定义导航必须保留标题和供应商入口");
@@ -98,7 +106,7 @@ assert.ok(!/class=["'][^"']*\badvanced-card\b/.test(wxml), "高级参数不能�
 assert.ok(failure.includes("保留原 Key") && failure.includes("保存前校验") && failure.includes("高级参数只影响当前功能"), "高级参数展开态必须完整还原右图");
 
 const pageRule = cssRule(wxss, "page");
-assert.ok(/^\s*["']PingFang SC["']\s*,/.test(cssValue(pageRule, "font-family")), "页面字体必须优先使用 PingFang SC");
+assert.ok(/^\s*["']Microsoft YaHei["']\s*,\s*["']PingFang SC["']\s*,/.test(cssValue(pageRule, "font-family")), "页面字体栈必须与浏览器参考稿一致");
 assert.ok(["", "400", "normal"].includes(cssValue(pageRule, "font-weight")), "不能再给整个页面强制统一粗体");
 assert.ok(wxss.includes("env(safe-area-inset-top)"), "自定义导航必须为状态栏和刘海保留顶部安全区");
 assert.ok(wxss.includes("env(safe-area-inset-bottom)"), "页面底部必须保留安全区");
@@ -117,13 +125,24 @@ const tabRule = cssRule(wxss, ".tab");
 assert.strictEqual(cssValue(tabRule, "min-width"), "0", "功能入口必须允许等分收缩");
 assert.strictEqual(cssValue(tabRule, "white-space"), "nowrap", "功能名称必须保持单行");
 assert.strictEqual(cssValue(tabRule, "overflow"), "hidden", "功能名称不能撑出卡片");
-assertRpx(tabRule, "height", 68, "功能入口高度");
+assertRpx(tabRule, "height", 64, "功能入口高度");
+assertRpx(cssRule(wxss, ".standard-group"), "min-height", 150, "标准功能组参考高度");
+assertRpx(cssRule(wxss, ".tencent-group"), "min-height", 154, "腾讯功能组参考高度");
+assertRpx(cssRule(wxss, ".shared-group"), "min-height", 112, "共享视频组参考高度");
+assertRpx(cssRule(wxss, ".summary-top"), "min-height", 72, "配置总览标题区参考高度");
+assertRpx(cssRule(wxss, ".summary-stats > view"), "min-height", 127, "配置总览数字区参考高度");
+assertRpx(cssRule(wxss, ".failure-head"), "min-height", 79, "故障切换标题区参考高度");
+assertRpx(cssRule(wxss, ".accordion-head"), "min-height", 108, "备用模型折叠行参考高度");
+assertRpx(cssRule(wxss, ".failure-card"), "margin-bottom", 20, "保存按钮前参考间距");
 
 assertRpx(cssRule(wxss, ".appbar-title"), "font-size", 42, "页面标题字号");
 assertRpx(cssRule(wxss, ".card-title"), "font-size", 30, "卡片标题字号");
 assertRpx(cssRule(wxss, ".group-title"), "font-size", 24, "分组标题字号");
 assertRpx(cssRule(wxss, ".tab-label"), "font-size", 18, "功能入口字号");
 assertRpx(cssRule(wxss, ".summary-number"), "font-size", 32, "配置统计字号");
+assertRpx(cssRule(wxss, ".summary-subtitle"), "font-size", 20, "总览副标题字号");
+assertRpx(cssRule(wxss, ".helper"), "font-size", 18, "辅助文案字号");
+assertRpx(cssRule(wxss, ".summary-status"), "font-size", 18, "状态胶囊字号");
 assertRpx(cssRule(wxss, ".save-btn"), "height", 96, "保存按钮高度");
 assert.strictEqual(cssValue(cssRule(wxss, ".config-page .save-btn"), "width"), "100%", "保存按钮必须用高优先级规则撑满卡片宽度");
 assertRpx(cssRule(wxss, ".field-label"), "font-size", 19, "字段标签字号");
@@ -138,8 +157,24 @@ assert.ok(providerJs.includes("getMenuButtonBoundingClientRect") && providerJs.i
 assert.ok(/grid-template-columns:\s*252rpx\s+minmax\(0\s*,\s*1fr\)/.test(providerWxss), "供应商双栏必须按右图使用 252rpx 左栏");
 assert.ok(/\.provider-card\s*\{[^}]*border-radius:\s*28rpx/.test(providerWxss), "供应商外卡圆角必须为 28rpx");
 assert.ok(/\.provider-name text\s*\{[^}]*font-size:\s*21rpx/.test(providerWxss), "供应商名称字号必须可读");
+assert.strictEqual(cssValue(cssRule(providerWxss, ".provider-row.active"), "border"), "4rpx solid #2f73ee", "选中供应商必须使用 4rpx 边框");
+assert.strictEqual(cssValue(cssRule(providerWxss, ".provider-row.active"), "padding"), "6rpx 7rpx", "选中供应商必须内缩 padding 保持外框尺寸不变");
 assert.ok(/\.field-label\s*\{[^}]*font-size:\s*19rpx/.test(providerWxss), "供应商字段标签字号必须对齐右图");
 
 assert.ok(!/[\uFFFD]/.test(json.navigationBarTitleText + wxml + wxss + providerWxml + providerWxss), "管理页不能包含替换乱码字符");
+
+assert.strictEqual(dashboardJson.navigationStyle, "custom", "控制台必须使用自定义导航");
+assert.ok(dashboardWxml.includes('style="{{appbarStyle}}"') && dashboardWxml.includes('style="{{dashboardScrollStyle}}"'), "控制台必须绑定动态导航高度");
+assert.ok(dashboardJs.includes("getMenuButtonBoundingClientRect") && dashboardJs.includes("dashboardScrollStyle"), "控制台必须为微信胶囊留出安全区");
+assert.ok(dashboardJs.includes("onResize()"), "控制台必须响应屏幕尺寸变化");
+assert.ok(operationsJson.navigationStyle === "custom", "运营页必须使用自定义导航");
+assert.ok(operationsWxml.includes('style="{{appbarStyle}}"') && operationsWxml.includes('style="{{operationsScrollStyle}}"'), "运营页必须绑定动态导航高度");
+assert.ok(operationsWxml.includes("返回控制台"), "运营页必须保留返回控制台入口");
+assert.ok(!/class=["'][^"']*\bback\b/.test(operationsWxml), "运营页右图没有返回箭头");
+assert.ok(!operationsWxml.includes('class="view-tabs"') && !operationsWxml.includes('class="quick-links"'), "运营页不能显示额外页签和快捷入口");
+assert.ok(operationsJs.includes("getMenuButtonBoundingClientRect") && operationsJs.includes("operationsScrollStyle"), "运营页必须为微信胶囊留出安全区");
+assert.ok(operationsJs.includes("onResize()"), "运营页必须响应屏幕尺寸变化");
+assert.ok(/font-family:\s*["']Microsoft YaHei["']\s*,\s*["']PingFang SC["']/.test(dashboardWxss) && /font-family:\s*["']Microsoft YaHei["']\s*,\s*["']PingFang SC["']/.test(operationsWxss), "控制台和运营页字体栈必须与浏览器参考稿一致");
+assert.ok(operationsWxss.includes("env(safe-area-inset-bottom)"), "运营页底部必须保留安全区");
 
 console.log("admin-v2-layout-smoke: PASS (right-reference/custom-nav/groups/nesting/type/safe-area/overflow)");

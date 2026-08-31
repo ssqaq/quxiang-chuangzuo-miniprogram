@@ -1,4 +1,5 @@
 {
   "navigationBarTitleText": "运营数据",
+  "navigationStyle": "custom",
   "enablePullDownRefresh": true
 }

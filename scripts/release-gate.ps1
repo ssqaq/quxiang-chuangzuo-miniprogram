@@ -1429,6 +1429,10 @@ function Invoke-ReleaseReservationMaintenanceInline {
 function Get-ReleaseReceiptField {
     param([object]$Object, [string]$Name)
     if ($null -eq $Object) { return "" }
+    if ($Object -is [System.Collections.IDictionary]) {
+        if (-not $Object.Contains($Name) -or $null -eq $Object[$Name]) { return "" }
+        return [string]$Object[$Name]
+    }
     $property = $Object.PSObject.Properties[$Name]
     if ($null -eq $property -or $null -eq $property.Value) { return "" }
     return [string]$property.Value

@@ -186,6 +186,18 @@ function testIncludePathNormalization() {
   assert.ok(result.stdout.includes("INCLUDE_OK"));
 }
 
+function testReceiptDictionaryAccess() {
+  const result = runPowerShell([
+    `. ${quote(gateScript)}`,
+    `$receipt = [ordered]@{ status = 'imported'; onlineBuildMarker = 'API_BUILD_TAG_AUTO_VERSION_V00001' }`,
+    `if ((Get-ReleaseReceiptField $receipt 'status') -ne 'imported') { throw 'ordered receipt status unreadable' }`,
+    `if ((Get-ReleaseReceiptField $receipt 'onlineBuildMarker') -notmatch '^API_BUILD_TAG_') { throw 'ordered receipt marker unreadable' }`,
+    "Write-Output 'RECEIPT_DICTIONARY_OK'",
+  ].join("; "));
+  assertPowerShellOk(result, "有序回执字段读取");
+  assert.ok(result.stdout.includes("RECEIPT_DICTIONARY_OK"));
+}
+
 function testIdentityDerivation() {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), "release-gate-identity-"));
   try {
@@ -300,6 +312,7 @@ function testMainCommitContainment() {
 testFilesAndPolicy();
 testStaticContracts();
 testIncludePathNormalization();
+testReceiptDictionaryAccess();
 testIdentityDerivation();
 testImmutableBinary();
 testMainCommitContainment();

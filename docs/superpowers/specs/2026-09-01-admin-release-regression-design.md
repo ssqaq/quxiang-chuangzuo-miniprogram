@@ -1,0 +1,28 @@
+# 四页后台发布回归设计
+
+## 目标
+
+为控制台、模型用量统计预览、功能配置、供应商管理四个页面补齐可重复的发布保障：依赖先安装再校验、视觉像素回归、最终预览二维码，以及本地演示数据开关。线上默认继续读取真实数据，演示数据不能进入云端接口或密钥读取流程。
+
+## 约束
+
+- 保留四页现有布局、文案、字体和导航尺寸；像素回归只负责发现偏差，不在运行时改布局。
+- 演示开关只接受页面 query `demo=1`/`demo=true`/`demo=0`/`demo=false`，并允许本地配置显式打开；query 优先级高于本地配置。
+- 演示 fixture 不包含真实 API Key，不调用云函数，不写入缓存或数据库。
+- 发布脚本在 `validate.js` 和严格部署检查前安装并检查云函数依赖；安装失败立即停止发布。
+- 像素工具同时支持 PNG/JPEG，输出差异统计和可视化 heatmap；尺寸不同先做确定性的最近邻归一化，并在报告中标记缩放。
+
+## 方案
+
+1. 新增 `services/admin-preview-fixtures.js`，集中保存四页的脱敏演示配置、统计数据和供应商目录，并提供 query/config 解析函数。
+2. 四个页面在 `onLoad(options)` 记录演示模式；开启时直接使用 fixture，刷新也保持本地 fixture，保存、导出、部署检查等写操作仍按本地预览规则阻止或提示。
+3. 调整 `scripts/deploy-and-verify-api.ps1` 的第 2 步顺序，并在 `scripts/deployment-script-smoke.js` 中断言顺序不可回退。
+4. 新增 `scripts/admin-v2-pixel-regression.js` 和对应 smoke。命令接收实际截图、参考图、阈值、最大差异比例和 heatmap 输出路径；四页基线存放在 `visual-evidence/pixel-baselines/`，不携带密钥。
+5. 发布流程使用同一 release context 生成二维码和预览信息文件，报告中记录二维码绝对路径、版本、源码提交和四页像素检查结果。
+
+## 验收
+
+- `node scripts/validate.js` 通过，且部署脚本 smoke 明确验证依赖安装先于所有本地校验。
+- 四页 fixture 模式可在本地运行，页面不触发 `getAdminConfigV2`、密钥读取、统计读取或写接口。
+- 像素工具对相同图片返回 0 差异，对人工改动返回非零差异并生成 heatmap；四页基线命令输出独立结果。
+- 正式版本升级、ZIP 非空、GitHub PR 合并、CloudBase Active、开发者工具导入编译通过，二维码和报告可追溯。

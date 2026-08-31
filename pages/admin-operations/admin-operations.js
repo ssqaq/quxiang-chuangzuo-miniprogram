@@ -1,4 +1,5 @@
 const cloud = require("../../services/cloud");
+const previewFixtures = require("../../services/admin-preview-fixtures");
 
 const VIEW_DEFS = [
   {
@@ -284,6 +285,7 @@ Page({
     appbarStyle: INITIAL_NAVIGATION_LAYOUT.appbarStyle,
     operationsScrollStyle: INITIAL_NAVIGATION_LAYOUT.operationsScrollStyle,
     loading: true,
+    demoMode: false,
     busy: false,
     source: "local",
     activeView: "usage",
@@ -301,6 +303,8 @@ Page({
   },
 
   onLoad(options) {
+    this.demoMode = previewFixtures.isEnabled(options);
+    this.setData({ demoMode: this.demoMode });
     this.applyNavigationLayout();
     const key = options && options.view ? options.view : "usage";
     this.setView(key, false);
@@ -341,6 +345,22 @@ Page({
   async loadData(refreshing = false) {
     const activeView = this.data.activeView;
     this.setData({ loading: !refreshing, busy: true, message: "" });
+    if (this.demoMode) {
+      const demoResult = previewFixtures.operations(activeView);
+      let demoBuilt = emptyViewData();
+      if (activeView === "usage") demoBuilt = buildUsageView(demoResult);
+      else if (activeView === "cost") demoBuilt = buildCostView(demoResult);
+      else if (activeView === "users") demoBuilt = buildUsersView(demoResult);
+      else demoBuilt = buildPointsView(extractPoints(demoResult));
+      this.setData(Object.assign({}, demoBuilt, {
+        loading: false,
+        busy: false,
+        source: "demo",
+        message: ""
+      }));
+      if (refreshing && typeof wx !== "undefined" && wx.stopPullDownRefresh) wx.stopPullDownRefresh();
+      return;
+    }
     let result = null;
     let errorMessage = "";
     try {
@@ -395,6 +415,11 @@ Page({
 
   async exportCurrent() {
     const activeView = this.data.activeView;
+    if (this.demoMode) {
+      this.setData({ message: "演示数据不生成导出文件。" });
+      if (wx.showToast) wx.showToast({ title: "演示数据不支持导出", icon: "none" });
+      return;
+    }
     if (activeView === "points") {
       this.setData({ message: "积分目前没有导出接口，未生成虚假文件。" });
       if (wx.showToast) wx.showToast({ title: "暂无积分导出接口", icon: "none" });

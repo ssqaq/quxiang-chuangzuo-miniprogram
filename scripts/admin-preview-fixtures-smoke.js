@@ -1,0 +1,30 @@
+/* eslint-disable no-console */
+
+const assert = require("assert");
+const fixtures = require("../services/admin-preview-fixtures");
+
+assert.strictEqual(fixtures.isEnabled({ demo: "1" }), true, "demo=1 应打开演示模式");
+assert.strictEqual(fixtures.isEnabled({ demo: "true" }), true, "demo=true 应打开演示模式");
+assert.strictEqual(fixtures.isEnabled({ demo: "0" }), false, "demo=0 应关闭演示模式");
+assert.strictEqual(fixtures.isEnabled({ demo: "false" }), false, "demo=false 应关闭演示模式");
+assert.strictEqual(fixtures.isEnabled({ demo: "unknown" }), false, "未知开关值应保持默认关闭");
+
+const config = fixtures.adminConfig();
+assert.strictEqual(config.source, "demo");
+assert.strictEqual(config.suppliers.length, 10, "演示供应商目录应覆盖十个视觉档案");
+assert.ok(config.bindings.some(item => item.slot === "shared.video" && item.role === "backup"), "演示配置必须包含共享视频备用模型");
+assert.ok(config.bindings.some(item => item.metadata && item.metadata.advanced && item.metadata.advanced.mode === "edits"), "生图演示配置必须包含 mode/size");
+const serialized = JSON.stringify(config);
+assert.ok(!serialized.includes("apiKey") || !serialized.match(/apiKey\\"\\s*:\\s*\\"[^\\"]+\\"/), "演示 fixture 不得携带真实 API Key");
+
+const usage = fixtures.operations("usage");
+assert.strictEqual(usage.today.total, 128);
+assert.strictEqual(fixtures.operations("cost").last30d.estimatedCost, 68.42);
+assert.strictEqual(fixtures.operations("users").total, 1286);
+assert.strictEqual(fixtures.operations("points").effective.points.dailyFreeLimit, 3);
+
+const copy = fixtures.adminConfig();
+copy.suppliers[0].name = "changed";
+assert.notStrictEqual(fixtures.adminConfig().suppliers[0].name, "changed", "每次读取 fixture 必须返回独立副本");
+
+console.log("admin-preview-fixtures-smoke: PASS (query/config switch, four-page data, secret-free clone)");

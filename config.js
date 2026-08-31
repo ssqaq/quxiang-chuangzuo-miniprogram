@@ -12,12 +12,13 @@ module.exports = {
   cloudFunctionName: "api",
   paymentCloudFunctionName: "payment-api",
   imageMode: "edits",
+  adminPreviewDemo: false,
   imageCompression: {
     enabled: true,
     quality: 82,
     minBytes: 262144
   },
-  appVersion: "0.57.95",
+  appVersion: "0.57.97",
   points: {
     dailyFreeLimit: 3,
     imageCost: 10,

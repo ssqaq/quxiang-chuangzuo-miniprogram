@@ -36,7 +36,11 @@ const adminV2ExecutableSmokeFiles = [
   "scripts/admin-v2-layout-smoke.js",
   "scripts/admin-v2-pages-smoke.js",
   "scripts/admin-v2-pages-runtime-smoke.js",
-  "scripts/admin-provider-contract-smoke.js"
+  "scripts/admin-provider-contract-smoke.js",
+  "scripts/admin-v2-pixel-regression-smoke.js",
+  "scripts/admin-preview-fixtures-smoke.js",
+  "scripts/admin-v2-pixel-baseline-smoke.js",
+  "scripts/admin-preview-pages-runtime-smoke.js"
 ];
 // 新增的 smoke 单独列出，既做语法检查，也纳入必要文件检查。
 const smokeFiles = [
@@ -48,8 +52,8 @@ const smokeFiles = [
   "scripts/payment-ui-smoke.js",
   "scripts/payment-deployment-smoke.js",
   "scripts/payment-records-cursor-smoke.js",
-  "scripts/payment-monitor-smoke.js"
-  ,"scripts/account-points-fallback-smoke.js"
+  "scripts/payment-monitor-smoke.js",
+  "scripts/account-points-fallback-smoke.js"
 ];
 const jsFiles = [
   "app.js",
@@ -59,6 +63,7 @@ const jsFiles = [
   "services/admin-video-config.js",
   "services/admin-provider-registry.js",
   "services/admin-config-v2.js",
+  "services/admin-preview-fixtures.js",
   "utils/storage.js",
   "utils/prompt.js",
   "utils/web-pose.js",
@@ -196,7 +201,9 @@ const jsFiles = [
   "scripts/main-image-preview-smoke.js",
   "scripts/image-preview-screenshot-smoke.js",
   "scripts/qr-real-device-smoke.js",
-  "scripts/deployment-script-smoke.js"
+  "scripts/deployment-script-smoke.js",
+  "scripts/admin-v2-pixel-regression.js",
+  "scripts/admin-v2-pixel-baseline.js"
 ];
 for (const relative of smokeFiles) {
   if (!jsFiles.includes(relative)) jsFiles.push(relative);
@@ -378,6 +385,9 @@ const required = [
   "pages/admin-operations/admin-operations.wxml",
   "pages/admin-operations/admin-operations.wxss",
   "services/admin-config-v2.js",
+  "services/admin-preview-fixtures.js",
+  "scripts/admin-v2-pixel-regression.js",
+  "scripts/admin-v2-pixel-baseline.js",
   "cloudfunctions/api/lib/admin-config-v2.js",
   "pages/admin/admin.js",
   "pages/admin/admin.json",
@@ -480,6 +490,8 @@ const required = [
   "scripts/cloud-deploy-safety.ps1",
   "scripts/deploy-api-cloudbase-cli.ps1",
   "scripts/deployment-script-smoke.js",
+  "scripts/admin-v2-pixel-regression.js",
+  "scripts/admin-preview-fixtures-smoke.js",
   "scripts/npm-dependency-cache-smoke.js",
   "docs/superpowers/specs/2026-08-26-cloud-dependency-and-deploy-lock-design.md",
   "scripts/check-cloud-database-indexes.ps1",

@@ -1,4 +1,5 @@
 const cloud = require("../../services/cloud");
+const previewFixtures = require("../../services/admin-preview-fixtures");
 
 const GROUPS = [
   {
@@ -99,6 +100,7 @@ Page({
     appbarStyle: INITIAL_NAVIGATION_LAYOUT.appbarStyle,
     dashboardScrollStyle: INITIAL_NAVIGATION_LAYOUT.dashboardScrollStyle,
     loading: true,
+    demoMode: false,
     refreshing: false,
     source: "local",
     statusLabel: "本地配置待同步",
@@ -124,7 +126,9 @@ Page({
     ]
   },
 
-  onLoad() {
+  onLoad(options) {
+    this.demoMode = previewFixtures.isEnabled(options);
+    this.setData({ demoMode: this.demoMode });
     this.applyNavigationLayout();
     this.loadConfig();
   },
@@ -143,6 +147,11 @@ Page({
 
   async loadConfig(refreshing = false) {
     this.setData({ loading: !refreshing, refreshing });
+    if (this.demoMode) {
+      this.applyConfig(previewFixtures.adminConfig(), false, true);
+      if (refreshing && typeof wx !== "undefined" && wx.stopPullDownRefresh) wx.stopPullDownRefresh();
+      return;
+    }
     let result = null;
     if (cloud && typeof cloud.getAdminConfigV2 === "function") {
       try {
@@ -152,11 +161,11 @@ Page({
       }
     }
     const config = result && result.ok !== false && result.data ? result.data : (result && result.ok !== false ? result : null);
-    this.applyConfig(config || FALLBACK, Boolean(config));
+    this.applyConfig(config || FALLBACK, Boolean(config), false);
     if (refreshing && typeof wx !== "undefined" && wx.stopPullDownRefresh) wx.stopPullDownRefresh();
   },
 
-  applyConfig(config, fromCloud) {
+  applyConfig(config, fromCloud, fromDemo = false) {
     const bindings = Array.isArray(config.bindings) ? config.bindings : FALLBACK.bindings;
     const standardItems = GROUPS[0].items.map(item => {
       const binding = bindingFor(bindings, item.slot);
@@ -183,9 +192,9 @@ Page({
     this.setData({
       loading: false,
       refreshing: false,
-      source: fromCloud ? "cloud" : "local",
-      statusLabel: fromCloud ? "模型配置已连接" : "配置读取失败",
-      statusTone: fromCloud ? "ready" : "warning",
+      source: fromDemo ? "demo" : (fromCloud ? "cloud" : "local"),
+      statusLabel: fromDemo || fromCloud ? "模型配置已连接" : "配置读取失败",
+      statusTone: fromDemo || fromCloud ? "ready" : "warning",
       configuredCount: readyCount,
       totalCount: featureSlots.length + 1,
       standardItems,
@@ -202,7 +211,7 @@ Page({
   },
 
   openProvider() {
-    wx.navigateTo({ url: "/pages/admin-provider/admin-provider" });
+    wx.navigateTo({ url: `/pages/admin-provider/admin-provider${this.demoMode ? "?demo=1" : ""}` });
   },
 
   openConfig(event) {
@@ -210,18 +219,18 @@ Page({
     const parts = String(slot).split(".");
     const group = parts[0] === "shared" ? "shared" : parts[0];
     const tab = parts[1] || "face";
-    wx.navigateTo({ url: `/pages/admin-config/admin-config?group=${group}&tab=${tab}` });
+    wx.navigateTo({ url: `/pages/admin-config/admin-config?group=${group}&tab=${tab}${this.demoMode ? "&demo=1" : ""}` });
   },
 
   openSharedVideo() {
-    wx.navigateTo({ url: "/pages/admin-config/admin-config?group=shared&tab=video" });
+    wx.navigateTo({ url: `/pages/admin-config/admin-config?group=shared&tab=video${this.demoMode ? "&demo=1" : ""}` });
   },
 
   openMetric(event) {
     const key = event.currentTarget.dataset.key || "usage";
     const sectionMap = { usage: "usage", points: "points", cost: "cost", users: "users" };
     const section = sectionMap[key] || "usage";
-    wx.navigateTo({ url: `/pages/admin-operations/admin-operations?view=${section}` });
+    wx.navigateTo({ url: `/pages/admin-operations/admin-operations?view=${section}${this.demoMode ? "&demo=1" : ""}` });
   },
 
   refreshAll() {
@@ -229,6 +238,10 @@ Page({
   },
 
   checkDeployment() {
+    if (this.demoMode) {
+      wx.showToast({ title: "演示数据不检查线上部署", icon: "none" });
+      return;
+    }
     if (cloud && typeof cloud.checkDeployment === "function") {
       cloud.checkDeployment().then(() => wx.showToast({ title: "检查请求已提交", icon: "none" })).catch(() => wx.showToast({ title: "暂时无法检查", icon: "none" }));
       return;

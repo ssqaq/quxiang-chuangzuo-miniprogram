@@ -1,0 +1,39 @@
+<view class="operations-page">
+  <view class="appbar">
+    <view class="back" bindtap="backToDashboard" hover-class="tap">‹</view>
+    <view class="appbar-title">{{viewTitle}}</view>
+    <view class="appbar-link" bindtap="backToDashboard" hover-class="tap">控制台 <text>›</text></view>
+  </view>
+
+  <scroll-view class="operations-scroll" scroll-y="true" enable-back-to-top="true">
+    <view class="view-tabs">
+      <view wx:for="{{viewTabs}}" wx:key="key" class="view-tab {{activeView === item.key ? 'active' : ''}}" data-view="{{item.key}}" bindtap="switchView" hover-class="tap"><text>{{item.label}}</text></view>
+    </view>
+
+    <view class="quick-links"><view bindtap="openConfig" hover-class="tap">功能配置 <text>›</text></view><view bindtap="openProvider" hover-class="tap">供应商管理 <text>›</text></view></view>
+
+    <view class="overview-card">
+      <text class="overview-eyebrow">{{eyebrow}}</text>
+      <text class="overview-title">{{viewTitle}}</text>
+      <text class="overview-description">{{description}}</text>
+      <view class="overview-actions"><button class="overview-button" loading="{{busy}}" disabled="{{busy}}" bindtap="refreshCurrent" hover-class="tap">{{refreshLabel}}</button><button class="overview-button" loading="{{busy}}" disabled="{{busy}}" bindtap="exportCurrent" hover-class="tap">{{exportLabel}}</button></view>
+    </view>
+
+    <view class="summary-grid">
+      <view wx:for="{{summary}}" wx:key="label" class="summary-item"><text class="summary-label">{{item.label}}</text><text class="summary-value">{{item.value}}</text></view>
+    </view>
+
+    <view wx:if="{{loading}}" class="empty-note">正在读取真实数据...</view>
+    <view wx:elif="{{empty}}" class="empty-note">{{footNote}}</view>
+    <view wx:else class="detail-list">
+      <view wx:for="{{detailRows}}" wx:key="title" class="detail-card">
+        <view class="detail-head" data-index="{{index}}" bindtap="toggleRow" hover-class="tap"><view class="detail-copy"><text class="detail-title">{{item.title}}</text><text class="detail-description">{{item.detail}}</text></view><button class="detail-toggle" catchtap="toggleRow" data-index="{{index}}">{{item.expanded ? '收回' : '展开'}}⌄</button></view>
+        <view wx:if="{{item.expanded}}" class="detail-body"><text wx:for="{{item.bodyLines}}" wx:key="*this" class="detail-line">{{item}}</text><text wx:if="{{!item.bodyLines.length}}" class="detail-line">暂无明细。</text></view>
+      </view>
+    </view>
+
+    <view class="foot-note">{{footNote}}</view>
+    <view wx:if="{{message}}" class="message">{{message}}</view>
+    <view class="bottom-space"></view>
+  </scroll-view>
+</view>

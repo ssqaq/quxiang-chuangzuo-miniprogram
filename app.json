@@ -15,6 +15,10 @@
     "pages/watermark-remover/watermark-remover",
     "pages/photo-guide/photo-guide",
     "pages/points/points",
+    "pages/admin-dashboard/admin-dashboard",
+    "pages/admin-provider/admin-provider",
+    "pages/admin-config/admin-config",
+    "pages/admin-operations/admin-operations",
     "pages/admin/admin"
   ],
   "window": {

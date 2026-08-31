@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.57.80";
-const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V05780";
+const API_BUILD_VERSION = "0.57.82";
+const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V05782";
 const DEFAULT_IMAGE_MODE = "edits";
 // 图片和视频默认成本只在云函数入口维护；管理员页读取云端有效配置，
 // 避免前后端各写一份价格。入口保持单文件可启动，兼容 CloudBase 部署。
@@ -74,6 +74,9 @@ const {
   createGenerationExecutionKernel
 } = require("./lib/generation-execution-kernel");
 const imageProviderFailover = require("./lib/image-provider-failover");
+// V2 供应商/模型目录与功能绑定。该模块保持无外部依赖，便于 CloudBase
+// 单函数部署和本地 smoke 复用；旧版 providerRegistry 仍由下方兼容逻辑维护。
+const adminConfigV2 = require("./lib/admin-config-v2");
 const {
   createVideoExecutionKernel
 } = require("./lib/video-execution-kernel");
@@ -99,6 +102,7 @@ const RUNTIME_DEPENDENCY_PROBES = Object.freeze([
     name: "local-modules",
     verify: () => [
       "./lib/action-registry",
+      "./lib/admin-config-v2",
       "./lib/generation-execution-kernel",
       "./lib/generation-operation-retention",
       "./lib/generation-queue-monitor",
@@ -1694,12 +1698,103 @@ function resolveAnalysisBackupConfig(overrides = {}, runtime) {
   return resolveVisionBackupConfig(overrides, runtime, "analysis");
 }
 
-function visionConfigCandidatesForAction(action, configs = {}) {
-  const primary = visionConfigForAction(action, configs);
-  const backup = action === "detectFaceCircle"
-    ? (configs.faceBackup || resolveFaceBackupConfig({}, configs.runtime))
-    : (configs.analysisBackup || resolveAnalysisBackupConfig({}, configs.runtime));
-  const candidates = [primary];
+function normalizeConfigGroup(value, fallback = "standard") {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (["tencent", "tencent-version", "tencentversion", "腾讯", "腾讯版"].includes(normalized)) {
+    return "tencent";
+  }
+  if (["shared", "video", "shared-video", "共享", "共享视频"].includes(normalized)) {
+    return "shared";
+  }
+  if (["standard", "normal", "default", "普通", "普通版", "开始新创作"].includes(normalized)) {
+    return "standard";
+  }
+  return fallback;
+}
+
+function configGroupFromPayload(payload = {}, fallback = "standard") {
+  const source = payload && typeof payload === "object" ? payload : {};
+  return normalizeConfigGroup(
+    source.configGroup
+      || source.providerGroup
+      || source.modelGroup
+      || source.group
+      || source.variant,
+    fallback
+  );
+}
+
+function v2GroupSection(configs = {}, group, capability, role = "primary") {
+  const groups = configs && configs.providerConfigV2Groups;
+  const groupName = normalizeConfigGroup(group, "standard");
+  const groupConfig = groups && groups[groupName];
+  if (!groupConfig) return null;
+  const key = String(capability || "").trim();
+  const roleName = role === "backup" ? "backup" : "primary";
+  const directKey = roleName === "backup" ? `${key}Backup` : key;
+  const direct = groupConfig[directKey];
+  if (direct && typeof direct === "object") return direct;
+  const roleConfig = groupConfig[roleName];
+  if (roleConfig && typeof roleConfig === "object"
+      && roleConfig[key] && typeof roleConfig[key] === "object") {
+    return roleConfig[key];
+  }
+  const bindings = groupConfig.bindings;
+  if (bindings && bindings[key] && typeof bindings[key] === "object") {
+    const nested = bindings[key][roleName];
+    if (nested && typeof nested === "object") return nested;
+  }
+  return null;
+}
+
+function v2GroupCapabilityForAction(action) {
+  if (action === "detectFaceCircle") return "face";
+  if (action === "analyzeWebPoses") return "styleAnalysis";
+  if (action === "analyze") return "imageAnalysis";
+  return "";
+}
+
+function v2GroupConfigs(configs = {}, group = "standard") {
+  const groupName = normalizeConfigGroup(group, "standard");
+  if (!configs || !configs.providerConfigV2 || !configs.providerConfigV2Groups) return null;
+  const capabilityMap = groupName === "shared"
+    ? { video: "video" }
+    : {
+        face: "face",
+        analysis: "imageAnalysis",
+        styleAnalysis: "styleAnalysis",
+        image: "imageGeneration"
+      };
+  const output = {};
+  Object.keys(capabilityMap).forEach((field) => {
+    const capability = capabilityMap[field];
+    output[field] = v2GroupSection(configs, groupName, capability, "primary") || {};
+    output[`${field}Backup`] = v2GroupSection(configs, groupName, capability, "backup") || {};
+  });
+  output.group = groupName;
+  return output;
+}
+
+function visionConfigCandidatesForAction(action, configs = {}, group = "standard") {
+  const groupName = normalizeConfigGroup(group, "standard");
+  const capability = v2GroupCapabilityForAction(action);
+  const v2Group = v2GroupConfigs(configs, groupName);
+  // V2 已启用时必须严格使用指定组的绑定；没有就返回空列表，不能串到旧配置或其他组。
+  const useV2Group = Boolean(v2Group && capability && groupName !== "shared");
+  const primary = useV2Group
+    ? (v2GroupSection(configs, groupName, capability, "primary") || {})
+    : visionConfigForAction(action, configs, groupName);
+  const backup = useV2Group
+    ? (v2GroupSection(configs, groupName, capability, "backup") || {})
+    : action === "detectFaceCircle"
+      ? (configs.faceBackup || resolveFaceBackupConfig({}, configs.runtime))
+      : action === "analyzeWebPoses"
+        ? (configs.styleAnalysisBackup || configs.analysisBackup || resolveAnalysisBackupConfig({}, configs.runtime))
+        : (configs.analysisBackup || resolveAnalysisBackupConfig({}, configs.runtime));
+  const candidates = [];
+  if (primary && primary.apiKey && (primary.endpoint || primary.baseUrl) && primary.model) {
+    candidates.push(primary);
+  }
   if (
     backup
     && backup.enabled
@@ -1713,13 +1808,23 @@ function visionConfigCandidatesForAction(action, configs = {}) {
 
 function isVisionFallbackError(error) {
   if (!error) return false;
+  const status = Number(error.status || error.statusCode || error.httpStatus) || 0;
+  if (status === 401 || status === 403 || DEFAULT_RETRY_STATUSES.has(status)) return true;
   if (error.retryable !== undefined) return Boolean(error.retryable);
-  return DEFAULT_RETRY_STATUSES.has(Number(error.status) || 0);
+  return DEFAULT_RETRY_STATUSES.has(status)
+    || /(?:timeout|timed out|network|socket|econn|enotfound|超时|网络|连接)/i.test(
+      String(error.message || "")
+    );
 }
 
 async function runVisionProviderFailover(candidates, request, options = {}) {
   const list = Array.isArray(candidates) ? candidates.filter(Boolean) : [];
-  if (!list.length) throw new Error("没有可用的视觉服务商配置。");
+  if (!list.length) {
+    const error = new Error("视觉服务未配置，请配置主模型或已启用的备用模型。");
+    error.code = "missing-api-key";
+    error.retryable = false;
+    throw error;
+  }
   let lastError = null;
   for (let index = 0; index < list.length; index += 1) {
     const candidate = list[index];
@@ -1736,15 +1841,24 @@ async function runVisionProviderFailover(candidates, request, options = {}) {
         toProvider: list[index + 1].provider || "",
         fromModel: candidate.model || "",
         toModel: list[index + 1].model || "",
-        status: Number(error.status) || 0
+        status: Number(error.status || error.statusCode) || 0
       });
     }
   }
   throw lastError || new Error("视觉备用服务商调用失败。");
 }
 
-function visionConfigForAction(action, configs = {}) {
-  if (action === "analyze" || action === "analyzeWebPoses") {
+function visionConfigForAction(action, configs = {}, group = "standard") {
+  const groupName = normalizeConfigGroup(group, "standard");
+  const capability = v2GroupCapabilityForAction(action);
+  if (capability && groupName !== "standard") {
+    const section = v2GroupSection(configs, groupName, capability, "primary");
+    if (section) return section;
+  }
+  if (action === "analyzeWebPoses") {
+    return configs.styleAnalysis || configs.analysis || resolveAnalysisConfig();
+  }
+  if (action === "analyze") {
     return configs.analysis || resolveAnalysisConfig();
   }
   if (action === "detectFaceCircle") {
@@ -3132,6 +3246,9 @@ function buildUsageBilling(meta = {}, response = {}, costs = resolveCostConfig()
 }
 
 function visionRequestMeta(requestId, action, vision, costs) {
+  const retryCount = Object.prototype.hasOwnProperty.call(vision || {}, "maxRetries")
+    ? Math.max(0, Math.min(5, Number(vision.maxRetries) || 0))
+    : 1;
   return {
     requestId,
     action,
@@ -3141,8 +3258,8 @@ function visionRequestMeta(requestId, action, vision, costs) {
     model: action === "detectFaceCircle"
       ? vision.faceModel || vision.model || ""
       : vision.model || "",
-    allowRetry: true,
-    maxAttempts: 2,
+    allowRetry: retryCount > 0,
+    maxAttempts: retryCount + 1,
     retryStatuses: [429, 500, 502, 503, 504],
     timeoutMs: vision.timeoutMs,
     costs
@@ -10831,6 +10948,8 @@ async function loadAdminRuntimeConfig(force = false, options = {}) {
             && typeof rawConfig.generationQueueAlertState === "object"
             ? Object.assign({}, rawConfig.generationQueueAlertState)
            : {},
+          providerConfigV2: rawConfig.providerConfigV2,
+          providerSecretsV2: rawConfig.providerSecretsV2,
           version: migrationApplied
             ? migrationVersion
             : Number(rawConfig.version) || 0,
@@ -10871,13 +10990,15 @@ async function resolveEffectiveConfigs(options = {}) {
   const runtime = loadedRuntime
     ? migrateLegacyProviderRegistry(loadedRuntime, loadedRuntime).value
     : null;
-  const projected = runtime
+  const legacyProjected = runtime
     ? buildLegacyProjectionFromProviderRegistry(runtime)
-      : {
+    : {
         face: {},
         faceBackup: {},
         analysis: {},
         analysisBackup: {},
+        styleAnalysis: {},
+        styleAnalysisBackup: {},
         image: {},
         imageBackup: {},
         video: {},
@@ -10886,71 +11007,103 @@ async function resolveEffectiveConfigs(options = {}) {
         costs: {},
         generationQueue: {}
       };
-  const image = resolveImageConfig(projected.image);
-  const face = resolveFaceConfig(projected.face);
-  const faceBackup = resolveFaceBackupConfig(projected.faceBackup, runtime);
-  const analysis = resolveAnalysisConfig(projected.analysis);
-  const analysisBackup = resolveAnalysisBackupConfig(projected.analysisBackup, runtime);
-  const imageBackup = resolveImageBackupConfig(projected.imageBackup);
-  const video = resolveVideoConfig(projected.video);
+  const v2Projection = v2RuntimeProjection(legacyProjected);
+  const projected = v2Projection.value;
+  let image = resolveImageConfig(projected.image);
+  let face = resolveFaceConfig(projected.face);
+  let analysis = resolveAnalysisConfig(projected.analysis);
+  let styleAnalysis = v2Projection.active
+    ? resolveAnalysisConfig(projected.styleAnalysis)
+    : analysis;
+  let imageBackup = resolveImageBackupConfig(projected.imageBackup);
+  let video = resolveVideoConfig(projected.video);
+  let faceBackup = resolveFaceBackupConfig(projected.faceBackup, projected);
+  let analysisBackup = resolveAnalysisBackupConfig(projected.analysisBackup, projected);
+  let styleAnalysisBackup = v2Projection.active
+    ? resolveAnalysisBackupConfig(projected.styleAnalysisBackup, projected)
+    : analysisBackup;
+  let videoBackup = resolveVideoBackupConfig(projected.videoBackup);
+  if (v2Projection.active) {
+    face = v2FinalizeResolvedConfig(projected.face, face, "face");
+    faceBackup = v2FinalizeResolvedConfig(projected.faceBackup, faceBackup, "face");
+    analysis = v2FinalizeResolvedConfig(projected.analysis, analysis, "analysis");
+    analysisBackup = v2FinalizeResolvedConfig(projected.analysisBackup, analysisBackup, "analysis");
+    styleAnalysis = v2FinalizeResolvedConfig(projected.styleAnalysis, styleAnalysis, "analysis");
+    styleAnalysisBackup = v2FinalizeResolvedConfig(
+      projected.styleAnalysisBackup,
+      styleAnalysisBackup,
+      "analysis"
+    );
+    image = v2FinalizeResolvedConfig(projected.image, image, "image");
+    imageBackup = v2FinalizeResolvedConfig(projected.imageBackup, imageBackup, "image");
+    video = v2FinalizeResolvedConfig(projected.video, video, "video");
+    videoBackup = v2FinalizeResolvedConfig(projected.videoBackup, videoBackup, "video");
+  }
+  const effectiveRuntime = runtime
+    ? projected
+    : {
+        providerRegistry: normalizeProviderRegistry({}, { includeDefaults: true }),
+        activeProviders: normalizeActiveProviders(
+          {},
+          normalizeProviderRegistry({}, { includeDefaults: true })
+        ),
+        activeBackups: normalizeActiveBackups(
+          {},
+          normalizeProviderRegistry({}, { includeDefaults: true })
+        ),
+        providerLabels: normalizeAdminProviderLabels({}, { includeDefaults: true }),
+        providerProfiles: normalizeAdminProviderProfiles({}),
+        face: {},
+        faceBackup: {},
+        analysis: {},
+        analysisBackup: {},
+        styleAnalysis: {},
+        styleAnalysisBackup: {},
+        image: {},
+        imageBackup: {},
+        tencentFaceFusion: {},
+        video: {},
+        videoBackup: {},
+        points: {},
+        costs: {},
+        generationQueue: generationQueueMonitor.normalizeQueueSettings()
+      };
   return {
-    runtime: runtime || {
-      providerRegistry: normalizeProviderRegistry({}, { includeDefaults: true }),
-      activeProviders: normalizeActiveProviders(
-        {},
-        normalizeProviderRegistry({}, { includeDefaults: true })
-      ),
-      activeBackups: normalizeActiveBackups(
-        {},
-        normalizeProviderRegistry({}, { includeDefaults: true })
-      ),
-      providerLabels: normalizeAdminProviderLabels({}, { includeDefaults: true }),
-      providerProfiles: normalizeAdminProviderProfiles({}),
-      face: {},
-      faceBackup: {},
-      analysis: {},
-      analysisBackup: {},
-      image: {},
-      imageBackup: {},
-      tencentFaceFusion: {},
-      video: {},
-      videoBackup: {},
-      points: {},
-      costs: {},
-      generationQueue: generationQueueMonitor.normalizeQueueSettings()
-    },
+    runtime: effectiveRuntime,
     providerRegistry: normalizeProviderRegistry(
-      (runtime || projected).providerRegistry,
+      projected.providerRegistry,
       { includeDefaults: true }
     ),
     activeProviders: normalizeActiveProviders(
-      (runtime || projected).activeProviders,
-      (runtime || projected).providerRegistry
+      projected.activeProviders,
+      projected.providerRegistry
     ),
     activeBackups: normalizeActiveBackups(
-      (runtime || projected).activeBackups,
-      (runtime || projected).providerRegistry
+      projected.activeBackups,
+      projected.providerRegistry
     ),
     providerLabels: normalizeAdminProviderLabels(
-      (runtime || projected).providerLabels,
+      projected.providerLabels,
       { includeDefaults: true }
     ),
     providerProfiles: normalizeAdminProviderProfiles(
-      (runtime || projected).providerProfiles
+      projected.providerProfiles
     ),
     face,
     faceBackup,
     analysis,
     analysisBackup,
+    styleAnalysis,
+    styleAnalysisBackup,
     image,
     imageBackup,
     tencentFaceFusion: resolveTencentFaceFusionConfig(
       runtime && runtime.tencentFaceFusion
     ),
     video,
-    videoBackup: resolveVideoBackupConfig(
-      runtime && runtime.videoBackup
-    ),
+    videoBackup,
+    providerConfigV2: v2Projection.config ? v2PublicConfig(v2Projection.config) : null,
+    providerConfigV2Groups: projected.providerConfigV2Groups || null,
     points: resolvePointsConfig(projected.points),
     costs: resolveCostConfig(projected.costs, {
       imageProvider: image.provider
@@ -11672,6 +11825,7 @@ async function saveAdminProvider(event = {}, context) {
         .collection(ADMIN_RUNTIME_CONFIG_COLLECTION)
         .doc(ADMIN_RUNTIME_CONFIG_ID);
       const rawCurrent = await readDocument(ref);
+      if (v2WriterActive(rawCurrent)) throw v2WriterRequiredError();
       const migrated = migrateLegacyProviderRegistry(
         rawCurrent ? normalizeRuntimePatch(rawCurrent) : {},
         rawCurrent || {}
@@ -11828,6 +11982,9 @@ async function saveAdminProvider(event = {}, context) {
         currentVersion: error && error.currentVersion
       });
     }
+    if (String(error && error.code || "") === "V2_WRITER_REQUIRED") {
+      return fail(error.message, "V2_WRITER_REQUIRED");
+    }
     if (String(error && error.code || "").startsWith("PROVIDER_")) {
       return fail(error.message, error.code);
     }
@@ -11897,6 +12054,1030 @@ async function getAdminProviderSecrets(event = {}, context) {
     version: providerRuntimeVersion(runtime)
   });
 }
+
+const ADMIN_PROVIDER_CONFIG_V2_FIELD = "providerConfigV2";
+const ADMIN_PROVIDER_SECRETS_V2_FIELD = "providerSecretsV2";
+
+function v2WriterActive(runtime) {
+  const config = runtime && runtime[ADMIN_PROVIDER_CONFIG_V2_FIELD];
+  return Boolean(
+    config
+    && Number(config.schemaVersion) === 2
+    && config.migrationState
+    && config.migrationState.v2WriterEnabled === true
+  );
+}
+
+function v2WriterRequiredError() {
+  const error = new Error("V2 配置已启用，请刷新页面后使用新版供应商和功能配置入口。");
+  error.code = "V2_WRITER_REQUIRED";
+  error.retryable = false;
+  return error;
+}
+
+function v2Object(value) {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function v2Payload(event = {}) {
+  const source = v2Object(event) ? event : {};
+  const payload = v2Object(source.payload) ? source.payload : {};
+  const data = v2Object(source.data) ? source.data : {};
+  return Object.assign({}, data, payload, source);
+}
+
+function v2RuntimeVersion(runtime) {
+  const source = v2Object(runtime) ? runtime : {};
+  const config = v2Object(source[ADMIN_PROVIDER_CONFIG_V2_FIELD])
+    ? source[ADMIN_PROVIDER_CONFIG_V2_FIELD]
+    : {};
+  const value = Number(config.version);
+  return Number.isFinite(value) && value > 0 ? value : 1;
+}
+
+function v2ExpectedVersion(event, runtime, config) {
+  const source = v2Payload(event);
+  const candidates = [
+    source.expectedVersion,
+    source.configVersion,
+    source.providerConfigVersion,
+    source.version
+  ];
+  for (const candidate of candidates) {
+    if (candidate === undefined || candidate === null || candidate === "") continue;
+    const value = Number(candidate);
+    if (Number.isFinite(value)) return value;
+  }
+  return null;
+}
+
+function v2Clone(value) {
+  if (value === null || value === undefined || typeof value !== "object") return value;
+  if (value instanceof Date) return new Date(value.getTime());
+  if (Array.isArray(value)) return value.map((item) => v2Clone(item));
+  const output = {};
+  Object.keys(value).forEach((key) => { output[key] = v2Clone(value[key]); });
+  return output;
+}
+
+function v2ConfigFromRuntime(runtime) {
+  const source = v2Object(runtime) ? runtime : {};
+  const raw = v2Object(source[ADMIN_PROVIDER_CONFIG_V2_FIELD])
+    ? source[ADMIN_PROVIDER_CONFIG_V2_FIELD]
+    : null;
+  if (raw && Number(raw.schemaVersion) === 2) {
+    return adminConfigV2.normalizeV2Config(raw);
+  }
+  // 只读迁移用于返回兼容数据；首次 V2 写入时才把迁移结果持久化。
+  return adminConfigV2.migrateLegacyToV2(source, {
+    backupRef: `legacy-${Date.now().toString(36)}`
+  });
+}
+
+function v2SecretKeyName(key) {
+  return String(key || "").toLowerCase().replace(/[\\-_\s]/g, "");
+}
+
+function v2SecretRecord(value) {
+  const source = v2Object(value) ? value : {};
+  const output = {};
+  // 只允许协议所需的凭证字段，避免把任意请求体写进运行时文档。
+  ["apiKey", "secretId", "secretKey", "accessToken", "token", "credentialRef"].forEach((key) => {
+    if (source[key] !== undefined && source[key] !== null) {
+      output[key] = String(source[key]);
+    }
+  });
+  if (v2Object(source.credentials)) {
+    ["apiKey", "secretId", "secretKey", "accessToken", "token", "credentialRef"].forEach((key) => {
+      if (source.credentials[key] !== undefined && source.credentials[key] !== null) {
+        output[key] = String(source.credentials[key]);
+      }
+    });
+    if (v2Object(source.credentials.tc3)) {
+      Object.assign(output, v2SecretRecord(source.credentials.tc3));
+    }
+  }
+  if (v2Object(source.auth)) {
+    const nested = v2SecretRecord(source.auth);
+    Object.assign(output, nested);
+  }
+  if (v2Object(source.tc3)) Object.assign(output, v2SecretRecord(source.tc3));
+  if (v2Object(source.secret)) Object.assign(output, v2SecretRecord(source.secret));
+  return output;
+}
+
+function v2SecretPatch(event, providerKey) {
+  const source = v2Payload(event);
+  const candidate = v2Object(source.supplier)
+    ? source.supplier
+    : v2Object(source.provider)
+      ? source.provider
+      : v2Object(source.record)
+        ? source.record
+        : source;
+  const secret = Object.assign(
+    {},
+    v2SecretRecord(candidate),
+    v2SecretRecord(source.credentials),
+    v2SecretRecord(source.secret),
+    v2SecretRecord(source.tc3),
+    v2SecretRecord(source)
+  );
+  const explicitClear = candidate.clearApiKey === true
+    || candidate.clearCredentials === true
+    || source.clearApiKey === true
+    || source.clearCredentials === true;
+  const key = String(providerKey || candidate.providerKey || candidate.id || "").trim();
+  return { key, secret, explicitClear };
+}
+
+function v2PublicConfig(config) {
+  const normalized = adminConfigV2.normalizeV2Config(config || {});
+  // 模块自身会剔除明文；这里再做一次递归防御，避免未来新增字段误泄露。
+  const redact = (value, keyHint) => {
+    const key = v2SecretKeyName(keyHint);
+    if (["apikey", "secret", "secretkey", "secretid", "accesstoken", "token", "authorization", "password", "credentials"].includes(key)) {
+      return undefined;
+    }
+    if (value === null || value === undefined || typeof value !== "object") return value;
+    if (value instanceof Date) return value.toISOString();
+    if (Array.isArray(value)) return value.map((item) => redact(item, "")).filter((item) => item !== undefined);
+    const output = {};
+    Object.keys(value).forEach((name) => {
+      const item = redact(value[name], name);
+      if (item !== undefined) output[name] = item;
+    });
+    return output;
+  };
+  return redact(normalized, "") || adminConfigV2.emptyV2Config();
+}
+
+function v2ProviderSecrets(runtime) {
+  const source = v2Object(runtime) ? runtime[ADMIN_PROVIDER_SECRETS_V2_FIELD] : {};
+  if (!v2Object(source)) return {};
+  const output = {};
+  Object.keys(source).forEach((providerKey) => {
+    const item = v2SecretRecord(source[providerKey]);
+    if (Object.keys(item).length) output[providerKey] = item;
+  });
+  return output;
+}
+
+function v2MergeSecrets(current, patch, providerKey, clear) {
+  const output = v2ProviderSecrets({ [ADMIN_PROVIDER_SECRETS_V2_FIELD]: current });
+  const key = String(providerKey || "").trim();
+  if (!key) return output;
+  if (clear) {
+    delete output[key];
+    return output;
+  }
+  const incoming = v2SecretRecord(patch);
+  if (Object.keys(incoming).length) output[key] = Object.assign({}, output[key] || {}, incoming);
+  return output;
+}
+
+function v2SeedLegacySecrets(runtime, config, currentSecrets) {
+  const source = v2Object(runtime) ? runtime : {};
+  const output = v2ProviderSecrets({
+    [ADMIN_PROVIDER_SECRETS_V2_FIELD]: currentSecrets
+  });
+  const registry = normalizeProviderRegistry(source.providerRegistry, { includeDefaults: true });
+  const legacySections = ["face", "faceBackup", "analysis", "analysisBackup", "image", "imageBackup", "video", "videoBackup"];
+  (config && config.suppliers || []).forEach((supplier) => {
+    const providerKey = String(supplier.providerKey || "").trim();
+    if (!providerKey || output[providerKey] && output[providerKey].apiKey) return;
+    const recordKey = providerRecordKeyFor(providerKey, registry);
+    const record = registry.providers[recordKey] || {};
+    let apiKey = normalizeApiKey(
+      record.apiKey
+      || record.common && record.common.apiKey
+    );
+    if (!apiKey) {
+      for (const slot of PROVIDER_CAPABILITY_SLOTS) {
+        const override = record.overrides && record.overrides[slot] || {};
+        apiKey = normalizeApiKey(override.apiKey) || providerEnvironmentApiKey(record, slot);
+        if (apiKey) break;
+      }
+    }
+    if (!apiKey) {
+      const aliases = new Set([providerKey, supplier.id, supplier.name].map((item) => String(item || "").toLowerCase()).filter(Boolean));
+      const section = legacySections.map((field) => source[field]).find((item) => {
+        if (!v2Object(item)) return false;
+        return aliases.has(String(item.providerKey || item.provider || "").toLowerCase());
+      });
+      apiKey = normalizeApiKey(section && section.apiKey);
+    }
+    if (apiKey) output[providerKey] = Object.assign({}, output[providerKey] || {}, { apiKey });
+  });
+  return output;
+}
+
+async function readAdminRuntimeV2() {
+  const ref = db.collection(ADMIN_RUNTIME_CONFIG_COLLECTION).doc(ADMIN_RUNTIME_CONFIG_ID);
+  return (await readDocument(ref)) || {};
+}
+
+function v2Conflict(expected, actual) {
+  const error = new Error(`配置版本冲突，请刷新后重试（期望 ${expected}，当前 ${actual}）。`);
+  error.code = "VERSION_CONFLICT";
+  error.expectedVersion = expected;
+  error.currentVersion = actual;
+  return error;
+}
+
+function v2MutationAction(source, fallback) {
+  const value = String(
+    source.operation || source.mode || source.op || source.mutationAction || fallback || "update"
+  ).trim().toLowerCase();
+  if (["add", "create", "new", "新增"].includes(value)) return "create";
+  if (["delete", "remove", "del", "删除"].includes(value)) return "delete";
+  if (["reorder", "sort", "排序"].includes(value)) return "reorder";
+  return "update";
+}
+
+function v2SupplierInput(source) {
+  if (v2Object(source.supplier)) return Object.assign({}, source.supplier);
+  if (v2Object(source.provider)) return Object.assign({}, source.provider);
+  if (v2Object(source.record)) return Object.assign({}, source.record);
+  if (v2Object(source.providerConfig)) return Object.assign({}, source.providerConfig);
+  return {};
+}
+
+function v2PersistedState(runtime, config, secrets, context, version) {
+  const source = v2Object(runtime) ? runtime : {};
+  const nextConfig = adminConfigV2.normalizeV2Config(config);
+  nextConfig.schemaVersion = 2;
+  nextConfig.version = Number(version) || v2RuntimeVersion(source);
+  nextConfig.migrationState = Object.assign({}, nextConfig.migrationState || {}, {
+    phase: "v2-only",
+    v2WriterEnabled: true,
+    version: Number(nextConfig.migrationState && nextConfig.migrationState.version) || 1,
+    updatedAt: new Date().toISOString()
+  });
+  // 旧字段里的明文只在首次切换 V2 时迁移一次。V2 writer 已启用后，
+  // 再次补种会让管理员刚清除的 Key 被旧 section 悄悄恢复。
+  const persistedSecrets = v2WriterActive(source)
+    ? v2ProviderSecrets({ [ADMIN_PROVIDER_SECRETS_V2_FIELD]: secrets })
+    : v2SeedLegacySecrets(source, nextConfig, secrets);
+  const next = Object.assign({}, source, {
+    [ADMIN_PROVIDER_CONFIG_V2_FIELD]: nextConfig,
+    [ADMIN_PROVIDER_SECRETS_V2_FIELD]: persistedSecrets,
+    version: Math.max(Number(source.version) || 0, Number(version) || 0),
+    updatedAt: new Date(),
+    updatedBy: getOpenId(context)
+  });
+  return next;
+}
+
+function v2RuntimeRequestEndpoint(baseUrl, requestPath) {
+  const base = String(baseUrl || "").trim();
+  const path = String(requestPath || "").trim();
+  if (!base || !path) return "";
+  if (/^https?:\/\//i.test(path)) return path;
+  try {
+    const parsed = new URL(base);
+    const basePath = String(parsed.pathname || "/").replace(/\/+$/, "") || "/";
+    let requestedPath = `/${path.replace(/^\/+/, "")}`;
+    const operationPath = requestedPath.replace(/^\/v\d+(?=\/)/i, "");
+    if (operationPath && basePath.toLowerCase().endsWith(operationPath.toLowerCase())) {
+      return normalizeBaseUrl(base);
+    }
+    // 供应商目录通常已经保存到 /v1、/v4 等 API 根路径，页面里的
+    // /v1/... 是通用请求路径。根路径已有版本段时去掉重复的 /vN。
+    if (basePath !== "/" && /\/v\d+$/i.test(basePath) && operationPath !== requestedPath) {
+      requestedPath = operationPath;
+    }
+    return endpoint(base, requestedPath);
+  } catch (_) {
+    return endpoint(base, path);
+  }
+}
+
+function v2InheritedFunctionParameters(section = {}) {
+  const output = {};
+  [
+    "timeoutMs", "maxRetries", "retryEnabled", "retryPreferenceVersion",
+    "requestPath", "path", "mode", "size", "resolution",
+    "compatibilityMode", "createPath", "queryPath", "queryEndpoint",
+    "aspectRatio", "prompt", "maxImageBytes"
+  ].forEach((key) => {
+    if (section[key] !== undefined && section[key] !== "") output[key] = section[key];
+  });
+  return output;
+}
+
+function v2BindingRuntimeSection(config, secrets, slot, role = "primary", inherited = {}) {
+  const resolved = adminConfigV2.resolveBinding(config, slot, role);
+  if (!resolved || !resolved.usable || !resolved.binding) {
+    return {
+      __v2Ready: false,
+      __v2Slot: slot,
+      enabled: false,
+      configured: false,
+      provider: "",
+      providerKey: "",
+      baseUrl: "",
+      endpoint: "",
+      apiKey: "",
+      model: ""
+    };
+  }
+  const binding = resolved.binding;
+  const supplier = binding.supplier || {};
+  const model = binding.model || {};
+  const credential = v2Object(secrets && secrets[binding.providerKey])
+    ? secrets[binding.providerKey]
+    : {};
+  const supplierMetadata = v2Object(supplier.metadata) ? supplier.metadata : {};
+  const modelMetadata = v2Object(model.metadata) ? model.metadata : {};
+  const bindingMetadata = v2Object(binding.metadata) ? binding.metadata : {};
+  const parameterSources = [
+    supplierMetadata,
+    supplierMetadata.runtime,
+    modelMetadata,
+    modelMetadata.runtime,
+    modelMetadata.parameters,
+    bindingMetadata.runtime,
+    bindingMetadata.parameters,
+    bindingMetadata.advanced,
+    bindingMetadata
+  ];
+  const parameters = Object.assign({}, v2Object(inherited) ? inherited : {});
+  const allowedParameters = new Set([
+    "timeoutMs", "maxRetries", "retryEnabled", "retryPreferenceVersion",
+    "mode", "size", "resolution", "compatibilityMode", "createPath",
+    "queryPath", "queryEndpoint", "aspectRatio", "prompt", "maxImageBytes",
+    "path", "requestPath", "timeout", "retry"
+  ]);
+  parameterSources.forEach((value) => {
+    if (!v2Object(value)) return;
+    Object.keys(value).forEach((key) => {
+      if (allowedParameters.has(key)) parameters[key] = value[key];
+    });
+  });
+  const requestPath = String(parameters.requestPath || parameters.path || "").trim();
+  if (!Object.prototype.hasOwnProperty.call(parameters, "timeoutMs")
+      && Object.prototype.hasOwnProperty.call(parameters, "timeout")) {
+    parameters.timeoutMs = Math.max(1000, Number(parameters.timeout) * 1000 || 0);
+  }
+  if (!Object.prototype.hasOwnProperty.call(parameters, "maxRetries")
+      && Object.prototype.hasOwnProperty.call(parameters, "retry")) {
+    parameters.maxRetries = Math.max(0, Math.min(5, Number(parameters.retry) || 0));
+  }
+  parameters.requestPath = requestPath;
+  if (slot === "shared.video" && requestPath) parameters.createPath = requestPath;
+  delete parameters.timeout;
+  delete parameters.retry;
+  const baseUrlValue = String(model.endpointRef || supplier.endpoint || supplier.baseUrl || "").trim();
+  const endpointValue = requestPath
+    ? v2RuntimeRequestEndpoint(baseUrlValue, requestPath)
+    : "";
+  return Object.assign({}, parameters, {
+    __v2Ready: true,
+    __v2Slot: slot,
+    enabled: true,
+    configured: true,
+    provider: String(supplier.id || binding.providerKey || ""),
+    providerKey: String(binding.providerKey || ""),
+    baseUrl: baseUrlValue,
+    endpoint: endpointValue,
+    apiKey: String(credential.apiKey || credential.accessToken || credential.token || ""),
+    model: String(binding.modelId || ""),
+    faceModel: slot.endsWith(".face") ? String(binding.modelId || "") : undefined,
+    protocol: String(model.protocol || supplier.auth && supplier.auth.protocol || "openai"),
+    credentialRef: String(supplier.auth && supplier.auth.credentialRef || "")
+  });
+}
+
+function v2RuntimeProjection(runtime) {
+  const source = v2Object(runtime) ? v2Clone(runtime) : {};
+  if (!v2WriterActive(source)) return { active: false, value: source, config: null };
+  const config = v2ConfigFromRuntime(source);
+  const secrets = v2ProviderSecrets(source);
+  const mapping = {
+    face: ["standard.face", "primary"],
+    faceBackup: ["standard.face", "backup"],
+    analysis: ["standard.imageAnalysis", "primary"],
+    analysisBackup: ["standard.imageAnalysis", "backup"],
+    styleAnalysis: ["standard.styleAnalysis", "primary"],
+    styleAnalysisBackup: ["standard.styleAnalysis", "backup"],
+    image: ["standard.imageGeneration", "primary"],
+    imageBackup: ["standard.imageGeneration", "backup"],
+    video: ["shared.video", "primary"],
+    videoBackup: ["shared.video", "backup"]
+  };
+  Object.keys(mapping).forEach((field) => {
+    const [slot, role] = mapping[field];
+    const primaryField = field.endsWith("Backup") ? field.slice(0, -6) : field;
+    const inherited = role === "backup"
+      ? v2InheritedFunctionParameters(source[primaryField] || {})
+      : {};
+    source[field] = v2BindingRuntimeSection(config, secrets, slot, role, inherited);
+  });
+  source.advanced = Object.assign({}, source.advanced || {}, {
+    sharedVideo: v2Clone(source.video)
+  });
+  // 腾讯版保持独立运行时视图，不覆写标准组兼容字段。每个能力同时
+  // 暴露 primary/backup，旧的直接字段仍指向 primary，兼容已有读者。
+  const buildGroup = (entries) => {
+    const group = { primary: {}, backup: {}, bindings: {} };
+    entries.forEach(([capability, primary, backup]) => {
+      group[capability] = v2Clone(primary);
+      group[`${capability}Backup`] = v2Clone(backup);
+      group.primary[capability] = v2Clone(primary);
+      group.backup[capability] = v2Clone(backup);
+      group.bindings[capability] = {
+        primary: v2Clone(primary),
+        backup: v2Clone(backup)
+      };
+    });
+    return group;
+  };
+  const standardGroup = buildGroup([
+    ["face", source.face, source.faceBackup],
+    ["imageAnalysis", source.analysis, source.analysisBackup],
+    ["styleAnalysis", source.styleAnalysis, source.styleAnalysisBackup],
+    ["imageGeneration", source.image, source.imageBackup]
+  ]);
+  const tencentFace = v2BindingRuntimeSection(config, secrets, "tencent.face", "primary");
+  const tencentFaceBackup = v2BindingRuntimeSection(
+    config,
+    secrets,
+    "tencent.face",
+    "backup",
+    v2InheritedFunctionParameters(tencentFace)
+  );
+  const tencentImageAnalysis = v2BindingRuntimeSection(config, secrets, "tencent.imageAnalysis", "primary");
+  const tencentImageAnalysisBackup = v2BindingRuntimeSection(
+    config,
+    secrets,
+    "tencent.imageAnalysis",
+    "backup",
+    v2InheritedFunctionParameters(tencentImageAnalysis)
+  );
+  const tencentStyleAnalysis = v2BindingRuntimeSection(config, secrets, "tencent.styleAnalysis", "primary");
+  const tencentStyleAnalysisBackup = v2BindingRuntimeSection(
+    config,
+    secrets,
+    "tencent.styleAnalysis",
+    "backup",
+    v2InheritedFunctionParameters(tencentStyleAnalysis)
+  );
+  const tencentImageGeneration = v2BindingRuntimeSection(config, secrets, "tencent.imageGeneration", "primary");
+  const tencentImageGenerationBackup = v2BindingRuntimeSection(
+    config,
+    secrets,
+    "tencent.imageGeneration",
+    "backup",
+    v2InheritedFunctionParameters(tencentImageGeneration)
+  );
+  const tencentGroup = buildGroup([
+    ["face", tencentFace, tencentFaceBackup],
+    ["imageAnalysis", tencentImageAnalysis, tencentImageAnalysisBackup],
+    ["styleAnalysis", tencentStyleAnalysis, tencentStyleAnalysisBackup],
+    ["imageGeneration", tencentImageGeneration, tencentImageGenerationBackup]
+  ]);
+  const sharedGroup = buildGroup([
+    ["video", source.video, source.videoBackup]
+  ]);
+  source.providerConfigV2Groups = {
+    standard: standardGroup,
+    tencent: tencentGroup,
+    shared: sharedGroup
+  };
+  return { active: true, value: source, config };
+}
+
+function v2DisableResolvedConfig(value, kind) {
+  const output = Object.assign({}, value || {}, {
+    enabled: false,
+    configured: false,
+    provider: "",
+    providerKey: "",
+    baseUrl: "",
+    endpoint: "",
+    apiKey: "",
+    model: ""
+  });
+  if (kind === "face") output.faceModel = "";
+  if (kind === "video") output.queryEndpoint = "";
+  return output;
+}
+
+function v2FinalizeResolvedConfig(rawSection, resolved, kind) {
+  if (!rawSection || rawSection.__v2Ready !== true) {
+    return v2DisableResolvedConfig(resolved, kind);
+  }
+  // 旧 resolver 仍会把自定义 providerKey 规范成旧目录 UUID，并可能从
+  // 环境变量补入字段。V2 binding 已通过 ready/confirmed 校验时，目录里的
+  // providerKey、模型、端点和服务端凭证才是最终事实来源。
+  const projected = Object.assign({}, rawSection);
+  delete projected.__v2Ready;
+  delete projected.__v2Slot;
+  Object.keys(projected).forEach((key) => {
+    if (projected[key] === undefined) delete projected[key];
+  });
+  return Object.assign({}, resolved || {}, projected, {
+    enabled: true,
+    configured: true
+  });
+}
+
+function v2Response(config, runtime, extra) {
+  const publicConfig = v2PublicConfig(config);
+  const validation = adminConfigV2.validateV2Config(publicConfig);
+  return jsonResponse(true, Object.assign({
+    schemaVersion: 2,
+    version: Number(publicConfig.version) || 1,
+    providerConfigV2: publicConfig,
+    suppliers: publicConfig.suppliers || [],
+    supplierModels: publicConfig.supplierModels || [],
+    models: publicConfig.supplierModels || [],
+    bindings: publicConfig.bindings || [],
+    costAdapters: publicConfig.costAdapters || [],
+    safetyProbes: publicConfig.safetyProbes || [],
+    migrationState: publicConfig.migrationState || {},
+    dependencies: publicConfig.dependencies || {},
+    validation: { valid: Boolean(validation.valid), errors: validation.errors || [] },
+    runtimeVersion: Number(runtime && runtime.version) || 0,
+    secretsOmitted: true
+  }, extra || {}));
+}
+
+async function getAdminConfigV2(event = {}, context) {
+  if (!isAdminContext(context)) return adminForbidden();
+  const runtime = await readAdminRuntimeV2();
+  const hadV2 = Boolean(runtime && runtime[ADMIN_PROVIDER_CONFIG_V2_FIELD]);
+  const config = v2ConfigFromRuntime(runtime);
+  return v2Response(config, runtime, {
+    migratedPreview: !hadV2,
+    legacyCompatibility: {
+      available: true,
+      readOnly: true,
+      source: hadV2 ? "v2" : "legacy"
+    }
+  });
+}
+
+function v2ProbeCapability(source = {}) {
+  const slot = adminConfigV2.canonicalSlot(source.slot || source.bindingSlot || "");
+  const slotCapability = slot && slot.split(".")[1];
+  const requested = String(source.modelType || source.type || "").trim();
+  const probeType = normalizeModelProbeType(requested)
+    || (slotCapability === "face" ? "face"
+      : slotCapability === "imageGeneration" ? "image"
+        : slotCapability === "video" || slot === "shared.video" ? "video"
+          : "analysis");
+  const capability = slotCapability || (
+    probeType === "image" ? "imageGeneration"
+      : probeType === "analysis" ? "imageAnalysis"
+        : probeType
+  );
+  return { slot, probeType, capability };
+}
+
+function v2ProviderProbeConfig(runtime, config, source = {}) {
+  const providerKey = String(source.providerKey || source.provider || source.id || "").trim();
+  const supplier = (config.suppliers || []).find((item) => item.providerKey === providerKey);
+  if (!providerKey || !supplier) {
+    const error = new Error("找不到要测试的供应商。");
+    error.code = "PROVIDER_NOT_FOUND";
+    throw error;
+  }
+  const secrets = v2ProviderSecrets(runtime);
+  const credential = secrets[providerKey] || {};
+  const capability = v2ProbeCapability(source);
+  const existingModels = (config.supplierModels || []).filter((item) => item.providerKey === providerKey);
+  const selectedModel = String(
+    source.modelId || source.model
+    || (existingModels.find((item) => item.confirmed) || {}).modelId
+    || ""
+  ).trim();
+  const endpointValue = String(source.endpoint || supplier.endpoint || supplier.baseUrl || "").trim();
+  return {
+    providerKey,
+    supplier,
+    capability,
+    existingModels,
+    config: {
+      provider: String(supplier.id || providerKey),
+      providerKey,
+      baseUrl: endpointValue,
+      endpoint: endpointValue,
+      apiKey: String(credential.apiKey || credential.accessToken || credential.token || ""),
+      model: selectedModel,
+      timeoutMs: Math.max(3000, Math.min(60000, Number(source.timeoutMs) || 10000))
+    }
+  };
+}
+
+function v2ProbeCandidates(result, probe) {
+  const listed = Array.isArray(result && result.models) ? result.models : [];
+  return listed.map((modelId) => {
+    const existing = probe.existingModels.find((item) => item.modelId === String(modelId));
+    return Object.assign({}, existing || {}, {
+      providerKey: probe.providerKey,
+      modelId: String(modelId),
+      capabilities: Array.from(new Set([].concat(
+        existing && existing.capabilities || [],
+        probe.capability.capability
+      ).filter(Boolean))),
+      confirmed: Boolean(existing && existing.confirmed),
+      sourceHash: adminConfigV2.hashSource({
+        providerKey: probe.providerKey,
+        modelId: String(modelId),
+        endpoint: probe.config.endpoint,
+        protocol: probe.supplier.auth && probe.supplier.auth.protocol
+      })
+    });
+  });
+}
+
+async function listAdminProviderModelsV2(event = {}, context) {
+  if (!isAdminContext(context)) return adminForbidden();
+  const runtime = await readAdminRuntimeV2();
+  const config = v2ConfigFromRuntime(runtime);
+  const source = v2Payload(event);
+  let probe;
+  try {
+    probe = v2ProviderProbeConfig(runtime, config, source);
+  } catch (error) {
+    return fail(error.message, error.code || "PROVIDER_NOT_FOUND");
+  }
+  const cached = probe.existingModels;
+  if (source.cachedOnly === true || source.readOnly === true) {
+    return v2Response(config, runtime, {
+      providerKey: probe.providerKey,
+      fetched: false,
+      candidates: cached,
+      models: cached,
+      confirmedModels: cached.filter((item) => item.confirmed),
+      pendingModels: cached.filter((item) => !item.confirmed)
+    });
+  }
+  if (probe.supplier.auth && probe.supplier.auth.protocol === "tencent-tc3") {
+    return fail(
+      "Tencent TC3 使用专属动作接口，不支持通过 OpenAI /models 获取模型。",
+      "TC3_MODEL_LIST_UNSUPPORTED"
+    );
+  }
+  const result = await probeOneModel(probe.capability.probeType, probe.config, {
+    requireModel: false
+  });
+  const candidates = v2ProbeCandidates(result, probe);
+  return v2Response(config, runtime, {
+    providerKey: probe.providerKey,
+    fetched: true,
+    checkedAt: new Date().toISOString(),
+    probe: {
+      status: result.status,
+      statusText: result.statusText,
+      ready: result.ready,
+      reachable: result.reachable,
+      httpStatus: result.httpStatus,
+      durationMs: result.durationMs,
+      endpoint: result.endpoint,
+      message: result.message || ""
+    },
+    candidates,
+    models: candidates,
+    confirmedModels: candidates.filter((item) => item.confirmed),
+    pendingModels: candidates.filter((item) => !item.confirmed)
+  });
+}
+
+async function probeAdminProviderV2(event = {}, context) {
+  if (!isAdminContext(context)) return adminForbidden();
+  const runtime = await readAdminRuntimeV2();
+  const config = v2ConfigFromRuntime(runtime);
+  const source = v2Payload(event);
+  let probe;
+  try {
+    probe = v2ProviderProbeConfig(runtime, config, source);
+  } catch (error) {
+    return fail(error.message, error.code || "PROVIDER_NOT_FOUND");
+  }
+  const protocol = String(probe.supplier.auth && probe.supplier.auth.protocol || "openai");
+  if (protocol === "tencent-tc3") {
+    const credential = v2ProviderSecrets(runtime)[probe.providerKey] || {};
+    const extra = probe.supplier.auth && probe.supplier.auth.extra || {};
+    const ready = Boolean(
+      credential.secretId
+      && credential.secretKey
+      && extra.region
+      && extra.action
+      && extra.version
+      && extra.endpoint
+    );
+    return v2Response(config, runtime, {
+      providerKey: probe.providerKey,
+      probe: {
+        protocol,
+        ready,
+        reachable: false,
+        status: ready ? "tc3-configured" : "not-configured",
+        statusText: ready ? "TC3 凭证和参数已配置" : "TC3 配置不完整",
+        message: ready
+          ? "TC3 使用签名动作调用，连接将在对应人脸融合探针中验证。"
+          : "请补齐 SecretId、SecretKey、Region、Action、Version 和 Endpoint。"
+      }
+    });
+  }
+  const result = await probeOneModel(probe.capability.probeType, probe.config, {
+    requireModel: Boolean(probe.config.model)
+  });
+  return v2Response(config, runtime, {
+    providerKey: probe.providerKey,
+    probe: {
+      protocol,
+      status: result.status,
+      statusText: result.statusText,
+      ready: result.ready,
+      reachable: result.reachable,
+      httpStatus: result.httpStatus,
+      durationMs: result.durationMs,
+      endpoint: result.endpoint,
+      message: result.message || ""
+    }
+  });
+}
+
+async function saveAdminProviderV2(event = {}, context) {
+  if (!isAdminContext(context)) return adminForbidden();
+  const source = v2Payload(event);
+  const input = v2SupplierInput(source);
+  const action = v2MutationAction(source, "update");
+  const order = Array.isArray(source.order)
+    ? source.order
+    : Array.isArray(source.providerOrder) ? source.providerOrder : undefined;
+  const providerKey = String(
+    input.providerKey || source.providerKey || input.key || input.id || source.id || ""
+  ).trim();
+  const submittedSecretPatch = v2SecretPatch(source, providerKey);
+  if (Object.keys(submittedSecretPatch.secret).length) {
+    input.auth = Object.assign({}, input.auth || {}, { configured: true });
+    input.credentialConfigured = true;
+  }
+  const expected = v2ExpectedVersion(source, {}, {});
+  let outcome;
+  try {
+    outcome = await db.runTransaction(async (transaction) => {
+      const ref = transaction.collection(ADMIN_RUNTIME_CONFIG_COLLECTION).doc(ADMIN_RUNTIME_CONFIG_ID);
+      const current = (await readDocument(ref)) || {};
+      const config = v2ConfigFromRuntime(current);
+      const currentVersion = v2RuntimeVersion(current) || Number(config.version) || 1;
+      if (expected !== null && expected !== currentVersion) throw v2Conflict(expected, currentVersion);
+      const currentSupplier = (config.suppliers || []).find((item) => item.providerKey === providerKey);
+      const mutationInput = Object.assign({}, input);
+      if (currentSupplier && (v2Object(input.auth)
+          || Object.keys(submittedSecretPatch.secret).length
+          || submittedSecretPatch.explicitClear)) {
+        mutationInput.auth = Object.assign({}, currentSupplier.auth || {}, input.auth || {});
+        mutationInput.auth.extra = Object.assign(
+          {},
+          currentSupplier.auth && currentSupplier.auth.extra || {},
+          input.auth && input.auth.extra || {}
+        );
+      }
+      if (submittedSecretPatch.explicitClear) {
+        const credentialRef = String(
+          mutationInput.auth && mutationInput.auth.credentialRef || ""
+        ).trim();
+        mutationInput.auth = Object.assign({}, mutationInput.auth || {}, {
+          configured: Boolean(credentialRef)
+        });
+        mutationInput.credentialConfigured = Boolean(credentialRef);
+      }
+      const nextConfig = adminConfigV2.applySupplierMutation(config, {
+        action,
+        supplier: mutationInput,
+        providerKey,
+        order,
+        expectedVersion: currentVersion
+      }, { expectedVersion: currentVersion });
+      const nextSecrets = v2MergeSecrets(
+        current[ADMIN_PROVIDER_SECRETS_V2_FIELD],
+        submittedSecretPatch.secret,
+        providerKey,
+        submittedSecretPatch.explicitClear || action === "delete"
+      );
+      const nextVersion = Number(nextConfig.version) || currentVersion + 1;
+      const persisted = v2PersistedState(current, nextConfig, nextSecrets, context, nextVersion);
+      await ref.set({ data: stripDocumentId(persisted) });
+      return {
+        previous: current,
+        runtime: persisted,
+        config: persisted[ADMIN_PROVIDER_CONFIG_V2_FIELD],
+        version: nextVersion
+      };
+    }, 5);
+  } catch (error) {
+    const code = String(error && error.code || "");
+    if (["VERSION_CONFLICT", "PROVIDER_REFERENCED", "PROVIDER_KEY_IMMUTABLE", "PROVIDER_PROTECTED", "PROVIDER_NOT_FOUND", "PROVIDER_EXISTS", "PROVIDER_KEY_REQUIRED"].includes(code)) {
+      return fail(error.message, code === "VERSION_CONFLICT" ? "ADMIN_CONFIG_CONFLICT" : code, {
+        versionConflict: code === "VERSION_CONFLICT",
+        currentVersion: error.currentVersion,
+        references: error.references
+      });
+    }
+    throw error;
+  }
+  adminRuntimeCache = { value: outcome.runtime, expiresAt: Date.now() + ADMIN_RUNTIME_CACHE_TTL_MS };
+  await writeAdminConfigAuditLog({
+    source: `admin-provider-v2-${action}`,
+    openid: getOpenId(context),
+    configVersion: outcome.version,
+    previous: outcome.previous || {},
+    next: outcome.runtime,
+    patch: { action, providerKey }
+  });
+  return v2Response(outcome.config, outcome.runtime, { action, providerKey });
+}
+
+async function confirmAdminModelsV2(event = {}, context) {
+  if (!isAdminContext(context)) return adminForbidden();
+  const source = v2Payload(event);
+  const providerKey = String(source.providerKey || source.provider || "").trim();
+  let candidates = source.candidates
+    || source.models
+    || source.modelIds
+    || source.confirmedModels
+    || (source.modelId ? [source.modelId] : []);
+  if (!Array.isArray(candidates)) candidates = [candidates];
+  const defaultCapability = v2ProbeCapability(source).capability;
+  candidates = candidates.map((item) => v2Object(item)
+    ? Object.assign({}, item, {
+        providerKey: item.providerKey || providerKey,
+        capabilities: item.capabilities || source.capabilities || [defaultCapability]
+      })
+    : {
+        providerKey,
+        modelId: String(item),
+        capabilities: source.capabilities || [defaultCapability]
+      });
+  candidates = candidates.filter((item) => item.providerKey && (item.modelId || item.model));
+  if (!candidates.length) return fail("请选择至少一个要确认的模型。", "MODEL_REQUIRED");
+  const expected = v2ExpectedVersion(source, {}, {});
+  let outcome;
+  try {
+    outcome = await db.runTransaction(async (transaction) => {
+      const ref = transaction.collection(ADMIN_RUNTIME_CONFIG_COLLECTION).doc(ADMIN_RUNTIME_CONFIG_ID);
+      const current = (await readDocument(ref)) || {};
+      const config = v2ConfigFromRuntime(current);
+      const currentVersion = v2RuntimeVersion(current) || Number(config.version) || 1;
+      if (expected !== null && expected !== currentVersion) throw v2Conflict(expected, currentVersion);
+      const suppliers = new Set((config.suppliers || []).map((item) => item.providerKey));
+      const missingProvider = candidates.find((item) => !suppliers.has(item.providerKey));
+      if (missingProvider) {
+        const error = new Error(`供应商不存在：${missingProvider.providerKey}`);
+        error.code = "PROVIDER_NOT_FOUND";
+        throw error;
+      }
+      const nextConfig = adminConfigV2.confirmModels(config, candidates, {
+        expectedVersion: currentVersion,
+        confirmedBy: getOpenId(context) || "admin"
+      });
+      const nextVersion = Number(nextConfig.version) || currentVersion + 1;
+      const persisted = v2PersistedState(current, nextConfig, v2ProviderSecrets(current), context, nextVersion);
+      await ref.set({ data: stripDocumentId(persisted) });
+      return {
+        previous: current,
+        runtime: persisted,
+        config: persisted[ADMIN_PROVIDER_CONFIG_V2_FIELD],
+        version: nextVersion
+      };
+    }, 5);
+  } catch (error) {
+    const code = String(error && error.code || "");
+    if (["VERSION_CONFLICT", "PROVIDER_NOT_FOUND"].includes(code)) {
+      return fail(error.message, code === "VERSION_CONFLICT" ? "ADMIN_CONFIG_CONFLICT" : code, {
+        versionConflict: code === "VERSION_CONFLICT",
+        currentVersion: error.currentVersion
+      });
+    }
+    throw error;
+  }
+  adminRuntimeCache = { value: outcome.runtime, expiresAt: Date.now() + ADMIN_RUNTIME_CACHE_TTL_MS };
+  await writeAdminConfigAuditLog({
+    source: "admin-model-confirm-v2",
+    openid: getOpenId(context),
+    configVersion: outcome.version,
+    previous: outcome.previous || {},
+    next: outcome.runtime,
+    patch: { providerKey, candidates: candidates.map((item) => item.modelId || item.model) }
+  });
+  return v2Response(outcome.config, outcome.runtime, {
+    providerKey,
+    confirmedModels: (outcome.config.supplierModels || []).filter((item) => item.confirmed)
+  });
+}
+
+async function saveAdminBindingV2(event = {}, context) {
+  if (!isAdminContext(context)) return adminForbidden();
+  const source = v2Payload(event);
+  const binding = v2Object(source.binding)
+    ? Object.assign({}, source.binding)
+    : v2Object(source.config) ? Object.assign({}, source.config) : Object.assign({}, source);
+  const expected = v2ExpectedVersion(source, {}, {});
+  let outcome;
+  try {
+    outcome = await db.runTransaction(async (transaction) => {
+      const ref = transaction.collection(ADMIN_RUNTIME_CONFIG_COLLECTION).doc(ADMIN_RUNTIME_CONFIG_ID);
+      const current = (await readDocument(ref)) || {};
+      const config = v2ConfigFromRuntime(current);
+      const currentVersion = v2RuntimeVersion(current) || Number(config.version) || 1;
+      if (expected !== null && expected !== currentVersion) throw v2Conflict(expected, currentVersion);
+      if (String(binding.status || "") === "ready") {
+        const supplier = (config.suppliers || []).find((item) => item.providerKey === binding.providerKey);
+        const model = (config.supplierModels || []).find((item) => (
+          item.providerKey === binding.providerKey
+          && item.modelId === binding.modelId
+          && item.confirmed
+        ));
+        const seededSecrets = v2WriterActive(current)
+          ? v2ProviderSecrets(current)
+          : v2SeedLegacySecrets(current, config, v2ProviderSecrets(current));
+        const credential = seededSecrets[binding.providerKey] || {};
+        const protocol = String(supplier && supplier.auth && supplier.auth.protocol || "openai");
+        const endpointReady = Boolean(model && (model.endpointRef || supplier && (supplier.endpoint || supplier.baseUrl)));
+        const credentialReady = protocol === "tencent-tc3"
+          ? Boolean(credential.secretId && credential.secretKey)
+          : Boolean(
+              credential.apiKey
+              || credential.accessToken
+              || credential.token
+              || supplier && supplier.auth && supplier.auth.credentialRef
+            );
+        if (!supplier || supplier.enabled === false || !model || !endpointReady || !credentialReady) {
+          const error = new Error("绑定必须引用已确认、已有端点和服务端凭证的供应商模型。");
+          error.code = "BINDING_NOT_READY";
+          throw error;
+        }
+      }
+      const nextConfig = adminConfigV2.transitionBinding(config, binding, {
+        expectedVersion: currentVersion,
+        confirmedBy: getOpenId(context) || "admin"
+      });
+      const nextVersion = Number(nextConfig.version) || currentVersion + 1;
+      const persisted = v2PersistedState(current, nextConfig, v2ProviderSecrets(current), context, nextVersion);
+      await ref.set({ data: stripDocumentId(persisted) });
+      return {
+        previous: current,
+        runtime: persisted,
+        config: persisted[ADMIN_PROVIDER_CONFIG_V2_FIELD],
+        version: nextVersion
+      };
+    }, 5);
+  } catch (error) {
+    const code = String(error && error.code || "");
+    if (["VERSION_CONFLICT", "BINDING_NOT_READY", "BINDING_CONFIRM_REQUIRED", "CONFIRM_REQUIRED", "INVALID_SLOT"].includes(code)) {
+      return fail(error.message, code === "VERSION_CONFLICT" ? "ADMIN_CONFIG_CONFLICT" : code, {
+        versionConflict: code === "VERSION_CONFLICT",
+        currentVersion: error.currentVersion
+      });
+    }
+    throw error;
+  }
+  adminRuntimeCache = { value: outcome.runtime, expiresAt: Date.now() + ADMIN_RUNTIME_CACHE_TTL_MS };
+  await writeAdminConfigAuditLog({
+    source: "admin-binding-v2",
+    openid: getOpenId(context),
+    configVersion: outcome.version,
+    previous: outcome.previous || {},
+    next: outcome.runtime,
+    patch: { binding }
+  });
+  const selected = (outcome.config.bindings || []).find((item) => (
+    item.slot === binding.slot && item.role === (binding.role || "primary")
+  ));
+  return v2Response(outcome.config, outcome.runtime, { binding: selected || null });
+}
+
+async function getAdminProviderSecretsV2(event = {}, context) {
+  if (!isAdminContext(context)) return adminForbidden();
+  const source = v2Payload(event);
+  const requested = String(source.providerKey || source.provider || source.id || "").trim();
+  if (!requested) return fail("请选择要读取的供应商凭证。", "PROVIDER_INVALID");
+  const runtime = await readAdminRuntimeV2();
+  const config = v2ConfigFromRuntime(runtime);
+  if (!(config.suppliers || []).some((item) => item.providerKey === requested)) {
+    return fail("找不到要读取的供应商。", "PROVIDER_NOT_FOUND");
+  }
+  const secrets = v2ProviderSecrets(runtime);
+  const value = secrets[requested] || {};
+  // 这是唯一允许回传明文的 V2 接口，并且仍需管理员身份和单个 providerKey。
+  return jsonResponse(true, {
+    providerKey: requested,
+    credentials: value,
+    apiKey: String(value.apiKey || ""),
+    secretId: String(value.secretId || ""),
+    secretKey: String(value.secretKey || ""),
+    apiKeyConfigured: Boolean(value.apiKey),
+    tc3Configured: Boolean(value.secretId && value.secretKey),
+    version: v2RuntimeVersion(runtime)
+  });
+}
+
 
 function adminConfigAuditDisplay(value) {
   const row = normalizeAdminConfigAuditRow(value);
@@ -12604,6 +13785,7 @@ async function saveAdminConfig(event, context) {
         .collection(ADMIN_RUNTIME_CONFIG_COLLECTION)
         .doc(ADMIN_RUNTIME_CONFIG_ID);
       const rawCurrent = await readDocument(ref);
+      if (v2WriterActive(rawCurrent)) throw v2WriterRequiredError();
       current = rawCurrent
         ? migrateLegacyProviderRegistry(normalizeRuntimePatch(rawCurrent), rawCurrent).value
         : null;
@@ -12678,6 +13860,12 @@ async function saveAdminConfig(event, context) {
         updatedAt: new Date(),
         updatedBy: getOpenId(context)
       };
+      if (rawCurrent && rawCurrent.providerConfigV2) {
+        data.providerConfigV2 = rawCurrent.providerConfigV2;
+      }
+      if (rawCurrent && rawCurrent.providerSecretsV2) {
+        data.providerSecretsV2 = rawCurrent.providerSecretsV2;
+      }
       await ref.set({ data: stripDocumentId(data) });
       return data;
     }, 5);
@@ -12690,6 +13878,9 @@ async function saveAdminConfig(event, context) {
     }
     if (["ADMIN_PROVIDER_LABEL_REQUIRED", "ADMIN_CONFIG_INVALID"].includes(String(error && error.code || ""))) {
       return fail(error.message, error.code, { fields: error.fields || [] });
+    }
+    if (String(error && error.code || "") === "V2_WRITER_REQUIRED") {
+      return fail(error.message, "V2_WRITER_REQUIRED");
     }
     throw error;
   }
@@ -12724,6 +13915,8 @@ async function saveAdminConfig(event, context) {
       costs: next.costs,
       generationQueue: next.generationQueue,
       generationQueueAlertState: data.generationQueueAlertState,
+      providerConfigV2: data.providerConfigV2,
+      providerSecretsV2: data.providerSecretsV2,
       version: data.version,
       updatedAt: data.updatedAt,
       updatedBy: data.updatedBy
@@ -12748,7 +13941,7 @@ async function saveAdminConfig(event, context) {
     costFields: Object.keys(patch.costs),
     generationQueueFields: Object.keys(patch.generationQueue)
   });
-  const configs = await resolveEffectiveConfigs();
+  const configs = await resolveEffectiveConfigs({ allowMigrations: false });
   return jsonResponse(true, adminConfigView(configs, next, data));
 }
 
@@ -14166,7 +15359,8 @@ async function exportAutoFaceFailureStats(event, context) {
 async function analyze(event, context) {
   const payload = event.payload || {};
   const configs = await resolveEffectiveConfigs();
-  const visionCandidates = visionConfigCandidatesForAction("analyze", configs)
+  const configGroup = configGroupFromPayload(payload, "standard");
+  const visionCandidates = visionConfigCandidatesForAction("analyze", configs, configGroup)
     .filter((candidate) => candidate && candidate.apiKey && candidate.model
       && (candidate.endpoint || candidate.baseUrl));
   const costs = configs.costs;
@@ -14230,6 +15424,7 @@ async function analyze(event, context) {
   return jsonResponse(true, {
     provider: vision.provider,
     model,
+    configGroup,
     analysis: normalizeAnalysis(null, rawText)
   });
 }
@@ -14238,7 +15433,8 @@ async function detectFaceCircle(event, context) {
   const detectionStartedAt = Date.now();
   const payload = event.payload || {};
   const configs = await resolveEffectiveConfigs();
-  const visionCandidates = visionConfigCandidatesForAction("detectFaceCircle", configs)
+  const configGroup = configGroupFromPayload(payload, "standard");
+  const visionCandidates = visionConfigCandidatesForAction("detectFaceCircle", configs, configGroup)
     .filter((candidate) => candidate && candidate.apiKey && candidate.model
       && (candidate.endpoint || candidate.baseUrl));
   const costs = configs.costs;
@@ -14368,6 +15564,7 @@ async function detectFaceCircle(event, context) {
   return jsonResponse(true, {
     provider: vision.provider,
     model,
+    configGroup,
     coordinateSystem: "normalized-1000",
     detectionStatus: faces.length ? "face-detected" : "no-face-detected",
     faceCount: faces.length,
@@ -14517,7 +15714,8 @@ async function probeAutoFace(event, context) {
 async function analyzeWebPoses(event, context) {
   const payload = event.payload || {};
   const configs = await resolveEffectiveConfigs();
-  const visionCandidates = visionConfigCandidatesForAction("analyzeWebPoses", configs)
+  const configGroup = configGroupFromPayload(payload, "standard");
+  const visionCandidates = visionConfigCandidatesForAction("analyzeWebPoses", configs, configGroup)
     .filter((candidate) => candidate && candidate.apiKey && candidate.model
       && (candidate.endpoint || candidate.baseUrl));
   const costs = configs.costs;
@@ -14632,6 +15830,7 @@ async function analyzeWebPoses(event, context) {
   return jsonResponse(true, {
     provider: vision.provider,
     model,
+    configGroup,
     analyzedAt: new Date().toISOString(),
     suggestions
   });
@@ -18803,12 +20002,16 @@ async function testTencentFaceFusion(event, context) {
   }
 }
 
-async function detectTencentPipelineFaces(mainFileID, requestId, context) {
+async function detectTencentPipelineFaces(mainFileID, requestId, context, configGroup = "tencent") {
   let result;
   try {
     result = await detectFaceCircle({
       requestId,
-      payload: { mainFileID }
+      payload: {
+        mainFileID,
+        // 腾讯版人脸检测必须走腾讯组自己的主备绑定。
+        configGroup: normalizeConfigGroup(configGroup, "tencent")
+      }
     }, context);
   } catch (error) {
     const wrapped = new Error(
@@ -18870,10 +20073,12 @@ async function tencentFaceFusionPipeline(event, context) {
     return fail("修改说明不能为空。", "TENCENT_PIPELINE_PROMPT_EMPTY");
   }
   const configs = await resolveEffectiveConfigs();
-  const imageConfig = Object.assign({}, configs.image, {
+  const v2TencentGroup = v2GroupConfigs(configs, "tencent");
+  const v2Active = Boolean(v2TencentGroup && configs.providerConfigV2);
+  const imageConfig = Object.assign({}, v2Active ? v2TencentGroup.image : configs.image, {
     mode: "edits"
   });
-  const imageBackupConfig = Object.assign({}, configs.imageBackup, {
+  const imageBackupConfig = Object.assign({}, v2Active ? v2TencentGroup.imageBackup : configs.imageBackup, {
     mode: "edits"
   });
   const tencent = configs.tencentFaceFusion;
@@ -19060,7 +20265,8 @@ async function tencentFaceFusionPipeline(event, context) {
       const detectedFaces = await detectTencentPipelineFaces(
         mainFileID,
         requestId,
-        context
+        context,
+        v2Active ? "tencent" : "standard"
       );
       const mainBuffer = preparedMainBuffer || await downloadCloudFile(mainFileID, {
         requestId,
@@ -22433,11 +23639,32 @@ exports.main = async (event = {}, context) => {
       result = await getAdminDiagnosticLogs(requestEvent, context);
     }
     else if (action === "getAdminConfig") result = await getAdminConfig(context);
+    else if (action === "getAdminConfigV2") {
+      result = await getAdminConfigV2(requestEvent, context);
+    }
     else if (action === "getAdminProviderSecrets") {
       result = await getAdminProviderSecrets(requestEvent, context);
     }
+    else if (action === "getAdminProviderSecretsV2") {
+      result = await getAdminProviderSecretsV2(requestEvent, context);
+    }
     else if (action === "saveAdminProvider") {
       result = await saveAdminProvider(requestEvent, context);
+    }
+    else if (action === "saveAdminProviderV2") {
+      result = await saveAdminProviderV2(requestEvent, context);
+    }
+    else if (action === "listAdminProviderModelsV2") {
+      result = await listAdminProviderModelsV2(requestEvent, context);
+    }
+    else if (action === "probeAdminProviderV2") {
+      result = await probeAdminProviderV2(requestEvent, context);
+    }
+    else if (action === "confirmAdminModelsV2") {
+      result = await confirmAdminModelsV2(requestEvent, context);
+    }
+    else if (action === "saveAdminBindingV2") {
+      result = await saveAdminBindingV2(requestEvent, context);
     }
     else if (action === "getAdminImageApiKeys") {
       result = await getAdminImageApiKeys(context);
@@ -22563,6 +23790,11 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     resolveAnalysisConfig,
     resolveFaceBackupConfig,
     resolveAnalysisBackupConfig,
+    normalizeConfigGroup,
+    configGroupFromPayload,
+    v2GroupSection,
+    v2GroupConfigs,
+    v2GroupCapabilityForAction,
     visionConfigCandidatesForAction,
     runVisionProviderFailover,
     normalizeApiKey,
@@ -22847,6 +24079,25 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     saveAdminConfig,
     saveAdminProvider,
     getAdminProviderSecrets,
+    getAdminConfigV2,
+    getAdminProviderSecretsV2,
+    saveAdminProviderV2,
+    listAdminProviderModelsV2,
+    probeAdminProviderV2,
+    confirmAdminModelsV2,
+    saveAdminBindingV2,
+    adminConfigV2,
+    v2ConfigFromRuntime,
+    v2PublicConfig,
+    v2ProviderSecrets,
+    v2WriterActive,
+    v2MutationAction,
+    v2SecretPatch,
+    v2RuntimeRequestEndpoint,
+    v2InheritedFunctionParameters,
+    v2BindingRuntimeSection,
+    v2RuntimeProjection,
+    v2FinalizeResolvedConfig,
     getAdminConfigAuditLogs,
     checkRuntimeDependencies,
     checkRuntimeHealth,

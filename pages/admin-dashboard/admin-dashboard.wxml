@@ -1,0 +1,69 @@
+<view class="dashboard-page">
+  <view class="appbar">
+    <view class="appbar-title">控制台</view>
+    <view class="appbar-link" bindtap="openProvider" hover-class="tap">供应商管理 <text>›</text></view>
+  </view>
+
+  <scroll-view class="dashboard-scroll" scroll-y="true" enable-back-to-top="true">
+    <view class="hero-card">
+      <view class="hero-head">
+        <view>
+          <view class="hero-kicker">线上运行状态</view>
+          <view class="hero-title">全部正常</view>
+          <view class="hero-note">{{statusLabel}} · 今日 {{failedCount}} 个失败</view>
+        </view>
+        <view class="hero-dot {{statusTone}}"></view>
+      </view>
+      <view class="hero-meta">
+        <view><text>小程序版本</text><text class="hero-value">管理预览</text></view>
+        <view><text>功能配置</text><text class="hero-value">{{configuredCount}} / {{totalCount}} 已就绪</text></view>
+      </view>
+      <view class="hero-actions">
+        <button bindtap="checkDeployment" hover-class="tap">检查线上部署</button>
+        <button bindtap="refreshAll" hover-class="tap">一键刷新全部</button>
+        <button bindtap="probeAll" hover-class="tap">探测异常模型</button>
+      </view>
+    </view>
+
+    <view class="management-strip" bindtap="openProvider" hover-class="tap">
+      <view class="management-icon">商</view>
+      <view class="management-copy"><text class="management-title">供应商管理</text><text class="management-subtitle">维护供应商、测试连接并获取可用模型</text></view>
+      <text class="management-arrow">›</text>
+    </view>
+
+    <view class="section">
+      <view class="section-head"><text class="section-title">开始新创作</text><text class="section-hint">对应小程序功能</text></view>
+      <view class="section-note">四项模型分别配置，主模型与备用模型互不影响。</view>
+      <view class="entry-grid">
+        <view wx:for="{{standardItems}}" wx:key="slot" class="entry {{item.ready ? '' : 'pending'}}" data-slot="{{item.slot}}" bindtap="openConfig" hover-class="tap">
+          <view class="entry-icon">{{item.icon}}</view><text class="entry-label">{{item.label}}</text><text class="entry-status">{{item.status}}</text>
+        </view>
+      </view>
+    </view>
+
+    <view class="section">
+      <view class="section-head"><text class="section-title">开始新创作-腾讯版</text><text class="section-hint">独立模型配置</text></view>
+      <view class="section-note warning">人脸识别换脸供应商待配置，其余模型可独立设置。</view>
+      <view class="entry-grid">
+        <view wx:for="{{tencentItems}}" wx:key="slot" class="entry {{item.ready ? '' : 'pending'}}" data-slot="{{item.slot}}" bindtap="openConfig" hover-class="tap">
+          <view class="entry-icon">{{item.icon}}</view><text class="entry-label">{{item.label}}</text><text class="entry-status">{{item.status}}</text>
+        </view>
+      </view>
+    </view>
+
+    <view class="section shared-section">
+      <view class="shared-card" bindtap="openSharedVideo" hover-class="tap">
+        <view class="shared-copy"><text class="shared-title">共享视频模型</text><text class="shared-subtitle">照片转实况统一使用，不重复配置。</text></view>
+        <view class="shared-action">视频模型 <text>›</text></view>
+      </view>
+    </view>
+
+    <view class="section metrics-section">
+      <view class="section-head"><text class="section-title">运营数据</text></view>
+      <view class="metric-grid">
+        <view wx:for="{{metrics}}" wx:key="key" class="metric" data-key="{{item.key}}" bindtap="openMetric" hover-class="tap"><view class="metric-icon">{{item.icon}}</view><text class="metric-label">{{item.label}}</text><text class="metric-detail">{{item.detail}} ›</text></view>
+      </view>
+    </view>
+    <view class="bottom-space"></view>
+  </scroll-view>
+</view>

@@ -1,11 +1,11 @@
 <view class="provider-page">
-  <view class="appbar">
-    <view class="back" bindtap="goBack" hover-class="tap">‹</view>
+  <view class="appbar" style="{{appbarStyle}}">
     <view class="appbar-title">供应商管理</view>
     <view class="appbar-link" bindtap="openConfig" hover-class="tap">功能配置 <text>›</text></view>
   </view>
 
-  <scroll-view class="provider-scroll" scroll-y="true" enable-back-to-top="true">
+  <scroll-view class="provider-scroll" style="{{providerScrollStyle}}" scroll-y="true" enable-back-to-top="true">
+    <view class="provider-card">
     <view class="notice">这里只维护供应商、连接和模型库；主备模型由各功能配置页选择。API Key 仅管理员可见，保存后保持明文显示。</view>
     <view class="provider-layout">
       <view class="directory-panel">
@@ -27,7 +27,7 @@
       <view class="editor-panel">
         <view class="editor-title">{{editing ? '编辑供应商' : '新增供应商'}}<text wx:if="{{draft.name}}"> · {{draft.name}}</text></view>
         <view class="editor-copy">这里保存连接与模型清单；功能页只负责选择主备供应商和模型。</view>
-        <view class="field"><text class="field-label">供应商 ID</text><input value="{{draft.providerKey}}" data-field="providerKey" disabled="{{editing}}" placeholder="例如 dashscope" bindinput="onDraftInput" /></view>
+        <view wx:if="{{!editing}}" class="field"><text class="field-label">供应商 ID</text><input value="{{draft.providerKey}}" data-field="providerKey" placeholder="例如 dashscope" bindinput="onDraftInput" /></view>
         <view class="field"><text class="field-label">中文名称</text><input value="{{draft.name}}" data-field="name" placeholder="例如 阿里云百炼" bindinput="onDraftInput" /></view>
 
         <view class="auth-switch">
@@ -64,8 +64,9 @@
         </view>
         <view class="editor-note">功能配置页只读取这里保存的供应商和模型清单。删除前若仍被主备模型使用，系统会要求先改绑。</view>
         <view wx:if="{{message}}" class="message">{{message}}</view>
-        <view class="editor-actions"><button wx:if="{{editing}}" class="danger-btn" loading="{{busy}}" bindtap="deleteProvider" hover-class="tap">删除供应商</button><button class="primary-btn" loading="{{busy}}" bindtap="saveProvider" hover-class="tap">保存供应商</button></view>
+        <view class="editor-actions {{draft.isTemplate ? 'single' : ''}}"><button wx:if="{{editing && !draft.isTemplate}}" class="danger-btn" loading="{{busy}}" bindtap="deleteProvider" hover-class="tap">删除供应商</button><button class="primary-btn" loading="{{busy}}" bindtap="saveProvider" hover-class="tap">保存供应商</button></view>
       </view>
+    </view>
     </view>
     <view class="bottom-space"></view>
   </scroll-view>

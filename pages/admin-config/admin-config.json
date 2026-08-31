@@ -1,4 +1,5 @@
 {
   "navigationBarTitleText": "功能配置",
+  "navigationStyle": "custom",
   "enablePullDownRefresh": true
 }

@@ -154,6 +154,18 @@ function testConfirmationAndFailover() {
 
 function testCrudCasAndGuards() {
   const config = readyFixture();
+  const cleared = v2.transitionBinding(config, {
+    slot: "standard.face",
+    role: "backup",
+    providerKey: "",
+    modelId: "",
+    status: "not-ready",
+    confirmed: true
+  }, { expectedVersion: config.version });
+  const clearedBackup = cleared.bindings.find(item => item.slot === "standard.face" && item.role === "backup");
+  assert.strictEqual(clearedBackup.providerKey, "", "显式停用备用模型时不能回填旧供应商");
+  assert.strictEqual(clearedBackup.modelId, "", "显式停用备用模型时不能回填旧模型");
+  assert.strictEqual(clearedBackup.status, "not-ready");
   const guard = v2.canDeleteSupplier(config, "provider-a");
   assert.strictEqual(guard.allowed, false);
   assert.strictEqual(guard.reason, "PROVIDER_REFERENCED");

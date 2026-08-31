@@ -11,7 +11,7 @@ const TAB_DEFS = [
 const GROUP_DEFS = [
   { key: "standard", label: "开始新创作", note: "四项模型独立配置" },
   { key: "tencent", label: "开始新创作-腾讯版", note: "四项模型独立配置" },
-  { key: "shared", label: "共享视频模型", note: "照片转实况统一使用" }
+  { key: "shared", label: "共享视频模型", note: "照片转实况共用" }
 ];
 
 const SAMPLE_SUPPLIERS = [
@@ -38,6 +38,52 @@ const SAMPLE_BINDINGS = [
   { slot: "shared.video", role: "primary", providerKey: "lingyun", providerName: "凌云", modelId: "kling-video-v2", status: "ready" },
   { slot: "shared.video", role: "backup", providerKey: "volcengine", providerName: "火山方舟", modelId: "doubao-video", status: "ready" }
 ];
+
+function navigationLayout() {
+  let windowInfo = {};
+  let menuButton = {};
+  try {
+    if (typeof wx !== "undefined" && typeof wx.getWindowInfo === "function") {
+      windowInfo = wx.getWindowInfo() || {};
+    } else if (typeof wx !== "undefined" && typeof wx.getSystemInfoSync === "function") {
+      windowInfo = wx.getSystemInfoSync() || {};
+    }
+  } catch (error) {
+    windowInfo = {};
+  }
+  try {
+    if (typeof wx !== "undefined" && typeof wx.getMenuButtonBoundingClientRect === "function") {
+      menuButton = wx.getMenuButtonBoundingClientRect() || {};
+    }
+  } catch (error) {
+    menuButton = {};
+  }
+
+  const statusBarHeight = Math.max(0, Number(windowInfo.statusBarHeight) || 0);
+  const windowWidth = Math.max(320, Number(windowInfo.windowWidth || windowInfo.screenWidth) || 375);
+  const menuTop = Number(menuButton.top);
+  const menuHeight = Number(menuButton.height);
+  const menuLeft = Number(menuButton.left);
+  const hasMenuButton = Number.isFinite(menuTop)
+    && Number.isFinite(menuHeight)
+    && Number.isFinite(menuLeft)
+    && menuHeight > 0
+    && menuLeft > 0;
+  const navigationBarHeight = hasMenuButton
+    ? Math.max(52, (menuTop - statusBarHeight) * 2 + menuHeight)
+    : 52;
+  const navigationHeight = Math.round(statusBarHeight + navigationBarHeight);
+  const capsuleRightInset = hasMenuButton
+    ? Math.round(Math.max(14, windowWidth - menuLeft + 8))
+    : 14;
+
+  return {
+    appbarStyle: `height:${navigationHeight}px;padding-top:${Math.round(statusBarHeight)}px;padding-right:${capsuleRightInset}px`,
+    configScrollStyle: `height:calc(100vh - ${navigationHeight}px)`
+  };
+}
+
+const INITIAL_NAVIGATION_LAYOUT = navigationLayout();
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
@@ -142,10 +188,11 @@ function makeTab(groupKey, def, bindings, suppliers) {
     providerIndex: Math.max(0, providerOptions.findIndex(item => item.providerKey === providerKey)),
     modelOptions,
     modelIndex: Math.max(0, modelOptions.indexOf(primary.modelId || "")),
-    backupEnabled: Boolean(backup.enabled || (backup.providerKey && backup.modelId)),
+    backupEnabled: backup.status === "ready",
     backupProviderKey,
     backupProvider: backup.providerName || supplierName(suppliers, backupProviderKey),
     backupModel: backup.modelId || "",
+    backupTitle: `备用${def.label}${def.label.endsWith("模型") ? "" : "模型"}`,
     backupEndpoint: backup.endpoint || backupSupplier.endpoint || "尚未配置",
     backupKeyText: backupProviderKey ? "已保存 · 明文仅管理员可见" : "尚未配置",
     backupProviderOptions: providerOptions.filter(item => item.providerKey !== providerKey),
@@ -156,23 +203,36 @@ function makeTab(groupKey, def, bindings, suppliers) {
     timeout: Number(metadata.timeout === undefined ? (primary.timeout === undefined ? def.timeout : primary.timeout) : metadata.timeout),
     retry: Number(metadata.retry === undefined ? (primary.retry === undefined ? 1 : primary.retry) : metadata.retry),
     resolution: metadata.resolution || primary.resolution || (def.key === "video" ? "720p" : "1K"),
-    aspectRatio: metadata.aspectRatio || primary.aspectRatio || "3:4"
+    aspectRatio: metadata.aspectRatio || primary.aspectRatio || "3:4",
+    keepExistingKey: metadata.keepExistingKey !== false,
+    validateBeforeSave: metadata.validateBeforeSave !== false
   };
 }
 
 function backupEnabledText(backup) {
-  return backup && (backup.enabled || backup.providerKey || backup.modelId) ? "已启用" : "未启用";
+  return backup && backup.status === "ready" ? "已启用" : "未启用";
+}
+
+function pendingSummary(tabs) {
+  const pendingTabs = (tabs || []).filter(tab => !tab.ready);
+  return {
+    pendingCount: pendingTabs.length,
+    pendingText: pendingTabs.length === 1
+      ? pendingTabs[0].pendingText
+      : (pendingTabs.length > 1 ? `${pendingTabs.length} 项待配置` : "")
+  };
 }
 
 function buildGroups(bindings, suppliers) {
   return GROUP_DEFS.map(group => {
     const defs = group.key === "shared" ? [TAB_DEFS[4]] : TAB_DEFS.slice(0, 4);
-    return {
+    const tabs = defs.map(def => makeTab(group.key, def, bindings, suppliers));
+    return Object.assign({
       key: group.key,
       label: group.label,
       note: group.note,
-      tabs: defs.map(def => makeTab(group.key, def, bindings, suppliers))
-    };
+      tabs
+    }, pendingSummary(tabs));
   });
 }
 
@@ -207,8 +267,8 @@ Page({
     selectedGroupIndex: 0,
     selectedTabIndex: 0,
     selectedTab: null,
-    mainExpanded: true,
-    backupExpanded: true,
+    mainExpanded: false,
+    backupExpanded: false,
     advancedExpanded: false,
     imageResolutions: ["1K", "2K", "4K"],
     videoResolutions: ["480p", "720p", "1080p"],
@@ -216,13 +276,25 @@ Page({
     configuredCount: 0,
     totalCount: 8,
     backupCount: 0,
-    message: ""
+    saving: false,
+    message: "",
+    appbarStyle: INITIAL_NAVIGATION_LAYOUT.appbarStyle,
+    configScrollStyle: INITIAL_NAVIGATION_LAYOUT.configScrollStyle
   },
 
   onLoad(options) {
+    this.applyNavigationLayout();
     this.initialGroup = options && options.group ? options.group : "standard";
     this.initialTab = options && options.tab ? options.tab : "face";
     this.loadConfig();
+  },
+
+  onResize() {
+    this.applyNavigationLayout();
+  },
+
+  applyNavigationLayout() {
+    this.setData(navigationLayout());
   },
 
   onPullDownRefresh() {
@@ -256,6 +328,9 @@ Page({
       groups,
       selectedGroupIndex: groupIndex,
       selectedTabIndex: tabIndex,
+      mainExpanded: false,
+      backupExpanded: false,
+      advancedExpanded: false,
       configuredCount: summary.configuredCount,
       totalCount: summary.totalCount,
       backupCount: summary.backupCount,
@@ -271,7 +346,7 @@ Page({
     const group = this.data.groups[groupIndex];
     if (!group || !group.tabs[tabIndex]) return;
     const summary = summaryForGroup(group);
-    this.setData({ selectedGroupIndex: groupIndex, selectedTabIndex: tabIndex, selectedTab: group.tabs[tabIndex], mainExpanded: true, backupExpanded: true, advancedExpanded: false, configuredCount: summary.configuredCount, totalCount: summary.totalCount, backupCount: summary.backupCount, message: "" });
+    this.setData({ selectedGroupIndex: groupIndex, selectedTabIndex: tabIndex, selectedTab: group.tabs[tabIndex], mainExpanded: false, backupExpanded: false, advancedExpanded: false, configuredCount: summary.configuredCount, totalCount: summary.totalCount, backupCount: summary.backupCount, message: "" });
     this.loadVisibleSecrets();
   },
 
@@ -328,7 +403,9 @@ Page({
     const tab = groups[this.data.selectedGroupIndex] && groups[this.data.selectedGroupIndex].tabs[this.data.selectedTabIndex];
     if (!tab) return null;
     Object.assign(tab, patch || {});
-    const summary = summaryForGroup(groups[this.data.selectedGroupIndex]);
+    const group = groups[this.data.selectedGroupIndex];
+    Object.assign(group, pendingSummary(group.tabs));
+    const summary = summaryForGroup(group);
     this.setData({ groups, selectedTab: tab, configuredCount: summary.configuredCount, totalCount: summary.totalCount, backupCount: summary.backupCount });
     return tab;
   },
@@ -407,55 +484,81 @@ Page({
     this.updateCurrentTab({ aspectRatio: options[Number(event.detail.value) || 0] || "3:4" });
   },
 
+  onAdvancedOptionsChange(event) {
+    const values = event && event.detail && Array.isArray(event.detail.value) ? event.detail.value : [];
+    this.updateCurrentTab({
+      keepExistingKey: values.indexOf("keepExistingKey") >= 0,
+      validateBeforeSave: values.indexOf("validateBeforeSave") >= 0
+    });
+  },
+
   async saveCurrent() {
+    if (this.data.saving) return;
     const tab = this.currentTab();
     if (!tab) return;
-    this.setData({ message: "正在保存当前功能配置..." });
+    this.setData({ saving: true, message: "正在保存当前功能配置..." });
     let saved = false;
-    if (cloud && typeof cloud.saveAdminBindingV2 === "function") {
-      try {
-        const first = await cloud.saveAdminBindingV2({
-          expectedVersion: this.data.currentVersion,
-          binding: {
-            slot: tab.slot,
-            role: "primary",
-            providerKey: tab.providerKey,
-            modelId: tab.model,
-            status: tab.ready ? "ready" : "not-ready",
-            confirmed: true,
-            metadata: {
-              path: tab.path,
-              timeout: Number(tab.timeout) || 30,
-              retry: Number(tab.retry) || 0,
-              resolution: tab.resolution,
-              aspectRatio: tab.aspectRatio
-            }
-          }
-        });
-        if (!first || first.ok === false) throw new Error("PRIMARY_BINDING_SAVE_FAILED");
-        const nextVersion = Number(first && (first.version || first.providerConfigV2 && first.providerConfigV2.version)) || this.data.currentVersion + 1;
-        const backupReady = Boolean(tab.backupEnabled && tab.backupProviderKey && tab.backupModel);
-        const second = await cloud.saveAdminBindingV2({
-          expectedVersion: nextVersion,
-          binding: {
-            slot: tab.slot,
-            role: "backup",
-            providerKey: backupReady ? tab.backupProviderKey : "",
-            modelId: backupReady ? tab.backupModel : "",
-            status: backupReady ? "ready" : "not-ready",
-            confirmed: true
-          }
-        });
-        if (!second || second.ok === false) throw new Error("BACKUP_BINDING_SAVE_FAILED");
-        const finalVersion = Number(second && (second.version || second.providerConfigV2 && second.providerConfigV2.version)) || nextVersion + 1;
-        saved = Boolean(first && first.ok !== false && second && second.ok !== false);
-        if (saved) this.setData({ currentVersion: finalVersion });
-      } catch (error) {
-        saved = false;
+    let primarySaved = false;
+    let partialSave = false;
+    try {
+      if (!cloud || typeof cloud.saveAdminBindingV2 !== "function") {
+        throw new Error("BINDING_SAVE_UNAVAILABLE");
       }
+      const first = await cloud.saveAdminBindingV2({
+        expectedVersion: this.data.currentVersion,
+        binding: {
+          slot: tab.slot,
+          role: "primary",
+          providerKey: tab.providerKey,
+          modelId: tab.model,
+          status: tab.ready ? "ready" : "not-ready",
+          confirmed: true,
+          metadata: {
+            path: tab.path,
+            timeout: Number(tab.timeout) || 30,
+            retry: Number(tab.retry) || 0,
+            resolution: tab.resolution,
+            aspectRatio: tab.aspectRatio,
+            keepExistingKey: tab.keepExistingKey !== false,
+            validateBeforeSave: tab.validateBeforeSave !== false
+          }
+        }
+      });
+      if (!first || first.ok === false) throw new Error("PRIMARY_BINDING_SAVE_FAILED");
+      const nextVersion = Number(first && (first.version || first.providerConfigV2 && first.providerConfigV2.version)) || this.data.currentVersion + 1;
+      primarySaved = true;
+      this.setData({ currentVersion: nextVersion });
+      const backupReady = Boolean(tab.backupEnabled && tab.backupProviderKey && tab.backupModel);
+      const second = await cloud.saveAdminBindingV2({
+        expectedVersion: nextVersion,
+        binding: {
+          slot: tab.slot,
+          role: "backup",
+          providerKey: backupReady ? tab.backupProviderKey : "",
+          modelId: backupReady ? tab.backupModel : "",
+          status: backupReady ? "ready" : "not-ready",
+          confirmed: true
+        }
+      });
+      if (!second || second.ok === false) throw new Error("BACKUP_BINDING_SAVE_FAILED");
+      const finalVersion = Number(second && (second.version || second.providerConfigV2 && second.providerConfigV2.version)) || nextVersion + 1;
+      saved = true;
+      this.setData({ currentVersion: finalVersion, message: "已保存到云端" });
+    } catch (error) {
+      if (primarySaved) {
+        partialSave = true;
+        const group = this.data.groups[this.data.selectedGroupIndex];
+        this.initialGroup = group && group.key || "standard";
+        this.initialTab = tab.key || "face";
+        await this.loadConfig();
+        this.setData({ message: "主模型已保存，备用模型保存失败，已重新载入云端配置，请重试" });
+      } else {
+        this.setData({ message: "保存失败，请检查云端接口" });
+      }
+    } finally {
+      this.setData({ saving: false });
     }
-    this.setData({ message: saved ? "已保存到云端" : "保存失败，请检查云端接口" });
-    if (wx.showToast) wx.showToast({ title: saved ? "保存成功" : "保存失败", icon: "none" });
+    if (wx.showToast) wx.showToast({ title: saved ? "保存成功" : (partialSave ? "备用保存失败" : "保存失败"), icon: "none" });
   },
 
   openProvider() {

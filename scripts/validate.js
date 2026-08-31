@@ -30,11 +30,16 @@ const jsonFiles = [
   "scripts/cloud-database-index-manager/package.json"
 ];
 const optionalJsonFiles = ["project.private.config.json"];
+const adminV2ExecutableSmokeFiles = [
+  "scripts/admin-config-v2-smoke.js",
+  "scripts/admin-v2-layout-smoke.js",
+  "scripts/admin-v2-pages-smoke.js",
+  "scripts/admin-v2-pages-runtime-smoke.js"
+];
 // 新增的 smoke 单独列出，既做语法检查，也纳入必要文件检查。
 const smokeFiles = [
   "scripts/admin-config-v2-smoke.js",
-  "scripts/admin-v2-pages-smoke.js",
-  "scripts/admin-v2-pages-runtime-smoke.js",
+  ...adminV2ExecutableSmokeFiles,
   "scripts/admin-operations-runtime-smoke.js",
   "scripts/admin-provider-management-smoke.js",
   "scripts/admin-backup-model-target-smoke.js",
@@ -191,6 +196,9 @@ const jsFiles = [
   "scripts/qr-real-device-smoke.js",
   "scripts/deployment-script-smoke.js"
 ];
+for (const relative of smokeFiles) {
+  if (!jsFiles.includes(relative)) jsFiles.push(relative);
+}
 const pythonFiles = ["scripts/package-release.py"];
 const powerShellFiles = [
   "scripts/check-devtools.ps1",
@@ -484,6 +492,14 @@ for (const relative of required) {
   if (!fs.existsSync(path.join(root, relative))) {
     throw new Error(`缺少必要文件：${relative}`);
   }
+}
+
+for (const relative of adminV2ExecutableSmokeFiles) {
+  cp.execFileSync(
+    process.execPath,
+    [path.join(root, relative)],
+    { cwd: root, stdio: "inherit" }
+  );
 }
 
 cp.execFileSync(

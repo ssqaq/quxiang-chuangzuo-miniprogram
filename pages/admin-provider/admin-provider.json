@@ -1,4 +1,5 @@
 {
   "navigationBarTitleText": "供应商管理",
+  "navigationStyle": "custom",
   "enablePullDownRefresh": true
 }

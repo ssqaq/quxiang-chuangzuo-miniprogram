@@ -60,6 +60,10 @@ assert.ok(workbenchJs.includes('wx.navigateTo({ url: "/pages/admin-dashboard/adm
 const providerWxml = read("admin-provider", "wxml");
 const providerWxss = read("admin-provider", "wxss");
 const providerJs = read("admin-provider", "js");
+const providerJson = JSON.parse(read("admin-provider", "json"));
+assert.strictEqual(providerJson.navigationStyle, "custom", "供应商页必须关闭原生标题栏，避免出现双导航");
+assert.ok(!/class=["'][^"']*\bback\b/.test(providerWxml), "供应商页右图没有返回箭头");
+assert.ok(providerWxml.includes('class="provider-card"') && providerWxml.includes('wx:if="{{!editing}}"'), "供应商页必须使用右图外卡，编辑态隐藏不可变 ID");
 assert.ok(providerWxml.includes("供应商目录") && providerWxml.includes("新增供应商"));
 assert.ok(providerWxml.includes("测试连接") && providerWxml.includes("获取模型") && providerWxml.includes("手动确认模型"));
 assert.ok(providerWxml.includes("腾讯 TC3") && providerWxml.includes("人脸融合依赖"));
@@ -67,30 +71,49 @@ assert.ok(providerWxml.includes("删除供应商") && providerWxml.includes("保
 assert.ok(providerJs.includes("for (let index = 0; index < labels.length; index += 2)"), "功能标签必须每行最多两个");
 assert.ok(providerWxss.includes(".provider-list::-webkit-scrollbar") && providerWxss.includes("scrollbar-width:none"), "供应商列表应可滚动且隐藏滚动条");
 assert.ok(providerJs.includes("selectedFetchedModel: \"\"") && providerJs.includes("modelPickerOpen: models.length > 0"), "获取真实模型后必须等待管理员手动确认");
-assert.ok(providerWxss.includes("height:103.25rpx") && providerWxss.includes("flex:0 0 890rpx"), "375px 宽度下供应商目录首屏应稳定显示八条");
+assert.ok(providerWxss.includes("height:113.5rpx") && providerWxss.includes("flex:0 0 992rpx"), "375px 宽度下供应商目录首屏应稳定显示八条");
+assert.ok(providerJs.includes("mergeDirectoryTemplates") && providerJs.includes("isTemplate: true"), "云端目录不足八条时必须补齐可编辑的未配置模板");
+assert.ok(providerJs.includes("const nextProviders = mergeDirectoryTemplates(providers)") && providerJs.includes("providers: nextProviders"), "删除供应商后必须立即补齐目录模板，不能留下空白");
 assert.ok(!/(sk-[A-Za-z0-9_-]{8,}|AKID[A-Za-z0-9_-]{4,}|secret-example)/.test(providerJs), "供应商演示数据不得包含明文密钥");
 assert.ok(!providerJs.includes("fallbackModelsFor") && !providerJs.includes("供应商已保存到当前页面") && !providerJs.includes("已从当前页面移除"), "正式供应商页不得伪造模型或本地保存成功");
 
 const configWxml = read("admin-config", "wxml");
 const configJs = read("admin-config", "js");
+const configJson = JSON.parse(read("admin-config", "json"));
+assert.strictEqual(configJson.navigationStyle, "custom", "功能配置页必须关闭原生标题栏，避免出现双导航");
+assert.ok(!/class=["'][^"']*\bback\b/.test(configWxml), "功能配置右图没有返回箭头");
 assert.ok(configJs.includes('"standard.face"') && configJs.includes('"tencent.face"') && configJs.includes('"shared.video"'));
 assert.ok(configWxml.includes("主模型") && configWxml.includes("收回") && configWxml.includes("展开"));
-assert.ok(configWxml.includes("备用{{selectedTab.label}}") && configWxml.includes("高级参数"));
-assert.ok(configWxml.includes("超时策略") && configWxml.includes("失败策略") && configWxml.includes("重试次数"));
+assert.ok(configWxml.includes("{{selectedTab.backupTitle}}") && configWxml.includes("高级参数"));
+assert.ok(configJs.includes('backupTitle: `备用${def.label}${def.label.endsWith("模型") ? "" : "模型"}`'), "备用模型标题必须和右图一致，同时避免出现“模型模型”");
+assert.ok(["standard-group", "tencent-group", "shared-group"].every(className => configWxml.includes(className)), "功能入口必须拆成普通、腾讯和共享视频三类结构");
+assert.ok(configWxml.includes('wx:for="{{groups[0].tabs}}"') && configWxml.includes('wx:for="{{groups[1].tabs}}"') && configWxml.includes('wx:for="{{groups[2].tabs}}"'), "三类入口必须分别绑定真实分组数据");
+assert.ok(!/class=["'][^"']*\btab-(?:icon|status)\b/.test(configWxml) && !configWxml.includes("{{tab.icon}}") && !configWxml.includes("{{tab.status}}"), "右图入口只能显示单行功能名称");
+assert.ok(configWxml.indexOf('class="summary-card"') < configWxml.indexOf('class="main-model-card') && configWxml.indexOf('class="main-model-card') < configWxml.indexOf('class="failure-card"'), "主模型展开态必须位于总览和故障切换之间");
+assert.ok(configWxml.indexOf('class="failure-card"') < configWxml.indexOf("advanced-body") && configWxml.indexOf("advanced-body") < configWxml.indexOf('class="save-btn"'), "高级参数必须并入故障切换卡");
+assert.ok(!/class=["'][^"']*(?:^|\s)(?:model-card|advanced-card)(?:\s|$)/.test(configWxml), "不能恢复旧版主模型或高级参数卡类名");
+assert.ok(configWxml.includes("超时策略") && configWxml.includes("失败策略") && configWxml.includes("重试次数") && configWxml.includes("保留原 Key") && configWxml.includes("保存前校验"));
+assert.ok(configWxml.includes("启用当前功能的备用模型") && configWxml.includes('disabled="{{saving}}"'), "备用文案和保存按钮锁必须与右图及保存流程一致");
 assert.ok(configWxml.includes("1K") === false, "清晰度选项应来自页面数据，避免 WXML 数组字面量编译问题");
 assert.ok(configJs.includes('["1K", "2K", "4K"]') && configJs.includes('["480p", "720p", "1080p"]'));
 assert.ok(configJs.includes('["3:4", "9:16", "16:9"]'));
 assert.ok(!configWxml.includes("备用超时") && !configWxml.includes("图片生成模式"));
 assert.ok(configJs.includes("model.confirmed === true") && configJs.includes("payload && payload.supplierModels"), "功能配置只能合并并选择已确认模型");
 assert.ok(configJs.includes("summaryForGroup") && configWxml.includes("{{configuredCount}} / {{totalCount}}"), "配置总览必须按当前分组统计");
+assert.ok(configWxml.includes("{{backupCount}} 个已启用") && !/>\s*4\s*\/\s*4\s*</.test(configWxml) && !/>\s*3\s*个已启用\s*</.test(configWxml), "总览数字必须来自真实配置，不能照截图硬编码");
 assert.ok(configJs.includes("getAdminProviderSecretsV2") && configWxml.includes("selectedTab.backupKeyText"), "管理员明文凭据必须从专用接口按供应商读取");
 assert.ok(configWxml.includes("selectedTab.backupEndpoint") && !configWxml.includes("selectedTab.backupProvider || '尚未配置'"), "备用 API 端点必须显示供应商真实端点");
 assert.ok((configJs.match(/saveAdminBindingV2\(/g) || []).length === 2, "主备绑定必须连续执行两次 CAS 保存");
 assert.ok(!/(sk-[A-Za-z0-9_-]{8,}|AKID[A-Za-z0-9_-]{4,}|secret-example)/.test(configJs), "功能配置演示数据不得包含明文密钥");
 assert.ok(!configJs.includes("已保存当前页面配置"), "功能配置云端失败时不得假报保存成功");
+assert.ok(configJs.includes("if (this.data.saving) return") && configJs.includes("主模型已保存，备用模型保存失败"), "保存必须防双击并处理两段 CAS 半保存");
 
 const configWxss = read("admin-config", "wxss");
-assert.ok(configWxss.includes("grid-template-columns:repeat(4,minmax(0,1fr))"), "四项页签必须固定为四列，不能横向滚动");
+assert.ok(/grid-template-columns:\s*repeat\(4\s*,\s*minmax\(0\s*,\s*1fr\)\)/.test(configWxss), "四项页签必须固定为四列，不能横向滚动");
+assert.ok(/font-family:\s*["']PingFang SC["']\s*,/.test(configWxss), "功能配置页必须优先使用 PingFang SC");
+assert.ok(configWxss.includes("env(safe-area-inset-top)") && configWxss.includes("env(safe-area-inset-bottom)"), "自定义导航和页面底部必须处理安全区");
+assert.ok(/overflow-x:\s*hidden/.test(configWxss) && /white-space:\s*nowrap/.test(configWxss), "窄屏下功能入口不得换行或横向溢出");
+assert.ok(fs.existsSync(path.join(__dirname, "admin-v2-layout-smoke.js")), "缺少右图布局专项 smoke");
 
 const operations = read("admin-operations", "wxml");
 const operationsJs = read("admin-operations", "js");
@@ -103,4 +126,4 @@ assert.ok(operations.includes("toggleRow") && operations.includes("switchView"),
 assert.ok(operationsWxss.includes("grid-template-columns:repeat(4,minmax(0,1fr))") && operationsWxss.includes("overflow:hidden"), "运营页 375px 下不得横向溢出");
 assert.ok(fs.existsSync(path.join(__dirname, "admin-operations-runtime-smoke.js")), "缺少运营页运行 smoke");
 
-console.log("admin-v2-pages-smoke: PASS (dashboard/provider/config/375/UTF-8/interactions)");
+console.log("admin-v2-pages-smoke: PASS (dashboard/provider/config/right-reference/375/UTF-8/interactions)");

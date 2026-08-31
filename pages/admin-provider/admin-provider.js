@@ -94,6 +94,71 @@ function secretValue(value) {
   return value === null || value === undefined ? "" : String(value);
 }
 
+function mergeDirectoryTemplates(providers) {
+  const records = (Array.isArray(providers) ? providers : []).map(normaliseProvider);
+  const existing = new Set(records.map(item => item.providerKey));
+  const existingNames = new Set(records.map(item => item.name));
+  SAMPLE_PROVIDERS.forEach(sample => {
+    if (existing.has(sample.providerKey) || existingNames.has(sample.name)) return;
+    records.push(normaliseProvider(Object.assign({}, sample, {
+      apiKey: "",
+      confirmedModels: [],
+      enabled: false,
+      isTemplate: true,
+      selectedModel: ""
+    })));
+    existing.add(sample.providerKey);
+    existingNames.add(sample.name);
+  });
+  return records;
+}
+
+function navigationLayout() {
+  let windowInfo = {};
+  let menuButton = {};
+  try {
+    if (typeof wx !== "undefined" && typeof wx.getWindowInfo === "function") {
+      windowInfo = wx.getWindowInfo() || {};
+    } else if (typeof wx !== "undefined" && typeof wx.getSystemInfoSync === "function") {
+      windowInfo = wx.getSystemInfoSync() || {};
+    }
+  } catch (error) {
+    windowInfo = {};
+  }
+  try {
+    if (typeof wx !== "undefined" && typeof wx.getMenuButtonBoundingClientRect === "function") {
+      menuButton = wx.getMenuButtonBoundingClientRect() || {};
+    }
+  } catch (error) {
+    menuButton = {};
+  }
+
+  const statusBarHeight = Math.max(0, Number(windowInfo.statusBarHeight) || 0);
+  const windowWidth = Math.max(320, Number(windowInfo.windowWidth || windowInfo.screenWidth) || 375);
+  const menuTop = Number(menuButton.top);
+  const menuHeight = Number(menuButton.height);
+  const menuLeft = Number(menuButton.left);
+  const hasMenuButton = Number.isFinite(menuTop)
+    && Number.isFinite(menuHeight)
+    && Number.isFinite(menuLeft)
+    && menuHeight > 0
+    && menuLeft > 0;
+  const navigationBarHeight = hasMenuButton
+    ? Math.max(52, (menuTop - statusBarHeight) * 2 + menuHeight)
+    : 52;
+  const navigationHeight = Math.round(statusBarHeight + navigationBarHeight);
+  const capsuleRightInset = hasMenuButton
+    ? Math.round(Math.max(14, windowWidth - menuLeft + 8))
+    : 14;
+
+  return {
+    appbarStyle: `height:${navigationHeight}px;padding-top:${Math.round(statusBarHeight)}px;padding-right:${capsuleRightInset}px`,
+    providerScrollStyle: `height:calc(100vh - ${navigationHeight}px)`
+  };
+}
+
+const INITIAL_NAVIGATION_LAYOUT = navigationLayout();
+
 Page({
   data: {
     loading: true,
@@ -114,11 +179,22 @@ Page({
     busy: false,
     message: "",
     canMoveUp: false,
-    canMoveDown: false
+    canMoveDown: false,
+    appbarStyle: INITIAL_NAVIGATION_LAYOUT.appbarStyle,
+    providerScrollStyle: INITIAL_NAVIGATION_LAYOUT.providerScrollStyle
   },
 
   onLoad() {
+    this.applyNavigationLayout();
     this.loadRegistry();
+  },
+
+  onResize() {
+    this.applyNavigationLayout();
+  },
+
+  applyNavigationLayout() {
+    this.setData(navigationLayout());
   },
 
   onPullDownRefresh() {
@@ -136,9 +212,10 @@ Page({
       }
     }
     const payload = result && result.ok !== false && result.data ? result.data : (result && result.ok !== false ? result : null);
-    const providers = payload && Array.isArray(payload.suppliers)
+    const savedProviders = payload && Array.isArray(payload.suppliers)
       ? this.mergeModels(payload.suppliers, payload.supplierModels)
       : [];
+    const providers = mergeDirectoryTemplates(savedProviders);
     this.setData({
       loading: false,
       source: payload ? "cloud" : "local",
@@ -172,6 +249,8 @@ Page({
       : event && event.index;
     const index = Math.max(0, Math.min(Number(rawIndex) || 0, Math.max(0, this.data.providers.length - 1)));
     const provider = normaliseProvider(this.data.providers[index] || blankProvider());
+    const nextProvider = this.data.providers[index + 1];
+    const previousProvider = this.data.providers[index - 1];
     if (closePicker) this.closeModelPicker();
     this.setData({
       selectedIndex: index,
@@ -181,8 +260,8 @@ Page({
       capabilities: markCapabilities(provider.capabilities),
       modelStatus: provider.selectedModel ? `已选 ${provider.selectedModel}` : "尚未选择模型",
       modelStatusTone: provider.selectedModel ? "ready" : "off",
-      canMoveUp: index > 0,
-      canMoveDown: index < this.data.providers.length - 1,
+      canMoveUp: !provider.isTemplate && index > 0 && previousProvider && !previousProvider.isTemplate,
+      canMoveDown: !provider.isTemplate && index < this.data.providers.length - 1 && nextProvider && !nextProvider.isTemplate,
       activeProviderId: `provider-${index}`
     });
     this.loadProviderSecret(provider.providerKey);
@@ -271,6 +350,7 @@ Page({
     const next = index + direction;
     const providers = clone(this.data.providers);
     if (index < 0 || index >= providers.length || next < 0 || next >= providers.length) return;
+    if (providers[index].isTemplate || providers[next].isTemplate) return;
     const temp = providers[index];
     providers[index] = providers[next];
     providers[next] = temp;
@@ -281,7 +361,7 @@ Page({
         const result = await cloud.saveAdminProviderV2({
           operation: "reorder",
           expectedVersion: this.data.currentVersion,
-          order: providers.map(provider => provider.providerKey)
+          order: providers.filter(provider => !provider.isTemplate).map(provider => provider.providerKey)
         });
         saved = Boolean(result && result.ok !== false);
         nextVersion = Number(result && (result.version || result.providerConfigV2 && result.providerConfigV2.version)) || nextVersion;
@@ -323,6 +403,7 @@ Page({
     delete copy.secretKey;
     delete copy.credentials;
     delete copy.tc3;
+    delete copy.isTemplate;
     copy.auth = source.authProtocol === "tencent-tc3"
       ? {
         protocol: "tencent-tc3",
@@ -408,6 +489,8 @@ Page({
     }
     const providers = clone(this.data.providers);
     const index = this.data.editing ? this.data.selectedIndex : providers.length;
+    const creatingFromTemplate = Boolean(draft.isTemplate);
+    delete draft.isTemplate;
     if (this.data.editing && index >= 0 && index < providers.length) providers[index] = draft;
     else providers.push(draft);
     this.setData({ busy: true, message: "正在保存供应商..." });
@@ -417,7 +500,7 @@ Page({
         const publicProvider = this.publicDraft(draft);
         const tc3 = draft.tc3 || {};
         const result = await cloud.saveAdminProviderV2({
-          operation: this.data.editing ? "update" : "create",
+          operation: this.data.editing && !creatingFromTemplate ? "update" : "create",
           expectedVersion: this.data.currentVersion,
           providerKey: draft.providerKey,
           provider: publicProvider,
@@ -457,6 +540,7 @@ Page({
     const index = this.data.selectedIndex;
     if (!this.data.editing || index < 0 || index >= this.data.providers.length) return;
     const provider = this.data.providers[index];
+    if (provider.isTemplate) return;
     const doDelete = async () => {
       this.setData({ busy: true, message: "正在删除供应商..." });
       let deleted = false;
@@ -481,8 +565,9 @@ Page({
       }
       const providers = clone(this.data.providers);
       providers.splice(index, 1);
-      this.setData({ busy: false, providers, providerCountText: `${providers.length} 个档案`, message: "供应商已删除" });
-      if (providers.length) this.selectProvider({ index: Math.min(index, providers.length - 1) });
+      const nextProviders = mergeDirectoryTemplates(providers);
+      this.setData({ busy: false, providers: nextProviders, providerCountText: `${nextProviders.length} 个档案`, message: "供应商已删除" });
+      if (nextProviders.length) this.selectProvider({ index: Math.min(index, nextProviders.length - 1) });
       else this.startAddProvider();
     };
     if (wx.showModal) {

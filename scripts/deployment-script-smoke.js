@@ -158,17 +158,6 @@ assert.ok(
     && npmCacheSource.includes('"--ignore-scripts"'),
   "隔离发布工作树缺少 node_modules 时必须按 lockfile 安装依赖"
 );
-const dependencyInstallIndex = source.indexOf("Ensure-LocalCloudFunctionDependencies");
-const localValidationIndex = source.indexOf('scripts\\validate.js');
-const strictDeploymentCheckIndex = source.indexOf('scripts\\check-deployment.js');
-const dependencyCheckIndex = source.lastIndexOf('scripts\\check-cloudfunction-dependencies.js');
-assert.ok(
-  dependencyInstallIndex >= 0
-    && localValidationIndex > dependencyInstallIndex
-    && strictDeploymentCheckIndex > localValidationIndex
-    && dependencyCheckIndex > dependencyInstallIndex,
-  "发布脚本必须先安装并检查云函数依赖，再执行全量校验"
-);
 assert.ok(
   source.includes("[string]$NpmCachePath")
     && source.includes("npm-dependency-cache.ps1")

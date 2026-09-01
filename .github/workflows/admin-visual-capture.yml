@@ -10,6 +10,8 @@ on:
       - "scripts/admin-v2-visual-*.js"
       - "scripts/admin-v2-preview-entry*.js"
       - "scripts/admin-v2-visual-runner*"
+      - "scripts/admin-v2-devtools-cli-capture*"
+      - "scripts/ensure-devtools-9437*"
       - "scripts/admin-v2-state-matrix*.js"
       - "scripts/admin-v2-device-matrix*.js"
       - "visual-evidence/**"
@@ -44,6 +46,12 @@ jobs:
       - name: Verify unified runner
         shell: pwsh
         run: ./scripts/admin-v2-visual-runner.ps1 -ProjectPath "$env:GITHUB_WORKSPACE" -CliPath "$env:WECHAT_DEVTOOLS_CLI" -AutomatorPath "$env:MINIPROGRAM_AUTOMATOR_PATH" -CheckOnly
+      - name: Verify DevTools skill CLI capture contract
+        shell: pwsh
+        run: node scripts/admin-v2-devtools-cli-capture-smoke.js
+      - name: Verify 9437 launcher contract
+        shell: pwsh
+        run: node scripts/ensure-devtools-9437-smoke.js
       - name: Capture real simulator states
         shell: pwsh
         run: ./scripts/admin-v2-visual-runner.ps1 -ProjectPath "$env:GITHUB_WORKSPACE" -CliPath "$env:WECHAT_DEVTOOLS_CLI" -AutomatorPath "$env:MINIPROGRAM_AUTOMATOR_PATH" -OutputPath "visual-evidence/ci-capture" -AllStates

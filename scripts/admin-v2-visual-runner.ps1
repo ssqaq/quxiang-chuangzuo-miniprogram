@@ -5,6 +5,8 @@ param(
   [string]$OutputPath = "",
   [int]$ConnectPort = 0,
   [string]$State = "",
+  [string]$Client = "default",
+  [switch]$DevtoolsCli,
   [switch]$AllStates,
   [switch]$CheckOnly
 )
@@ -18,6 +20,8 @@ if ($OutputPath) { $runnerArgs += @("--output", "$OutputPath") }
 if ($ConnectPort -gt 0) { $runnerArgs += @("--connect-port", "$ConnectPort") }
 if ($State) { $runnerArgs += @("--state", "$State") }
 if ($AllStates) { $runnerArgs += "--all-states" }
+if ($DevtoolsCli) { $runnerArgs += "--devtools-cli" }
+if ($Client) { $runnerArgs += @("--client", "$Client") }
 if ($CheckOnly) { $runnerArgs += "--check-only" }
 & node @runnerArgs
 exit $LASTEXITCODE

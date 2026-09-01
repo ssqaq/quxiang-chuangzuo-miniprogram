@@ -1,0 +1,233 @@
+{
+  "schemaVersion": 1,
+  "status": "pass",
+  "ok": true,
+  "viewport": {
+    "width": 390,
+    "height": 844
+  },
+  "fontStack": "\"Microsoft YaHei\",\"PingFang SC\",\"SimHei\",system-ui,sans-serif",
+  "pages": [
+    {
+      "name": "dashboard",
+      "wxml": "pages/admin-dashboard/admin-dashboard.wxml",
+      "wxss": "pages/admin-dashboard/admin-dashboard.wxss",
+      "sourceSha256": {
+        "wxml": "493f30c80a8024c3c6aa58907dccd07f260025eba13b6e3c109682bd6e7a6035",
+        "wxss": "54b839f6ffc0ca7f57769a8e06324518471d2276786c44b068c9d477a7dcb68d"
+      },
+      "missingSelectors": [],
+      "checks": [
+        {
+          "label": "page font-family",
+          "selector": "page",
+          "property": "font-family",
+          "expected": "\"Microsoft YaHei\",\"PingFang SC\",\"SimHei\",system-ui,sans-serif",
+          "actual": "\"Microsoft YaHei\",\"PingFang SC\",\"SimHei\",system-ui,sans-serif",
+          "pass": true
+        },
+        {
+          "label": "page overflow-x",
+          "selector": ".dashboard-page",
+          "property": "overflow-x",
+          "expected": "hidden",
+          "actual": "hidden",
+          "pass": true
+        },
+        {
+          "label": "scroll width",
+          "selector": ".dashboard-scroll",
+          "property": "width",
+          "expected": "calc(100% - 48rpx)",
+          "actual": "calc(100% - 48rpx)",
+          "pass": true
+        },
+        {
+          "label": "title font-size",
+          "selector": ".appbar-title",
+          "property": "font-size",
+          "expected": "42rpx",
+          "actual": "42rpx",
+          "pass": true
+        }
+      ],
+      "pass": true
+    },
+    {
+      "name": "operations",
+      "wxml": "pages/admin-operations/admin-operations.wxml",
+      "wxss": "pages/admin-operations/admin-operations.wxss",
+      "sourceSha256": {
+        "wxml": "b1918a82bda915c98787456bdf34871ff170b7b1a731ad8c435a84bdda177bd6",
+        "wxss": "9c2023e982c7679dcf5dea77605143537dcd133828b2dd33fa2741fb7fa8f8b4"
+      },
+      "missingSelectors": [],
+      "checks": [
+        {
+          "label": "page font-family",
+          "selector": "page",
+          "property": "font-family",
+          "expected": "\"Microsoft YaHei\",\"PingFang SC\",\"SimHei\",system-ui,sans-serif",
+          "actual": "\"Microsoft YaHei\",\"PingFang SC\",\"SimHei\",system-ui,sans-serif",
+          "pass": true
+        },
+        {
+          "label": "page overflow-x",
+          "selector": ".operations-page",
+          "property": "overflow-x",
+          "expected": "hidden",
+          "actual": "hidden",
+          "pass": true
+        },
+        {
+          "label": "scroll width",
+          "selector": ".operations-scroll",
+          "property": "width",
+          "expected": "calc(100% - 48rpx)",
+          "actual": "calc(100% - 48rpx)",
+          "pass": true
+        },
+        {
+          "label": "detail toggle width",
+          "selector": ".detail-toggle",
+          "property": "width",
+          "expected": "112rpx",
+          "actual": "112rpx",
+          "pass": true
+        },
+        {
+          "label": "detail toggle height",
+          "selector": ".detail-toggle",
+          "property": "height",
+          "expected": "65rpx",
+          "actual": "65rpx",
+          "pass": true
+        },
+        {
+          "label": "detail toggle font-size",
+          "selector": ".detail-toggle",
+          "property": "font-size",
+          "expected": "19rpx",
+          "actual": "19rpx",
+          "pass": true
+        }
+      ],
+      "pass": true
+    },
+    {
+      "name": "config",
+      "wxml": "pages/admin-config/admin-config.wxml",
+      "wxss": "pages/admin-config/admin-config.wxss",
+      "sourceSha256": {
+        "wxml": "4d2e030e47f5855f673fd1e36d61a30b52e4485031bf62fd4ab69e0d19b12513",
+        "wxss": "78544e3850a76a57cbecfb933969d9d37921ccae1a598b0ded8af78e35de7212"
+      },
+      "missingSelectors": [],
+      "checks": [
+        {
+          "label": "page font-family",
+          "selector": "page",
+          "property": "font-family",
+          "expected": "\"Microsoft YaHei\",\"PingFang SC\",\"SimHei\",system-ui,sans-serif",
+          "actual": "\"Microsoft YaHei\",\"PingFang SC\",\"SimHei\",system-ui,sans-serif",
+          "pass": true
+        },
+        {
+          "label": "page overflow-x",
+          "selector": ".config-page",
+          "property": "overflow-x",
+          "expected": "hidden",
+          "actual": "hidden",
+          "pass": true
+        },
+        {
+          "label": "scroll width",
+          "selector": ".config-scroll",
+          "property": "width",
+          "expected": "100%",
+          "actual": "100%",
+          "pass": true
+        },
+        {
+          "label": "save width",
+          "selector": ".config-page .save-btn",
+          "property": "width",
+          "expected": "100%",
+          "actual": "100%",
+          "pass": true
+        },
+        {
+          "label": "save height",
+          "selector": ".save-btn",
+          "property": "height",
+          "expected": "96rpx",
+          "actual": "96rpx",
+          "pass": true
+        },
+        {
+          "label": "advanced value alignment",
+          "selector": ".advanced-selects .picker-value",
+          "property": "text-align",
+          "expected": "center",
+          "actual": "center",
+          "pass": true
+        }
+      ],
+      "pass": true
+    },
+    {
+      "name": "provider",
+      "wxml": "pages/admin-provider/admin-provider.wxml",
+      "wxss": "pages/admin-provider/admin-provider.wxss",
+      "sourceSha256": {
+        "wxml": "8980f364b683a72408d4f7a48cc0fa7d8802bf239928e3e881e5a621051a12ca",
+        "wxss": "5d7d186e5c4923db64203cf9414e9c80942d65fcf1de4117b48caa5b2b5b3307"
+      },
+      "missingSelectors": [],
+      "checks": [
+        {
+          "label": "page font-family",
+          "selector": "page",
+          "property": "font-family",
+          "expected": "\"Microsoft YaHei\",\"PingFang SC\",\"SimHei\",system-ui,sans-serif",
+          "actual": "\"Microsoft YaHei\",\"PingFang SC\",\"SimHei\",system-ui,sans-serif",
+          "pass": true
+        },
+        {
+          "label": "page overflow-x",
+          "selector": ".provider-page",
+          "property": "overflow-x",
+          "expected": "hidden",
+          "actual": "hidden",
+          "pass": true
+        },
+        {
+          "label": "scroll width",
+          "selector": ".provider-scroll",
+          "property": "width",
+          "expected": "100%",
+          "actual": "100%",
+          "pass": true
+        },
+        {
+          "label": "two-column layout",
+          "selector": ".provider-layout",
+          "property": "grid-template-columns",
+          "expected": "252rpx minmax(0,1fr)",
+          "actual": "252rpx minmax(0,1fr)",
+          "pass": true
+        },
+        {
+          "label": "field label font-size",
+          "selector": ".field-label",
+          "property": "font-size",
+          "expected": "19rpx",
+          "actual": "19rpx",
+          "pass": true
+        }
+      ],
+      "pass": true
+    }
+  ],
+  "checkedAt": "2026-09-01T22:18:43.044Z"
+}

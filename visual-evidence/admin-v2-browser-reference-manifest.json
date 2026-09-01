@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "admin-v2-reference-20260901-v1",
+  "fontProfile": "admin-reference-font-v1",
+  "stateId": "collapsed-default-v1",
+  "renderer": "codex-in-app-browser",
+  "comparisonBasis": "same-active-tab-viewport",
+  "viewport": {
+    "width": 390,
+    "height": 844,
+    "dpr": 1
+  },
+  "capturedAt": "2026-09-01T14:57:04.956Z",
+  "pages": [
+    {
+      "name": "dashboard",
+      "url": "http://localhost:49713/dashboard/?demo=1&fixture=admin-v2-reference-20260901-v1",
+      "file": "visual-evidence/browser-reference-v5/dashboard-browser-390x844.png",
+      "bytes": 46994,
+      "sha256": "8151c49bfc3cf54b9af8c802f178a80875f93c2486c8dac5a60be58ce7b0aa2a"
+    },
+    {
+      "name": "operations",
+      "url": "http://localhost:49713/dashboard/operations.html?view=usage&demo=1&fixture=admin-v2-reference-20260901-v1",
+      "file": "visual-evidence/browser-reference-v5/operations-browser-390x844.png",
+      "bytes": 31651,
+      "sha256": "41cf331017d6e59efda84d1fbfc12f962a759bc2780cc39558836362c019802a"
+    },
+    {
+      "name": "config",
+      "url": "http://localhost:49713/config/?demo=1&fixture=admin-v2-reference-20260901-v1",
+      "file": "visual-evidence/browser-reference-v5/config-browser-390x844.png",
+      "bytes": 42969,
+      "sha256": "c92a46b516dad2a08b088a4b892652efe5fea3dd6a4b8e8c73daa44040d4deb9"
+    },
+    {
+      "name": "provider",
+      "url": "http://localhost:49713/provider/?demo=1&fixture=admin-v2-reference-20260901-v1",
+      "file": "visual-evidence/browser-reference-v5/provider-browser-390x844.png",
+      "bytes": 62100,
+      "sha256": "47aeee77f404928853fdfd15a987a2f08b95b9f5ed645416ad743991d2add7b9"
+    }
+  ]
+}

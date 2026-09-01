@@ -80,6 +80,15 @@ function normaliseProvider(source) {
   const tc3 = Object.assign({}, authExtra, inputTc3, {
     apiVersion: inputTc3.apiVersion || authExtra.version || ""
   });
+  const confirmedModels = Array.isArray(input.confirmedModels)
+    ? input.confirmedModels.slice()
+    : Array.isArray(input.models)
+      ? input.models.slice()
+      : [];
+  const hasExplicitSelectedModel = Object.prototype.hasOwnProperty.call(input, "selectedModel");
+  const selectedModel = hasExplicitSelectedModel
+    ? String(input.selectedModel || "")
+    : String(input.modelId || confirmedModels[0] || "");
   return Object.assign(blankProvider(), input, {
     providerKey: String(input.providerKey || input.id || input.key || ""),
     name: String(input.name || input.label || "未命名供应商"),
@@ -87,8 +96,9 @@ function normaliseProvider(source) {
     endpoint: String(input.endpoint || input.baseUrl || ""),
     apiKey: String(input.apiKey || ""),
     capabilities,
-    models: Array.isArray(input.models) ? input.models.slice() : [],
-    confirmedModels: Array.isArray(input.confirmedModels) ? input.confirmedModels.slice() : [],
+    models: Array.isArray(input.models) ? input.models.slice() : confirmedModels.slice(),
+    confirmedModels,
+    selectedModel,
     configured,
     tc3: Object.assign(blankProvider().tc3, tc3),
     capabilityText: capabilities.map(key => CAPABILITY_LABELS[key] || key).join(" · ") || "暂未选择能力",
@@ -172,9 +182,10 @@ function parseSecretReadResult(result) {
   };
 }
 
-function secretStatusFor(state, values, dirty) {
+function secretStatusFor(state, values, dirty, options) {
   const source = values && typeof values === "object" ? values : emptySecretValues();
   const changed = dirty && typeof dirty === "object" ? dirty : cleanSecretDirty();
+  const configured = Boolean(options && options.configured);
   const output = {};
   SECRET_FIELDS.forEach((item) => {
     if (changed[item.key]) {
@@ -185,6 +196,8 @@ function secretStatusFor(state, values, dirty) {
       output[item.key] = { text: "读取失败 · 已保留", tone: "failure" };
     } else if (source[item.key] !== null && source[item.key] !== "") {
       output[item.key] = { text: "已读取明文", tone: "ready" };
+    } else if (configured) {
+      output[item.key] = { text: "已保存 · 明文仅管理员可见", tone: "ready" };
     } else {
       output[item.key] = { text: "未配置", tone: "empty" };
     }
@@ -478,7 +491,9 @@ Page({
     if (!provider.isTemplate && this.demoMode) {
       this.setData({
         secretReadState: "empty",
-        secretStatus: secretStatusFor("empty", emptySecretValues(), secretDirty)
+        secretStatus: secretStatusFor("empty", emptySecretValues(), secretDirty, {
+          configured: provider.configured
+        })
       });
     }
   },

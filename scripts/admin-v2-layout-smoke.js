@@ -77,6 +77,7 @@ assert.strictEqual(json.navigationStyle, "custom", "功能配置页必须使用�
 assert.ok(wxml.includes('class="appbar"') && wxml.includes("功能配置") && wxml.includes("供应商管理"), "自定义导航必须保留标题和供应商入口");
 assert.ok(!/class=["'][^"']*\bback\b/.test(wxml), "功能配置右图没有返回箭头");
 assert.ok(wxml.includes('style="{{appbarStyle}}"') && wxml.includes('style="{{configScrollStyle}}"'), "自定义导航和滚动区必须绑定真机测量结果");
+assert.ok(wxml.includes('class="save-btn return-btn"') && wxml.includes('bindtap="backToDashboard"'), "保存按钮下一行必须有同规格返回控制台按钮");
 assert.ok(js.includes("getMenuButtonBoundingClientRect") && js.includes("statusBarHeight") && js.includes("capsuleRightInset"), "自定义导航必须读取状态栏和微信胶囊位置");
 assert.ok(/const\s+adminV2ExecutableSmokeFiles\s*=/.test(validate), "validate 必须单列本次需要真正执行的页面 smoke");
 assert.ok(/for\s*\(const relative of adminV2ExecutableSmokeFiles\)[\s\S]*?execFileSync/.test(validate), "validate 必须真正执行本次页面 smoke，不能只检查文件存在");
@@ -145,6 +146,10 @@ assertRpx(cssRule(wxss, ".helper"), "font-size", 18, "辅助文案字号");
 assertRpx(cssRule(wxss, ".summary-status"), "font-size", 18, "状态胶囊字号");
 assertRpx(cssRule(wxss, ".save-btn"), "height", 96, "保存按钮高度");
 assert.strictEqual(cssValue(cssRule(wxss, ".config-page .save-btn"), "width"), "100%", "保存按钮必须用高优先级规则撑满卡片宽度");
+assert.ok(cssRule(wxss, ".return-btn").includes("margin-top"), "返回控制台只应覆盖间距和配色，尺寸继续继承保存按钮");
+assert.strictEqual(cssValue(cssRule(wxss, ".advanced-selects .picker-value"), "text-align"), "center", "高级参数选择值必须居中");
+assert.strictEqual(cssValue(cssRule(wxss, ".advanced-selects .picker-value > text"), "float"), "none", "高级参数箭头不能继续占用文字居中空间");
+assert.strictEqual(cssValue(cssRule(wxss, ".advanced-selects .picker-value"), "box-sizing"), "border-box", "高级参数选择值的留白必须计入自身宽度");
 assertRpx(cssRule(wxss, ".field-label"), "font-size", 19, "字段标签字号");
 assertRpx(cssRule(wxss, ".picker-value"), "font-size", 22, "字段值字号");
 assertRpx(cssRule(wxss, ".summary-toggle"), "width", 80, "总览展开按钮宽度");
@@ -160,6 +165,8 @@ assert.ok(/\.provider-name text\s*\{[^}]*font-size:\s*21rpx/.test(providerWxss),
 assert.strictEqual(cssValue(cssRule(providerWxss, ".provider-row.active"), "border"), "4rpx solid #2f73ee", "选中供应商必须使用 4rpx 边框");
 assert.strictEqual(cssValue(cssRule(providerWxss, ".provider-row.active"), "padding"), "6rpx 7rpx", "选中供应商必须内缩 padding 保持外框尺寸不变");
 assert.ok(/\.field-label\s*\{[^}]*font-size:\s*19rpx/.test(providerWxss), "供应商字段标签字号必须对齐右图");
+assert.ok(providerWxss.includes(".provider-page .tc3-panel .field-heading") && providerWxss.includes(".provider-page .capability > text"), "供应商窄栏的 TC3 字段和能力项必须有防挤压规则");
+assert.ok(providerWxss.includes("margin:-8rpx -13rpx") && providerWxss.includes("max-width:44%"), "供应商窄栏勾选控件和状态文案必须保持紧凑且不重叠");
 
 assert.ok(!/[\uFFFD]/.test(json.navigationBarTitleText + wxml + wxss + providerWxml + providerWxss), "管理页不能包含替换乱码字符");
 

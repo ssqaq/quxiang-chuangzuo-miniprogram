@@ -267,6 +267,14 @@ function summaryForGroup(group) {
   };
 }
 
+function defaultExpansionFor(groupKey, tab) {
+  return {
+    mainExpanded: groupKey === "shared",
+    backupExpanded: false,
+    advancedExpanded: false
+  };
+}
+
 function secretPayload(result) {
   const payload = result && result.data && typeof result.data === "object" ? result.data : result;
   if (!payload || typeof payload !== "object") return {};
@@ -400,7 +408,8 @@ Page({
     let tabIndex = groups[groupIndex].tabs.findIndex(tab => tab.key === this.initialTab);
     if (tabIndex < 0) tabIndex = 0;
     const summary = summaryForGroup(groups[groupIndex]);
-    this.setData({
+    const expansion = defaultExpansionFor(groups[groupIndex].key, groups[groupIndex].tabs[tabIndex]);
+    this.setData(Object.assign({
       loading: false,
       source: this.demoMode ? "demo" : (payload ? "cloud" : "local"),
       currentVersion: Number(payload && (payload.version || payload.providerConfigV2 && payload.providerConfigV2.version)) || 1,
@@ -408,14 +417,11 @@ Page({
       groups,
       selectedGroupIndex: groupIndex,
       selectedTabIndex: tabIndex,
-      mainExpanded: false,
-      backupExpanded: false,
-      advancedExpanded: false,
       configuredCount: summary.configuredCount,
       totalCount: summary.totalCount,
       backupCount: summary.backupCount,
       selectedTab: groups[groupIndex].tabs[tabIndex]
-    });
+    }, expansion));
     this.loadVisibleSecrets();
     if (refreshing && wx.stopPullDownRefresh) wx.stopPullDownRefresh();
   },
@@ -426,7 +432,8 @@ Page({
     const group = this.data.groups[groupIndex];
     if (!group || !group.tabs[tabIndex]) return;
     const summary = summaryForGroup(group);
-    this.setData({ selectedGroupIndex: groupIndex, selectedTabIndex: tabIndex, selectedTab: group.tabs[tabIndex], mainExpanded: false, backupExpanded: false, advancedExpanded: false, configuredCount: summary.configuredCount, totalCount: summary.totalCount, backupCount: summary.backupCount, message: "" });
+    const expansion = defaultExpansionFor(group.key, group.tabs[tabIndex]);
+    this.setData(Object.assign({ selectedGroupIndex: groupIndex, selectedTabIndex: tabIndex, selectedTab: group.tabs[tabIndex], configuredCount: summary.configuredCount, totalCount: summary.totalCount, backupCount: summary.backupCount, message: "" }, expansion));
     this.loadVisibleSecrets();
   },
 
@@ -664,6 +671,31 @@ Page({
 
   openProvider() {
     wx.navigateTo({ url: `/pages/admin-provider/admin-provider${this.previewQuery()}` });
+  },
+
+  backToDashboard() {
+    const pages = typeof getCurrentPages === "function" ? getCurrentPages() : [];
+    const previous = pages.length > 1 ? pages[pages.length - 2] : null;
+    const previousRoute = previous ? String(previous.route || previous.__route__ || "") : "";
+    if (previousRoute.includes("pages/admin-dashboard/admin-dashboard") && wx.navigateBack) {
+      wx.navigateBack({ delta: 1 });
+      return;
+    }
+    const url = `/pages/admin-dashboard/admin-dashboard${this.previewQuery()}`;
+    if (wx.redirectTo) {
+      wx.redirectTo({
+        url,
+        fail: () => {
+          if (wx.reLaunch) wx.reLaunch({ url });
+        }
+      });
+      return;
+    }
+    if (wx.reLaunch) {
+      wx.reLaunch({ url });
+      return;
+    }
+    if (wx.navigateTo) wx.navigateTo({ url });
   },
 
   goBack() {

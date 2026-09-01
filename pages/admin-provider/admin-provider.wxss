@@ -132,3 +132,87 @@ button { margin:0; box-sizing:border-box; }
   line-height:1;
   white-space:nowrap;
 }
+
+/* 窄栏内保持标签、值和功能项可读，避免文字被控件边界挤碎。 */
+.provider-page .provider-ability,
+.provider-page .provider-ability text {
+  font-size:17rpx;
+  line-height:1.22;
+}
+
+.provider-page .provider-ability {
+  margin-top:4rpx;
+  margin-bottom:4rpx;
+}
+
+.provider-page .field input {
+  padding-right:12rpx;
+  padding-left:12rpx;
+  text-align:center;
+  text-overflow:ellipsis;
+}
+
+.provider-page .tc3-panel .field {
+  padding:12rpx 14rpx;
+  text-align:center;
+}
+
+.provider-page .tc3-panel .field-heading {
+  position:relative;
+  justify-content:center;
+}
+
+.provider-page .tc3-panel .field-heading .field-label {
+  max-width:52%;
+  overflow:hidden;
+  text-align:center;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+
+.provider-page .tc3-panel .field-heading .secret-state {
+  position:absolute;
+  right:0;
+  max-width:44%;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+
+.provider-page .tc3-panel .two-fields {
+  gap:10rpx;
+}
+
+.provider-page .tc3-panel .two-fields .field {
+  padding-right:10rpx;
+  padding-left:10rpx;
+}
+
+.provider-page .tc3-panel .field input {
+  font-size:20rpx;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+
+.provider-page .capability {
+  min-width:0;
+  min-height:64rpx;
+  padding:8rpx 10rpx;
+  gap:6rpx;
+  font-size:18rpx;
+}
+
+.provider-page .capability switch {
+  flex:0 0 auto;
+  margin:-8rpx -13rpx;
+  transform:scale(.62);
+}
+
+.provider-page .capability > text {
+  flex:1;
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}

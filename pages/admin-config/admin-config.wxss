@@ -797,6 +797,33 @@ page {
   margin-bottom: 14rpx;
 }
 
+.advanced-selects .field,
+.advanced-selects .field-label,
+.advanced-selects .picker-value {
+  text-align: center;
+}
+
+.advanced-selects .picker-value {
+  position: relative;
+  width: 100%;
+  padding-right: 28rpx;
+  padding-left: 28rpx;
+  box-sizing: border-box;
+}
+
+.advanced-selects picker {
+  display: block;
+  width: 100%;
+}
+
+.advanced-selects .picker-value > text {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  float: none;
+  transform: translateY(-50%);
+}
+
 .advanced-grid-row .field {
   min-height: 122rpx;
   margin-bottom: 0;
@@ -909,6 +936,13 @@ page {
   max-width: 100%;
   margin-right: 0;
   margin-left: 0;
+}
+
+.return-btn {
+  margin-top: 14rpx;
+  border: 2rpx solid #2f73ee;
+  background: #ffffff;
+  color: #2f73ee;
 }
 
 .save-btn::after {

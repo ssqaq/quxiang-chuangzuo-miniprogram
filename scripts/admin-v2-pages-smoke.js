@@ -100,6 +100,8 @@ assert.ok(configWxml.indexOf('class="failure-card"') < configWxml.indexOf("advan
 assert.ok(!/class=["'][^"']*(?:^|\s)(?:model-card|advanced-card)(?:\s|$)/.test(configWxml), "不能恢复旧版主模型或高级参数卡类名");
 assert.ok(configWxml.includes("超时策略") && configWxml.includes("失败策略") && configWxml.includes("重试次数") && configWxml.includes("保留原 Key") && configWxml.includes("保存前校验"));
 assert.ok(configWxml.includes("启用当前功能的备用模型") && configWxml.includes('disabled="{{saving}}"'), "备用文案和保存按钮锁必须与右图及保存流程一致");
+assert.ok(configWxml.includes('class="save-btn return-btn"') && configWxml.includes('bindtap="backToDashboard"') && configWxml.includes("返回控制台"), "保存按钮下一行必须提供同规格返回控制台按钮");
+assert.ok(configJs.includes("backToDashboard()") && configJs.includes("getCurrentPages") && configJs.includes("previousRoute.includes") && configJs.includes("/pages/admin-dashboard/admin-dashboard"), "返回控制台按钮必须优先返回控制台上一页并能处理直达配置页");
 assert.ok(configWxml.includes('class="backup-checkbox {{selectedTab.backupEnabled ? \'checked\' : \'\'}}"') && !configWxml.includes("<switch"), "备用启用必须使用右图小方框，不得使用大 switch");
 assert.ok(configWxml.includes("图片编辑模式") === false && configWxml.includes("selectedTab.modeLabel") && configWxml.includes("selectedTab.sizeLabel"), "生图模式和尺寸必须由页面数据驱动");
 assert.ok(configWxml.includes("1K") === false, "清晰度选项应来自页面数据，避免 WXML 数组字面量编译问题");
@@ -120,6 +122,9 @@ assert.ok(configJs.includes('已保存 · 明文仅管理员可见') && !configJ
 assert.ok(!/(sk-[A-Za-z0-9_-]{8,}|AKID[A-Za-z0-9_-]{4,}|secret-example)/.test(configJs), "功能配置演示数据不得包含明文密钥");
 assert.ok(!configJs.includes("已保存当前页面配置"), "功能配置云端失败时不得假报保存成功");
 assert.ok(configJs.includes("if (this.data.saving) return") && configJs.includes("保存失败，主备配置均未更改"), "保存必须防双击且原子失败");
+assert.ok(providerJs.includes("input.modelId || confirmedModels[0]") && providerJs.includes("已保存 · 明文仅管理员可见"), "供应商档案必须显示已确认模型并保持密钥安全状态文案");
+assert.ok(providerWxss.includes(".tc3-panel .field-heading") && providerWxss.includes(".capability > text") && providerWxss.includes("text-overflow:ellipsis"), "TC3 字段和能力项在窄栏内必须保持可读");
+assert.ok(providerWxss.includes("margin:-8rpx -13rpx") && providerWxss.includes("max-width:44%"), "窄栏勾选控件和 TC3 状态文案不能挤压字段标题");
 
 const configWxss = read("admin-config", "wxss");
 assert.ok(/grid-template-columns:\s*repeat\(4\s*,\s*minmax\(0\s*,\s*1fr\)\)/.test(configWxss), "四项页签必须固定为四列，不能横向滚动");
@@ -127,6 +132,8 @@ assert.ok(/font-family:\s*["']Microsoft YaHei["']\s*,\s*["']PingFang SC["']\s*,/
 assert.ok(configWxss.includes("env(safe-area-inset-top)") && configWxss.includes("env(safe-area-inset-bottom)"), "自定义导航和页面底部必须处理安全区");
 assert.ok(/overflow-x:\s*hidden/.test(configWxss) && /white-space:\s*nowrap/.test(configWxss), "窄屏下功能入口不得换行或横向溢出");
 assert.ok(configWxss.includes(".backup-checkbox") && /border:\s*2rpx\s+solid/.test(configWxss), "小方框和 1px 视觉边框必须落地");
+assert.ok(configWxss.includes(".advanced-selects picker") && configWxss.includes("float: none") && configWxss.includes("text-align: center"), "模式、清晰度、尺寸比例和宽高比必须视觉居中且箭头独立靠右");
+assert.ok(configWxss.includes(".return-btn"), "返回控制台必须复用保存按钮规格并只覆盖配色和间距");
 assert.ok(/\.tab\s*\{[^}]*height:\s*64rpx/.test(configWxss), "功能页签高度必须与右图 64rpx 合同一致");
 assert.ok(/\.summary-subtitle\s*\{[^}]*font-size:\s*20rpx/.test(configWxss), "总览副标题字号必须为 20rpx");
 assert.ok(/\.helper\s*\{[^}]*font-size:\s*18rpx/.test(configWxss), "辅助文案字号必须为 18rpx");

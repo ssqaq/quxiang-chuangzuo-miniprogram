@@ -282,8 +282,11 @@ function testTc3AndPixelPolicy() {
 function testEncodingAndCloudCopy() {
   const local = path.join(__dirname, "..", "services", "admin-config-v2.js");
   const cloud = path.join(__dirname, "..", "cloudfunctions", "api", "lib", "admin-config-v2.js");
-  assert.ok(fs.readFileSync(local).includes("人脸识别"), "主模块必须是 UTF-8 中文");
-  assert.strictEqual(fs.readFileSync(local, "utf8"), fs.readFileSync(cloud, "utf8"), "云函数副本必须与主模块一致");
+  const readUtf8 = (file) => fs.readFileSync(file, "utf8").replace(/\r\n/g, "\n");
+  assert.ok(readUtf8(local).includes("人脸识别"), "主模块必须是 UTF-8 中文");
+  // Windows checkout 可能把副本统一写成 CRLF；比较内容时忽略换行风格，
+  // 仍然会对任何实际代码差异报错。
+  assert.strictEqual(readUtf8(local), readUtf8(cloud), "云函数副本必须与主模块一致");
 }
 
 testSchemaAndMigration();

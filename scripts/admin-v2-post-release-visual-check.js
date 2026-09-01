@@ -75,7 +75,8 @@ async function run(options = {}) {
   reportFiles.push(reportPath);
   const archiveResult = archive.run({ root, version, source: sourceRoot, outputRoot: options.archiveRoot || path.join("visual-evidence", "archive"), files: screenshots, reports: reportFiles, retention: options.retention === undefined ? archive.DEFAULT_RETENTION : options.retention });
   report.archive = { manifestPath: archiveResult.manifestPath, prunedVersions: archiveResult.prunedVersions, keptVersions: archiveResult.keptVersions };
-  fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
+  // 归档前的 report 是不可变输入；归档后只给调用方返回路径，不能回写，
+  // 否则 archive-manifest 里的 SHA256 会立刻失真。
   return report;
 }
 

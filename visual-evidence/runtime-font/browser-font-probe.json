@@ -1,0 +1,371 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "admin-v2-reference-20260901-v1",
+  "fontProfile": "admin-reference-font-v1",
+  "viewport": {
+    "width": 390,
+    "height": 844
+  },
+  "pages": [
+    {
+      "name": "dashboard",
+      "url": "http://localhost:49713/dashboard/?demo=1&fixture=admin-v2-reference-20260901-v1",
+      "elements": [
+        {
+          "rect": {
+            "bottom": 844,
+            "computed": {
+              "display": "block",
+              "fontFamily": "\"Microsoft YaHei\", \"PingFang SC\", SimHei, system-ui, sans-serif",
+              "fontSize": "16px",
+              "textAlign": "start"
+            },
+            "height": 844,
+            "left": 0,
+            "right": 390,
+            "top": 0,
+            "width": 390
+          },
+          "selector": ".phone-screen"
+        },
+        {
+          "rect": {
+            "bottom": 96,
+            "computed": {
+              "display": "flex",
+              "fontFamily": "\"Microsoft YaHei\", \"PingFang SC\", SimHei, system-ui, sans-serif",
+              "fontSize": "16px",
+              "textAlign": "start"
+            },
+            "height": 58,
+            "left": 0,
+            "right": 380,
+            "top": 38,
+            "width": 380
+          },
+          "selector": ".appbar"
+        },
+        {
+          "rect": {
+            "bottom": 845.1875,
+            "computed": {
+              "display": "block",
+              "fontFamily": "\"Microsoft YaHei\", \"PingFang SC\", SimHei, system-ui, sans-serif",
+              "fontSize": "16px",
+              "textAlign": "start"
+            },
+            "height": 749.1875,
+            "left": 0,
+            "right": 380,
+            "top": 96,
+            "width": 380
+          },
+          "selector": ".app-content"
+        }
+      ],
+      "pageFontFamily": "\"Microsoft YaHei\", \"PingFang SC\", SimHei, system-ui, sans-serif",
+      "samples": [
+        {
+          "fontFamily": "\"Microsoft YaHei\", \"PingFang SC\", SimHei, system-ui, sans-serif",
+          "selector": ".phone-screen"
+        },
+        {
+          "fontFamily": "\"Microsoft YaHei\", \"PingFang SC\", SimHei, system-ui, sans-serif",
+          "selector": ".appbar"
+        }
+      ],
+      "viewport": {
+        "dpr": 1,
+        "height": 844,
+        "scrollHeight": 844,
+        "scrollWidth": 390,
+        "url": "http://localhost:49713/dashboard/?demo=1&fixture=admin-v2-reference-20260901-v1",
+        "width": 390
+      }
+    },
+    {
+      "name": "operations",
+      "url": "http://localhost:49713/dashboard/operations.html?view=usage&demo=1&fixture=admin-v2-reference-20260901-v1",
+      "elements": [
+        {
+          "rect": {
+            "bottom": 844,
+            "computed": {
+              "display": "block",
+              "fontFamily": "\"Microsoft YaHei\", \"PingFang SC\", SimHei, system-ui, sans-serif",
+              "fontSize": "16px",
+              "textAlign": "start"
+            },
+            "height": 844,
+            "left": 0,
+            "right": 390,
+            "top": 0,
+            "width": 390
+          },
+          "selector": ".phone-screen"
+        },
+        {
+          "rect": {
+            "bottom": 96,
+            "computed": {
+              "display": "flex",
+              "fontFamily": "\"Microsoft YaHei\", \"PingFang SC\", SimHei, system-ui, sans-serif",
+              "fontSize": "16px",
+              "textAlign": "start"
+            },
+            "height": 58,
+            "left": 0,
+            "right": 390,
+            "top": 38,
+            "width": 390
+          },
+          "selector": ".appbar"
+        },
+        {
+          "rect": {
+            "bottom": 571.765625,
+            "computed": {
+              "display": "block",
+              "fontFamily": "\"Microsoft YaHei\", \"PingFang SC\", SimHei, system-ui, sans-serif",
+              "fontSize": "16px",
+              "textAlign": "start"
+            },
+            "height": 475.765625,
+            "left": 0,
+            "right": 390,
+            "top": 96,
+            "width": 390
+          },
+          "selector": ".app-content"
+        }
+      ],
+      "pageFontFamily": "\"Microsoft YaHei\", \"PingFang SC\", SimHei, system-ui, sans-serif",
+      "samples": [
+        {
+          "fontFamily": "\"Microsoft YaHei\", \"PingFang SC\", SimHei, system-ui, sans-serif",
+          "selector": ".phone-screen"
+        },
+        {
+          "fontFamily": "\"Microsoft YaHei\", \"PingFang SC\", SimHei, system-ui, sans-serif",
+          "selector": ".appbar"
+        }
+      ],
+      "viewport": {
+        "dpr": 1,
+        "height": 844,
+        "scrollHeight": 844,
+        "scrollWidth": 390,
+        "url": "http://localhost:49713/dashboard/operations.html?view=usage&demo=1&fixture=admin-v2-reference-20260901-v1",
+        "width": 390
+      }
+    },
+    {
+      "name": "config",
+      "url": "http://localhost:49713/config/?demo=1&fixture=admin-v2-reference-20260901-v1",
+      "elements": [
+        {
+          "rect": {
+            "bottom": 844,
+            "computed": {
+              "display": "block",
+              "fontFamily": "\"Microsoft YaHei\", \"PingFang SC\", SimHei, system-ui, sans-serif",
+              "fontSize": "16px",
+              "textAlign": "start"
+            },
+            "height": 844,
+            "left": 0,
+            "right": 390,
+            "top": 0,
+            "width": 390
+          },
+          "selector": ".phone-screen"
+        },
+        {
+          "rect": {
+            "bottom": 96,
+            "computed": {
+              "display": "flex",
+              "fontFamily": "\"Microsoft YaHei\", \"PingFang SC\", SimHei, system-ui, sans-serif",
+              "fontSize": "16px",
+              "textAlign": "start"
+            },
+            "height": 58,
+            "left": 0,
+            "right": 380,
+            "top": 38,
+            "width": 380
+          },
+          "selector": ".appbar"
+        },
+        {
+          "rect": {
+            "bottom": 1383.75,
+            "computed": {
+              "display": "block",
+              "fontFamily": "\"Microsoft YaHei\", \"PingFang SC\", SimHei, system-ui, sans-serif",
+              "fontSize": "16px",
+              "textAlign": "start"
+            },
+            "height": 1287.75,
+            "left": 0,
+            "right": 380,
+            "top": 96,
+            "width": 380
+          },
+          "selector": ".app-content"
+        },
+        {
+          "rect": {
+            "bottom": 1217,
+            "computed": {
+              "display": "grid",
+              "fontFamily": "\"Microsoft YaHei\", \"PingFang SC\", SimHei, system-ui, sans-serif",
+              "fontSize": "16px",
+              "textAlign": "start"
+            },
+            "height": 129,
+            "left": 30,
+            "right": 350,
+            "top": 1088,
+            "width": 320
+          },
+          "selector": ".advanced-grid"
+        },
+        {
+          "rect": {
+            "bottom": 856,
+            "computed": {
+              "display": "block",
+              "fontFamily": "\"Microsoft YaHei\", \"PingFang SC\", SimHei, system-ui, sans-serif",
+              "fontSize": "16px",
+              "textAlign": "start"
+            },
+            "height": 58,
+            "left": 10,
+            "right": 370,
+            "top": 798,
+            "width": 360
+          },
+          "selector": ".save-wrap"
+        }
+      ],
+      "pageFontFamily": "\"Microsoft YaHei\", \"PingFang SC\", SimHei, system-ui, sans-serif",
+      "samples": [
+        {
+          "fontFamily": "\"Microsoft YaHei\", \"PingFang SC\", SimHei, system-ui, sans-serif",
+          "selector": ".phone-screen"
+        },
+        {
+          "fontFamily": "\"Microsoft YaHei\", \"PingFang SC\", SimHei, system-ui, sans-serif",
+          "selector": ".appbar"
+        },
+        {
+          "fontFamily": "\"Microsoft YaHei\", \"PingFang SC\", SimHei, system-ui, sans-serif",
+          "selector": ".advanced-grid .picker-value",
+          "textAlign": "start"
+        }
+      ],
+      "viewport": {
+        "dpr": 1,
+        "height": 844,
+        "scrollHeight": 844,
+        "scrollWidth": 390,
+        "url": "http://localhost:49713/config/?demo=1&fixture=admin-v2-reference-20260901-v1",
+        "width": 390
+      }
+    },
+    {
+      "name": "provider",
+      "url": "http://localhost:49713/provider/?demo=1&fixture=admin-v2-reference-20260901-v1",
+      "elements": [
+        {
+          "rect": {
+            "bottom": 844,
+            "computed": {
+              "display": "block",
+              "fontFamily": "\"Microsoft YaHei\", \"PingFang SC\", SimHei, system-ui, sans-serif",
+              "fontSize": "16px",
+              "textAlign": "start"
+            },
+            "height": 844,
+            "left": 0,
+            "right": 390,
+            "top": 0,
+            "width": 390
+          },
+          "selector": ".phone-screen"
+        },
+        {
+          "rect": {
+            "bottom": 870,
+            "computed": {
+              "display": "grid",
+              "fontFamily": "\"Microsoft YaHei\", \"PingFang SC\", SimHei, system-ui, sans-serif",
+              "fontSize": "16px",
+              "textAlign": "start"
+            },
+            "height": 676.75,
+            "left": 23,
+            "right": 357,
+            "top": 193.25,
+            "width": 334
+          },
+          "selector": ".provider-layout"
+        },
+        {
+          "rect": {
+            "bottom": 903,
+            "computed": {
+              "display": "block",
+              "fontFamily": "\"Microsoft YaHei\", \"PingFang SC\", SimHei, system-ui, sans-serif",
+              "fontSize": "16px",
+              "textAlign": "start"
+            },
+            "height": 807,
+            "left": 0,
+            "right": 380,
+            "top": 96,
+            "width": 380
+          },
+          "selector": ".app-content"
+        },
+        {
+          "rect": {
+            "bottom": 266.875,
+            "computed": {
+              "display": "block",
+              "fontFamily": "\"Microsoft YaHei\", \"PingFang SC\", SimHei, system-ui, sans-serif",
+              "fontSize": "9.5px",
+              "textAlign": "start"
+            },
+            "height": 10.4375,
+            "left": 166,
+            "right": 348,
+            "top": 256.4375,
+            "width": 182
+          },
+          "selector": ".field-label"
+        }
+      ],
+      "pageFontFamily": "\"Microsoft YaHei\", \"PingFang SC\", SimHei, system-ui, sans-serif",
+      "samples": [
+        {
+          "fontFamily": "\"Microsoft YaHei\", \"PingFang SC\", SimHei, system-ui, sans-serif",
+          "selector": ".phone-screen"
+        },
+        {
+          "fontFamily": "\"Microsoft YaHei\", \"PingFang SC\", SimHei, system-ui, sans-serif",
+          "selector": ".provider-layout"
+        }
+      ],
+      "viewport": {
+        "dpr": 1,
+        "height": 844,
+        "scrollHeight": 844,
+        "scrollWidth": 390,
+        "url": "http://localhost:49713/provider/?demo=1&fixture=admin-v2-reference-20260901-v1",
+        "width": 390
+      }
+    }
+  ]
+}

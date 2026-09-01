@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "status": "pass",
+  "ok": true,
+  "profile": "admin-reference-font-v1",
+  "fontStack": "\"Microsoft YaHei\",\"PingFang SC\",\"SimHei\",system-ui,sans-serif",
+  "pages": [
+    {
+      "name": "dashboard",
+      "pageFontFamily": "\"Microsoft YaHei\", \"PingFang SC\", SimHei, system-ui, sans-serif",
+      "samples": [
+        {
+          "selector": ".phone-screen",
+          "actual": "\"Microsoft YaHei\", \"PingFang SC\", SimHei, system-ui, sans-serif",
+          "pass": true
+        },
+        {
+          "selector": ".appbar",
+          "actual": "\"Microsoft YaHei\", \"PingFang SC\", SimHei, system-ui, sans-serif",
+          "pass": true
+        }
+      ],
+      "pass": true
+    },
+    {
+      "name": "operations",
+      "pageFontFamily": "\"Microsoft YaHei\", \"PingFang SC\", SimHei, system-ui, sans-serif",
+      "samples": [
+        {
+          "selector": ".phone-screen",
+          "actual": "\"Microsoft YaHei\", \"PingFang SC\", SimHei, system-ui, sans-serif",
+          "pass": true
+        },
+        {
+          "selector": ".appbar",
+          "actual": "\"Microsoft YaHei\", \"PingFang SC\", SimHei, system-ui, sans-serif",
+          "pass": true
+        }
+      ],
+      "pass": true
+    },
+    {
+      "name": "config",
+      "pageFontFamily": "\"Microsoft YaHei\", \"PingFang SC\", SimHei, system-ui, sans-serif",
+      "samples": [
+        {
+          "selector": ".phone-screen",
+          "actual": "\"Microsoft YaHei\", \"PingFang SC\", SimHei, system-ui, sans-serif",
+          "pass": true
+        },
+        {
+          "selector": ".appbar",
+          "actual": "\"Microsoft YaHei\", \"PingFang SC\", SimHei, system-ui, sans-serif",
+          "pass": true
+        },
+        {
+          "selector": ".advanced-grid .picker-value",
+          "actual": "\"Microsoft YaHei\", \"PingFang SC\", SimHei, system-ui, sans-serif",
+          "pass": true
+        }
+      ],
+      "pass": true
+    },
+    {
+      "name": "provider",
+      "pageFontFamily": "\"Microsoft YaHei\", \"PingFang SC\", SimHei, system-ui, sans-serif",
+      "samples": [
+        {
+          "selector": ".phone-screen",
+          "actual": "\"Microsoft YaHei\", \"PingFang SC\", SimHei, system-ui, sans-serif",
+          "pass": true
+        },
+        {
+          "selector": ".provider-layout",
+          "actual": "\"Microsoft YaHei\", \"PingFang SC\", SimHei, system-ui, sans-serif",
+          "pass": true
+        }
+      ],
+      "pass": true
+    }
+  ],
+  "errors": [],
+  "checkedAt": "2026-09-01T15:16:46.190Z"
+}

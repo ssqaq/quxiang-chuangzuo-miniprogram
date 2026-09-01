@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "status": "pass",
+  "ok": true,
+  "policy": {
+    "scannedExtensions": [
+      ".json",
+      ".md",
+      ".markdown",
+      ".html",
+      ".htm"
+    ],
+    "allowedDemoPrefixes": [
+      "demo-",
+      "fake-",
+      "test-",
+      "example-"
+    ],
+    "safePlaceholders": [
+      "",
+      "***",
+      "redacted",
+      "[redacted]",
+      "<redacted>",
+      "not-configured",
+      "not-set",
+      "keep-existing",
+      "unchanged",
+      "none",
+      "null",
+      "undefined"
+    ]
+  },
+  "filesChecked": 116,
+  "violations": [],
+  "checkedAt": "2026-09-01T21:47:17.796Z"
+}

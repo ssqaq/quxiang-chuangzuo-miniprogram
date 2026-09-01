@@ -124,6 +124,87 @@ try {
   assert.ok(markdownText.includes("证据摘要"));
   assert.ok(!jsonText.includes("apiKey") && !markdownText.includes("apiKey"), "报告不得泄露凭证字段");
 
+  const defaultArgs = report.parseArgs([]);
+  assert.strictEqual(defaultArgs.strictZeroDiff, false, "默认模式不应开启严格零差");
+  assert.strictEqual(defaultArgs.threshold, report.DEFAULT_THRESHOLD, "默认阈值行为必须保持不变");
+  assert.strictEqual(defaultArgs.maxDiffRatio, report.DEFAULT_MAX_DIFF_RATIO, "默认比例行为必须保持不变");
+  const strictArgs = report.parseArgs([
+    "--threshold", "255",
+    "--max-diff-ratio", "1",
+    "--strict-zero-diff",
+  ]);
+  assert.strictEqual(strictArgs.strictZeroDiff, true, "应解析 --strict-zero-diff");
+  assert.strictEqual(strictArgs.threshold, 0, "严格模式必须强制 threshold=0");
+  assert.strictEqual(strictArgs.maxDiffRatio, 0, "严格模式必须强制 maxDiffRatio=0");
+
+  const strictPages = report.PAGE_NAMES.map(name => {
+    const actual = `strict-images/${name}-actual.png`;
+    const reference = `strict-images/${name}-reference.png`;
+    writePng(actual, width, height, base);
+    writePng(reference, width, height, base);
+    return { name, actual, reference };
+  });
+  const strictManifestPath = path.join(tempRoot, "strict-manifest.json");
+  fs.writeFileSync(strictManifestPath, JSON.stringify({
+    schemaVersion: 1,
+    viewport: { width, height },
+    mode: "strict-smoke",
+    pages: strictPages,
+  }, null, 2));
+  const strictOutputRoot = path.join(tempRoot, "strict-diffs");
+  const strictPass = report.run({
+    root: tempRoot,
+    manifest: strictManifestPath,
+    heatmapRoot: strictOutputRoot,
+    json: path.join(strictOutputRoot, "pass.json"),
+    markdown: path.join(strictOutputRoot, "pass.md"),
+    strictZeroDiff: true,
+    threshold: 255,
+    maxDiffRatio: 1,
+  });
+  assert.strictEqual(strictPass.ok, true, "严格模式下完全相同的图片应 PASS");
+  assert.strictEqual(strictPass.strictZeroDiff, true, "报告必须记录严格零差模式");
+  assert.strictEqual(strictPass.threshold, 0, "严格报告的 threshold 必须为 0");
+  assert.strictEqual(strictPass.maxDiffRatio, 0, "严格报告的 maxDiffRatio 必须为 0");
+  assert.ok(strictPass.pages.every(page => (
+    page.strictZeroDiff === true
+    && page.dimensionsMatch === true
+    && page.differentPixels === 0
+    && page.pass === true
+  )), "严格报告页面必须记录尺寸一致、零差异和 PASS");
+
+  const onePixelChanged = Buffer.from(base);
+  setPixel(onePixelChanged, width, 1, 1, [244, 248, 252, 255]);
+  writePng("strict-images/provider-actual.png", width, height, onePixelChanged);
+  const strictPixelFail = report.run({
+    root: tempRoot,
+    manifest: strictManifestPath,
+    heatmapRoot: strictOutputRoot,
+    json: false,
+    markdown: false,
+    strictZeroDiff: true,
+  });
+  const strictProvider = strictPixelFail.pages.find(item => item.name === "provider");
+  assert.strictEqual(strictPixelFail.ok, false, "严格模式下单像素变化应 FAIL");
+  assert.strictEqual(strictProvider.differentPixels, 1);
+  assert.strictEqual(strictProvider.dimensionsMatch, true);
+  assert.strictEqual(strictProvider.pass, false);
+
+  writePng("strict-images/provider-actual.png", width / 2, height / 2, solid(width / 2, height / 2, [245, 248, 252, 255]));
+  const strictSizeFail = report.run({
+    root: tempRoot,
+    manifest: strictManifestPath,
+    heatmapRoot: strictOutputRoot,
+    json: false,
+    markdown: false,
+    strictZeroDiff: true,
+  });
+  const resizedProvider = strictSizeFail.pages.find(item => item.name === "provider");
+  assert.strictEqual(strictSizeFail.ok, false, "严格模式下尺寸不一致应 FAIL");
+  assert.strictEqual(resizedProvider.differentPixels, 0, "缩放后像素相同也不能掩盖尺寸不一致");
+  assert.strictEqual(resizedProvider.dimensionsMatch, false);
+  assert.strictEqual(resizedProvider.pass, false);
+
   const cli = childProcess.spawnSync(process.execPath, [
     path.join(__dirname, "admin-v2-pixel-diff-report.js"),
     "--root", tempRoot,
@@ -137,7 +218,22 @@ try {
   ], { cwd: path.join(__dirname, ".."), encoding: "utf8" });
   assert.strictEqual(cli.status, 0, `CLI 应通过：${cli.stderr}`);
   assert.strictEqual(JSON.parse(cli.stdout).pages.length, 4);
-  console.log("admin-v2-pixel-diff-report-smoke: PASS (zero/local-diff/bbox/hotspot/json/markdown/cli)");
+  const strictCli = childProcess.spawnSync(process.execPath, [
+    path.join(__dirname, "admin-v2-pixel-diff-report.js"),
+    "--root", tempRoot,
+    "--manifest", strictManifestPath,
+    "--heatmap-root", strictOutputRoot,
+    "--json", path.join(strictOutputRoot, "cli-report.json"),
+    "--markdown", path.join(strictOutputRoot, "cli-report.md"),
+    "--strict-zero-diff",
+  ], { cwd: path.join(__dirname, ".."), encoding: "utf8" });
+  assert.strictEqual(strictCli.status, 1, `严格 CLI 对尺寸不一致应 FAIL：${strictCli.stderr}`);
+  const strictCliReport = JSON.parse(strictCli.stdout);
+  assert.strictEqual(strictCliReport.strictZeroDiff, true);
+  assert.strictEqual(strictCliReport.threshold, 0);
+  assert.strictEqual(strictCliReport.maxDiffRatio, 0);
+  assert.strictEqual(strictCliReport.pages.find(item => item.name === "provider").dimensionsMatch, false);
+  console.log("admin-v2-pixel-diff-report-smoke: PASS (default/strict-zero/single-pixel/size/args/report/cli)");
 } finally {
   fs.rmSync(tempRoot, { recursive: true, force: true });
 }

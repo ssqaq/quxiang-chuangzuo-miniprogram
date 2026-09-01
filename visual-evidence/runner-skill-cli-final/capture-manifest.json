@@ -1,0 +1,123 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "admin-v2-reference-20260901-v1",
+  "renderer": "wechat-devtools-skill-cli",
+  "captureStatus": "captured",
+  "state": "collapsed-default-v1",
+  "runtime": {
+    "model": "iPhone 15 Pro Max",
+    "windowWidth": 430,
+    "windowHeight": 932,
+    "screenWidth": 430,
+    "screenHeight": 932,
+    "pixelRatio": 3,
+    "sdkVersion": "3.16.2"
+  },
+  "captures": [
+    {
+      "stateId": "collapsed-default-v1",
+      "name": "dashboard",
+      "route": "/pages/admin-dashboard/admin-dashboard?demo=1&fixture=admin-v2-reference-20260901-v1&visualState=collapsed-default-v1",
+      "output": "D:\\aips小程序\\wechat-miniapp-admin-config-right-20260831\\visual-evidence\\runner-skill-cli-final\\dashboard-430x932.png",
+      "fixtureId": "admin-v2-reference-20260901-v1",
+      "runtime": {
+        "model": "iPhone 15 Pro Max",
+        "windowWidth": 430,
+        "windowHeight": 932,
+        "screenWidth": 430,
+        "screenHeight": 932,
+        "pixelRatio": 3,
+        "sdkVersion": "3.16.2"
+      },
+      "image": {
+        "width": 421,
+        "height": 911
+      },
+      "cliDimensions": {
+        "width": 421,
+        "height": 911
+      },
+      "bytes": 130021,
+      "sha256": "dece86a907f55b405173ea44f95139fb33bf15f525ffcfcdb91eb96bc379f424"
+    },
+    {
+      "stateId": "collapsed-default-v1",
+      "name": "operations",
+      "route": "/pages/admin-operations/admin-operations?view=usage&demo=1&fixture=admin-v2-reference-20260901-v1&visualState=collapsed-default-v1",
+      "output": "D:\\aips小程序\\wechat-miniapp-admin-config-right-20260831\\visual-evidence\\runner-skill-cli-final\\operations-430x932.png",
+      "fixtureId": "admin-v2-reference-20260901-v1",
+      "runtime": {
+        "model": "iPhone 15 Pro Max",
+        "windowWidth": 430,
+        "windowHeight": 932,
+        "screenWidth": 430,
+        "screenHeight": 932,
+        "pixelRatio": 3,
+        "sdkVersion": "3.16.2"
+      },
+      "image": {
+        "width": 421,
+        "height": 911
+      },
+      "cliDimensions": {
+        "width": 421,
+        "height": 911
+      },
+      "bytes": 71393,
+      "sha256": "3931bccbaf397f0f6cea4a5f5e4c11afeb6fc9c65e09628e08c8cf3a6d115dda"
+    },
+    {
+      "stateId": "collapsed-default-v1",
+      "name": "config",
+      "route": "/pages/admin-config/admin-config?demo=1&fixture=admin-v2-reference-20260901-v1&visualState=collapsed-default-v1",
+      "output": "D:\\aips小程序\\wechat-miniapp-admin-config-right-20260831\\visual-evidence\\runner-skill-cli-final\\config-430x932.png",
+      "fixtureId": "admin-v2-reference-20260901-v1",
+      "runtime": {
+        "model": "iPhone 15 Pro Max",
+        "windowWidth": 430,
+        "windowHeight": 932,
+        "screenWidth": 430,
+        "screenHeight": 932,
+        "pixelRatio": 3,
+        "sdkVersion": "3.16.2"
+      },
+      "image": {
+        "width": 421,
+        "height": 911
+      },
+      "cliDimensions": {
+        "width": 421,
+        "height": 911
+      },
+      "bytes": 58759,
+      "sha256": "3d40a10ad19066be8402d3901413aaa91c422a233480395e9edafbbc480740bb"
+    },
+    {
+      "stateId": "collapsed-default-v1",
+      "name": "provider",
+      "route": "/pages/admin-provider/admin-provider?demo=1&fixture=admin-v2-reference-20260901-v1&visualState=collapsed-default-v1",
+      "output": "D:\\aips小程序\\wechat-miniapp-admin-config-right-20260831\\visual-evidence\\runner-skill-cli-final\\provider-430x932.png",
+      "fixtureId": "admin-v2-reference-20260901-v1",
+      "runtime": {
+        "model": "iPhone 15 Pro Max",
+        "windowWidth": 430,
+        "windowHeight": 932,
+        "screenWidth": 430,
+        "screenHeight": 932,
+        "pixelRatio": 3,
+        "sdkVersion": "3.16.2"
+      },
+      "image": {
+        "width": 421,
+        "height": 911
+      },
+      "cliDimensions": {
+        "width": 421,
+        "height": 911
+      },
+      "bytes": 149960,
+      "sha256": "d58000205866ff0b3ed2dd42b5e0ed3f1477e93c07b598b41441c228a4133c3b"
+    }
+  ],
+  "capturedAt": "2026-09-01T21:43:15.134Z"
+}

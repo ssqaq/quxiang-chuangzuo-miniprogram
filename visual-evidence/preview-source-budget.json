@@ -1,0 +1,111 @@
+{
+  "schemaVersion": 1,
+  "status": "pass",
+  "ok": true,
+  "projectRoot": "D:\\aips小程序\\wechat-miniapp-admin-config-right-20260831",
+  "configPath": "D:\\aips小程序\\wechat-miniapp-admin-config-right-20260831\\project.config.json",
+  "maxBytes": 2097152,
+  "warnBytes": 1887436,
+  "metric": "compressed",
+  "measuredBytes": 1550633,
+  "totalBytes": 3095211,
+  "rawBytes": 3095211,
+  "estimatedTransferBytes": 1550633,
+  "compression": {
+    "algorithm": "gzip",
+    "level": 9,
+    "overheadPerFileBytes": 32
+  },
+  "fileCount": 138,
+  "ignoredFileCount": 12253,
+  "ignoredBytes": 68984846,
+  "ignoredDirectoryCount": 6,
+  "budgetRemainingBytes": 546519,
+  "usageRatio": 0.7393994331359863,
+  "warning": true,
+  "errors": [],
+  "largestFiles": [
+    {
+      "path": "pages/admin/admin.js",
+      "sizeBytes": 389456
+    },
+    {
+      "path": "pages/admin/admin.wxml",
+      "sizeBytes": 250825
+    },
+    {
+      "path": "pages/admin/admin.wxss",
+      "sizeBytes": 166522
+    },
+    {
+      "path": "pages/index/index.js",
+      "sizeBytes": 118493
+    },
+    {
+      "path": "preview-config-backup-advanced-right-390x844-v2.png",
+      "sizeBytes": 104656
+    },
+    {
+      "path": "preview-config-after-refresh.png",
+      "sizeBytes": 104580
+    },
+    {
+      "path": "preview-provider-right-390x844.png",
+      "sizeBytes": 94754
+    },
+    {
+      "path": "preview-provider-right-final-v2.png",
+      "sizeBytes": 94063
+    },
+    {
+      "path": "preview-provider-right-final.png",
+      "sizeBytes": 85116
+    },
+    {
+      "path": "assets/contact/author-wechat-qr.jpg",
+      "sizeBytes": 78458
+    },
+    {
+      "path": "preview-config-main-expanded-right-390x844.png",
+      "sizeBytes": 65620
+    },
+    {
+      "path": "preview-config-expanded-all-right-390x844.png",
+      "sizeBytes": 65447
+    },
+    {
+      "path": "preview-config-expanded-all-scrolled-390x844.png",
+      "sizeBytes": 65430
+    },
+    {
+      "path": "preview-config-backup-advanced-right-390x844.png",
+      "sizeBytes": 62034
+    },
+    {
+      "path": "services/admin-config-v2.js",
+      "sizeBytes": 57149
+    },
+    {
+      "path": "pages/photo-to-video/photo-to-video.js",
+      "sizeBytes": 56944
+    },
+    {
+      "path": "preview-config-expanded-all-scrolled-v2-390x844.png",
+      "sizeBytes": 56721
+    },
+    {
+      "path": "preview-config-default-right-390x844.png",
+      "sizeBytes": 56698
+    },
+    {
+      "path": "preview-config-default-right-390x844-v2.png",
+      "sizeBytes": 56668
+    },
+    {
+      "path": "preview-config-right-final.png",
+      "sizeBytes": 55692
+    }
+  ],
+  "checkedAt": "2026-09-01T13:47:39.332Z",
+  "jsonPath": "D:\\aips小程序\\wechat-miniapp-admin-config-right-20260831\\visual-evidence\\preview-source-budget.json"
+}

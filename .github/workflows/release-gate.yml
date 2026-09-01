@@ -168,6 +168,12 @@ jobs:
       - name: Strict visual capture gate smoke
         shell: pwsh
         run: node scripts/admin-v2-visual-capture-gate-smoke.js
+      - name: Unified visual runner smoke
+        shell: pwsh
+        run: node scripts/admin-v2-visual-runner-smoke.js
+      - name: Preview entry smoke
+        shell: pwsh
+        run: node scripts/admin-v2-preview-entry-smoke.js
       - name: Visual archive index smoke
         shell: pwsh
         run: node scripts/admin-v2-visual-index-smoke.js

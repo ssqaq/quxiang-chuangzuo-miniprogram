@@ -56,7 +56,9 @@ const adminV2ExecutableSmokeFiles = [
   "scripts/admin-v2-state-matrix-smoke.js",
   "scripts/admin-v2-device-matrix-smoke.js",
   "scripts/admin-v2-visual-capture-gate-smoke.js",
+  "scripts/admin-v2-visual-runner-smoke.js",
   "scripts/admin-v2-visual-index-smoke.js",
+  "scripts/admin-v2-preview-entry-smoke.js",
   "scripts/qr-decode-smoke.js",
   "scripts/admin-preview-pages-runtime-smoke.js"
 ];
@@ -234,7 +236,9 @@ const jsFiles = [
   "scripts/admin-v2-state-matrix.js",
   "scripts/admin-v2-device-matrix.js",
   "scripts/admin-v2-visual-capture-gate.js",
+  "scripts/admin-v2-visual-runner.js",
   "scripts/admin-v2-visual-index.js",
+  "scripts/admin-v2-preview-entry.js",
   "scripts/qr-decode.js",
   "scripts/vendor/qrcode-reader.js"
 ];
@@ -254,7 +258,8 @@ const powerShellFiles = [
   "scripts/sync-to-github.ps1",
   "scripts/check-cloud-database-indexes.ps1",
   "scripts/install-git-hooks.ps1",
-  "scripts/write-release-record.ps1"
+  "scripts/write-release-record.ps1",
+  "scripts/admin-v2-visual-runner.ps1"
 ];
 
 const paymentManifestRelative = "scripts/payment-cloudfunctions.json";

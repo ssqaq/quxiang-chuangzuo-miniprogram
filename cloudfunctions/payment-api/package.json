@@ -1,6 +1,6 @@
 {
   "name": "aips-payment-api",
-  "version": "0.57.106",
+  "version": "0.57.107",
   "private": true,
   "main": "index.js",
   "engines": {

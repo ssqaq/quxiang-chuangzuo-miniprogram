@@ -8,6 +8,7 @@
  * 写入报告之外的地方，也不会读取运行时凭证。
  */
 
+const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const regression = require("./admin-v2-pixel-regression");
@@ -22,6 +23,10 @@ const DEFAULT_MANIFEST = path.join(ROOT, "visual-evidence", "admin-v2-pixel-mani
 const DEFAULT_HEATMAP_ROOT = path.join(ROOT, "visual-evidence", "pixel-diffs");
 const DEFAULT_JSON = path.join(DEFAULT_HEATMAP_ROOT, "admin-v2-pixel-diff-report.json");
 const DEFAULT_MARKDOWN = path.join(DEFAULT_HEATMAP_ROOT, "admin-v2-pixel-diff-report.md");
+
+function sha256(filePath) {
+  return crypto.createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
+}
 
 function resolveFromRoot(root, value) {
   if (!value) return "";
@@ -102,6 +107,35 @@ function readManifest(manifestPath, root = ROOT) {
 function finiteNumber(value, fallback, minimum = 0) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.max(minimum, parsed) : fallback;
+}
+
+function evidenceDigest(report) {
+  const stable = {
+    schemaVersion: report.schemaVersion,
+    viewport: report.viewport,
+    mode: report.mode,
+    fixtureId: report.fixtureId,
+    fontProfile: report.fontProfile,
+    stateId: report.stateId,
+    threshold: report.threshold,
+    maxDiffRatio: report.maxDiffRatio,
+    tileSize: report.tileSize,
+    topTiles: report.topTiles,
+    manifestSha256: report.manifestSha256,
+    pages: report.pages.map(page => ({
+      name: page.name,
+      actual: page.actual,
+      reference: page.reference,
+      actualSha256: page.actualSha256,
+      referenceSha256: page.referenceSha256,
+      differentPixels: page.differentPixels,
+      totalPixels: page.totalPixels,
+      diffRatio: page.diffRatio,
+      maxChannelDiff: page.maxChannelDiff,
+      pass: page.pass,
+    })),
+  };
+  return crypto.createHash("sha256").update(JSON.stringify(stable)).digest("hex");
 }
 
 function pixelOffset(width, x, y) {
@@ -258,6 +292,10 @@ function run(options = {}) {
       route: safeRoute(page.route),
       actual: relativeDisplayPath(root, page.actualPath),
       reference: relativeDisplayPath(root, page.referencePath),
+      actualSha256: sha256(page.actualPath),
+      referenceSha256: sha256(page.referencePath),
+      actualBytes: fs.statSync(page.actualPath).size,
+      referenceBytes: fs.statSync(page.referencePath).size,
       heatmap: relativeDisplayPath(root, regressionSummary.heatmapPath),
       pass: regressionSummary.pass,
       maxDiffRatio,
@@ -278,9 +316,13 @@ function run(options = {}) {
     tileSize,
     topTiles,
     manifest: relativeDisplayPath(root, manifest.path),
+    manifestSha256: sha256(manifest.path),
+    captureStatus: manifest.captureStatus || (manifest.capturedAt ? "captured" : "unknown"),
+    capturedAt: manifest.capturedAt || null,
     pages,
     checkedAt: new Date().toISOString(),
   };
+  report.evidenceDigest = evidenceDigest(report);
   const jsonPath = options.json === false
     ? null
     : resolveFromRoot(root, options.json || path.join("visual-evidence", "pixel-diffs", "admin-v2-pixel-diff-report.json"));
@@ -329,6 +371,7 @@ function renderMarkdown(report) {
     `- 最大差异比例：${(report.maxDiffRatio * 100).toFixed(3)}%`,
     `- 热点 tile：${report.tileSize}x${report.tileSize}，视口：${viewport}`,
     `- fixture：\`${markdownCell(report.fixtureId || "未记录")}\`，状态：\`${markdownCell(report.stateId || "未记录")}\``,
+    `- 截图来源：\`${markdownCell(report.captureStatus || "unknown")}\`，证据摘要：\`${markdownCell(report.evidenceDigest || "未记录")}\``,
     `- 字体 profile：\`${markdownCell(report.fontProfile || "未记录")}\``,
     `- 基线清单：\`${markdownCell(report.manifest)}\``,
     "",
@@ -424,12 +467,14 @@ module.exports = {
   DEFAULT_HEATMAP_ROOT,
   DEFAULT_JSON,
   DEFAULT_MARKDOWN,
+  sha256,
   resolveFromRoot,
   relativeDisplayPath,
   safeRoute,
   readManifest,
   analyzeDiff,
   renderMarkdown,
+  evidenceDigest,
   parseArgs,
   run,
   main,

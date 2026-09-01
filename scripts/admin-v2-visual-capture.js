@@ -167,6 +167,7 @@ async function capture(options) {
     schemaVersion: 1,
     fixtureId: options.fixtureId,
     renderer: "wechat-devtools-simulator",
+    captureStatus: "captured",
     viewport: VIEWPORT,
     states,
     captures,

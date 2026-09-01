@@ -117,7 +117,11 @@ try {
   const jsonText = fs.readFileSync(jsonPath, "utf8");
   const markdownText = fs.readFileSync(markdownPath, "utf8");
   assert.strictEqual(JSON.parse(jsonText).pages.length, 4);
+  assert.match(JSON.parse(jsonText).manifestSha256, /^[0-9a-f]{64}$/);
+  assert.match(JSON.parse(jsonText).evidenceDigest, /^[0-9a-f]{64}$/);
+  assert.ok(JSON.parse(jsonText).pages.every(item => /^[0-9a-f]{64}$/.test(item.actualSha256) && /^[0-9a-f]{64}$/.test(item.referenceSha256)));
   assert.ok(markdownText.includes("控制台四页像素差异报告"));
+  assert.ok(markdownText.includes("证据摘要"));
   assert.ok(!jsonText.includes("apiKey") && !markdownText.includes("apiKey"), "报告不得泄露凭证字段");
 
   const cli = childProcess.spawnSync(process.execPath, [

@@ -1,0 +1,575 @@
+{
+  "schemaVersion": 1,
+  "status": "pass",
+  "ok": true,
+  "versions": [
+    {
+      "version": "0.57.114",
+      "versionName": "v0.57.114",
+      "fixtureId": "admin-v2-reference-20260901-v1",
+      "renderer": "wechat-devtools-simulator",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "archivedAt": "2026-09-01T16:17:25.339Z",
+      "files": [
+        {
+          "name": "dashboard.png",
+          "href": "v0.57.114/dashboard.png",
+          "bytes": 111407,
+          "sha256": "44490b37ad8b3fe08c14973fcf71cc91550558332e3ae6596b88c3b7ac2f0f80",
+          "image": true
+        },
+        {
+          "name": "operations.png",
+          "href": "v0.57.114/operations.png",
+          "bytes": 65305,
+          "sha256": "4a05904a03ed4293572f9f4a3b4712c77d41a666aa9cd0c6e2017e0cd5e49137",
+          "image": true
+        },
+        {
+          "name": "config.png",
+          "href": "v0.57.114/config.png",
+          "bytes": 123427,
+          "sha256": "d70196376069f293ddb2a98d464caa164c1aff73f3f7d67762677f75338bcaa3",
+          "image": true
+        },
+        {
+          "name": "provider.png",
+          "href": "v0.57.114/provider.png",
+          "bytes": 97051,
+          "sha256": "6b69a8549891fa4ea3a5417accfbae938494076e351ced6048bbc352d6048651",
+          "image": true
+        },
+        {
+          "name": "admin-v2-same-device-manifest.json",
+          "href": "v0.57.114/admin-v2-same-device-manifest.json",
+          "bytes": 2106,
+          "sha256": "943b6df677382289bde3c423a7bc381e8024c4c94626cd1ea58efd1eb5f2c229",
+          "image": false
+        },
+        {
+          "name": "admin-v2-pixel-manifest.json",
+          "href": "v0.57.114/admin-v2-pixel-manifest.json",
+          "bytes": 1691,
+          "sha256": "12d28b3785cc9a4503f2831d1e6e8cacc31b44652a88dbded0cfb89f8a525a1a",
+          "image": false
+        },
+        {
+          "name": "admin-v2-pixel-diff-report.json",
+          "href": "v0.57.114/admin-v2-pixel-diff-report.json",
+          "bytes": 12704,
+          "sha256": "1d146ba30de0bf768cf8415974e8f6666ec32863a2bed135452f3af33bed550b",
+          "image": false
+        },
+        {
+          "name": "admin-v2-pixel-diff-report.md",
+          "href": "v0.57.114/admin-v2-pixel-diff-report.md",
+          "bytes": 1211,
+          "sha256": "e391f17ebf1136fe985533a88953c08d1aec3626e9b583b77b8beed309d4f755",
+          "image": false
+        },
+        {
+          "name": "layout-contract.json",
+          "href": "v0.57.114/layout-contract.json",
+          "bytes": 7129,
+          "sha256": "4ac7a8d1775e1b9c7165fcf2f42996be845fbfb4b20ff729529acc11eef0f445",
+          "image": false
+        },
+        {
+          "name": "font-contract.json",
+          "href": "v0.57.114/font-contract.json",
+          "bytes": 1776,
+          "sha256": "d866e72a4a225aa25a1d373bb8e4495385a139d10519e50308ad07cf681162be",
+          "image": false
+        },
+        {
+          "name": "preview-source-budget.json",
+          "href": "v0.57.114/preview-source-budget.json",
+          "bytes": 2773,
+          "sha256": "e1da1058834e368a2ecaaca618fb741ac7c059a85d4cf19658285cc481a69c7e",
+          "image": false
+        },
+        {
+          "name": "admin-v2-state-matrix.json",
+          "href": "v0.57.114/admin-v2-state-matrix.json",
+          "bytes": 2636,
+          "sha256": "313b7e3a10bd25fdc35394fd876a703e4d3becca9e9386f67e1af2b0e3d2aab3",
+          "image": false
+        },
+        {
+          "name": "admin-v2-device-matrix.json",
+          "href": "v0.57.114/admin-v2-device-matrix.json",
+          "bytes": 4825,
+          "sha256": "8db3b8063910bcb36b28de6c3bd6e21f11968ad6744b2b5572a34c0960332506",
+          "image": false
+        },
+        {
+          "name": "admin-v2-browser-reference-manifest.json",
+          "href": "v0.57.114/admin-v2-browser-reference-manifest.json",
+          "bytes": 1690,
+          "sha256": "14c706ed2a92f4dae7ceeb5fddf239aaf120a4ac7b64916a75e814daa654e4d5",
+          "image": false
+        },
+        {
+          "name": "browser-probe.json",
+          "href": "v0.57.114/browser-probe.json",
+          "bytes": 11089,
+          "sha256": "2cfaacd8cc34fcd5a41fb44d3d017fe201f6c83ace08648124ec5ebdbda271cd",
+          "image": false
+        },
+        {
+          "name": "browser-font-probe.json",
+          "href": "v0.57.114/browser-font-probe.json",
+          "bytes": 11089,
+          "sha256": "2cfaacd8cc34fcd5a41fb44d3d017fe201f6c83ace08648124ec5ebdbda271cd",
+          "image": false
+        },
+        {
+          "name": "admin-v2-state-matrix.json",
+          "href": "v0.57.114/admin-v2-state-matrix.json",
+          "bytes": 2636,
+          "sha256": "313b7e3a10bd25fdc35394fd876a703e4d3becca9e9386f67e1af2b0e3d2aab3",
+          "image": false
+        },
+        {
+          "name": "admin-v2-device-matrix.json",
+          "href": "v0.57.114/admin-v2-device-matrix.json",
+          "bytes": 4825,
+          "sha256": "8db3b8063910bcb36b28de6c3bd6e21f11968ad6744b2b5572a34c0960332506",
+          "image": false
+        },
+        {
+          "name": "visual-check.json",
+          "href": "v0.57.114/visual-check.json",
+          "bytes": 25518,
+          "sha256": "d8911c66a0598b6e1bcb0acef55fc0e49b025c4ee4a5f53b47fd1612a64587dc",
+          "image": false
+        }
+      ],
+      "manifest": "v0.57.114/archive-manifest.json"
+    },
+    {
+      "version": "0.57.113",
+      "versionName": "v0.57.113",
+      "fixtureId": "admin-v2-reference-20260901-v1",
+      "renderer": "wechat-devtools-simulator",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "archivedAt": "2026-09-01T15:41:43.651Z",
+      "files": [
+        {
+          "name": "dashboard.png",
+          "href": "v0.57.113/dashboard.png",
+          "bytes": 111407,
+          "sha256": "44490b37ad8b3fe08c14973fcf71cc91550558332e3ae6596b88c3b7ac2f0f80",
+          "image": true
+        },
+        {
+          "name": "operations.png",
+          "href": "v0.57.113/operations.png",
+          "bytes": 65305,
+          "sha256": "4a05904a03ed4293572f9f4a3b4712c77d41a666aa9cd0c6e2017e0cd5e49137",
+          "image": true
+        },
+        {
+          "name": "config.png",
+          "href": "v0.57.113/config.png",
+          "bytes": 123427,
+          "sha256": "d70196376069f293ddb2a98d464caa164c1aff73f3f7d67762677f75338bcaa3",
+          "image": true
+        },
+        {
+          "name": "provider.png",
+          "href": "v0.57.113/provider.png",
+          "bytes": 97051,
+          "sha256": "6b69a8549891fa4ea3a5417accfbae938494076e351ced6048bbc352d6048651",
+          "image": true
+        },
+        {
+          "name": "admin-v2-same-device-manifest.json",
+          "href": "v0.57.113/admin-v2-same-device-manifest.json",
+          "bytes": 2106,
+          "sha256": "943b6df677382289bde3c423a7bc381e8024c4c94626cd1ea58efd1eb5f2c229",
+          "image": false
+        },
+        {
+          "name": "admin-v2-pixel-manifest.json",
+          "href": "v0.57.113/admin-v2-pixel-manifest.json",
+          "bytes": 1691,
+          "sha256": "12d28b3785cc9a4503f2831d1e6e8cacc31b44652a88dbded0cfb89f8a525a1a",
+          "image": false
+        },
+        {
+          "name": "admin-v2-pixel-diff-report.json",
+          "href": "v0.57.113/admin-v2-pixel-diff-report.json",
+          "bytes": 12704,
+          "sha256": "1d146ba30de0bf768cf8415974e8f6666ec32863a2bed135452f3af33bed550b",
+          "image": false
+        },
+        {
+          "name": "admin-v2-pixel-diff-report.md",
+          "href": "v0.57.113/admin-v2-pixel-diff-report.md",
+          "bytes": 1211,
+          "sha256": "e391f17ebf1136fe985533a88953c08d1aec3626e9b583b77b8beed309d4f755",
+          "image": false
+        },
+        {
+          "name": "layout-contract.json",
+          "href": "v0.57.113/layout-contract.json",
+          "bytes": 7129,
+          "sha256": "4ac7a8d1775e1b9c7165fcf2f42996be845fbfb4b20ff729529acc11eef0f445",
+          "image": false
+        },
+        {
+          "name": "font-contract.json",
+          "href": "v0.57.113/font-contract.json",
+          "bytes": 1776,
+          "sha256": "d866e72a4a225aa25a1d373bb8e4495385a139d10519e50308ad07cf681162be",
+          "image": false
+        },
+        {
+          "name": "preview-source-budget.json",
+          "href": "v0.57.113/preview-source-budget.json",
+          "bytes": 2773,
+          "sha256": "e1da1058834e368a2ecaaca618fb741ac7c059a85d4cf19658285cc481a69c7e",
+          "image": false
+        },
+        {
+          "name": "admin-v2-browser-reference-manifest.json",
+          "href": "v0.57.113/admin-v2-browser-reference-manifest.json",
+          "bytes": 1690,
+          "sha256": "14c706ed2a92f4dae7ceeb5fddf239aaf120a4ac7b64916a75e814daa654e4d5",
+          "image": false
+        },
+        {
+          "name": "browser-probe.json",
+          "href": "v0.57.113/browser-probe.json",
+          "bytes": 11089,
+          "sha256": "2cfaacd8cc34fcd5a41fb44d3d017fe201f6c83ace08648124ec5ebdbda271cd",
+          "image": false
+        },
+        {
+          "name": "browser-font-probe.json",
+          "href": "v0.57.113/browser-font-probe.json",
+          "bytes": 11089,
+          "sha256": "2cfaacd8cc34fcd5a41fb44d3d017fe201f6c83ace08648124ec5ebdbda271cd",
+          "image": false
+        },
+        {
+          "name": "visual-check.json",
+          "href": "v0.57.113/visual-check.json",
+          "bytes": 25518,
+          "sha256": "065a11c7843e641ba312af0189015cf63995fbfc386f3cbda7bab392e3d45244",
+          "image": false
+        }
+      ],
+      "manifest": "v0.57.113/archive-manifest.json"
+    },
+    {
+      "version": "0.57.112",
+      "versionName": "v0.57.112",
+      "fixtureId": "admin-v2-reference-20260901-v1",
+      "renderer": "wechat-devtools-simulator",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "archivedAt": "2026-09-01T15:29:31.283Z",
+      "files": [
+        {
+          "name": "dashboard.png",
+          "href": "v0.57.112/dashboard.png",
+          "bytes": 111407,
+          "sha256": "44490b37ad8b3fe08c14973fcf71cc91550558332e3ae6596b88c3b7ac2f0f80",
+          "image": true
+        },
+        {
+          "name": "operations.png",
+          "href": "v0.57.112/operations.png",
+          "bytes": 65305,
+          "sha256": "4a05904a03ed4293572f9f4a3b4712c77d41a666aa9cd0c6e2017e0cd5e49137",
+          "image": true
+        },
+        {
+          "name": "config.png",
+          "href": "v0.57.112/config.png",
+          "bytes": 123427,
+          "sha256": "d70196376069f293ddb2a98d464caa164c1aff73f3f7d67762677f75338bcaa3",
+          "image": true
+        },
+        {
+          "name": "provider.png",
+          "href": "v0.57.112/provider.png",
+          "bytes": 97051,
+          "sha256": "6b69a8549891fa4ea3a5417accfbae938494076e351ced6048bbc352d6048651",
+          "image": true
+        },
+        {
+          "name": "admin-v2-same-device-manifest.json",
+          "href": "v0.57.112/admin-v2-same-device-manifest.json",
+          "bytes": 2106,
+          "sha256": "943b6df677382289bde3c423a7bc381e8024c4c94626cd1ea58efd1eb5f2c229",
+          "image": false
+        },
+        {
+          "name": "admin-v2-pixel-manifest.json",
+          "href": "v0.57.112/admin-v2-pixel-manifest.json",
+          "bytes": 1691,
+          "sha256": "12d28b3785cc9a4503f2831d1e6e8cacc31b44652a88dbded0cfb89f8a525a1a",
+          "image": false
+        },
+        {
+          "name": "admin-v2-pixel-diff-report.json",
+          "href": "v0.57.112/admin-v2-pixel-diff-report.json",
+          "bytes": 12704,
+          "sha256": "1d146ba30de0bf768cf8415974e8f6666ec32863a2bed135452f3af33bed550b",
+          "image": false
+        },
+        {
+          "name": "admin-v2-pixel-diff-report.md",
+          "href": "v0.57.112/admin-v2-pixel-diff-report.md",
+          "bytes": 1211,
+          "sha256": "e391f17ebf1136fe985533a88953c08d1aec3626e9b583b77b8beed309d4f755",
+          "image": false
+        },
+        {
+          "name": "layout-contract.json",
+          "href": "v0.57.112/layout-contract.json",
+          "bytes": 7129,
+          "sha256": "4ac7a8d1775e1b9c7165fcf2f42996be845fbfb4b20ff729529acc11eef0f445",
+          "image": false
+        },
+        {
+          "name": "font-contract.json",
+          "href": "v0.57.112/font-contract.json",
+          "bytes": 1776,
+          "sha256": "d866e72a4a225aa25a1d373bb8e4495385a139d10519e50308ad07cf681162be",
+          "image": false
+        },
+        {
+          "name": "preview-source-budget.json",
+          "href": "v0.57.112/preview-source-budget.json",
+          "bytes": 2773,
+          "sha256": "e1da1058834e368a2ecaaca618fb741ac7c059a85d4cf19658285cc481a69c7e",
+          "image": false
+        },
+        {
+          "name": "admin-v2-browser-reference-manifest.json",
+          "href": "v0.57.112/admin-v2-browser-reference-manifest.json",
+          "bytes": 1690,
+          "sha256": "14c706ed2a92f4dae7ceeb5fddf239aaf120a4ac7b64916a75e814daa654e4d5",
+          "image": false
+        },
+        {
+          "name": "browser-probe.json",
+          "href": "v0.57.112/browser-probe.json",
+          "bytes": 11089,
+          "sha256": "2cfaacd8cc34fcd5a41fb44d3d017fe201f6c83ace08648124ec5ebdbda271cd",
+          "image": false
+        },
+        {
+          "name": "browser-font-probe.json",
+          "href": "v0.57.112/browser-font-probe.json",
+          "bytes": 11089,
+          "sha256": "2cfaacd8cc34fcd5a41fb44d3d017fe201f6c83ace08648124ec5ebdbda271cd",
+          "image": false
+        },
+        {
+          "name": "visual-check.json",
+          "href": "v0.57.112/visual-check.json",
+          "bytes": 25518,
+          "sha256": "a80272da66283838108b0a1fde3a8fac6f1c3490d399fd8723878378427dc5d6",
+          "image": false
+        }
+      ],
+      "manifest": "v0.57.112/archive-manifest.json"
+    },
+    {
+      "version": "0.57.111",
+      "versionName": "v0.57.111",
+      "fixtureId": "admin-v2-reference-20260901-v1",
+      "renderer": "wechat-devtools-simulator",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "archivedAt": "2026-09-01T14:15:57.606Z",
+      "files": [
+        {
+          "name": "dashboard.png",
+          "href": "v0.57.111/dashboard.png",
+          "bytes": 111407,
+          "sha256": "44490b37ad8b3fe08c14973fcf71cc91550558332e3ae6596b88c3b7ac2f0f80",
+          "image": true
+        },
+        {
+          "name": "operations.png",
+          "href": "v0.57.111/operations.png",
+          "bytes": 65305,
+          "sha256": "4a05904a03ed4293572f9f4a3b4712c77d41a666aa9cd0c6e2017e0cd5e49137",
+          "image": true
+        },
+        {
+          "name": "config.png",
+          "href": "v0.57.111/config.png",
+          "bytes": 123427,
+          "sha256": "d70196376069f293ddb2a98d464caa164c1aff73f3f7d67762677f75338bcaa3",
+          "image": true
+        },
+        {
+          "name": "provider.png",
+          "href": "v0.57.111/provider.png",
+          "bytes": 97051,
+          "sha256": "6b69a8549891fa4ea3a5417accfbae938494076e351ced6048bbc352d6048651",
+          "image": true
+        },
+        {
+          "name": "admin-v2-same-device-manifest.json",
+          "href": "v0.57.111/admin-v2-same-device-manifest.json",
+          "bytes": 2106,
+          "sha256": "943b6df677382289bde3c423a7bc381e8024c4c94626cd1ea58efd1eb5f2c229",
+          "image": false
+        },
+        {
+          "name": "admin-v2-pixel-manifest.json",
+          "href": "v0.57.111/admin-v2-pixel-manifest.json",
+          "bytes": 1691,
+          "sha256": "12d28b3785cc9a4503f2831d1e6e8cacc31b44652a88dbded0cfb89f8a525a1a",
+          "image": false
+        },
+        {
+          "name": "admin-v2-pixel-diff-report.json",
+          "href": "v0.57.111/admin-v2-pixel-diff-report.json",
+          "bytes": 12704,
+          "sha256": "1d146ba30de0bf768cf8415974e8f6666ec32863a2bed135452f3af33bed550b",
+          "image": false
+        },
+        {
+          "name": "admin-v2-pixel-diff-report.md",
+          "href": "v0.57.111/admin-v2-pixel-diff-report.md",
+          "bytes": 1211,
+          "sha256": "e391f17ebf1136fe985533a88953c08d1aec3626e9b583b77b8beed309d4f755",
+          "image": false
+        },
+        {
+          "name": "layout-contract.json",
+          "href": "v0.57.111/layout-contract.json",
+          "bytes": 7129,
+          "sha256": "4ac7a8d1775e1b9c7165fcf2f42996be845fbfb4b20ff729529acc11eef0f445",
+          "image": false
+        },
+        {
+          "name": "font-contract.json",
+          "href": "v0.57.111/font-contract.json",
+          "bytes": 1776,
+          "sha256": "d866e72a4a225aa25a1d373bb8e4495385a139d10519e50308ad07cf681162be",
+          "image": false
+        },
+        {
+          "name": "preview-source-budget.json",
+          "href": "v0.57.111/preview-source-budget.json",
+          "bytes": 2773,
+          "sha256": "e1da1058834e368a2ecaaca618fb741ac7c059a85d4cf19658285cc481a69c7e",
+          "image": false
+        }
+      ],
+      "manifest": "v0.57.111/archive-manifest.json"
+    },
+    {
+      "version": "0.57.107",
+      "versionName": "v0.57.107",
+      "fixtureId": "admin-v2-reference-20260901-v1",
+      "renderer": "wechat-devtools-simulator",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "archivedAt": "2026-09-01T13:47:39.407Z",
+      "files": [
+        {
+          "name": "dashboard.png",
+          "href": "v0.57.107/dashboard.png",
+          "bytes": 111407,
+          "sha256": "44490b37ad8b3fe08c14973fcf71cc91550558332e3ae6596b88c3b7ac2f0f80",
+          "image": true
+        },
+        {
+          "name": "operations.png",
+          "href": "v0.57.107/operations.png",
+          "bytes": 65305,
+          "sha256": "4a05904a03ed4293572f9f4a3b4712c77d41a666aa9cd0c6e2017e0cd5e49137",
+          "image": true
+        },
+        {
+          "name": "config.png",
+          "href": "v0.57.107/config.png",
+          "bytes": 123427,
+          "sha256": "d70196376069f293ddb2a98d464caa164c1aff73f3f7d67762677f75338bcaa3",
+          "image": true
+        },
+        {
+          "name": "provider.png",
+          "href": "v0.57.107/provider.png",
+          "bytes": 97051,
+          "sha256": "6b69a8549891fa4ea3a5417accfbae938494076e351ced6048bbc352d6048651",
+          "image": true
+        },
+        {
+          "name": "admin-v2-same-device-manifest.json",
+          "href": "v0.57.107/admin-v2-same-device-manifest.json",
+          "bytes": 2106,
+          "sha256": "943b6df677382289bde3c423a7bc381e8024c4c94626cd1ea58efd1eb5f2c229",
+          "image": false
+        },
+        {
+          "name": "admin-v2-pixel-manifest.json",
+          "href": "v0.57.107/admin-v2-pixel-manifest.json",
+          "bytes": 1691,
+          "sha256": "12d28b3785cc9a4503f2831d1e6e8cacc31b44652a88dbded0cfb89f8a525a1a",
+          "image": false
+        },
+        {
+          "name": "admin-v2-pixel-diff-report.json",
+          "href": "v0.57.107/admin-v2-pixel-diff-report.json",
+          "bytes": 12704,
+          "sha256": "1d146ba30de0bf768cf8415974e8f6666ec32863a2bed135452f3af33bed550b",
+          "image": false
+        },
+        {
+          "name": "admin-v2-pixel-diff-report.md",
+          "href": "v0.57.107/admin-v2-pixel-diff-report.md",
+          "bytes": 1211,
+          "sha256": "e391f17ebf1136fe985533a88953c08d1aec3626e9b583b77b8beed309d4f755",
+          "image": false
+        },
+        {
+          "name": "layout-contract.json",
+          "href": "v0.57.107/layout-contract.json",
+          "bytes": 7129,
+          "sha256": "a7c7dda65998b2829885d8645419dc2b3c0786f8b404c85d8e61561ceb1b17c9",
+          "image": false
+        },
+        {
+          "name": "font-contract.json",
+          "href": "v0.57.107/font-contract.json",
+          "bytes": 1776,
+          "sha256": "8cfcf04a705462db2b8d1ec8804082fcb51d098832f30d9bc273a3884f9362a2",
+          "image": false
+        },
+        {
+          "name": "preview-source-budget.json",
+          "href": "v0.57.107/preview-source-budget.json",
+          "bytes": 2773,
+          "sha256": "e1da1058834e368a2ecaaca618fb741ac7c059a85d4cf19658285cc481a69c7e",
+          "image": false
+        }
+      ],
+      "manifest": "v0.57.107/archive-manifest.json"
+    }
+  ],
+  "generatedAt": "2026-09-01T16:17:25.355Z"
+}

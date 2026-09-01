@@ -12,6 +12,7 @@ const layout = require("./admin-v2-layout-contract");
 const font = require("./admin-v2-font-contract");
 const diff = require("./admin-v2-pixel-diff-report");
 const archive = require("./admin-v2-visual-archive");
+const indexer = require("./admin-v2-visual-index");
 
 const ROOT = path.resolve(__dirname, "..");
 const DEFAULT_SOURCE = path.join(ROOT, "visual-evidence", "captured-final-v8");
@@ -70,11 +71,14 @@ async function run(options = {}) {
     "visual-evidence/admin-v2-browser-reference-manifest.json",
     "visual-evidence/runtime-geometry/browser-probe.json",
     "visual-evidence/runtime-font/browser-font-probe.json",
+    "visual-evidence/admin-v2-state-matrix.json",
+    "visual-evidence/admin-v2-device-matrix.json",
   ];
   const reportFiles = [...archive.DEFAULT_REPORTS, ...optionalEvidence].map(relative => resolve(root, relative)).filter(filePath => fs.existsSync(filePath));
   reportFiles.push(reportPath);
   const archiveResult = archive.run({ root, version, source: sourceRoot, outputRoot: options.archiveRoot || path.join("visual-evidence", "archive"), files: screenshots, reports: reportFiles, retention: options.retention === undefined ? archive.DEFAULT_RETENTION : options.retention });
-  report.archive = { manifestPath: archiveResult.manifestPath, prunedVersions: archiveResult.prunedVersions, keptVersions: archiveResult.keptVersions };
+  const indexResult = indexer.run({ root, archiveRoot: options.archiveRoot || path.join("visual-evidence", "archive") });
+  report.archive = { manifestPath: archiveResult.manifestPath, prunedVersions: archiveResult.prunedVersions, keptVersions: archiveResult.keptVersions, indexJsonPath: indexResult.jsonPath, indexHtmlPath: indexResult.htmlPath };
   // 归档前的 report 是不可变输入；归档后只给调用方返回路径，不能回写，
   // 否则 archive-manifest 里的 SHA256 会立刻失真。
   return report;

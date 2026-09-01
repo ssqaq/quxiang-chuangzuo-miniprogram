@@ -92,6 +92,9 @@ function readManifest(manifestPath, root = ROOT) {
       }
       : null,
     mode: manifest.mode ? String(manifest.mode) : "",
+    fixtureId: manifest.fixtureId ? String(manifest.fixtureId) : "",
+    fontProfile: manifest.fontProfile ? String(manifest.fontProfile) : "",
+    stateId: manifest.stateId ? String(manifest.stateId) : "",
     pages,
   };
 }
@@ -267,6 +270,9 @@ function run(options = {}) {
     ok: pages.every(page => page.pass),
     viewport: manifest.viewport,
     mode: manifest.mode,
+    fixtureId: manifest.fixtureId,
+    fontProfile: manifest.fontProfile,
+    stateId: manifest.stateId,
     threshold,
     maxDiffRatio,
     tileSize,
@@ -322,6 +328,8 @@ function renderMarkdown(report) {
     `- 阈值：${report.threshold}（单通道最大差）` ,
     `- 最大差异比例：${(report.maxDiffRatio * 100).toFixed(3)}%`,
     `- 热点 tile：${report.tileSize}x${report.tileSize}，视口：${viewport}`,
+    `- fixture：\`${markdownCell(report.fixtureId || "未记录")}\`，状态：\`${markdownCell(report.stateId || "未记录")}\``,
+    `- 字体 profile：\`${markdownCell(report.fontProfile || "未记录")}\``,
     `- 基线清单：\`${markdownCell(report.manifest)}\``,
     "",
     "| 页面 | 状态 | 差异像素 | 差异比例 | 最大通道差 | 差异包围盒 | 热点 tile | 热图 |",

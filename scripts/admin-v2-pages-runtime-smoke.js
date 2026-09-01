@@ -56,6 +56,8 @@ const bindings = [
 const slotWrites = [];
 const providerWrites = [];
 const modelWrites = [];
+const navigationUrls = [];
+const backCalls = [];
 
 const cloudMock = {
   async getAdminConfigV2() {
@@ -92,8 +94,8 @@ global.wx = {
     return { left: 298, top: 51, right: 385, bottom: 83, width: 87, height: 32 };
   },
   stopPullDownRefresh() {},
-  navigateTo() {},
-  navigateBack() {},
+  navigateTo({ url }) { navigationUrls.push(url); },
+  navigateBack(options) { backCalls.push(options); },
   showToast() {}
 };
 
@@ -198,11 +200,22 @@ async function run() {
 
   configPage.setData({ mainExpanded: true, backupExpanded: true, advancedExpanded: true });
   configPage.selectTab({ currentTarget: { dataset: { groupIndex: 2, tabIndex: 0 } } });
-  assertAllSectionsCollapsed(configPage, "切换功能后");
+  assert.strictEqual(configPage.data.mainExpanded, true, "共享视频已有主模型时必须默认展开主模型详情");
+  assert.strictEqual(configPage.data.backupExpanded, false, "切换共享视频后备用模型必须保持收起");
+  assert.strictEqual(configPage.data.advancedExpanded, false, "切换共享视频后高级参数必须保持收起");
   assert.deepStrictEqual(configPage.data.groups[2].tabs.map(tab => tab.slot), ["shared.video"]);
   assert.strictEqual(configPage.data.configuredCount, 1);
   assert.strictEqual(configPage.data.totalCount, 1);
   assert.strictEqual(configPage.data.backupCount, 1);
+  configPage.backToDashboard();
+  assert.strictEqual(navigationUrls.at(-1), "/pages/admin-dashboard/admin-dashboard", "返回控制台必须进入管理控制台");
+  global.getCurrentPages = () => [
+    { route: "pages/admin-dashboard/admin-dashboard" },
+    { route: "pages/admin-config/admin-config" }
+  ];
+  configPage.backToDashboard();
+  assert.deepStrictEqual(backCalls.at(-1), { delta: 1 }, "从控制台进入配置页时应真正返回，不重复压入控制台");
+  delete global.getCurrentPages;
 
   const originalSaveSlot = cloudMock.saveAdminSlotV2;
   const failedPage = loadPage("../pages/admin-config/admin-config");

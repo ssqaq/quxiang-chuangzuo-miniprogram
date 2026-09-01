@@ -17,6 +17,8 @@ const DEFAULT_MANIFEST = path.join(ROOT, "visual-evidence", "admin-v2-same-devic
 const DEFAULT_OUTPUT = path.join(ROOT, "visual-evidence", "same-device-diffs");
 const PAGE_NAMES = ["dashboard", "operations", "config", "provider"];
 const REQUIRED_VIEWPORT = { width: 390, height: 844 };
+const REQUIRED_FIXTURE_ID = "admin-v2-reference-20260901-v1";
+const REQUIRED_FONT_PROFILE = "Microsoft YaHei > PingFang SC > SimHei > system-ui > sans-serif";
 
 function sha256(filePath) {
   return crypto.createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
@@ -54,6 +56,15 @@ function validateManifest(manifest, root = ROOT, options = {}) {
     || String(capture.device || "").trim() === ""
     || String(capture.command || "").trim() === "") {
     throw new Error("同设备基线必须记录 renderer、device 和 capture command。");
+  }
+  if (String(capture.fixtureId || "") !== REQUIRED_FIXTURE_ID) {
+    throw new Error(`同设备基线 fixtureId 必须为 ${REQUIRED_FIXTURE_ID}。`);
+  }
+  if (String(capture.fontProfile || "") !== REQUIRED_FONT_PROFILE) {
+    throw new Error("同设备基线必须锁定四页统一字体 profile。");
+  }
+  if (String(capture.stateId || "") !== "collapsed-default-v1") {
+    throw new Error("同设备基线必须锁定 collapsed-default-v1 状态。");
   }
   if (!Array.isArray(manifest.pages) || manifest.pages.length !== PAGE_NAMES.length) {
     throw new Error("同设备基线 manifest 必须正好覆盖四个页面。");
@@ -197,6 +208,8 @@ module.exports = {
   DEFAULT_OUTPUT,
   PAGE_NAMES,
   REQUIRED_VIEWPORT,
+  REQUIRED_FIXTURE_ID,
+  REQUIRED_FONT_PROFILE,
   sha256,
   resolveFromRoot,
   readJson,

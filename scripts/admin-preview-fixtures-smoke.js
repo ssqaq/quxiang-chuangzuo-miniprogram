@@ -10,8 +10,11 @@ assert.deepStrictEqual(fixtures.fixtureContract(), {
   fontProfile: fixtures.FONT_PROFILE,
   viewport: { width: 390, height: 844 },
   state: "collapsed-default-v1",
+  states: ["collapsed-default-v1", "expanded-v1", "backup-disabled-v1", "video-mode-v1"],
   pages: ["dashboard", "operations", "config", "provider"]
 });
+assert.strictEqual(fixtures.resolveVisualState({ visualState: "video-mode-v1" }).group, "shared");
+assert.strictEqual(fixtures.resolveVisualState({ visualState: "unknown" }).id, "collapsed-default-v1");
 
 assert.strictEqual(fixtures.isEnabled({ demo: "1" }), true, "demo=1 应打开演示模式");
 assert.strictEqual(fixtures.isEnabled({ demo: "true" }), true, "demo=true 应打开演示模式");
@@ -29,6 +32,11 @@ assert.strictEqual(config.suppliers.length, 10, "演示供应商目录应覆盖�
 assert.deepStrictEqual(config.suppliers.slice(0, 5).map(item => item.providerKey), ["dashscope", "xingju", "lingyun", "laoli", "panda"], "供应商目录顺序必须跟右图一致");
 assert.ok(config.bindings.some(item => item.slot === "tencent.face" && item.status === "not-ready"), "腾讯换脸演示状态必须待配置");
 assert.ok(config.bindings.some(item => item.slot === "shared.video" && item.role === "backup"), "演示配置必须包含共享视频备用模型");
+const backupDisabled = fixtures.adminConfig({ visualState: "backup-disabled-v1" });
+const disabledBackup = backupDisabled.bindings.find(item => item.slot === "standard.face" && item.role === "backup");
+assert.strictEqual(disabledBackup.status, "not-ready", "备用关闭状态必须使用真实 schema 的 not-ready");
+assert.strictEqual(disabledBackup.providerKey, "lingyun", "备用关闭状态必须保留供应商和模型");
+assert.strictEqual(disabledBackup.modelId, "vision-pro", "备用关闭状态必须保留供应商和模型");
 assert.ok(config.bindings.some(item => item.metadata && item.metadata.advanced && item.metadata.advanced.mode === "edits"), "生图演示配置必须包含 mode/size");
 const serialized = JSON.stringify(config);
 assert.ok(!serialized.includes("apiKey") || !serialized.match(/apiKey\\"\\s*:\\s*\\"[^\\"]+\\"/), "演示 fixture 不得携带真实 API Key");

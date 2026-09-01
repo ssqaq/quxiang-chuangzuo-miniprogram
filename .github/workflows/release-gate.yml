@@ -159,6 +159,24 @@ jobs:
       - name: Post-release visual check smoke
         shell: pwsh
         run: node scripts/admin-v2-post-release-visual-check-smoke.js
+      - name: Visual state matrix smoke
+        shell: pwsh
+        run: node scripts/admin-v2-state-matrix-smoke.js
+      - name: Visual device matrix smoke
+        shell: pwsh
+        run: node scripts/admin-v2-device-matrix-smoke.js
+      - name: Strict visual capture gate smoke
+        shell: pwsh
+        run: node scripts/admin-v2-visual-capture-gate-smoke.js
+      - name: Visual archive index smoke
+        shell: pwsh
+        run: node scripts/admin-v2-visual-index-smoke.js
+      - name: Visual state matrix contract
+        shell: pwsh
+        run: node scripts/admin-v2-state-matrix.js
+      - name: Visual device matrix contract
+        shell: pwsh
+        run: node scripts/admin-v2-device-matrix.js
       - name: Four-page pixel regression
         shell: pwsh
         run: node scripts/admin-v2-pixel-baseline.js --threshold 32 --max-diff-ratio 0.5

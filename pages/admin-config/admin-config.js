@@ -325,10 +325,13 @@ Page({
     this.demoMode = previewFixtures.isEnabled(options);
     this.fixtureId = previewFixtures.resolveFixtureId(options);
     this.showDemoControl = previewFixtures.isControlVisible(options);
+    this.visualState = this.demoMode
+      ? previewFixtures.resolveVisualState(options)
+      : previewFixtures.VISUAL_STATES[previewFixtures.DEFAULT_VISUAL_STATE_ID];
     this.setData({ demoMode: this.demoMode, fixtureId: this.fixtureId, showDemoControl: this.showDemoControl });
     this.applyNavigationLayout();
-    this.initialGroup = options && options.group ? options.group : "standard";
-    this.initialTab = options && options.tab ? options.tab : "face";
+    this.initialGroup = this.demoMode && this.visualState ? this.visualState.group : (options && options.group ? options.group : "standard");
+    this.initialTab = this.demoMode && this.visualState ? this.visualState.tab : (options && options.tab ? options.tab : "face");
     this.loadConfig();
   },
 
@@ -380,6 +383,7 @@ Page({
     if (this.demoMode) {
       params.push("demo=1");
       params.push(`fixture=${encodeURIComponent(this.fixtureId || previewFixtures.REFERENCE_FIXTURE_ID)}`);
+      params.push(`visualState=${encodeURIComponent((this.visualState && this.visualState.id) || previewFixtures.DEFAULT_VISUAL_STATE_ID)}`);
     }
     if (this.data.showDemoControl) params.push("demoControl=1");
     return params.length ? `${separator}${params.join("&")}` : "";
@@ -403,7 +407,7 @@ Page({
     }
     if (loadSerial !== this._configLoadSerial) return;
     const payload = this.demoMode
-      ? previewFixtures.adminConfig()
+      ? previewFixtures.adminConfig({ visualState: this.visualState && this.visualState.id })
       : (result && result.ok !== false && result.data ? result.data : (result && result.ok !== false ? result : null));
     const suppliers = normaliseSuppliers(payload && payload.suppliers, payload && payload.supplierModels);
     const bindings = payload && Array.isArray(payload.bindings) ? payload.bindings : [];
@@ -413,7 +417,13 @@ Page({
     let tabIndex = groups[groupIndex].tabs.findIndex(tab => tab.key === this.initialTab);
     if (tabIndex < 0) tabIndex = 0;
     const summary = summaryForGroup(groups[groupIndex]);
-    const expansion = defaultExpansionFor(groups[groupIndex].key, groups[groupIndex].tabs[tabIndex]);
+    const expansion = this.demoMode && this.visualState
+      ? {
+        mainExpanded: Boolean(this.visualState.mainExpanded),
+        backupExpanded: Boolean(this.visualState.backupExpanded),
+        advancedExpanded: Boolean(this.visualState.advancedExpanded)
+      }
+      : defaultExpansionFor(groups[groupIndex].key, groups[groupIndex].tabs[tabIndex]);
     this.setData(Object.assign({
       loading: false,
       source: this.demoMode ? "demo" : (payload ? "cloud" : "local"),

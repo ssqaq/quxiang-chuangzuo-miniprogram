@@ -1,0 +1,48 @@
+name: admin-visual-capture
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - "pages/admin-*/**"
+      - "services/admin-preview-fixtures.js"
+      - "scripts/admin-v2-visual-*.js"
+      - "scripts/admin-v2-state-matrix*.js"
+      - "scripts/admin-v2-device-matrix*.js"
+      - "visual-evidence/**"
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    runs-on: [self-hosted, Windows, admin-visual]
+    timeout-minutes: 20
+    env:
+      WECHAT_DEVTOOLS_CLI: ${{ vars.WECHAT_DEVTOOLS_CLI }}
+      MINIPROGRAM_AUTOMATOR_PATH: ${{ vars.MINIPROGRAM_AUTOMATOR_PATH }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Verify runner tools
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WECHAT_DEVTOOLS_CLI) -or -not (Test-Path -LiteralPath $env:WECHAT_DEVTOOLS_CLI -PathType Leaf)) {
+            throw "WECHAT_DEVTOOLS_CLI 未配置或文件不存在"
+          }
+          if ([string]::IsNullOrWhiteSpace($env:MINIPROGRAM_AUTOMATOR_PATH) -or -not (Test-Path -LiteralPath $env:MINIPROGRAM_AUTOMATOR_PATH)) {
+            throw "MINIPROGRAM_AUTOMATOR_PATH 未配置或目录不存在"
+          }
+      - name: Capture real simulator states
+        shell: pwsh
+        run: node scripts/admin-v2-visual-capture-gate.js --project "$env:GITHUB_WORKSPACE" --cli "$env:WECHAT_DEVTOOLS_CLI" --output visual-evidence/ci-capture --all-states
+      - name: Upload immutable visual evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: admin-visual-${{ github.sha }}
+          path: visual-evidence/ci-capture
+          if-no-files-found: error
+          retention-days: 14

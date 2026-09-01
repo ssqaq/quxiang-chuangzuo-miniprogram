@@ -53,6 +53,62 @@
 
 ### Task 4: 回归与发布
 
-- [ ] 跑三项 smoke、四页像素回归、完整 `validate.js` 和发布 gate smoke。
-- [ ] 按发布脚本规则分配下一 patch 版本，正式生成非空 ZIP、SHA256 和报告。
-- [ ] 核对 GitHub/CloudBase/开发者工具回执，并在交付中给出版本、产物路径和打包状态。
+- [x] 跑新增合同 smoke、四页像素回归、完整 `validate.js` 和发布 gate smoke。
+- [x] 按发布脚本规则分配下一 patch 版本，正式生成非空 ZIP、SHA256 和报告。
+- [x] 核对 GitHub/CloudBase/开发者工具回执，并在交付中给出版本、产物路径和打包状态。
+
+### Task 5: 固定演示 fixture
+
+- [x] 增加 `admin-v2-reference-20260901-v1` 固定 fixture ID，四页跳转和截图命令统一传递。
+- [x] fixture 数据和统计数据返回 ID，未知 ID 回退到唯一已审核 fixture，演示数据继续禁止云端调用和凭证输出。
+
+### Task 6: 布局与字体合同
+
+- [x] 用 `scripts/admin-v2-layout-contract.js` 固定四页关键选择器、宽度、高度、字号、居中和横向边界。
+- [x] 用 `scripts/admin-v2-font-contract.js` 固定 `Microsoft YaHei > PingFang SC > SimHei > system-ui` 字体 profile，并记录源码 SHA256。
+- [x] 两项合同均生成 JSON 报告并接入 validate 和 GitHub release gate。
+
+### Task 7: 视觉证据归档
+
+- [x] 用 `scripts/admin-v2-visual-archive.js` 归档四页截图、manifest、差异报告、布局合同、字体合同和源码预算。
+- [x] 归档写入版本、fixture、viewport、文件大小和 SHA256；目标内容不一致时拒绝覆盖，文本证据拒绝凭证字段。
+
+### Task 8: 同渲染器浏览器参考图
+
+- [x] 逐页新建活动浏览器标签，锁定 390x844 后再截图，避免把桌面外壳 1280x720 当作手机参考。
+- [x] 生成 `visual-evidence/admin-v2-browser-reference-manifest.json`，记录 fixture、DPR、URL、字节数和 SHA256。
+
+### Task 9: 运行时几何与字体探针
+
+- [x] 用浏览器 `evaluate` 采集四页真实内容框、横向滚动宽度和字体样本。
+- [x] 新增 `admin-v2-runtime-geometry-probe.js`、`admin-v2-runtime-font-probe.js` 及 smoke，分别验证 390x844 边界和实际 computed font-family。
+
+### Task 10: 归档保留策略
+
+- [x] 归档默认保留最近 5 个版本，只清理 `visual-evidence/archive/v*` 子目录，越界目标直接拒绝。
+- [x] smoke 覆盖旧版本清理、保留列表和非法保留数量。
+
+### Task 11: 发布后自动视觉检查
+
+- [x] 新增 `admin-v2-post-release-visual-check.js`，串联截图、布局合同、字体合同、像素报告和归档。
+- [x] 发布队列成功后自动写入检查摘要；没有自动化截图环境时可明确复用既有截图并记录状态。
+
+### Task 12: 严格真实截图 CI
+
+- [x] 微信开发者工具截图记录路由、状态、窗口尺寸、PNG 尺寸、字节数和 SHA256。
+- [x] 增加 Windows self-hosted workflow；严格模式失败时不允许复用旧图。
+
+### Task 13: 四状态基线
+
+- [x] 固定默认、展开、备用关闭、视频模式四个状态；`visualState` 只在演示 fixture 生效。
+- [x] 备用关闭继续使用 `not-ready` 并保留供应商和模型，符合真实 V2 schema。
+
+### Task 14: 三设备矩阵
+
+- [x] 固定 375x812、390x844、430x932 三档设备和四页顺序。
+- [x] 逐图校验尺寸、DPR、横向滚动宽度和 SHA256。
+
+### Task 15: 归档索引
+
+- [x] 重新校验每个历史归档的字节数和 SHA256 后生成 `index.json`、`index.html`。
+- [x] 发布后归档完成自动刷新索引，索引不改写不可变版本目录。

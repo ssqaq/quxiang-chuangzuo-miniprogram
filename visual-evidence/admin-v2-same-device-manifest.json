@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "viewport": {
+    "width": 390,
+    "height": 844
+  },
+  "capture": {
+    "renderer": "wechat-devtools-simulator",
+    "device": "iPhone 12/13 simulator",
+    "tool": "微信开发者工具 simulator_screenshot",
+    "command": "node scripts/admin-v2-visual-capture.js --connect-port <port> --output visual-evidence/captured-same-device",
+    "mode": "demo=1",
+    "generatedAt": "2026-09-01"
+  },
+  "pages": [
+    {
+      "name": "dashboard",
+      "actual": "visual-evidence/final-dashboard-v5-390x844.png",
+      "reference": "visual-evidence/pixel-baselines/dashboard-operations-reference-390x844.png",
+      "actualSha256": "e503c47e8fe1b01e70c71f28c46282d2162406cef19801e3d6c4e83dbd59c60b",
+      "referenceSha256": "607cb69d15f219367ea56c4929c519f5060475e54fbeb536c52d2eba78878a53"
+    },
+    {
+      "name": "operations",
+      "actual": "visual-evidence/final-operations-v5-390x844.png",
+      "reference": "visual-evidence/pixel-baselines/operations-usage-reference-390x844.png",
+      "actualSha256": "27605ccd2d6686e9123ac24c6f5d2563290ecf9e579e28bc005033b98d8e51ec",
+      "referenceSha256": "0c8a2dec0e7b701291e32b5b0aa804be192ddd45aac1bfa33cbda7d5acb7edc7"
+    },
+    {
+      "name": "config",
+      "actual": "visual-evidence/final-config-v6-390x844.png",
+      "reference": "visual-evidence/pixel-baselines/config-reference.png",
+      "actualSha256": "e0c25d16565fadd81eb2add461f6925d49668da1f64ae44967d30adc3b19e686",
+      "referenceSha256": "c0f5bdc2193ebb45d5b005ec14c60fa18bd799c3327f30cda00ac8f2f541fa0b"
+    },
+    {
+      "name": "provider",
+      "actual": "visual-evidence/final-provider-v6-390x844.png",
+      "reference": "visual-evidence/pixel-baselines/provider-reference.png",
+      "actualSha256": "62079997a8cf05da527ab2a2a505cb8dee63faf8a6c866f08d7d4c0e2ee313de",
+      "referenceSha256": "828baf0bbaa63fafff56f82e7c6d170a165d0ecf32569126fe6e4851f4e2bd10"
+    }
+  ]
+}

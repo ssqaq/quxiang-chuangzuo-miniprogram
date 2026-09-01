@@ -151,6 +151,7 @@ $completed = $false
 $queueTicket = $null
 $queueLease = $null
 $queueHeartbeat = $null
+$previewSourceBudget = $null
 $queueLeaseSeconds = if ($policy.queue -and $policy.queue.PSObject.Properties["leaseSeconds"]) { [int]$policy.queue.leaseSeconds } else { 180 }
 $releaseToolPaths = @(
     "scripts/release-gate.ps1",
@@ -190,6 +191,12 @@ $releaseToolPaths = @(
     "scripts/admin-v2-pixel-regression-smoke.js",
     "scripts/admin-v2-pixel-baseline.js",
     "scripts/admin-v2-pixel-baseline-smoke.js",
+    "scripts/admin-v2-pixel-diff-report.js",
+    "scripts/admin-v2-pixel-diff-report-smoke.js",
+    "scripts/admin-v2-same-device-baseline.js",
+    "scripts/admin-v2-same-device-baseline-smoke.js",
+    "scripts/preview-source-budget.js",
+    "scripts/preview-source-budget-smoke.js",
     "scripts/admin-v2-visual-capture.js",
     "scripts/admin-preview-fixtures-smoke.js",
     "scripts/admin-preview-pages-runtime-smoke.js",
@@ -205,6 +212,7 @@ $releaseToolPaths = @(
     "scripts/sync-to-github.ps1",
     "一键刷新预览.cmd",
     ".github/workflows/release-gate.yml",
+    "visual-evidence/admin-v2-same-device-manifest.json",
     ".githooks/pre-commit",
     ".githooks/post-commit",
     ".githooks/pre-push",
@@ -318,6 +326,33 @@ function Invoke-GateDependencyPreflight {
         if ($LASTEXITCODE -ne 0) { throw "云函数 index.js 语法预检失败：$($syntax -join "`n")" }
         Write-GateHost "preflight" "未发现 node_modules，已完成 JSON/语法预检；CI 或部署阶段再做完整依赖检查。"
     }
+}
+
+function Invoke-GatePreviewSourceBudget {
+    param([Parameter(Mandatory = $true)][string]$ProjectRoot)
+    $checker = Join-Path $ProjectRoot "scripts/preview-source-budget.js"
+    if (-not (Test-Path -LiteralPath $checker -PathType Leaf)) {
+        throw "来源缺少预览源码预算脚本：$checker"
+    }
+    # 预算按开发者工具实际传输更接近的逐文件 gzip 估算；同时回报裸
+    # 源码字节，便于后续定位大文件。2 MiB 是硬上限，超限在二维码前失败。
+    $output = @(& node $checker --project-root $ProjectRoot --metric compressed --max-bytes 2097152 --warn-bytes 1887436 2>&1)
+    $text = ($output | ForEach-Object { [string]$_ }) -join "`n"
+    if ($LASTEXITCODE -ne 0) { throw "预览源码预算超限或检查失败：$text" }
+    try { $result = $text | ConvertFrom-Json -ErrorAction Stop }
+    catch { throw "预览源码预算没有返回 JSON：$text" }
+    if ([string]$result.status -ne "pass" -or -not [bool]$result.ok) {
+        throw "预览源码预算未通过：$text"
+    }
+    $rawBytes = [int64]$result.rawBytes
+    $transferBytes = [int64]$result.estimatedTransferBytes
+    if ([bool]$result.warning) {
+        Write-GateHost "preflight" "预览源码预算通过但已接近上限：传输估算=$transferBytes bytes，裸源码=$rawBytes bytes。"
+    }
+    else {
+        Write-GateHost "preflight" "预览源码预算通过：传输估算=$transferBytes bytes，裸源码=$rawBytes bytes。"
+    }
+    return $result
 }
 
 function Invoke-GateUtf8Preflight {
@@ -505,6 +540,7 @@ try {
         [IO.File]::WriteAllText($versionFile, $newText, [Text.UTF8Encoding]::new($false))
     }
 
+    $previewSourceBudget = Invoke-GatePreviewSourceBudget -ProjectRoot $releaseWorktree
     $utf8Preflight = Invoke-GateUtf8Preflight -SourceRoot $releaseWorktree
     $cloudbasePreflight = Invoke-GateCloudBasePreflight -ProjectRoot $releaseWorktree
 
@@ -602,6 +638,21 @@ try {
     $contextHash.releaseWorktree = [IO.Path]::GetFullPath($releaseWorktree)
     $contextHash.packageSha256 = $packageSha
     $contextHash.packageSizeBytes = [int64]$artifact.Length
+    if ($null -ne $previewSourceBudget) {
+        $contextHash["previewSourceBudget"] = [ordered]@{
+            schemaVersion = [int]$previewSourceBudget.schemaVersion
+            status = [string]$previewSourceBudget.status
+            metric = [string]$previewSourceBudget.metric
+            maxBytes = [int64]$previewSourceBudget.maxBytes
+            warnBytes = [int64]$previewSourceBudget.warnBytes
+            measuredBytes = [int64]$previewSourceBudget.measuredBytes
+            rawBytes = [int64]$previewSourceBudget.rawBytes
+            estimatedTransferBytes = [int64]$previewSourceBudget.estimatedTransferBytes
+            fileCount = [int]$previewSourceBudget.fileCount
+            largestFiles = @($previewSourceBudget.largestFiles | Select-Object -First 10)
+            checkedAt = [string]$previewSourceBudget.checkedAt
+        }
+    }
     $contextHash.utf8Preflight = $utf8Preflight
     $contextHash.cloudbaseEnvironment = $cloudbasePreflight
     $contextHash.status = "prepared"
@@ -882,6 +933,7 @@ try {
         changedFiles = @($allowed); generatedAt = [DateTimeOffset]::UtcNow.ToString("o"); releaseBranch = $pr.branch; pullRequest = $pr.pr
     }
     if ($contextHash.Contains("utf8Preflight")) { $record.utf8Preflight = $contextHash.utf8Preflight }
+    if ($contextHash.Contains("previewSourceBudget")) { $record["previewSourceBudget"] = $contextHash["previewSourceBudget"] }
     if ($contextHash.Contains("cloudbaseEnvironment")) { $record.cloudbaseEnvironment = $contextHash.cloudbaseEnvironment }
     if ($contextHash.Contains("mainCommit")) { $record.mainCommit = [string]$contextHash.mainCommit }
     if ($contextHash.Contains("mergedAt")) { $record.mergedAt = [string]$contextHash.mergedAt }

@@ -1,7 +1,7 @@
-<view class="operations-page">
+<view class="operations-page" data-preview-source="{{source}}" data-preview-fixture="{{demoMode ? fixtureId : ''}}" aria-label="{{demoMode ? '演示数据' : (source === 'cloud' ? '真实云端数据' : '本地预览数据')}}">
   <view class="appbar" style="{{appbarStyle}}">
     <view class="appbar-title">{{viewTitle}}</view>
-    <view wx:if="{{showDemoControl}}" class="demo-control {{loading || busy ? 'locked' : ''}}" aria-role="switch" aria-checked="{{demoMode}}" aria-label="切换演示数据" bindtap="toggleDemoMode" hover-class="tap"><text class="demo-label">演示</text><view class="demo-toggle {{demoMode ? 'on' : ''}}"><view class="demo-knob"></view></view></view>
+    <view wx:if="{{showDemoControl}}" class="demo-control {{loading || busy ? 'locked' : ''}}" aria-role="switch" aria-checked="{{demoMode}}" aria-label="切换演示数据" bindtap="toggleDemoMode" hover-class="tap"><text class="demo-label">{{demoMode ? '演示' : '真实'}}</text><view class="demo-toggle {{demoMode ? 'on' : ''}}"><view class="demo-knob"></view></view></view>
     <view class="appbar-link" bindtap="backToDashboard" hover-class="tap">返回控制台 <text>›</text></view>
   </view>
 

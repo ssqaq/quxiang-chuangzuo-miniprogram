@@ -23,6 +23,13 @@ function pageFilesExist(page) {
   });
 }
 
+function assertPreviewSourceMarker(page) {
+  const wxml = read(page, "wxml");
+  assert.ok(wxml.includes('data-preview-source="{{source}}"'), `${page} 必须标记真实/演示数据来源`);
+  assert.ok(wxml.includes('data-preview-fixture="{{demoMode ? fixtureId : \'\'}}"'), `${page} 只有演示模式可以挂 fixture`);
+  assert.ok(wxml.includes("{{demoMode ? '演示' : '真实'}}"), `${page} 调试入口必须统一显示演示/真实状态`);
+}
+
 function assertWxmlHandlers(page) {
   const wxml = read(page, "wxml");
   const js = read(page, "js");
@@ -40,6 +47,7 @@ function assertWxmlHandlers(page) {
 ["admin-dashboard", "admin-provider", "admin-config", "admin-operations"].forEach((page) => {
   pageFilesExist(page);
   assertWxmlHandlers(page);
+  assertPreviewSourceMarker(page);
 });
 
 const appConfig = JSON.parse(fs.readFileSync(path.join(projectRoot, "app.json"), "utf8"));

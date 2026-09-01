@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "admin-v2-reference-20260901-v1",
+  "viewport": {
+    "width": 390,
+    "height": 844
+  },
+  "pages": [
+    {
+      "name": "dashboard",
+      "browserUrl": "http://localhost:49713/dashboard/?demo=1&fixture=admin-v2-reference-20260901-v1",
+      "miniProgramRoute": "/pages/admin-dashboard/admin-dashboard?demo=1&fixture=admin-v2-reference-20260901-v1"
+    },
+    {
+      "name": "operations",
+      "browserUrl": "http://localhost:49713/dashboard/operations.html?view=usage&demo=1&fixture=admin-v2-reference-20260901-v1",
+      "miniProgramRoute": "/pages/admin-operations/admin-operations?view=usage&demo=1&fixture=admin-v2-reference-20260901-v1"
+    },
+    {
+      "name": "config",
+      "browserUrl": "http://localhost:49713/config/?demo=1&fixture=admin-v2-reference-20260901-v1",
+      "miniProgramRoute": "/pages/admin-config/admin-config?demo=1&fixture=admin-v2-reference-20260901-v1"
+    },
+    {
+      "name": "provider",
+      "browserUrl": "http://localhost:49713/provider/?demo=1&fixture=admin-v2-reference-20260901-v1",
+      "miniProgramRoute": "/pages/admin-provider/admin-provider?demo=1&fixture=admin-v2-reference-20260901-v1"
+    }
+  ],
+  "generatedAt": "2026-09-01T18:24:58.653Z"
+}

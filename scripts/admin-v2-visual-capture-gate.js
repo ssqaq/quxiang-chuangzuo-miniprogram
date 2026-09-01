@@ -19,6 +19,7 @@ function validateManifest(manifest, options = {}) {
   if (manifest.schemaVersion !== 1) errors.push("schemaVersion 必须为 1");
   if (manifest.fixtureId !== FIXTURE_ID) errors.push(`fixtureId 必须为 ${FIXTURE_ID}`);
   if (manifest.renderer !== "wechat-devtools-simulator") errors.push("renderer 必须为 wechat-devtools-simulator");
+  if (manifest.captureStatus !== "captured") errors.push("captureStatus 必须为 captured，严格门禁不接受旧截图回退");
   const states = Array.isArray(manifest.states) ? manifest.states : [];
   const expectedStates = options.allStates ? captureTool.STATE_IDS : [options.state || captureTool.DEFAULT_STATE_ID];
   if (JSON.stringify(states) !== JSON.stringify(expectedStates)) errors.push(`状态必须为 ${expectedStates.join("、")}`);

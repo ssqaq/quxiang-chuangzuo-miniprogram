@@ -57,6 +57,9 @@ const adminV2ExecutableSmokeFiles = [
   "scripts/admin-v2-device-matrix-smoke.js",
   "scripts/admin-v2-visual-capture-gate-smoke.js",
   "scripts/admin-v2-visual-runner-smoke.js",
+  "scripts/admin-v2-devtools-cli-capture-smoke.js",
+  "scripts/admin-v2-visual-sensitive-data-smoke.js",
+  "scripts/ensure-devtools-9437-smoke.js",
   "scripts/admin-v2-visual-index-smoke.js",
   "scripts/admin-v2-preview-entry-smoke.js",
   "scripts/qr-decode-smoke.js",
@@ -237,6 +240,8 @@ const jsFiles = [
   "scripts/admin-v2-device-matrix.js",
   "scripts/admin-v2-visual-capture-gate.js",
   "scripts/admin-v2-visual-runner.js",
+  "scripts/admin-v2-devtools-cli-capture.js",
+  "scripts/admin-v2-visual-sensitive-data.js",
   "scripts/admin-v2-visual-index.js",
   "scripts/admin-v2-preview-entry.js",
   "scripts/qr-decode.js",
@@ -259,6 +264,7 @@ const powerShellFiles = [
   "scripts/check-cloud-database-indexes.ps1",
   "scripts/install-git-hooks.ps1",
   "scripts/write-release-record.ps1",
+  "scripts/ensure-devtools-9437.ps1",
   "scripts/admin-v2-visual-runner.ps1"
 ];
 

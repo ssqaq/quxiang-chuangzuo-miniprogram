@@ -839,7 +839,7 @@ function Invoke-ReleaseDevToolsCommand {
     $output = & $CliPath -c $ClientName $ToolName @Arguments 2>&1
     $exitCode = $LASTEXITCODE
     $text = ($output | ForEach-Object { [string]$_ }) -join "`n"
-    if ($exitCode -ne 0) { throw "$Label失败：$text" }
+    if ($exitCode -ne 0) { throw "${Label}失败：$text" }
     $response = $null
     # wechatide prints a human-readable prefix followed by pretty-printed
     # multi-line JSON, so parsing one line at a time silently loses ok:false.
@@ -849,18 +849,18 @@ function Invoke-ReleaseDevToolsCommand {
         try { $response = $text.Substring($jsonStart, $jsonEnd - $jsonStart + 1) | ConvertFrom-Json } catch { }
     }
     if ($null -eq $response) {
-        throw "$Label未返回可解析的 JSON，原始输出：$text"
+        throw "${Label}未返回可解析的 JSON，原始输出：$text"
     }
     if (-not $response.PSObject.Properties["ok"]) {
-        throw "$Label返回格式不完整（缺少 ok）：$text"
+        throw "${Label}返回格式不完整（缺少 ok）：$text"
     }
     if (-not [bool]$response.ok) {
-        throw "$Label被微信开发者工具拒绝：$([string]$response.message)"
+        throw "${Label}被微信开发者工具拒绝：$([string]$response.message)"
     }
     if ($response.PSObject.Properties["result"] -and
         $response.result -and $response.result.PSObject.Properties["success"] -and
         -not [bool]$response.result.success) {
-        throw "$Label未成功：$([string]$response.result.message)"
+        throw "${Label}未成功：$([string]$response.result.message)"
     }
     $resultStatus = if ($response.PSObject.Properties["result"] -and $response.result -and $response.result.PSObject.Properties["status"]) {
         [string]$response.result.status
@@ -869,7 +869,7 @@ function Invoke-ReleaseDevToolsCommand {
         ($response.PSObject.Properties["result"] -and $response.result -and $response.result.PSObject.Properties["taskId"])
     if (($hasPendingTask -or $resultStatus -match '(?i)^(pending|queued|waiting|awaiting[_-]?confirmation)$') -and
         $ToolName -ne "simulator_refresh") {
-        throw "$Label返回待确认任务，未完成：$text"
+        throw "${Label}返回待确认任务，未完成：$text"
     }
     return [pscustomobject]@{
         tool = $ToolName

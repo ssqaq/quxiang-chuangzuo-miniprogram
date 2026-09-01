@@ -35,7 +35,7 @@ page { background:#f4f8fe; color:#10294b; font-family:"Microsoft YaHei","PingFan
 .detail-copy { min-width:0; }
 .detail-title { display:block; overflow:hidden; color:#10294b; font-size:25rpx; line-height:1.25; font-weight:900; text-overflow:ellipsis; white-space:nowrap; }
 .detail-description { display:block; margin-top:6rpx; overflow:hidden; color:#61799a; font-size:17rpx; line-height:1.4; text-overflow:ellipsis; white-space:nowrap; }
-.detail-toggle { min-width:112rpx; height:65rpx; margin:0; padding:0 12rpx; border:2rpx solid #b6d2f5; border-radius:15rpx; background:#f2f7ff; color:#2f73ee; font-size:19rpx; line-height:65rpx; font-weight:900; }
+.detail-toggle { width:112rpx; min-width:112rpx; height:65rpx; justify-self:end; display:flex; align-items:center; justify-content:center; box-sizing:border-box; margin:0; padding:0 12rpx; border:2rpx solid #b6d2f5; border-radius:15rpx; background:#f2f7ff; color:#2f73ee; font-size:19rpx; line-height:1; font-weight:900; }
 .detail-body { margin-top:20rpx; padding:20rpx; border:2rpx dashed #9ec5f7; border-radius:20rpx; background:#f9fbff; }
 .detail-line { display:block; color:#244668; font-size:18rpx; line-height:1.55; word-break:break-all; }
 .foot-note { margin-top:0; padding:19rpx; border-radius:19rpx; background:#edf5ff; color:#61799a; font-size:18rpx; line-height:1.5; }

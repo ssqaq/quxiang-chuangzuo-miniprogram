@@ -21,7 +21,7 @@
     <view wx:elif="{{empty}}" class="empty-note">{{footNote}}</view>
     <view wx:else class="detail-list">
       <view wx:for="{{detailRows}}" wx:key="title" class="detail-card">
-        <view class="detail-head" data-index="{{index}}" bindtap="toggleRow" hover-class="tap"><view class="detail-copy"><text class="detail-title">{{item.title}}</text><text class="detail-description">{{item.detail}}</text></view><button class="detail-toggle" catchtap="toggleRow" data-index="{{index}}">{{item.expanded ? '收回' : '展开'}}⌄</button></view>
+        <view class="detail-head" data-index="{{index}}" bindtap="toggleRow" hover-class="tap"><view class="detail-copy"><text class="detail-title">{{item.title}}</text><text class="detail-description">{{item.detail}}</text></view><view class="detail-toggle" role="button" aria-role="button" aria-label="{{item.expanded ? '收回' : '展开'}}明细" catchtap="toggleRow" data-index="{{index}}">{{item.expanded ? '收回' : '展开'}}⌄</view></view>
         <view wx:if="{{item.expanded}}" class="detail-body"><text wx:for="{{item.bodyLines}}" wx:key="*this" class="detail-line">{{item}}</text><text wx:if="{{!item.bodyLines.length}}" class="detail-line">暂无明细。</text></view>
       </view>
     </view>

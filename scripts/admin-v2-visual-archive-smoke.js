@@ -32,7 +32,17 @@ try {
   });
   fs.writeFileSync(path.join(reports, "bad.json"), JSON.stringify({ apiKey: "secret" }), "utf8");
   assert.throws(() => archive.assertSafeArtifact(path.join(reports, "bad.json")), /凭证字段/);
-  console.log("admin-v2-visual-archive-smoke: PASS (immutable-copy/hash/fixture/viewport/secret-guard)");
+  const retentionRoot = path.join(tempRoot, "archive-retention");
+  ["0.0.1-a", "0.0.1-b", "0.0.1-c", "0.0.1-d", "0.0.1-e", "0.0.1-f"].forEach(version => {
+    const dir = path.join(retentionRoot, `v${version}`);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "marker.txt"), version, "utf8");
+  });
+  const retention = archive.pruneArchives(retentionRoot, 3);
+  assert.deepStrictEqual(retention.prunedVersions, ["v0.0.1-a", "v0.0.1-b", "v0.0.1-c"]);
+  assert.deepStrictEqual(retention.keptVersions, ["v0.0.1-d", "v0.0.1-e", "v0.0.1-f"]);
+  assert.throws(() => archive.pruneArchives(retentionRoot, 0), /大于 0/);
+  console.log("admin-v2-visual-archive-smoke: PASS (immutable-copy/hash/fixture/viewport/secret-guard/retention)");
 } finally {
   fs.rmSync(tempRoot, { recursive: true, force: true });
 }

@@ -201,6 +201,12 @@ $releaseToolPaths = @(
     "scripts/admin-v2-font-contract-smoke.js",
     "scripts/admin-v2-visual-archive.js",
     "scripts/admin-v2-visual-archive-smoke.js",
+    "scripts/admin-v2-runtime-geometry-probe.js",
+    "scripts/admin-v2-runtime-geometry-probe-smoke.js",
+    "scripts/admin-v2-runtime-font-probe.js",
+    "scripts/admin-v2-runtime-font-probe-smoke.js",
+    "scripts/admin-v2-post-release-visual-check.js",
+    "scripts/admin-v2-post-release-visual-check-smoke.js",
     "scripts/preview-source-budget.js",
     "scripts/preview-source-budget-smoke.js",
     "scripts/admin-v2-visual-capture.js",
@@ -1023,6 +1029,31 @@ try {
     # can repair it without downgrading the already-successful release.
     Write-ReleaseLatestManifest -Policy $policy -Context ([pscustomobject]$contextHash) -ReportPath ([string]$acceptance.Path) -Report $acceptance.Report | Out-Null
     Write-GateHost "latest" "最新版本指针已更新：$([string]$policy.latestReleasePath)"
+    # 成功指针落盘后再做发布后视觉检查；检查失败只记录告警，不回滚已确认成功的发布。
+    $postReleaseVisualScript = Join-Path $sourceRepo.Root "scripts/admin-v2-post-release-visual-check.js"
+    if (Test-Path -LiteralPath $postReleaseVisualScript -PathType Leaf) {
+        try {
+            $visualArgs = @("--root", $sourceRepo.Root, "--version", $target, "--allow-existing", "--retain", "5")
+            if ([string]$env:ADMIN_POST_RELEASE_CAPTURE -eq "1") { $visualArgs += "--capture" }
+            $visualOutput = @(& node $postReleaseVisualScript @visualArgs 2>&1)
+            $visualText = ($visualOutput | ForEach-Object { [string]$_ }) -join "`n"
+            $visualResult = $visualText | ConvertFrom-Json -ErrorAction Stop
+            $contextHash.postReleaseVisual = [ordered]@{
+                status = [string]$visualResult.status
+                captureStatus = [string]$visualResult.capture.status
+                reportPath = Join-Path $sourceRepo.Root "visual-evidence/post-release/v$target/visual-check.json"
+                archiveManifestPath = [string]$visualResult.archive.manifestPath
+                checkedAt = [string]$visualResult.checkedAt
+            }
+            Write-ReleaseGateJsonAtomic -Path $contextPath -Value $contextHash
+            Write-GateHost "visual" "发布后视觉检查完成：$([string]$visualResult.status)，截图=$([string]$visualResult.capture.status)。"
+        }
+        catch {
+            $contextHash.postReleaseVisual = [ordered]@{ status = "fail"; error = $_.Exception.Message; checkedAt = [DateTimeOffset]::UtcNow.ToString("o") }
+            Write-ReleaseGateJsonAtomic -Path $contextPath -Value $contextHash
+            Write-Host "发布后视觉检查失败，已记录告警但不回滚已成功发布：$($_.Exception.Message)" -ForegroundColor Yellow
+        }
+    }
     $completed = $true
     $doneMessage = if (-not $effectivePublish) { "准备完成；未推送。需要发布时去掉 -PrepareOnly 或显式加 -Publish。" } elseif ([string]$pr.status -eq "merged") { "发布完成，PR 已合并：$($pr.pr)" } else { "发布分支和 PR 已创建，等待 GitHub 必需检查：$($pr.pr)" }
     Write-GateHost "done" $doneMessage

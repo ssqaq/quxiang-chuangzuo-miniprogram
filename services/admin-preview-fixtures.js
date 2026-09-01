@@ -4,6 +4,43 @@ const DEMO_STORAGE_KEY = "admin-preview-demo";
 const REFERENCE_FIXTURE_ID = "admin-v2-reference-20260901-v1";
 const FIXTURE_IDS = Object.freeze([REFERENCE_FIXTURE_ID]);
 const FONT_PROFILE = "Microsoft YaHei > PingFang SC > SimHei > system-ui > sans-serif";
+const DEFAULT_VISUAL_STATE_ID = "collapsed-default-v1";
+const VISUAL_STATES = Object.freeze({
+  "collapsed-default-v1": Object.freeze({
+    id: "collapsed-default-v1",
+    group: "standard",
+    tab: "face",
+    mainExpanded: false,
+    backupExpanded: false,
+    advancedExpanded: false
+  }),
+  "expanded-v1": Object.freeze({
+    id: "expanded-v1",
+    group: "standard",
+    tab: "imageGeneration",
+    mainExpanded: true,
+    backupExpanded: true,
+    advancedExpanded: true
+  }),
+  "backup-disabled-v1": Object.freeze({
+    id: "backup-disabled-v1",
+    group: "standard",
+    tab: "face",
+    mainExpanded: true,
+    backupExpanded: true,
+    advancedExpanded: false,
+    disableBackup: true
+  }),
+  "video-mode-v1": Object.freeze({
+    id: "video-mode-v1",
+    group: "shared",
+    tab: "video",
+    mainExpanded: true,
+    backupExpanded: true,
+    advancedExpanded: true
+  })
+});
+const VISUAL_STATE_IDS = Object.freeze(Object.keys(VISUAL_STATES));
 
 const SUPPLIERS = [
   {
@@ -195,12 +232,20 @@ function resolveFixtureId(options) {
   return REFERENCE_FIXTURE_ID;
 }
 
+function resolveVisualState(options) {
+  const explicit = options && Object.prototype.hasOwnProperty.call(options, "visualState")
+    ? String(options.visualState || "").trim()
+    : "";
+  return VISUAL_STATES[explicit] || VISUAL_STATES[DEFAULT_VISUAL_STATE_ID];
+}
+
 function fixtureContract() {
   return {
     fixtureId: REFERENCE_FIXTURE_ID,
     fontProfile: FONT_PROFILE,
     viewport: { width: 390, height: 844 },
-    state: "collapsed-default-v1",
+    state: DEFAULT_VISUAL_STATE_ID,
+    states: VISUAL_STATE_IDS.slice(),
     pages: ["dashboard", "operations", "config", "provider"]
   };
 }
@@ -247,19 +292,25 @@ function supplierModels() {
   }))), []);
 }
 
-function adminConfig() {
+function adminConfig(options) {
+  const visualState = resolveVisualState(options);
   const preferredOrder = ["dashscope", "xingju", "lingyun", "laoli", "panda", "qwen", "zhipu", "volcengine", "tencent", "local"];
   const order = new Map(preferredOrder.map((providerKey, index) => [providerKey, index]));
   const suppliers = SUPPLIERS.slice().sort((left, right) => (
     (order.get(left.providerKey) === undefined ? Number.MAX_SAFE_INTEGER : order.get(left.providerKey))
       - (order.get(right.providerKey) === undefined ? Number.MAX_SAFE_INTEGER : order.get(right.providerKey))
   ));
+  const bindings = clone(BINDINGS);
+  if (visualState.disableBackup) {
+    const backup = bindings.find(item => item.slot === `${visualState.group}.${visualState.tab}` && item.role === "backup");
+    if (backup) backup.status = "not-ready";
+  }
   return {
     fixtureId: REFERENCE_FIXTURE_ID,
     version: 42,
     suppliers: clone(suppliers),
     supplierModels: supplierModels(),
-    bindings: clone(BINDINGS),
+    bindings,
     providerConfigV2: { version: 42 },
     source: "demo"
   };
@@ -349,7 +400,11 @@ module.exports = {
   REFERENCE_FIXTURE_ID,
   FIXTURE_IDS,
   FONT_PROFILE,
+  DEFAULT_VISUAL_STATE_ID,
+  VISUAL_STATES,
+  VISUAL_STATE_IDS,
   resolveFixtureId,
+  resolveVisualState,
   fixtureContract,
   isEnabled,
   isControlVisible,

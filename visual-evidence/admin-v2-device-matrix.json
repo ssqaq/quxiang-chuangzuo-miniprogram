@@ -1,0 +1,155 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "admin-v2-reference-20260901-v1",
+  "fontProfile": "admin-reference-font-v1",
+  "renderer": "browser-reference-v5",
+  "devices": [
+    {
+      "id": "compact-375x812",
+      "pages": [
+        {
+          "name": "dashboard",
+          "screenshot": "visual-evidence/device-matrix-v1/compact-375x812/dashboard.png",
+          "sha256": "cece9d347479cb39395a020d8b0ad17808f991f5a40fb54339e5112720bffe44",
+          "viewport": {
+            "width": 375,
+            "height": 812,
+            "scrollWidth": 375,
+            "dpr": 1
+          }
+        },
+        {
+          "name": "operations",
+          "screenshot": "visual-evidence/device-matrix-v1/compact-375x812/operations.png",
+          "sha256": "3a15856560cf4ee6febca49bf914233d7e3463ace0e547ba2bd93f230acbda2e",
+          "viewport": {
+            "width": 375,
+            "height": 812,
+            "scrollWidth": 375,
+            "dpr": 1
+          }
+        },
+        {
+          "name": "config",
+          "screenshot": "visual-evidence/device-matrix-v1/compact-375x812/config.png",
+          "sha256": "e1249a515b9b02428d4ccdb7de1d7c357fc1134dffc63247ce5200d0b9656a2e",
+          "viewport": {
+            "width": 375,
+            "height": 812,
+            "scrollWidth": 375,
+            "dpr": 1
+          }
+        },
+        {
+          "name": "provider",
+          "screenshot": "visual-evidence/device-matrix-v1/compact-375x812/provider.png",
+          "sha256": "6ce7caa2231e645a1145b9d9e254d6fd67e416f54a9a0a7269ea8fcf439f446c",
+          "viewport": {
+            "width": 375,
+            "height": 812,
+            "scrollWidth": 375,
+            "dpr": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "reference-390x844",
+      "pages": [
+        {
+          "name": "dashboard",
+          "screenshot": "visual-evidence/device-matrix-v1/reference-390x844/dashboard.png",
+          "sha256": "8151c49bfc3cf54b9af8c802f178a80875f93c2486c8dac5a60be58ce7b0aa2a",
+          "viewport": {
+            "width": 390,
+            "height": 844,
+            "scrollWidth": 390,
+            "dpr": 1
+          }
+        },
+        {
+          "name": "operations",
+          "screenshot": "visual-evidence/device-matrix-v1/reference-390x844/operations.png",
+          "sha256": "41cf331017d6e59efda84d1fbfc12f962a759bc2780cc39558836362c019802a",
+          "viewport": {
+            "width": 390,
+            "height": 844,
+            "scrollWidth": 390,
+            "dpr": 1
+          }
+        },
+        {
+          "name": "config",
+          "screenshot": "visual-evidence/device-matrix-v1/reference-390x844/config.png",
+          "sha256": "c92a46b516dad2a08b088a4b892652efe5fea3dd6a4b8e8c73daa44040d4deb9",
+          "viewport": {
+            "width": 390,
+            "height": 844,
+            "scrollWidth": 390,
+            "dpr": 1
+          }
+        },
+        {
+          "name": "provider",
+          "screenshot": "visual-evidence/device-matrix-v1/reference-390x844/provider.png",
+          "sha256": "47aeee77f404928853fdfd15a987a2f08b95b9f5ed645416ad743991d2add7b9",
+          "viewport": {
+            "width": 390,
+            "height": 844,
+            "scrollWidth": 390,
+            "dpr": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "large-430x932",
+      "pages": [
+        {
+          "name": "dashboard",
+          "screenshot": "visual-evidence/device-matrix-v1/large-430x932/dashboard.png",
+          "sha256": "c040cc67b4abd15b9fc041409d58304a13cfa0307a6217af3b35c63da0d7e29a",
+          "viewport": {
+            "width": 430,
+            "height": 932,
+            "scrollWidth": 430,
+            "dpr": 1
+          }
+        },
+        {
+          "name": "operations",
+          "screenshot": "visual-evidence/device-matrix-v1/large-430x932/operations.png",
+          "sha256": "8742cb129e1783805ff9e45f2feccd873b66aa8d8f6208a15dea6b9e063aa308",
+          "viewport": {
+            "width": 430,
+            "height": 932,
+            "scrollWidth": 430,
+            "dpr": 1
+          }
+        },
+        {
+          "name": "config",
+          "screenshot": "visual-evidence/device-matrix-v1/large-430x932/config.png",
+          "sha256": "4d4c8756422ccab5ddd6f27b465c1ade43462925b1f49dc6ecb7af2798ad3fa9",
+          "viewport": {
+            "width": 430,
+            "height": 932,
+            "scrollWidth": 430,
+            "dpr": 1
+          }
+        },
+        {
+          "name": "provider",
+          "screenshot": "visual-evidence/device-matrix-v1/large-430x932/provider.png",
+          "sha256": "50ec867e571be55072e255106bf874e11a37ecd6f7254939316dd6b7f176b7d5",
+          "viewport": {
+            "width": 430,
+            "height": 932,
+            "scrollWidth": 430,
+            "dpr": 1
+          }
+        }
+      ]
+    }
+  ]
+}

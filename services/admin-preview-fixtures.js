@@ -1,6 +1,9 @@
 const config = require("../config");
 
 const DEMO_STORAGE_KEY = "admin-preview-demo";
+const REFERENCE_FIXTURE_ID = "admin-v2-reference-20260901-v1";
+const FIXTURE_IDS = Object.freeze([REFERENCE_FIXTURE_ID]);
+const FONT_PROFILE = "Microsoft YaHei > PingFang SC > SimHei > system-ui > sans-serif";
 
 const SUPPLIERS = [
   {
@@ -184,6 +187,24 @@ function booleanValue(value) {
   return null;
 }
 
+function resolveFixtureId(options) {
+  const explicit = options && Object.prototype.hasOwnProperty.call(options, "fixture")
+    ? String(options.fixture || "").trim()
+    : "";
+  if (FIXTURE_IDS.indexOf(explicit) >= 0) return explicit;
+  return REFERENCE_FIXTURE_ID;
+}
+
+function fixtureContract() {
+  return {
+    fixtureId: REFERENCE_FIXTURE_ID,
+    fontProfile: FONT_PROFILE,
+    viewport: { width: 390, height: 844 },
+    state: "collapsed-default-v1",
+    pages: ["dashboard", "operations", "config", "provider"]
+  };
+}
+
 function isEnabled(options) {
   const explicit = options && Object.prototype.hasOwnProperty.call(options, "demo")
     ? booleanValue(options.demo)
@@ -234,6 +255,7 @@ function adminConfig() {
       - (order.get(right.providerKey) === undefined ? Number.MAX_SAFE_INTEGER : order.get(right.providerKey))
   ));
   return {
+    fixtureId: REFERENCE_FIXTURE_ID,
     version: 42,
     suppliers: clone(suppliers),
     supplierModels: supplierModels(),
@@ -314,14 +336,21 @@ function points() {
 }
 
 function operations(view) {
-  if (view === "cost") return cost();
-  if (view === "users") return users();
-  if (view === "points") return points();
-  return usage();
+  let result;
+  if (view === "cost") result = cost();
+  else if (view === "users") result = users();
+  else if (view === "points") result = points();
+  else result = usage();
+  return Object.assign({ fixtureId: REFERENCE_FIXTURE_ID }, result);
 }
 
 module.exports = {
   DEMO_STORAGE_KEY,
+  REFERENCE_FIXTURE_ID,
+  FIXTURE_IDS,
+  FONT_PROFILE,
+  resolveFixtureId,
+  fixtureContract,
   isEnabled,
   isControlVisible,
   setEnabled,

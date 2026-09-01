@@ -195,6 +195,12 @@ $releaseToolPaths = @(
     "scripts/admin-v2-pixel-diff-report-smoke.js",
     "scripts/admin-v2-same-device-baseline.js",
     "scripts/admin-v2-same-device-baseline-smoke.js",
+    "scripts/admin-v2-layout-contract.js",
+    "scripts/admin-v2-layout-contract-smoke.js",
+    "scripts/admin-v2-font-contract.js",
+    "scripts/admin-v2-font-contract-smoke.js",
+    "scripts/admin-v2-visual-archive.js",
+    "scripts/admin-v2-visual-archive-smoke.js",
     "scripts/preview-source-budget.js",
     "scripts/preview-source-budget-smoke.js",
     "scripts/admin-v2-visual-capture.js",
@@ -352,6 +358,40 @@ function Invoke-GatePreviewSourceBudget {
     else {
         Write-GateHost "preflight" "预览源码预算通过：传输估算=$transferBytes bytes，裸源码=$rawBytes bytes。"
     }
+    return $result
+}
+
+function Invoke-GateLayoutContract {
+    param([Parameter(Mandatory = $true)][string]$ProjectRoot)
+    $checker = Join-Path $ProjectRoot "scripts/admin-v2-layout-contract.js"
+    if (-not (Test-Path -LiteralPath $checker -PathType Leaf)) {
+        throw "来源缺少布局合同脚本：$checker"
+    }
+    $reportPath = Join-Path $ProjectRoot "visual-evidence/layout-contract.json"
+    $output = @(& node $checker --root $ProjectRoot --output $reportPath 2>&1)
+    $text = ($output | ForEach-Object { [string]$_ }) -join "`n"
+    if ($LASTEXITCODE -ne 0) { throw "布局合同检查失败：$text" }
+    try { $result = $text | ConvertFrom-Json -ErrorAction Stop }
+    catch { throw "布局合同没有返回 JSON：$text" }
+    if ([string]$result.status -ne "pass") { throw "布局合同未通过：$text" }
+    Write-GateHost "preflight" "四页布局合同通过：$([int]$result.pageCount) 个页面。"
+    return $result
+}
+
+function Invoke-GateFontContract {
+    param([Parameter(Mandatory = $true)][string]$ProjectRoot)
+    $checker = Join-Path $ProjectRoot "scripts/admin-v2-font-contract.js"
+    if (-not (Test-Path -LiteralPath $checker -PathType Leaf)) {
+        throw "来源缺少字体合同脚本：$checker"
+    }
+    $reportPath = Join-Path $ProjectRoot "visual-evidence/font-contract.json"
+    $output = @(& node $checker --root $ProjectRoot --output $reportPath 2>&1)
+    $text = ($output | ForEach-Object { [string]$_ }) -join "`n"
+    if ($LASTEXITCODE -ne 0) { throw "字体合同检查失败：$text" }
+    try { $result = $text | ConvertFrom-Json -ErrorAction Stop }
+    catch { throw "字体合同没有返回 JSON：$text" }
+    if ([string]$result.status -ne "pass") { throw "字体合同未通过：$text" }
+    Write-GateHost "preflight" "四页字体合同通过：字体档案 $([string]$result.fontProfile)。"
     return $result
 }
 
@@ -541,6 +581,8 @@ try {
     }
 
     $previewSourceBudget = Invoke-GatePreviewSourceBudget -ProjectRoot $releaseWorktree
+    $layoutContract = Invoke-GateLayoutContract -ProjectRoot $releaseWorktree
+    $fontContract = Invoke-GateFontContract -ProjectRoot $releaseWorktree
     $utf8Preflight = Invoke-GateUtf8Preflight -SourceRoot $releaseWorktree
     $cloudbasePreflight = Invoke-GateCloudBasePreflight -ProjectRoot $releaseWorktree
 

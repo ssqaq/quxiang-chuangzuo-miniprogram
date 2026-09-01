@@ -10,6 +10,9 @@
     "tool": "微信开发者工具 simulator_screenshot",
     "command": "node scripts/admin-v2-visual-capture.js --connect-port <port> --output visual-evidence/captured-same-device",
     "mode": "demo=1",
+    "fixtureId": "admin-v2-reference-20260901-v1",
+    "fontProfile": "Microsoft YaHei > PingFang SC > SimHei > system-ui > sans-serif",
+    "stateId": "collapsed-default-v1",
     "generatedAt": "2026-09-01"
   },
   "pages": [

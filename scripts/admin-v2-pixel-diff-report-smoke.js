@@ -72,6 +72,9 @@ try {
     schemaVersion: 1,
     viewport: { width, height },
     mode: "smoke",
+    fixtureId: "admin-v2-reference-20260901-v1",
+    fontProfile: "Microsoft YaHei > PingFang SC > SimHei > system-ui > sans-serif",
+    stateId: "collapsed-default-v1",
     pages,
   }, null, 2));
 

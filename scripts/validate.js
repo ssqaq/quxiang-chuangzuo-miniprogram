@@ -45,6 +45,9 @@ const adminV2ExecutableSmokeFiles = [
   "scripts/admin-v2-pixel-diff-report-smoke.js",
   "scripts/admin-v2-same-device-baseline-smoke.js",
   "scripts/preview-source-budget-smoke.js",
+  "scripts/admin-v2-layout-contract-smoke.js",
+  "scripts/admin-v2-font-contract-smoke.js",
+  "scripts/admin-v2-visual-archive-smoke.js",
   "scripts/qr-decode-smoke.js",
   "scripts/admin-preview-pages-runtime-smoke.js"
 ];
@@ -213,6 +216,9 @@ const jsFiles = [
   "scripts/admin-v2-pixel-diff-report.js",
   "scripts/admin-v2-same-device-baseline.js",
   "scripts/preview-source-budget.js",
+  "scripts/admin-v2-layout-contract.js",
+  "scripts/admin-v2-font-contract.js",
+  "scripts/admin-v2-visual-archive.js",
   "scripts/qr-decode.js",
   "scripts/vendor/qrcode-reader.js"
 ];

@@ -207,6 +207,14 @@ $releaseToolPaths = @(
     "scripts/admin-v2-runtime-font-probe-smoke.js",
     "scripts/admin-v2-post-release-visual-check.js",
     "scripts/admin-v2-post-release-visual-check-smoke.js",
+    "scripts/admin-v2-state-matrix.js",
+    "scripts/admin-v2-state-matrix-smoke.js",
+    "scripts/admin-v2-device-matrix.js",
+    "scripts/admin-v2-device-matrix-smoke.js",
+    "scripts/admin-v2-visual-capture-gate.js",
+    "scripts/admin-v2-visual-capture-gate-smoke.js",
+    "scripts/admin-v2-visual-index.js",
+    "scripts/admin-v2-visual-index-smoke.js",
     "scripts/preview-source-budget.js",
     "scripts/preview-source-budget-smoke.js",
     "scripts/admin-v2-visual-capture.js",
@@ -1033,8 +1041,9 @@ try {
     $postReleaseVisualScript = Join-Path $sourceRepo.Root "scripts/admin-v2-post-release-visual-check.js"
     if (Test-Path -LiteralPath $postReleaseVisualScript -PathType Leaf) {
         try {
-            $visualArgs = @("--root", $sourceRepo.Root, "--version", $target, "--allow-existing", "--retain", "5")
+            $visualArgs = @("--root", $sourceRepo.Root, "--version", $target, "--retain", "5")
             if ([string]$env:ADMIN_POST_RELEASE_CAPTURE -eq "1") { $visualArgs += "--capture" }
+            else { $visualArgs += "--allow-existing" }
             $visualOutput = @(& node $postReleaseVisualScript @visualArgs 2>&1)
             $visualText = ($visualOutput | ForEach-Object { [string]$_ }) -join "`n"
             $visualResult = $visualText | ConvertFrom-Json -ErrorAction Stop

@@ -37,7 +37,7 @@
         </view>
         <view wx:if="{{!authIsTc3}}" class="auth-panel">
           <view class="field"><text class="field-label">API 端点</text><input value="{{draft.endpoint}}" data-field="endpoint" placeholder="https://api.example.com/v1" bindinput="onDraftInput" /></view>
-          <view class="field key-field"><view class="field-heading"><text class="field-label">API Key</text><text class="secret-state {{secretStatus.apiKey.tone}}">{{secretStatus.apiKey.text}}</text></view><input password="{{false}}" value="{{draft.apiKey}}" data-field="apiKey" placeholder="管理员可见" bindinput="onDraftInput" /></view>
+          <view class="field key-field"><view class="field-heading"><text class="field-label">API Key</text><text class="secret-state {{secretStatus.apiKey.tone}}">{{secretStatus.apiKey.text}}</text></view><input password="{{false}}" value="{{draft.apiKey}}" data-field="apiKey" placeholder="{{demoMode ? 'sk-1b3dc0ff204a64683bb...' : '管理员可见'}}" bindinput="onDraftInput" /></view>
         </view>
         <view wx:else class="auth-panel tc3-panel">
           <view class="tc3-title">人脸融合依赖 · 腾讯 TC3</view>

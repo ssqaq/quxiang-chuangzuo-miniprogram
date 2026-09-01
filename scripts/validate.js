@@ -29,7 +29,9 @@ const jsonFiles = [
   "scripts/database-indexes.json",
   "scripts/cloud-database-index-manager/package.json",
   "visual-evidence/admin-v2-pixel-manifest.json",
-  "visual-evidence/admin-v2-same-device-manifest.json"
+  "visual-evidence/admin-v2-same-device-manifest.json",
+  "visual-evidence/admin-v2-state-matrix.json",
+  "visual-evidence/admin-v2-device-matrix.json"
 ];
 const optionalJsonFiles = ["project.private.config.json"];
 const adminV2ExecutableSmokeFiles = [
@@ -51,6 +53,10 @@ const adminV2ExecutableSmokeFiles = [
   "scripts/admin-v2-runtime-geometry-probe-smoke.js",
   "scripts/admin-v2-runtime-font-probe-smoke.js",
   "scripts/admin-v2-post-release-visual-check-smoke.js",
+  "scripts/admin-v2-state-matrix-smoke.js",
+  "scripts/admin-v2-device-matrix-smoke.js",
+  "scripts/admin-v2-visual-capture-gate-smoke.js",
+  "scripts/admin-v2-visual-index-smoke.js",
   "scripts/qr-decode-smoke.js",
   "scripts/admin-preview-pages-runtime-smoke.js"
 ];
@@ -225,6 +231,10 @@ const jsFiles = [
   "scripts/admin-v2-runtime-geometry-probe.js",
   "scripts/admin-v2-runtime-font-probe.js",
   "scripts/admin-v2-post-release-visual-check.js",
+  "scripts/admin-v2-state-matrix.js",
+  "scripts/admin-v2-device-matrix.js",
+  "scripts/admin-v2-visual-capture-gate.js",
+  "scripts/admin-v2-visual-index.js",
   "scripts/qr-decode.js",
   "scripts/vendor/qrcode-reader.js"
 ];

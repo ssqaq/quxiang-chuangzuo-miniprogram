@@ -30,6 +30,8 @@ const DEFAULT_REPORTS = [
   "visual-evidence/layout-contract.json",
   "visual-evidence/font-contract.json",
   "visual-evidence/preview-source-budget.json",
+  "visual-evidence/admin-v2-state-matrix.json",
+  "visual-evidence/admin-v2-device-matrix.json",
 ];
 const SENSITIVE_PATTERN = /["']?(?:apiKey|secretId|secretKey|providerSecretsV2|accessToken|authorization)["']?\s*[:=]/i;
 

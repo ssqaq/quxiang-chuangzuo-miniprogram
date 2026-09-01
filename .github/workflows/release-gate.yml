@@ -147,6 +147,18 @@ jobs:
       - name: Font contract
         shell: pwsh
         run: node scripts/admin-v2-font-contract.js
+      - name: Runtime geometry probe smoke
+        shell: pwsh
+        run: node scripts/admin-v2-runtime-geometry-probe-smoke.js
+      - name: Runtime font probe smoke
+        shell: pwsh
+        run: node scripts/admin-v2-runtime-font-probe-smoke.js
+      - name: Visual archive retention smoke
+        shell: pwsh
+        run: node scripts/admin-v2-visual-archive-smoke.js
+      - name: Post-release visual check smoke
+        shell: pwsh
+        run: node scripts/admin-v2-post-release-visual-check-smoke.js
       - name: Four-page pixel regression
         shell: pwsh
         run: node scripts/admin-v2-pixel-baseline.js --threshold 32 --max-diff-ratio 0.5

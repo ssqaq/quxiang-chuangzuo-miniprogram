@@ -24,6 +24,10 @@
 8. 新增四页 JSON/Markdown 差异报告和热图，逐页输出差异比例、包围盒与热点 tile；报告仅保存项目内相对路径，不读取运行时凭证。
 9. 视觉验收合同固定为 fixture `admin-v2-reference-20260901-v1`、状态 `collapsed-default-v1`、视口 `390 x 844`，字体 profile 固定为 `Microsoft YaHei > PingFang SC > SimHei > system-ui > sans-serif`。
 10. 布局合同和字体合同各自输出 JSON 与源码 SHA256；四页截图、manifest、差异报告和合同报告按版本不可覆盖地归档，文本证据命中凭证字段时拒绝归档。
+11. 浏览器参考图必须由逐页新建的活动标签在 390x844 视口下采集；桌面外壳截图只作诊断证据，不能进入同设备基线。
+12. 运行时几何探针读取浏览器 evaluate 的真实矩形和滚动宽度，字体探针读取 computed font-family；两者分别失败，不用截图像素差异替代。
+13. 视觉归档默认只保留最近 5 个 `v<version>` 目录，清理范围限定在归档根目录，归档内容不可覆盖且文本证据继续拒绝凭证字段。
+14. 发布成功后自动调用视觉检查入口；自动化截图不可用时只有显式 `--allow-existing` 才能复用既有截图，并在回执标明 `reused-existing` 或 `capture-failed-reused-existing`。
 
 ## 验收
 
@@ -34,3 +38,4 @@
 - 同设备基线必须校验四页顺序、图片尺寸和 SHA256；预览传输估算超过 `2 MiB` 必须阻止发布，裸源码超过 `2 MiB` 只触发明确警告。
 - 四页差异报告必须同时生成 JSON、Markdown 和 heatmap，并沿用像素回归相同阈值与通过判定。
 - 正式版本升级、ZIP 非空、GitHub PR 合并、CloudBase Active、开发者工具导入编译通过，二维码和报告可追溯。
+- 浏览器参考 manifest 的四页视口均为 `390x844`，运行时几何/字体探针均 PASS；归档保留策略只删除超出数量的旧版本；发布后视觉回执和归档 manifest 可追溯到同一版本。

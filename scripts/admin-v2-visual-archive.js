@@ -13,6 +13,7 @@ const path = require("path");
 
 const ROOT = path.resolve(__dirname, "..");
 const DEFAULT_VERSION = "local";
+const DEFAULT_RETENTION = 5;
 const DEFAULT_SOURCE = path.join(ROOT, "visual-evidence", "captured-final-v8");
 const DEFAULT_OUTPUT_ROOT = path.join(ROOT, "visual-evidence", "archive");
 const DEFAULT_FILES = [
@@ -61,6 +62,34 @@ function copyImmutable(sourcePath, destinationPath) {
   }
   fs.mkdirSync(path.dirname(destinationPath), { recursive: true });
   fs.copyFileSync(sourcePath, destinationPath);
+}
+
+function listArchiveVersions(outputRoot) {
+  const resolved = path.resolve(outputRoot);
+  if (!fs.existsSync(resolved)) return [];
+  return fs.readdirSync(resolved, { withFileTypes: true })
+    .filter(entry => entry.isDirectory() && /^v[0-9A-Za-z._-]+$/.test(entry.name))
+    .map(entry => entry.name)
+    .sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
+}
+
+function isWithin(parent, candidate) {
+  const relative = path.relative(path.resolve(parent), path.resolve(candidate));
+  return relative === "" || (relative && !relative.startsWith(`..${path.sep}`) && relative !== "..");
+}
+
+function pruneArchives(outputRoot, retention = DEFAULT_RETENTION) {
+  const keep = Number(retention);
+  if (!Number.isInteger(keep) || keep < 1) throw new Error(`归档保留数量必须是大于 0 的整数：${retention}`);
+  const resolvedRoot = path.resolve(outputRoot);
+  const versions = listArchiveVersions(resolvedRoot);
+  const remove = versions.slice(0, Math.max(0, versions.length - keep));
+  remove.forEach(versionName => {
+    const target = path.join(resolvedRoot, versionName);
+    if (!isWithin(resolvedRoot, target) || path.dirname(target) !== resolvedRoot) throw new Error(`归档清理目标越界：${target}`);
+    fs.rmSync(target, { recursive: true, force: true });
+  });
+  return { retention: keep, versions, prunedVersions: remove, keptVersions: listArchiveVersions(resolvedRoot) };
 }
 
 function run(options = {}) {
@@ -112,11 +141,13 @@ function run(options = {}) {
   } else {
     fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
   }
-  return Object.assign(manifest, { output: output, manifestPath });
+  const retention = options.retention === undefined ? DEFAULT_RETENTION : options.retention;
+  const retentionResult = pruneArchives(outputRoot, retention);
+  return Object.assign(manifest, { output: output, manifestPath, ...retentionResult });
 }
 
 function parseArgs(argv) {
-  const result = { root: ROOT, version: DEFAULT_VERSION };
+  const result = { root: ROOT, version: DEFAULT_VERSION, retention: DEFAULT_RETENTION };
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
     if (token === "--help") result.help = true;
@@ -124,6 +155,7 @@ function parseArgs(argv) {
     else if (token === "--version") result.version = argv[++index] || result.version;
     else if (token === "--source") result.source = argv[++index] || result.source;
     else if (token === "--output-root") result.outputRoot = argv[++index] || result.outputRoot;
+    else if (token === "--retain") result.retention = Number(argv[++index] || result.retention);
   }
   return result;
 }
@@ -131,7 +163,7 @@ function parseArgs(argv) {
 function main(argv = process.argv.slice(2)) {
   const options = parseArgs(argv);
   if (options.help) {
-    console.log("用法：node scripts/admin-v2-visual-archive.js --version <版本> [--source <截图目录>] [--output-root <目录>]");
+    console.log("用法：node scripts/admin-v2-visual-archive.js --version <版本> [--source <截图目录>] [--output-root <目录>] [--retain <数量>]");
     return 0;
   }
   try {
@@ -144,6 +176,6 @@ function main(argv = process.argv.slice(2)) {
   }
 }
 
-module.exports = { ROOT, DEFAULT_FILES, DEFAULT_REPORTS, SENSITIVE_PATTERN, sha256, assertSafeArtifact, run, parseArgs, main };
+module.exports = { ROOT, DEFAULT_FILES, DEFAULT_REPORTS, DEFAULT_RETENTION, SENSITIVE_PATTERN, sha256, assertSafeArtifact, listArchiveVersions, pruneArchives, run, parseArgs, main };
 
 if (require.main === module) process.exitCode = main();

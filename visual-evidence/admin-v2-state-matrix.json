@@ -1,0 +1,89 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "admin-v2-reference-20260901-v1",
+  "fontProfile": "admin-reference-font-v1",
+  "viewport": {
+    "width": 390,
+    "height": 844
+  },
+  "states": [
+    {
+      "id": "collapsed-default-v1",
+      "expected": {
+        "mainExpanded": false,
+        "backupExpanded": false,
+        "advancedExpanded": false
+      },
+      "pages": [
+        {
+          "name": "dashboard",
+          "screenshot": "visual-evidence/device-matrix-v1/reference-390x844/dashboard.png",
+          "sha256": "8151c49bfc3cf54b9af8c802f178a80875f93c2486c8dac5a60be58ce7b0aa2a"
+        },
+        {
+          "name": "operations",
+          "screenshot": "visual-evidence/device-matrix-v1/reference-390x844/operations.png",
+          "sha256": "41cf331017d6e59efda84d1fbfc12f962a759bc2780cc39558836362c019802a"
+        },
+        {
+          "name": "config",
+          "screenshot": "visual-evidence/device-matrix-v1/reference-390x844/config.png",
+          "sha256": "c92a46b516dad2a08b088a4b892652efe5fea3dd6a4b8e8c73daa44040d4deb9"
+        },
+        {
+          "name": "provider",
+          "screenshot": "visual-evidence/device-matrix-v1/reference-390x844/provider.png",
+          "sha256": "47aeee77f404928853fdfd15a987a2f08b95b9f5ed645416ad743991d2add7b9"
+        }
+      ]
+    },
+    {
+      "id": "expanded-v1",
+      "expected": {
+        "mainExpanded": true,
+        "backupExpanded": true,
+        "advancedExpanded": true
+      },
+      "pages": [
+        {
+          "name": "config",
+          "screenshot": "visual-evidence/state-matrix-v1/expanded-v1/config.png",
+          "sha256": "c92a46b516dad2a08b088a4b892652efe5fea3dd6a4b8e8c73daa44040d4deb9"
+        }
+      ]
+    },
+    {
+      "id": "backup-disabled-v1",
+      "expected": {
+        "mainExpanded": true,
+        "backupExpanded": true,
+        "advancedExpanded": false,
+        "backupStatus": "not-ready"
+      },
+      "pages": [
+        {
+          "name": "config",
+          "screenshot": "visual-evidence/state-matrix-v1/backup-disabled-v1/config.png",
+          "sha256": "c92a46b516dad2a08b088a4b892652efe5fea3dd6a4b8e8c73daa44040d4deb9"
+        }
+      ]
+    },
+    {
+      "id": "video-mode-v1",
+      "expected": {
+        "mainExpanded": true,
+        "backupExpanded": true,
+        "advancedExpanded": true,
+        "group": "shared",
+        "tab": "video"
+      },
+      "pages": [
+        {
+          "name": "config",
+          "screenshot": "visual-evidence/state-matrix-v1/video-mode-v1/config.png",
+          "sha256": "c92a46b516dad2a08b088a4b892652efe5fea3dd6a4b8e8c73daa44040d4deb9"
+        }
+      ]
+    }
+  ]
+}

@@ -101,6 +101,7 @@ Page({
     dashboardScrollStyle: INITIAL_NAVIGATION_LAYOUT.dashboardScrollStyle,
     loading: true,
     demoMode: false,
+    fixtureId: previewFixtures.REFERENCE_FIXTURE_ID,
     showDemoControl: false,
     refreshing: false,
     source: "local",
@@ -129,8 +130,9 @@ Page({
 
   onLoad(options) {
     this.demoMode = previewFixtures.isEnabled(options);
+    this.fixtureId = previewFixtures.resolveFixtureId(options);
     this.showDemoControl = previewFixtures.isControlVisible(options);
-    this.setData({ demoMode: this.demoMode, showDemoControl: this.showDemoControl });
+    this.setData({ demoMode: this.demoMode, fixtureId: this.fixtureId, showDemoControl: this.showDemoControl });
     this.applyNavigationLayout();
     this.loadConfig();
   },
@@ -141,7 +143,10 @@ Page({
 
   previewQuery(separator = "?") {
     const params = [];
-    if (this.demoMode) params.push("demo=1");
+    if (this.demoMode) {
+      params.push("demo=1");
+      params.push(`fixture=${encodeURIComponent(this.fixtureId || previewFixtures.REFERENCE_FIXTURE_ID)}`);
+    }
     if (this.data.showDemoControl) params.push("demoControl=1");
     return params.length ? `${separator}${params.join("&")}` : "";
   },

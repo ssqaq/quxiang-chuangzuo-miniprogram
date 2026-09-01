@@ -22,6 +22,8 @@
 6. 新增同设备基线 manifest，锁定微信开发者工具模拟器、`390 x 844` viewport、截图命令及四页图片 SHA256；发布和 CI 共用同一份合同。
 7. 新增预览源码预算，按 `project.config.json` 的 `packOptions` 统计裸源码，并按逐文件 gzip 加路径开销估算传输体积；`2 MiB` 为硬上限、`1.8 MiB` 为预警线，在二维码生成前失败。
 8. 新增四页 JSON/Markdown 差异报告和热图，逐页输出差异比例、包围盒与热点 tile；报告仅保存项目内相对路径，不读取运行时凭证。
+9. 视觉验收合同固定为 fixture `admin-v2-reference-20260901-v1`、状态 `collapsed-default-v1`、视口 `390 x 844`，字体 profile 固定为 `Microsoft YaHei > PingFang SC > SimHei > system-ui > sans-serif`。
+10. 布局合同和字体合同各自输出 JSON 与源码 SHA256；四页截图、manifest、差异报告和合同报告按版本不可覆盖地归档，文本证据命中凭证字段时拒绝归档。
 
 ## 验收
 

@@ -1,6 +1,6 @@
 {
   "name": "aips-payment-reconcile",
-  "version": "0.57.107",
+  "version": "0.57.111",
   "private": true,
   "main": "index.js",
   "engines": {

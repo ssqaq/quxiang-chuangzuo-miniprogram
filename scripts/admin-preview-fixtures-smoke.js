@@ -3,6 +3,16 @@
 const assert = require("assert");
 const fixtures = require("../services/admin-preview-fixtures");
 
+assert.strictEqual(fixtures.resolveFixtureId({ fixture: fixtures.REFERENCE_FIXTURE_ID }), fixtures.REFERENCE_FIXTURE_ID);
+assert.strictEqual(fixtures.resolveFixtureId({ fixture: "unknown-fixture" }), fixtures.REFERENCE_FIXTURE_ID, "未知 fixture 必须回退到定稿 fixture");
+assert.deepStrictEqual(fixtures.fixtureContract(), {
+  fixtureId: fixtures.REFERENCE_FIXTURE_ID,
+  fontProfile: fixtures.FONT_PROFILE,
+  viewport: { width: 390, height: 844 },
+  state: "collapsed-default-v1",
+  pages: ["dashboard", "operations", "config", "provider"]
+});
+
 assert.strictEqual(fixtures.isEnabled({ demo: "1" }), true, "demo=1 应打开演示模式");
 assert.strictEqual(fixtures.isEnabled({ demo: "true" }), true, "demo=true 应打开演示模式");
 assert.strictEqual(fixtures.isEnabled({ demo: "0" }), false, "demo=0 应关闭演示模式");
@@ -13,6 +23,7 @@ assert.strictEqual(fixtures.isControlVisible({ demoControl: "1" }), true, "demoC
 assert.strictEqual(fixtures.isControlVisible({ demoControl: "0" }), false, "demoControl=0 应隐藏演示控件");
 
 const config = fixtures.adminConfig();
+assert.strictEqual(config.fixtureId, fixtures.REFERENCE_FIXTURE_ID, "配置 fixture 必须带固定 ID");
 assert.strictEqual(config.source, "demo");
 assert.strictEqual(config.suppliers.length, 10, "演示供应商目录应覆盖十个视觉档案");
 assert.deepStrictEqual(config.suppliers.slice(0, 5).map(item => item.providerKey), ["dashscope", "xingju", "lingyun", "laoli", "panda"], "供应商目录顺序必须跟右图一致");
@@ -23,6 +34,7 @@ const serialized = JSON.stringify(config);
 assert.ok(!serialized.includes("apiKey") || !serialized.match(/apiKey\\"\\s*:\\s*\\"[^\\"]+\\"/), "演示 fixture 不得携带真实 API Key");
 
 const usage = fixtures.operations("usage");
+assert.strictEqual(usage.fixtureId, fixtures.REFERENCE_FIXTURE_ID, "统计 fixture 必须带固定 ID");
 assert.strictEqual(usage.today.total, 128);
 assert.strictEqual(usage.eventCount, 3842);
 assert.strictEqual(usage.errorLogCount, 199);

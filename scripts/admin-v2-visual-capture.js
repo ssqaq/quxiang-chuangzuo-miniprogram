@@ -26,6 +26,7 @@ function parseArgs(argv) {
     cli: process.env.WECHAT_DEVTOOLS_CLI || "",
     output: path.resolve(__dirname, "..", "visual-evidence", "captured"),
     demo: true,
+    fixtureId: process.env.ADMIN_PREVIEW_FIXTURE_ID || "admin-v2-reference-20260901-v1",
     connectPort: Number(process.env.MINIPROGRAM_AUTOMATOR_PORT || 0),
   };
   for (let index = 0; index < argv.length; index += 1) {
@@ -35,13 +36,17 @@ function parseArgs(argv) {
     else if (token === "--output") options.output = argv[++index] || options.output;
     else if (token === "--connect-port") options.connectPort = Number(argv[++index] || 0);
     else if (token === "--no-demo") options.demo = false;
+    else if (token === "--fixture-id") options.fixtureId = argv[++index] || options.fixtureId;
     else if (token === "--help" || token === "-h") options.help = true;
     else throw new Error(`未知参数：${token}`);
   }
   return options;
 }
 
-function query(options) { return options.demo ? "?demo=1" : ""; }
+function query(options) {
+  if (!options.demo) return "";
+  return `?demo=1&fixture=${encodeURIComponent(options.fixtureId)}`;
+}
 
 function sleep(milliseconds) {
   return new Promise(resolve => setTimeout(resolve, milliseconds));
@@ -83,8 +88,8 @@ async function capture(options) {
     });
   const pages = [
     { name: "dashboard", route: `/pages/admin-dashboard/admin-dashboard${query(options)}`, pathPart: "pages/admin-dashboard/admin-dashboard", selector: ".dashboard-page" },
-    { name: "operations", route: `/pages/admin-operations/admin-operations?view=usage${options.demo ? "&demo=1" : ""}`, pathPart: "pages/admin-operations/admin-operations", selector: ".operations-page" },
-    { name: "config", route: `/pages/admin-config/admin-config?group=standard&tab=face${options.demo ? "&demo=1" : ""}`, pathPart: "pages/admin-config/admin-config", selector: ".config-page" },
+    { name: "operations", route: `/pages/admin-operations/admin-operations?view=usage${options.demo ? `&demo=1&fixture=${encodeURIComponent(options.fixtureId)}` : ""}`, pathPart: "pages/admin-operations/admin-operations", selector: ".operations-page" },
+    { name: "config", route: `/pages/admin-config/admin-config?group=standard&tab=face${options.demo ? `&demo=1&fixture=${encodeURIComponent(options.fixtureId)}` : ""}`, pathPart: "pages/admin-config/admin-config", selector: ".config-page" },
     { name: "provider", route: `/pages/admin-provider/admin-provider${query(options)}`, pathPart: "pages/admin-provider/admin-provider", selector: ".provider-page" },
   ];
   const result = [];
@@ -115,7 +120,7 @@ async function capture(options) {
       } else {
         dimensions = { path: item.route };
       }
-      result.push({ name: item.name, route: item.route, output, dimensions });
+    result.push({ name: item.name, route: item.route, output, dimensions, fixtureId: options.fixtureId });
     }
   } finally {
     miniProgram.disconnect();
@@ -126,7 +131,7 @@ async function capture(options) {
 async function main(argv = process.argv.slice(2)) {
   const options = parseArgs(argv);
   if (options.help) {
-    console.log("用法：node scripts/admin-v2-visual-capture.js [--project <路径>] [--cli <cli.bat>] [--output <目录>] [--connect-port <端口>] [--no-demo]");
+    console.log("用法：node scripts/admin-v2-visual-capture.js [--project <路径>] [--cli <cli.bat>] [--output <目录>] [--connect-port <端口>] [--fixture-id <ID>] [--no-demo]");
     return 0;
   }
   const result = await capture(options);

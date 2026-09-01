@@ -112,6 +112,7 @@ function finiteNumber(value, fallback, minimum = 0) {
 function evidenceDigest(report) {
   const stable = {
     schemaVersion: report.schemaVersion,
+    strictZeroDiff: report.strictZeroDiff,
     viewport: report.viewport,
     mode: report.mode,
     fixtureId: report.fixtureId,
@@ -132,6 +133,7 @@ function evidenceDigest(report) {
       totalPixels: page.totalPixels,
       diffRatio: page.diffRatio,
       maxChannelDiff: page.maxChannelDiff,
+      dimensionsMatch: page.dimensionsMatch,
       pass: page.pass,
     })),
   };
@@ -264,8 +266,13 @@ function run(options = {}) {
     options.manifest || path.join(root, "visual-evidence", "admin-v2-pixel-manifest.json"),
     root
   );
-  const threshold = finiteNumber(options.threshold, DEFAULT_THRESHOLD);
-  const maxDiffRatio = finiteNumber(options.maxDiffRatio, DEFAULT_MAX_DIFF_RATIO);
+  const strictZeroDiff = options.strictZeroDiff === true;
+  const threshold = strictZeroDiff
+    ? 0
+    : finiteNumber(options.threshold, DEFAULT_THRESHOLD);
+  const maxDiffRatio = strictZeroDiff
+    ? 0
+    : finiteNumber(options.maxDiffRatio, DEFAULT_MAX_DIFF_RATIO);
   const tileSize = Math.max(1, Math.floor(finiteNumber(options.tileSize, DEFAULT_TILE_SIZE, 1)));
   const topTiles = Math.max(1, Math.floor(finiteNumber(options.topTiles, DEFAULT_TOP_TILES, 1)));
   const heatmapRoot = resolveFromRoot(
@@ -279,6 +286,8 @@ function run(options = {}) {
     }
     const actualImage = regression.decodeImage(page.actualPath);
     const referenceImage = regression.decodeImage(page.referencePath);
+    const dimensionsMatch = actualImage.width === referenceImage.width
+      && actualImage.height === referenceImage.height;
     const stats = analyzeDiff(actualImage, referenceImage, { threshold, tileSize, topTiles });
     const regressionSummary = regression.runRegression({
       actualPath: page.actualPath,
@@ -287,6 +296,12 @@ function run(options = {}) {
       maxDiffRatio,
       outputPath: path.join(heatmapRoot, `${page.name}.png`),
     });
+    const pass = strictZeroDiff
+      ? threshold === 0
+        && maxDiffRatio === 0
+        && dimensionsMatch
+        && stats.differentPixels === 0
+      : regressionSummary.pass;
     return {
       name: page.name,
       route: safeRoute(page.route),
@@ -297,13 +312,16 @@ function run(options = {}) {
       actualBytes: fs.statSync(page.actualPath).size,
       referenceBytes: fs.statSync(page.referencePath).size,
       heatmap: relativeDisplayPath(root, regressionSummary.heatmapPath),
-      pass: regressionSummary.pass,
+      pass,
+      strictZeroDiff,
+      dimensionsMatch,
       maxDiffRatio,
       ...stats,
     };
   });
   const report = {
     schemaVersion: 1,
+    strictZeroDiff,
     status: pages.every(page => page.pass) ? "pass" : "fail",
     ok: pages.every(page => page.pass),
     viewport: manifest.viewport,
@@ -378,6 +396,9 @@ function renderMarkdown(report) {
     "| 页面 | 状态 | 差异像素 | 差异比例 | 最大通道差 | 差异包围盒 | 热点 tile | 热图 |",
     "| --- | --- | ---: | ---: | ---: | --- | --- | --- |",
   ];
+  if (report.strictZeroDiff) {
+    lines.splice(4, 0, "- 比较模式：严格零差（threshold=0、maxDiffRatio=0、尺寸完全一致）");
+  }
   report.pages.forEach(page => {
     lines.push(
       `| ${markdownCell(page.name)} | ${page.pass ? "PASS" : "FAIL"}`
@@ -405,6 +426,7 @@ function parseArgs(argv) {
     maxDiffRatio: DEFAULT_MAX_DIFF_RATIO,
     tileSize: DEFAULT_TILE_SIZE,
     topTiles: DEFAULT_TOP_TILES,
+    strictZeroDiff: false,
   };
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
@@ -414,6 +436,10 @@ function parseArgs(argv) {
       result.help = true;
       continue;
     }
+    if (key === "strictZeroDiff") {
+      result.strictZeroDiff = true;
+      continue;
+    }
     const value = argv[index + 1];
     if (value === undefined || value.startsWith("--")) {
       result[key] = true;
@@ -421,6 +447,10 @@ function parseArgs(argv) {
       result[key] = value;
       index += 1;
     }
+  }
+  if (result.strictZeroDiff) {
+    result.threshold = 0;
+    result.maxDiffRatio = 0;
   }
   return result;
 }
@@ -435,6 +465,7 @@ function printUsage() {
     "  --markdown <文件>        Markdown 报告输出路径",
     "  --threshold <数值>       单像素通道差阈值（默认 32）",
     "  --max-diff-ratio <数值>  页面通过的最大差异比例（默认 0.5）",
+    "  --strict-zero-diff       严格零差：阈值和比例均为 0，且尺寸必须完全一致",
     "  --tile-size <像素>       热点网格边长（默认 32）",
     "  --top-tiles <数量>       保留热点数量（默认 5）",
   ].join("\n"));

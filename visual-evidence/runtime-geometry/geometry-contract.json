@@ -1,0 +1,165 @@
+{
+  "schemaVersion": 1,
+  "status": "pass",
+  "ok": true,
+  "fixtureId": "admin-v2-reference-20260901-v1",
+  "fontProfile": "admin-reference-font-v1",
+  "viewport": {
+    "width": 390,
+    "height": 844
+  },
+  "pages": [
+    {
+      "name": "dashboard",
+      "viewport": {
+        "dpr": 1,
+        "height": 844,
+        "scrollHeight": 844,
+        "scrollWidth": 390,
+        "url": "http://localhost:49713/dashboard/?demo=1&fixture=admin-v2-reference-20260901-v1",
+        "width": 390
+      },
+      "elements": [
+        {
+          "selector": ".phone-screen",
+          "present": true,
+          "pass": true,
+          "reason": ""
+        },
+        {
+          "selector": ".appbar",
+          "present": true,
+          "pass": true,
+          "reason": ""
+        },
+        {
+          "selector": ".app-content",
+          "present": true,
+          "pass": true,
+          "reason": ""
+        }
+      ],
+      "errors": [],
+      "pass": true
+    },
+    {
+      "name": "operations",
+      "viewport": {
+        "dpr": 1,
+        "height": 844,
+        "scrollHeight": 844,
+        "scrollWidth": 390,
+        "url": "http://localhost:49713/dashboard/operations.html?view=usage&demo=1&fixture=admin-v2-reference-20260901-v1",
+        "width": 390
+      },
+      "elements": [
+        {
+          "selector": ".phone-screen",
+          "present": true,
+          "pass": true,
+          "reason": ""
+        },
+        {
+          "selector": ".appbar",
+          "present": true,
+          "pass": true,
+          "reason": ""
+        },
+        {
+          "selector": ".app-content",
+          "present": true,
+          "pass": true,
+          "reason": ""
+        }
+      ],
+      "errors": [],
+      "pass": true
+    },
+    {
+      "name": "config",
+      "viewport": {
+        "dpr": 1,
+        "height": 844,
+        "scrollHeight": 844,
+        "scrollWidth": 390,
+        "url": "http://localhost:49713/config/?demo=1&fixture=admin-v2-reference-20260901-v1",
+        "width": 390
+      },
+      "elements": [
+        {
+          "selector": ".phone-screen",
+          "present": true,
+          "pass": true,
+          "reason": ""
+        },
+        {
+          "selector": ".appbar",
+          "present": true,
+          "pass": true,
+          "reason": ""
+        },
+        {
+          "selector": ".app-content",
+          "present": true,
+          "pass": true,
+          "reason": ""
+        },
+        {
+          "selector": ".advanced-grid",
+          "present": true,
+          "pass": true,
+          "reason": ""
+        },
+        {
+          "selector": ".save-wrap",
+          "present": true,
+          "pass": true,
+          "reason": ""
+        }
+      ],
+      "errors": [],
+      "pass": true
+    },
+    {
+      "name": "provider",
+      "viewport": {
+        "dpr": 1,
+        "height": 844,
+        "scrollHeight": 844,
+        "scrollWidth": 390,
+        "url": "http://localhost:49713/provider/?demo=1&fixture=admin-v2-reference-20260901-v1",
+        "width": 390
+      },
+      "elements": [
+        {
+          "selector": ".phone-screen",
+          "present": true,
+          "pass": true,
+          "reason": ""
+        },
+        {
+          "selector": ".provider-layout",
+          "present": true,
+          "pass": true,
+          "reason": ""
+        },
+        {
+          "selector": ".app-content",
+          "present": true,
+          "pass": true,
+          "reason": ""
+        },
+        {
+          "selector": ".field-label",
+          "present": true,
+          "pass": true,
+          "reason": ""
+        }
+      ],
+      "errors": [],
+      "pass": true
+    }
+  ],
+  "errors": [],
+  "checkedAt": "2026-09-01T15:16:46.125Z"
+}

@@ -28,7 +28,8 @@ const jsonFiles = [
   "cloudfunctions/api/config.json",
   "scripts/database-indexes.json",
   "scripts/cloud-database-index-manager/package.json",
-  "visual-evidence/admin-v2-pixel-manifest.json"
+  "visual-evidence/admin-v2-pixel-manifest.json",
+  "visual-evidence/admin-v2-same-device-manifest.json"
 ];
 const optionalJsonFiles = ["project.private.config.json"];
 const adminV2ExecutableSmokeFiles = [
@@ -41,6 +42,9 @@ const adminV2ExecutableSmokeFiles = [
   "scripts/admin-v2-pixel-regression-smoke.js",
   "scripts/admin-preview-fixtures-smoke.js",
   "scripts/admin-v2-pixel-baseline-smoke.js",
+  "scripts/admin-v2-pixel-diff-report-smoke.js",
+  "scripts/admin-v2-same-device-baseline-smoke.js",
+  "scripts/preview-source-budget-smoke.js",
   "scripts/qr-decode-smoke.js",
   "scripts/admin-preview-pages-runtime-smoke.js"
 ];
@@ -206,6 +210,9 @@ const jsFiles = [
   "scripts/deployment-script-smoke.js",
   "scripts/admin-v2-pixel-regression.js",
   "scripts/admin-v2-pixel-baseline.js",
+  "scripts/admin-v2-pixel-diff-report.js",
+  "scripts/admin-v2-same-device-baseline.js",
+  "scripts/preview-source-budget.js",
   "scripts/qr-decode.js",
   "scripts/vendor/qrcode-reader.js"
 ];
@@ -498,6 +505,9 @@ const required = [
   "scripts/deployment-script-smoke.js",
   "scripts/admin-v2-pixel-regression.js",
   "scripts/admin-preview-fixtures-smoke.js",
+  "scripts/admin-v2-pixel-diff-report.js",
+  "scripts/admin-v2-same-device-baseline.js",
+  "scripts/preview-source-budget.js",
   "scripts/npm-dependency-cache-smoke.js",
   "docs/superpowers/specs/2026-08-26-cloud-dependency-and-deploy-lock-design.md",
   "scripts/check-cloud-database-indexes.ps1",

@@ -135,9 +135,18 @@ jobs:
       - name: Validate source
         shell: pwsh
         run: node scripts/validate.js
+      - name: Preview source budget
+        shell: pwsh
+        run: node scripts/preview-source-budget.js --metric compressed --max-bytes 2097152 --warn-bytes 1887436
+      - name: Same-device visual baseline
+        shell: pwsh
+        run: node scripts/admin-v2-same-device-baseline.js
       - name: Four-page pixel regression
         shell: pwsh
         run: node scripts/admin-v2-pixel-baseline.js --threshold 32 --max-diff-ratio 0.5
+      - name: Four-page pixel diff report
+        shell: pwsh
+        run: node scripts/admin-v2-pixel-diff-report.js --json visual-evidence/pixel-diffs/admin-v2-pixel-diff-report.json --markdown visual-evidence/pixel-diffs/admin-v2-pixel-diff-report.md
       - name: Preview QR decode
         shell: pwsh
         run: node scripts/qr-decode-smoke.js

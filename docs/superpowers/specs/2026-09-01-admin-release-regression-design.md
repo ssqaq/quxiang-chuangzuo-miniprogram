@@ -19,6 +19,9 @@
 3. 调整 `scripts/deploy-and-verify-api.ps1` 的第 2 步顺序，并在 `scripts/deployment-script-smoke.js` 中断言顺序不可回退。
 4. 新增 `scripts/admin-v2-pixel-regression.js` 和对应 smoke。命令接收实际截图、参考图、阈值、最大差异比例和 heatmap 输出路径；四页基线清单由 `visual-evidence/admin-v2-pixel-manifest.json` 管理，实际截图与参考图均固定为 `390 x 844` 证据，不携带密钥。
 5. 发布流程使用同一 release context 生成二维码和预览信息文件，报告中记录二维码绝对路径、版本、源码提交和四页像素检查结果。
+6. 新增同设备基线 manifest，锁定微信开发者工具模拟器、`390 x 844` viewport、截图命令及四页图片 SHA256；发布和 CI 共用同一份合同。
+7. 新增预览源码预算，按 `project.config.json` 的 `packOptions` 统计裸源码，并按逐文件 gzip 加路径开销估算传输体积；`2 MiB` 为硬上限、`1.8 MiB` 为预警线，在二维码生成前失败。
+8. 新增四页 JSON/Markdown 差异报告和热图，逐页输出差异比例、包围盒与热点 tile；报告仅保存项目内相对路径，不读取运行时凭证。
 
 ## 验收
 
@@ -26,4 +29,6 @@
 - 四页 fixture 模式可在本地运行，页面不触发 `getAdminConfigV2`、密钥读取、统计读取或写接口。
 - 像素工具对相同图片返回 0 差异，对人工改动返回非零差异并生成 heatmap；四页基线命令在 GitHub release-gate 中执行，缺少基线文件或超过阈值直接失败。
 - 二维码发布门禁必须实际解码 payload，不能只检查文件存在或 SHA；`scripts/qr-decode-smoke.js` 覆盖有效、空文件、非法图片和空白图。
+- 同设备基线必须校验四页顺序、图片尺寸和 SHA256；预览传输估算超过 `2 MiB` 必须阻止发布，裸源码超过 `2 MiB` 只触发明确警告。
+- 四页差异报告必须同时生成 JSON、Markdown 和 heatmap，并沿用像素回归相同阈值与通过判定。
 - 正式版本升级、ZIP 非空、GitHub PR 合并、CloudBase Active、开发者工具导入编译通过，二维码和报告可追溯。

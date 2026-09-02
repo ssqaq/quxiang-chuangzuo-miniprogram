@@ -241,6 +241,11 @@ function captureCurrentDevice(options = {}) {
     renderer: "wechat-devtools-skill-cli",
     captureStatus: "captured",
     state: stateId,
+    viewport: { width: runtime.windowWidth, height: runtime.windowHeight, contractWidth: 390, contractHeight: 844 },
+    dpr: 1,
+    scroll: { x: 0, y: 0 },
+    fontProfile: "admin-reference-font-v1",
+    captureContract: { viewport: { width: 390, height: 844 }, dpr: 1, scroll: { x: 0, y: 0 }, fixtureId: FIXTURE_ID },
     runtime,
     captures,
     capturedAt: new Date().toISOString()

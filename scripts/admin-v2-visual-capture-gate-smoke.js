@@ -17,7 +17,7 @@ try {
       captures.push({ stateId, name, output, route: `/pages/${name}?demo=1&fixture=${gate.FIXTURE_ID}&visualState=${encodeURIComponent(stateId)}`, dimensions: { windowWidth: 390, windowHeight: 844 }, image: { width: 390, height: 844 }, bytes: fs.statSync(output).size, sha256: capture.sha256(output), fixtureId: gate.FIXTURE_ID });
     });
   });
-  const manifest = { schemaVersion: 1, fixtureId: gate.FIXTURE_ID, renderer: "wechat-devtools-simulator", captureStatus: "captured", viewport: capture.VIEWPORT, states: capture.STATE_IDS.slice(), captures };
+  const manifest = { schemaVersion: 1, fixtureId: gate.FIXTURE_ID, renderer: "wechat-devtools-simulator", captureStatus: "captured", viewport: capture.VIEWPORT, dpr: 1, scroll: { x: 0, y: 0 }, fontProfile: "admin-reference-font-v1", states: capture.STATE_IDS.slice(), captures };
   assert.strictEqual(gate.validateManifest(manifest, { root, allStates: true }).ok, true);
   const badHash = JSON.parse(JSON.stringify(manifest));
   badHash.captures[0].sha256 = "0".repeat(64);

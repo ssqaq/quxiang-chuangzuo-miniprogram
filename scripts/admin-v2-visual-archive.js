@@ -23,6 +23,7 @@ const DEFAULT_FILES = [
   "provider.png",
 ];
 const DEFAULT_REPORTS = [
+  "visual-evidence/capture-manifest.json",
   "visual-evidence/admin-v2-same-device-manifest.json",
   "visual-evidence/admin-v2-pixel-manifest.json",
   "visual-evidence/pixel-diffs/admin-v2-pixel-diff-report.json",

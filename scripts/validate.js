@@ -62,6 +62,9 @@ const adminV2ExecutableSmokeFiles = [
   "scripts/ensure-devtools-9437-smoke.js",
   "scripts/admin-v2-visual-index-smoke.js",
   "scripts/admin-v2-preview-entry-smoke.js",
+  "scripts/admin-provider-chinese-regression-smoke.js",
+  "scripts/devtools-9437-watch-smoke.js",
+  "scripts/cloudbase-health-smoke.js",
   "scripts/qr-decode-smoke.js",
   "scripts/admin-preview-pages-runtime-smoke.js"
 ];
@@ -265,6 +268,7 @@ const powerShellFiles = [
   "scripts/install-git-hooks.ps1",
   "scripts/write-release-record.ps1",
   "scripts/ensure-devtools-9437.ps1",
+  "scripts/devtools-9437-watch.ps1",
   "scripts/admin-v2-visual-runner.ps1"
 ];
 

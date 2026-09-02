@@ -1,0 +1,143 @@
+{
+  "runner": {
+    "ok": true,
+    "status": "ready",
+    "missing": [],
+    "project": "D:\\aips小程序\\wechat-miniapp-admin-config-right-20260831",
+    "cli": "D:\\微信web开发者工具\\wechatide.cmd",
+    "automator": "",
+    "devtoolsCli": true,
+    "connectPort": 0,
+    "output": "D:\\aips小程序\\wechat-miniapp-admin-config-right-20260831\\visual-evidence\\runner-final",
+    "fixtureId": "admin-v2-reference-20260901-v1",
+    "states": [
+      "collapsed-default-v1"
+    ]
+  },
+  "status": "captured",
+  "ok": true,
+  "capture": {
+    "schemaVersion": 1,
+    "fixtureId": "admin-v2-reference-20260901-v1",
+    "renderer": "wechat-devtools-skill-cli",
+    "captureStatus": "captured",
+    "state": "collapsed-default-v1",
+    "runtime": {
+      "model": "iPhone 15 Pro Max",
+      "windowWidth": 430,
+      "windowHeight": 932,
+      "screenWidth": 430,
+      "screenHeight": 932,
+      "pixelRatio": 3,
+      "sdkVersion": "3.16.2"
+    },
+    "captures": [
+      {
+        "stateId": "collapsed-default-v1",
+        "name": "dashboard",
+        "route": "/pages/admin-dashboard/admin-dashboard?demo=1&fixture=admin-v2-reference-20260901-v1&visualState=collapsed-default-v1",
+        "output": "D:\\aips小程序\\wechat-miniapp-admin-config-right-20260831\\visual-evidence\\runner-final\\dashboard-430x932.png",
+        "fixtureId": "admin-v2-reference-20260901-v1",
+        "runtime": {
+          "model": "iPhone 15 Pro Max",
+          "windowWidth": 430,
+          "windowHeight": 932,
+          "screenWidth": 430,
+          "screenHeight": 932,
+          "pixelRatio": 3,
+          "sdkVersion": "3.16.2"
+        },
+        "image": {
+          "width": 430,
+          "height": 932
+        },
+        "cliDimensions": {
+          "width": 430,
+          "height": 932
+        },
+        "bytes": 111019,
+        "sha256": "77a5d3d0dc7fa3d98079196cd805a6f406f931f5cdc0444f2d5a8cebce159fb1"
+      },
+      {
+        "stateId": "collapsed-default-v1",
+        "name": "operations",
+        "route": "/pages/admin-operations/admin-operations?view=usage&demo=1&fixture=admin-v2-reference-20260901-v1&visualState=collapsed-default-v1",
+        "output": "D:\\aips小程序\\wechat-miniapp-admin-config-right-20260831\\visual-evidence\\runner-final\\operations-430x932.png",
+        "fixtureId": "admin-v2-reference-20260901-v1",
+        "runtime": {
+          "model": "iPhone 15 Pro Max",
+          "windowWidth": 430,
+          "windowHeight": 932,
+          "screenWidth": 430,
+          "screenHeight": 932,
+          "pixelRatio": 3,
+          "sdkVersion": "3.16.2"
+        },
+        "image": {
+          "width": 430,
+          "height": 932
+        },
+        "cliDimensions": {
+          "width": 430,
+          "height": 932
+        },
+        "bytes": 66098,
+        "sha256": "194fb77952e5dd783916cdf8095ccc632641337afe2e09665e4ff2ff1de09f05"
+      },
+      {
+        "stateId": "collapsed-default-v1",
+        "name": "config",
+        "route": "/pages/admin-config/admin-config?demo=1&fixture=admin-v2-reference-20260901-v1&visualState=collapsed-default-v1",
+        "output": "D:\\aips小程序\\wechat-miniapp-admin-config-right-20260831\\visual-evidence\\runner-final\\config-430x932.png",
+        "fixtureId": "admin-v2-reference-20260901-v1",
+        "runtime": {
+          "model": "iPhone 15 Pro Max",
+          "windowWidth": 430,
+          "windowHeight": 932,
+          "screenWidth": 430,
+          "screenHeight": 932,
+          "pixelRatio": 3,
+          "sdkVersion": "3.16.2"
+        },
+        "image": {
+          "width": 430,
+          "height": 932
+        },
+        "cliDimensions": {
+          "width": 430,
+          "height": 932
+        },
+        "bytes": 51376,
+        "sha256": "921eacb1b5dac2ddd8cbfe153206a207d73c398de557576c3b53807069802681"
+      },
+      {
+        "stateId": "collapsed-default-v1",
+        "name": "provider",
+        "route": "/pages/admin-provider/admin-provider?demo=1&fixture=admin-v2-reference-20260901-v1&visualState=collapsed-default-v1",
+        "output": "D:\\aips小程序\\wechat-miniapp-admin-config-right-20260831\\visual-evidence\\runner-final\\provider-430x932.png",
+        "fixtureId": "admin-v2-reference-20260901-v1",
+        "runtime": {
+          "model": "iPhone 15 Pro Max",
+          "windowWidth": 430,
+          "windowHeight": 932,
+          "screenWidth": 430,
+          "screenHeight": 932,
+          "pixelRatio": 3,
+          "sdkVersion": "3.16.2"
+        },
+        "image": {
+          "width": 430,
+          "height": 932
+        },
+        "cliDimensions": {
+          "width": 430,
+          "height": 932
+        },
+        "bytes": 98685,
+        "sha256": "6dc8828955d8cc759f8bd426c4846c548199b8ff169b56d6c42ae700bd4d87a6"
+      }
+    ],
+    "capturedAt": "2026-09-01T21:55:12.583Z",
+    "manifestPath": "D:\\aips小程序\\wechat-miniapp-admin-config-right-20260831\\visual-evidence\\runner-final\\capture-manifest.json"
+  }
+}

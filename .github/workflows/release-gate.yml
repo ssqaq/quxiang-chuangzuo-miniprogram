@@ -32,7 +32,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-      - name: Release workflow concurrency and protection preflight
+      - name: Release workflow concurrency and protection preflight总进度多少了
         shell: pwsh
         env:
           RELEASE_WORKFLOW_EVENT_NAME: ${{ github.event_name }}

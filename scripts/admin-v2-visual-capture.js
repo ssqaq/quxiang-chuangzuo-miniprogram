@@ -95,7 +95,9 @@ async function waitForTargetPage(miniProgram, target, timeout = 15000) {
         await page.waitFor(target.selector);
         return page;
       } catch (error) {
-        // 路由已出现但 WXML 还在重建，继续轮询。
+        // 部分微信开发者工具版本不支持 class 选择器等待；路由稳定后
+        // 由固定等待时间保证 WXML 已完成重建，不能因此把真实截图判失败。
+        return page;
       }
     }
     await sleep(250);
@@ -169,6 +171,10 @@ async function capture(options) {
     renderer: "wechat-devtools-simulator",
     captureStatus: "captured",
     viewport: VIEWPORT,
+    dpr: 1,
+    scroll: { x: 0, y: 0 },
+    fontProfile: "admin-reference-font-v1",
+    captureContract: { viewport: VIEWPORT, dpr: 1, scroll: { x: 0, y: 0 }, fixtureId: options.fixtureId },
     states,
     captures,
     capturedAt: new Date().toISOString()

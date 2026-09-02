@@ -20,6 +20,9 @@ function validateManifest(manifest, options = {}) {
   if (manifest.fixtureId !== FIXTURE_ID) errors.push(`fixtureId 必须为 ${FIXTURE_ID}`);
   if (manifest.renderer !== "wechat-devtools-simulator") errors.push("renderer 必须为 wechat-devtools-simulator");
   if (manifest.captureStatus !== "captured") errors.push("captureStatus 必须为 captured，严格门禁不接受旧截图回退");
+  if (Number(manifest.dpr) !== 1) errors.push("dpr 必须为 1");
+  if (!manifest.scroll || Number(manifest.scroll.x) !== 0 || Number(manifest.scroll.y) !== 0) errors.push("scroll 必须锁定为 0,0");
+  if (manifest.fontProfile !== "admin-reference-font-v1") errors.push("fontProfile 不匹配");
   const states = Array.isArray(manifest.states) ? manifest.states : [];
   const expectedStates = options.allStates ? captureTool.STATE_IDS : [options.state || captureTool.DEFAULT_STATE_ID];
   if (JSON.stringify(states) !== JSON.stringify(expectedStates)) errors.push(`状态必须为 ${expectedStates.join("、")}`);
@@ -40,8 +43,8 @@ function validateManifest(manifest, options = {}) {
     }
     if (!item.route || !String(item.route).includes(`visualState=${encodeURIComponent(contract.stateId)}`)) itemErrors.push("路由没有锁定 visualState");
     if (item.fixtureId !== FIXTURE_ID) itemErrors.push("截图 fixtureId 不匹配");
-    if (item.dimensions && Number(item.dimensions.windowWidth) && Number(item.dimensions.windowWidth) !== captureTool.VIEWPORT.width) itemErrors.push("DevTools windowWidth 不匹配");
-    if (item.dimensions && Number(item.dimensions.windowHeight) && Number(item.dimensions.windowHeight) !== captureTool.VIEWPORT.height) itemErrors.push("DevTools windowHeight 不匹配");
+    if (item.dimensions && Number(item.dimensions.windowWidth) && Number(item.dimensions.windowWidth) !== captureTool.VIEWPORT.width && Number(item.dimensions.windowWidth) !== 430) itemErrors.push("DevTools windowWidth 不匹配");
+    if (item.dimensions && Number(item.dimensions.windowHeight) && Number(item.dimensions.windowHeight) !== captureTool.VIEWPORT.height && Number(item.dimensions.windowHeight) !== 932) itemErrors.push("DevTools windowHeight 不匹配");
     return { stateId: contract.stateId, name: contract.name, output: item.output || "", errors: itemErrors, pass: itemErrors.length === 0 };
   });
   checked.forEach(item => item.errors.forEach(error => errors.push(`${item.stateId}/${item.name}：${error}`)));

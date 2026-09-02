@@ -229,6 +229,10 @@ $releaseToolPaths = @(
     "scripts/preview-source-budget.js",
     "scripts/preview-source-budget-smoke.js",
     "scripts/admin-v2-visual-capture.js",
+    "scripts/admin-provider-chinese-regression-smoke.js",
+    "scripts/devtools-9437-watch.ps1",
+    "scripts/devtools-9437-watch-smoke.js",
+    "scripts/cloudbase-health-smoke.js",
     "scripts/admin-preview-fixtures-smoke.js",
     "scripts/admin-preview-pages-runtime-smoke.js",
     "scripts/release-maintenance.ps1",
@@ -1056,7 +1060,9 @@ try {
     if (Test-Path -LiteralPath $postReleaseVisualScript -PathType Leaf) {
         try {
             $visualArgs = @("--root", $sourceRepo.Root, "--version", $target, "--retain", "5")
-            if ([string]$env:ADMIN_POST_RELEASE_CAPTURE -eq "1") { $visualArgs += "--capture" }
+            if ([string]$env:ADMIN_POST_RELEASE_CAPTURE -eq "1") {
+                $visualArgs += @("--capture", "--cli-capture", "--project", $sourceRepo.Root, "--cli", $PreviewCliPath)
+            }
             else { $visualArgs += "--allow-existing" }
             $visualOutput = @(& node $postReleaseVisualScript @visualArgs 2>&1)
             $visualText = ($visualOutput | ForEach-Object { [string]$_ }) -join "`n"

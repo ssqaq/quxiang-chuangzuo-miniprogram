@@ -2,7 +2,7 @@
   <view class="appbar" style="{{appbarStyle}}">
     <view class="appbar-title">控制台</view>
     <view wx:if="{{showDemoControl}}" class="demo-control {{loading || refreshing ? 'locked' : ''}}" aria-role="switch" aria-checked="{{demoMode}}" aria-label="切换演示数据" bindtap="toggleDemoMode" hover-class="tap"><text class="demo-label">{{demoMode ? '演示' : '真实'}}</text><view class="demo-toggle {{demoMode ? 'on' : ''}}"><view class="demo-knob"></view></view></view>
-    <view class="appbar-link" bindtap="openProvider" hover-class="tap">供应商管理 <text>›</text></view>
+    <view class="appbar-link" bindtap="backToMain" hover-class="tap">返回主页面 <text>›</text></view>
   </view>
 
   <scroll-view class="dashboard-scroll" style="{{dashboardScrollStyle}}" scroll-y="true" enable-back-to-top="true">

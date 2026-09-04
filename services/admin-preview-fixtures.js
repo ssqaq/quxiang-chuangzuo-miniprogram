@@ -17,7 +17,7 @@ const VISUAL_STATES = Object.freeze({
   "expanded-v1": Object.freeze({
     id: "expanded-v1",
     group: "standard",
-    tab: "imageGeneration",
+    tab: "face",
     mainExpanded: true,
     backupExpanded: true,
     advancedExpanded: true
@@ -265,6 +265,20 @@ function isEnabled(options) {
   return Boolean(config && config.adminPreviewDemo === true);
 }
 
+function isDevToolsRuntime() {
+  let platform = "";
+  try {
+    if (typeof wx !== "undefined" && typeof wx.getDeviceInfo === "function") {
+      platform = String((wx.getDeviceInfo() || {}).platform || "");
+    } else if (typeof wx !== "undefined" && typeof wx.getSystemInfoSync === "function") {
+      platform = String((wx.getSystemInfoSync() || {}).platform || "");
+    }
+  } catch (error) {
+    platform = "";
+  }
+  return platform.toLowerCase() === "devtools";
+}
+
 function isControlVisible(options) {
   const explicit = options && Object.prototype.hasOwnProperty.call(options, "demoControl")
     ? booleanValue(options.demoControl)
@@ -407,6 +421,7 @@ module.exports = {
   resolveVisualState,
   fixtureContract,
   isEnabled,
+  isDevToolsRuntime,
   isControlVisible,
   setEnabled,
   adminConfig,

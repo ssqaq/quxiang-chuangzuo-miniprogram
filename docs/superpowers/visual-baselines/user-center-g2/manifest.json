@@ -1,0 +1,378 @@
+{
+  "schemaVersion": 1,
+  "contract": "G2",
+  "capturedAt": "2026-09-04T06:08:47.604Z",
+  "g1Manifest": {
+    "path": "../user-center-g1-v2/manifest.json",
+    "sha256": "2e7886052bb361c7577c74a6bd3bc77e9643a49e9162019ed4f7b739233427c9"
+  },
+  "runtime": {
+    "devToolsVersion": "2.02.2608040",
+    "baseLibrary": "3.16.2",
+    "model": "iPhone 12/13 (Pro)",
+    "platform": "devtools",
+    "pixelRatio": 3,
+    "screen": {
+      "width": 390,
+      "height": 844
+    },
+    "businessViewport": {
+      "width": 390,
+      "height": 753
+    },
+    "contentViewport": {
+      "width": 390,
+      "height": 714
+    },
+    "crop": {
+      "x": 0,
+      "y": 96,
+      "width": 390,
+      "height": 714,
+      "derivation": "native navigation bottom to safeArea.bottom; excludes system chrome and native navigation"
+    }
+  },
+  "fixture": {
+    "profile": "generic-wechat-user",
+    "balance": 128.5,
+    "totalPurchasedPoints": 330,
+    "selectedProduct": {
+      "id": "pkg_2990",
+      "price": "¥29.9",
+      "points": 330
+    },
+    "filters": [
+      "all",
+      "recharge",
+      "spend",
+      "reward",
+      "refund"
+    ],
+    "paymentChannel": "wxpay",
+    "records": [
+      "recharge",
+      "spend",
+      "refund",
+      "checkin",
+      "unknown"
+    ],
+    "recordIds": [
+      "demo-recharge-330",
+      "demo-spend-image",
+      "demo-refund-video",
+      "demo-reward-checkin",
+      "demo-unknown"
+    ]
+  },
+  "sourceBinding": {
+    "hashMode": "normalized-text-sha256",
+    "appVersion": "0.57.154",
+    "fingerprint": "7404a9c4e4a8942aca7d9eab9785ba523214ce5748061d1c66a4695fad95d677",
+    "files": [
+      {
+        "path": "config.js",
+        "sha256": "48e01751ac703319cf50275c8cc7a2a04bdf71e655060ae17a64e907a778e3e2"
+      },
+      {
+        "path": "pages/user-center/user-center.js",
+        "sha256": "3ffe00f4d2e90164b09fcacb09c916654b823afb1e03d8e857836fd5f994667d"
+      },
+      {
+        "path": "pages/user-center/user-center.wxml",
+        "sha256": "dc94d0f362fb822d3e0067559d026c4812e5133bee66ee1fb69e508139834150"
+      },
+      {
+        "path": "pages/user-center/user-center.wxss",
+        "sha256": "9b05d0fd29a2a604da6dc338cf5b465e84a5637871aa0b031ab37658e915605a"
+      },
+      {
+        "path": "pages/recharge/recharge.js",
+        "sha256": "b2dbdfca30466d096d87dd733172f6f2c6e79081ba6ef94e9b8d88a956d24fa5"
+      },
+      {
+        "path": "pages/recharge/recharge.wxml",
+        "sha256": "47efc97afd3eec83783b30b76f0add193defb2d72e800c38385fe4460eef0733"
+      },
+      {
+        "path": "pages/recharge/recharge.wxss",
+        "sha256": "a8a1cf5c56a1d50c32fe53851d5a701b83b6327e5a795581c4cc1b24bd8dc81a"
+      },
+      {
+        "path": "pages/account-records/account-records.js",
+        "sha256": "b2c7aab7db1ebd946f7b10f58cbc51d9cdc492875cefb726eb5cb828efeaf0fe"
+      },
+      {
+        "path": "pages/account-records/account-records.wxml",
+        "sha256": "5c485da7c3333b7dc839a987574880248e3de13a557bf12124b6e75f1adc0e96"
+      },
+      {
+        "path": "pages/account-records/account-records.wxss",
+        "sha256": "32303f5489fa06b1e14eaffcf4ccd99c7f0e185f36f48880b0a5602a905e356c"
+      },
+      {
+        "path": "services/account.js",
+        "sha256": "28ba0ac337e57e69bf0cd9f8b783b0a0cf51208c6023ae46cb34c9444894947f"
+      },
+      {
+        "path": "utils/account-ui.js",
+        "sha256": "2fc1ed6920df415d6bc9a3e788d6c2c3ee256cf8a3cf06e1d17015544ce17ccd"
+      },
+      {
+        "path": "utils/account-demo.js",
+        "sha256": "e8a0fe46818414b0fd12db4bdd0f67e24121f670697c54c84580f12af23850c4"
+      }
+    ]
+  },
+  "binaryAssets": [
+    {
+      "path": "assets/account/wallet-cards.png",
+      "sha256": "BA366D69C10E3503B5B99F067F5298EE19DEAC73EF33E086BE0EE222F95E3F44"
+    },
+    {
+      "path": "assets/account/receipt-text.png",
+      "sha256": "C9819182E344F03340F3DBC3E8E16F9D168FCED241319D637AF114E3A2EEAC48"
+    }
+  ],
+  "captures": {
+    "user-center": {
+      "route": "pages/user-center/user-center",
+      "raw": {
+        "file": "raw-user-center.png",
+        "width": 390,
+        "height": 844,
+        "sha256": "830FE12E37A2F8DA4F0EF28B082CCFC2EB5D0D1C2F8E6FD6ED552C52CD604B78"
+      },
+      "businessRoot": {
+        "file": "user-center-390.png",
+        "width": 390,
+        "height": 714,
+        "sha256": "E013A3B2BF5617001AB1999C1D2EDF7F6927056238BECC9D968CAEC178349BCB"
+      },
+      "geometry": {
+        "root": [
+          0,
+          0,
+          390,
+          714
+        ],
+        "profileCard": [
+          13,
+          20,
+          364,
+          81
+        ],
+        "balanceCard": [
+          13,
+          111,
+          364,
+          191
+        ],
+        "rechargeHit": [
+          34,
+          249.5,
+          184,
+          44
+        ],
+        "rechargeVisual": [
+          34,
+          252,
+          87,
+          33
+        ],
+        "quickGrid": [
+          13,
+          312,
+          364,
+          64
+        ],
+        "firstQuickCard": [
+          13,
+          312,
+          177.5,
+          64
+        ],
+        "recordsPanel": [
+          13,
+          386,
+          364,
+          222
+        ],
+        "firstRecordRow": [
+          27,
+          425,
+          336,
+          55
+        ],
+        "accountNote": [
+          13,
+          619,
+          364,
+          32
+        ],
+        "loadedVersion": [
+          13,
+          658,
+          364,
+          12
+        ]
+      }
+    },
+    "recharge": {
+      "route": "pages/recharge/recharge",
+      "raw": {
+        "file": "raw-recharge.png",
+        "width": 390,
+        "height": 844,
+        "sha256": "70EB193B1445B69DA8747592CA15041D02F17182E058C43C5FD32E3CEE266F40"
+      },
+      "businessRoot": {
+        "file": "recharge-390.png",
+        "width": 390,
+        "height": 714,
+        "sha256": "253613AC9D54761997B60693990E387D2D977DB695D280B88A441877B4ACAC9F"
+      },
+      "geometry": {
+        "root": [
+          0,
+          0,
+          390,
+          714
+        ],
+        "expectedPoints": [
+          13,
+          18,
+          364,
+          57
+        ],
+        "packageGrid": [
+          13,
+          121,
+          364,
+          116
+        ],
+        "firstPackageHit": [
+          13,
+          121,
+          117.328125,
+          116
+        ],
+        "channelRow": [
+          13,
+          283,
+          364,
+          58
+        ],
+        "payHit": [
+          13,
+          357,
+          364,
+          44
+        ],
+        "payVisual": [
+          13,
+          359.75,
+          364,
+          38.5
+        ],
+        "paymentNote": [
+          13,
+          415,
+          364,
+          13
+        ]
+      }
+    },
+    "records": {
+      "route": "pages/account-records/account-records",
+      "raw": {
+        "file": "raw-records.png",
+        "width": 390,
+        "height": 844,
+        "sha256": "9029EEE8B9B84541CE8BEC1A7280DFEF53E30F1911D3A7AF891EA5FBC6454F6E"
+      },
+      "businessRoot": {
+        "file": "records-390.png",
+        "width": 390,
+        "height": 714,
+        "sha256": "C6347776E1801348B3EF7AB7A5E7B16FD0B4AFA7579052314D3A6F3FAA1EE014"
+      },
+      "geometry": {
+        "root": [
+          0,
+          0,
+          390,
+          714
+        ],
+        "summary": [
+          13,
+          18,
+          364,
+          110
+        ],
+        "tabs": [
+          13,
+          138,
+          364,
+          36
+        ],
+        "firstFilterHit": [
+          17,
+          131,
+          71.203125,
+          50
+        ],
+        "firstFilterVisual": [
+          17,
+          142,
+          71.203125,
+          27
+        ],
+        "recordsPanel": [
+          13,
+          183,
+          364,
+          307
+        ],
+        "firstRecordRow": [
+          27,
+          197,
+          336,
+          55
+        ],
+        "firstRecordTitle": [
+          68,
+          212,
+          263.875,
+          13
+        ],
+        "recordsNote": [
+          13,
+          501,
+          364,
+          10
+        ]
+      },
+      "visibleRecordTypes": [
+        "recharge",
+        "spend",
+        "refund",
+        "checkin",
+        "unknown"
+      ]
+    }
+  },
+  "assertions": {
+    "rootMatchesWindow": true,
+    "horizontalOverflow": false,
+    "minimumHitHeightPx": 44,
+    "capturedDevToolsWidths": [
+      390
+    ],
+    "contractWidths": [
+      320,
+      338,
+      375,
+      414
+    ]
+  }
+}

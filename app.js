@@ -1,11 +1,12 @@
 const config = require("./config");
 const diagnosticLog = require("./utils/diagnostic-log");
 const cloud = require("./services/cloud");
+const visualTestBuild = config.buildProfile === "visual-test";
 
 App({
   globalData: {
     cloudReady: false,
-    cloudEnvId: config.cloudEnvId,
+    cloudEnvId: visualTestBuild ? "" : config.cloudEnvId,
     appVersion: config.appVersion,
     user: null
   },
@@ -17,9 +18,15 @@ App({
     });
     diagnosticLog.info("app", "launch", "小程序启动", {
       cloudEnvConfigured: Boolean(
-        config.cloudEnvId && config.cloudEnvId !== "YOUR_CLOUDBASE_ENV_ID"
+        !visualTestBuild
+        && config.cloudEnvId
+        && config.cloudEnvId !== "YOUR_CLOUDBASE_ENV_ID"
       )
     });
+    if (visualTestBuild) {
+      diagnosticLog.info("app", "visual-test-offline", "视觉测试构建已禁用云端初始化");
+      return;
+    }
     if (!wx.cloud || !config.cloudEnvId || config.cloudEnvId === "YOUR_CLOUDBASE_ENV_ID") {
       diagnosticLog.warn("app", "cloud-unavailable", "云开发环境未配置或当前环境不支持", {
         cloudApiAvailable: Boolean(wx.cloud)

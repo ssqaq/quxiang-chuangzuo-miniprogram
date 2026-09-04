@@ -29,9 +29,13 @@ const jsonFiles = [
   "scripts/database-indexes.json",
   "scripts/cloud-database-index-manager/package.json",
   "visual-evidence/admin-v2-pixel-manifest.json",
+  "visual-evidence/admin-v2-pixel-manifest-current.json",
+  "visual-evidence/admin-v2-release-evidence-manifest.json",
   "visual-evidence/admin-v2-same-device-manifest.json",
   "visual-evidence/admin-v2-state-matrix.json",
-  "visual-evidence/admin-v2-device-matrix.json"
+  "visual-evidence/admin-v2-device-matrix.json",
+  "visual-evidence/runtime-geometry/browser-probe.json",
+  "visual-evidence/provider-tc3-regression.json"
 ];
 const optionalJsonFiles = ["project.private.config.json"];
 const adminV2ExecutableSmokeFiles = [
@@ -50,6 +54,8 @@ const adminV2ExecutableSmokeFiles = [
   "scripts/admin-v2-layout-contract-smoke.js",
   "scripts/admin-v2-font-contract-smoke.js",
   "scripts/admin-v2-visual-archive-smoke.js",
+  "scripts/admin-v2-release-evidence-check-smoke.js",
+  "scripts/admin-provider-interaction-regression-smoke.js",
   "scripts/admin-v2-runtime-geometry-probe-smoke.js",
   "scripts/admin-v2-runtime-font-probe-smoke.js",
   "scripts/admin-v2-post-release-visual-check-smoke.js",
@@ -62,6 +68,7 @@ const adminV2ExecutableSmokeFiles = [
   "scripts/ensure-devtools-9437-smoke.js",
   "scripts/admin-v2-visual-index-smoke.js",
   "scripts/admin-v2-preview-entry-smoke.js",
+  "scripts/admin-provider-tc3-screenshot-smoke.js",
   "scripts/admin-provider-chinese-regression-smoke.js",
   "scripts/devtools-9437-watch-smoke.js",
   "scripts/cloudbase-health-smoke.js",
@@ -79,13 +86,28 @@ const smokeFiles = [
   "scripts/payment-deployment-smoke.js",
   "scripts/payment-records-cursor-smoke.js",
   "scripts/payment-monitor-smoke.js",
-  "scripts/account-points-fallback-smoke.js"
+  "scripts/account-points-fallback-smoke.js",
+  "scripts/account-points-format-smoke.js",
+  "scripts/account-demo-smoke.js",
+  "scripts/account-demo-page-smoke.js",
+  "scripts/account-demo-app-smoke.js",
+  "scripts/user-center-version-smoke.js",
+  "scripts/user-center-visual-smoke.js",
+  "scripts/user-center-g4-smoke.js",
+  "scripts/payment-sandbox-smoke.js",
+  "scripts/user-center-g3-check.js",
+  "scripts/user-center-visual-diff-smoke.js",
+  "scripts/user-center-visual-workflow-smoke.js"
 ];
 const jsFiles = [
   "app.js",
   "config.js",
+  "scripts/user-center-responsive-capture.js",
+  "scripts/user-center-ssim-smoke.js",
   "services/cloud.js",
   "services/account.js",
+  "utils/account-ui.js",
+  "utils/account-demo.js",
   "services/admin-video-config.js",
   "services/admin-provider-registry.js",
   "services/admin-config-v2.js",
@@ -122,6 +144,7 @@ const jsFiles = [
   "pages/admin/admin.js",
   "pages/user-center/user-center.js",
   "pages/account-records/account-records.js",
+  "pages/recharge/recharge.js",
   "scripts/admin-image-api-key-display-smoke.js",
   "scripts/admin-runtime-compat-smoke.js",
   "scripts/admin-loading-smoke.js",
@@ -236,6 +259,9 @@ const jsFiles = [
   "scripts/admin-v2-layout-contract.js",
   "scripts/admin-v2-font-contract.js",
   "scripts/admin-v2-visual-archive.js",
+  "scripts/user-center-visual-diff.js",
+  "scripts/admin-v2-release-evidence-check.js",
+  "scripts/admin-provider-interaction-regression.js",
   "scripts/admin-v2-runtime-geometry-probe.js",
   "scripts/admin-v2-runtime-font-probe.js",
   "scripts/admin-v2-post-release-visual-check.js",
@@ -253,7 +279,11 @@ const jsFiles = [
 for (const relative of smokeFiles) {
   if (!jsFiles.includes(relative)) jsFiles.push(relative);
 }
-const pythonFiles = ["scripts/package-release.py"];
+const pythonFiles = [
+  "scripts/package-release.py",
+  "scripts/package-account-visual-test.py",
+  "scripts/package-account-visual-test-smoke.py"
+];
 const powerShellFiles = [
   "scripts/check-devtools.ps1",
   "scripts/deploy-and-verify-api.ps1",
@@ -395,6 +425,7 @@ const required = [
   "scripts/install-git-hooks.ps1",
   "scripts/install-git-hooks.cmd",
   "scripts/write-release-record.ps1",
+  ".github/workflows/admin-visual-cleanup.yml",
   "scripts/admin-image-api-key-display-smoke.js",
   ...smokeFiles,
   "一键刷新预览.cmd",
@@ -436,6 +467,8 @@ const required = [
   "services/admin-preview-fixtures.js",
   "scripts/admin-v2-pixel-regression.js",
   "scripts/admin-v2-pixel-baseline.js",
+  "scripts/admin-v2-release-evidence-check.js",
+  "scripts/admin-provider-interaction-regression.js",
   "scripts/qr-decode.js",
   "scripts/vendor/qrcode-reader.js",
   "cloudfunctions/api/lib/admin-config-v2.js",
@@ -571,6 +604,16 @@ for (const relative of adminV2ExecutableSmokeFiles) {
 
 cp.execFileSync(
   process.execPath,
+  [
+    path.join(root, "scripts/admin-v2-runtime-geometry-probe.js"),
+    "--input", path.join(root, "visual-evidence/runtime-geometry/browser-probe.json"),
+    "--output", path.join(root, "visual-evidence/runtime-geometry/geometry-contract.json"),
+  ],
+  { cwd: root, stdio: "inherit" }
+);
+
+cp.execFileSync(
+  process.execPath,
   [path.join(root, "scripts/payment-ui-smoke.js")],
   { cwd: root, stdio: "inherit" }
 );
@@ -592,6 +635,70 @@ cp.execFileSync(
 cp.execFileSync(
   process.execPath,
   [path.join(root, "scripts/account-points-fallback-smoke.js")],
+  { cwd: root, stdio: "inherit" }
+);
+cp.execFileSync(
+  process.execPath,
+  [path.join(root, "scripts/account-points-format-smoke.js")],
+  { cwd: root, stdio: "inherit" }
+);
+cp.execFileSync(
+  process.execPath,
+  [path.join(root, "scripts/account-demo-smoke.js")],
+  { cwd: root, stdio: "inherit" }
+);
+cp.execFileSync(
+  process.execPath,
+  [path.join(root, "scripts/account-demo-page-smoke.js")],
+  { cwd: root, stdio: "inherit" }
+);
+cp.execFileSync(
+  process.execPath,
+  [path.join(root, "scripts/account-demo-app-smoke.js")],
+  { cwd: root, stdio: "inherit" }
+);
+cp.execFileSync(
+  process.execPath,
+  [path.join(root, "scripts/user-center-version-smoke.js")],
+  { cwd: root, stdio: "inherit" }
+);
+cp.execFileSync(
+  "python",
+  [path.join(root, "scripts/package-account-visual-test-smoke.py")],
+  {
+    cwd: root,
+    stdio: "inherit",
+    env: Object.assign({}, process.env, { PYTHONDONTWRITEBYTECODE: "1" })
+  }
+);
+cp.execFileSync(
+  process.execPath,
+  [path.join(root, "scripts/user-center-visual-smoke.js")],
+  { cwd: root, stdio: "inherit" }
+);
+cp.execFileSync(
+  process.execPath,
+  [path.join(root, "scripts/user-center-g4-smoke.js")],
+  { cwd: root, stdio: "inherit" }
+);
+cp.execFileSync(
+  process.execPath,
+  [path.join(root, "scripts/user-center-visual-diff-smoke.js")],
+  { cwd: root, stdio: "inherit" }
+);
+cp.execFileSync(
+  process.execPath,
+  [path.join(root, "scripts/user-center-visual-workflow-smoke.js")],
+  { cwd: root, stdio: "inherit" }
+);
+cp.execFileSync(
+  process.execPath,
+  [path.join(root, "scripts/payment-sandbox-smoke.js")],
+  { cwd: root, stdio: "inherit" }
+);
+cp.execFileSync(
+  process.execPath,
+  [path.join(root, "scripts/user-center-g3-check.js")],
   { cwd: root, stdio: "inherit" }
 );
 cp.execFileSync(
@@ -1052,7 +1159,7 @@ if (
   throw new Error("小程序名称没有统一更新为“圈像创作”。");
 }
 if (
-  !appJson.pages.includes("pages/admin/admin")
+  appJson.pages.includes("pages/admin/admin")
   || !adminJs.includes("cloud.getAdminStatus()")
   || !adminJs.includes("cloud.getAdminConfig")
   || !adminJs.includes("cloud.saveAdminConfig")
@@ -1079,7 +1186,7 @@ if (
   || !adminWxss.includes(".deployment-grid")
   || !adminWxss.includes(".auto-face-probe-history-row")
 ) {
-  throw new Error("管理员配置页或部署检查日志入口不完整。");
+  throw new Error("管理员旧页能力或部署检查日志入口不完整；旧 pages/admin 路由必须已退役。");
 }
 const adminQuickLaunchStyle = adminWxss.match(/\.quick-launch\s*\{([^}]*)\}/);
 const adminConfigRowStyle = adminWxss.match(/\.current-config-row\s*\{([^}]*)\}/);

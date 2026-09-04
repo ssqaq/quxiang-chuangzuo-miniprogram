@@ -190,7 +190,8 @@ def _validate_context_repository(context: dict, context_path: Path) -> None:
         raise _error(f"release context operationId 无效：{operation_id}")
     if context_path.name != f"release-{operation_id}.json":
         raise _error("release context 文件名未绑定同一 operationId")
-    if _same_path(canonical, ROOT):
+    source_root = Path(ROOT).expanduser().resolve()
+    if _same_path(canonical, source_root):
         return
 
     release_worktree_value = context.get("releaseWorktree")
@@ -206,7 +207,7 @@ def _validate_context_repository(context: dict, context_path: Path) -> None:
     )
     if not _same_path(release_worktree, expected_worktree):
         raise _error("release context releaseWorktree 不在 operation 固定目录")
-    if not _same_path(release_worktree, ROOT):
+    if not _same_path(release_worktree, source_root):
         raise _error("release context releaseWorktree 与来源版打包器目录不一致")
     if release_worktree.name != f"release-{operation_id}":
         raise _error("release context releaseWorktree 未绑定同一 operationId")

@@ -13,8 +13,8 @@
       "wxml": "pages/admin-dashboard/admin-dashboard.wxml",
       "wxss": "pages/admin-dashboard/admin-dashboard.wxss",
       "sourceSha256": {
-        "wxml": "493f30c80a8024c3c6aa58907dccd07f260025eba13b6e3c109682bd6e7a6035",
-        "wxss": "54b839f6ffc0ca7f57769a8e06324518471d2276786c44b068c9d477a7dcb68d"
+        "wxml": "065b785072cb1a902c6a4597e74ea1a34e969310b639178fef57c1ffe558833c",
+        "wxss": "f7d748143fa8a3969f550801a2fdeecc2f7d76e3a7cd7c6cfa1561199b1793c0"
       },
       "missingSelectors": [],
       "checks": [
@@ -58,8 +58,8 @@
       "wxml": "pages/admin-operations/admin-operations.wxml",
       "wxss": "pages/admin-operations/admin-operations.wxss",
       "sourceSha256": {
-        "wxml": "b1918a82bda915c98787456bdf34871ff170b7b1a731ad8c435a84bdda177bd6",
-        "wxss": "9c2023e982c7679dcf5dea77605143537dcd133828b2dd33fa2741fb7fa8f8b4"
+        "wxml": "f1f5db20fa42577774a89aa3c89f1d5d7bc807604e09f0e6f380b71f0d2d6617",
+        "wxss": "6986c9859c381972df96eaf093ae2cf24c763653ca6b45b8da634255052989aa"
       },
       "missingSelectors": [],
       "checks": [
@@ -119,8 +119,8 @@
       "wxml": "pages/admin-config/admin-config.wxml",
       "wxss": "pages/admin-config/admin-config.wxss",
       "sourceSha256": {
-        "wxml": "4d2e030e47f5855f673fd1e36d61a30b52e4485031bf62fd4ab69e0d19b12513",
-        "wxss": "78544e3850a76a57cbecfb933969d9d37921ccae1a598b0ded8af78e35de7212"
+        "wxml": "9115bbdfbbac6a2b32165b1fc979017dd4f62e4ce26f5d2b5858be6853b81955",
+        "wxss": "754e2507f63ea8529e780ac8adab183ed559c182a1941997e272c9114c66d279"
       },
       "missingSelectors": [],
       "checks": [
@@ -180,8 +180,8 @@
       "wxml": "pages/admin-provider/admin-provider.wxml",
       "wxss": "pages/admin-provider/admin-provider.wxss",
       "sourceSha256": {
-        "wxml": "8980f364b683a72408d4f7a48cc0fa7d8802bf239928e3e881e5a621051a12ca",
-        "wxss": "5d7d186e5c4923db64203cf9414e9c80942d65fcf1de4117b48caa5b2b5b3307"
+        "wxml": "1866f29e29dcc15bff554661eec9faef4615892b66f24d386d9fd111a9f3336a",
+        "wxss": "7a0acb3c29e68c86b150d34b9a922aeaad5b991bed9757b69e77f70761b72220"
       },
       "missingSelectors": [],
       "checks": [
@@ -210,11 +210,27 @@
           "pass": true
         },
         {
+          "label": "provider card height",
+          "selector": ".provider-card",
+          "property": "height",
+          "expected": "100%",
+          "actual": "100%",
+          "pass": true
+        },
+        {
+          "label": "provider card overflow",
+          "selector": ".provider-card",
+          "property": "overflow",
+          "expected": "hidden",
+          "actual": "hidden",
+          "pass": true
+        },
+        {
           "label": "two-column layout",
           "selector": ".provider-layout",
           "property": "grid-template-columns",
-          "expected": "252rpx minmax(0,1fr)",
-          "actual": "252rpx minmax(0,1fr)",
+          "expected": "242rpx minmax(0,1fr)",
+          "actual": "242rpx minmax(0,1fr)",
           "pass": true
         },
         {
@@ -224,10 +240,210 @@
           "expected": "19rpx",
           "actual": "19rpx",
           "pass": true
+        },
+        {
+          "label": "editor layout flex",
+          "selector": ".provider-layout",
+          "property": "flex",
+          "expected": "1 1 auto",
+          "actual": "1 1 auto",
+          "pass": true
+        },
+        {
+          "label": "blank-space layout position",
+          "selector": ".provider-layout",
+          "property": "position",
+          "expected": "relative",
+          "actual": "relative",
+          "pass": true
+        },
+        {
+          "label": "blank-space directory position",
+          "selector": ".directory-panel",
+          "property": "position",
+          "expected": "absolute",
+          "actual": "absolute",
+          "pass": true
+        },
+        {
+          "label": "blank-space directory top",
+          "selector": ".directory-panel",
+          "property": "top",
+          "expected": "0",
+          "actual": "0",
+          "pass": true
+        },
+        {
+          "label": "blank-space directory bottom",
+          "selector": ".directory-panel",
+          "property": "bottom",
+          "expected": "0",
+          "actual": "0",
+          "pass": true
+        },
+        {
+          "label": "blank-space directory left",
+          "selector": ".directory-panel",
+          "property": "left",
+          "expected": "0",
+          "actual": "0",
+          "pass": true
+        },
+        {
+          "label": "blank-space directory overflow",
+          "selector": ".directory-panel",
+          "property": "overflow",
+          "expected": "hidden",
+          "actual": "hidden",
+          "pass": true
+        },
+        {
+          "label": "blank-space directory min-height",
+          "selector": ".directory-panel",
+          "property": "min-height",
+          "expected": "0",
+          "actual": "0",
+          "pass": true
+        },
+        {
+          "label": "blank-space editor min-height",
+          "selector": ".editor-panel",
+          "property": "min-height",
+          "expected": "0",
+          "actual": "0",
+          "pass": true
+        },
+        {
+          "label": "editor panel overflow",
+          "selector": ".editor-panel",
+          "property": "overflow",
+          "expected": "hidden",
+          "actual": "hidden",
+          "pass": true
+        },
+        {
+          "label": "blank-space editor column",
+          "selector": ".editor-panel",
+          "property": "grid-column",
+          "expected": "2",
+          "actual": "2",
+          "pass": true
+        },
+        {
+          "label": "editor scroll height",
+          "selector": ".editor-scroll",
+          "property": "height",
+          "expected": "0",
+          "actual": "0",
+          "pass": true
+        },
+        {
+          "label": "editor scroll flex",
+          "selector": ".editor-scroll",
+          "property": "flex",
+          "expected": "1 1 auto",
+          "actual": "1 1 auto",
+          "pass": true
+        },
+        {
+          "label": "editor scroll overflow",
+          "selector": ".editor-scroll",
+          "property": "overflow-y",
+          "expected": "scroll",
+          "actual": "scroll",
+          "pass": true
+        },
+        {
+          "label": "blank-space list flex",
+          "selector": ".provider-list",
+          "property": "flex",
+          "expected": "1 1 auto",
+          "actual": "1 1 auto",
+          "pass": true
+        },
+        {
+          "label": "blank-space list height",
+          "selector": ".provider-list",
+          "property": "height",
+          "expected": "auto",
+          "actual": "auto",
+          "pass": true
+        },
+        {
+          "label": "blank-space list max-height",
+          "selector": ".provider-list",
+          "property": "max-height",
+          "expected": "none",
+          "actual": "none",
+          "pass": true
+        },
+        {
+          "label": "blank-space actions margin-top",
+          "selector": ".editor-actions",
+          "property": "margin-top",
+          "expected": "16rpx",
+          "actual": "16rpx",
+          "pass": true
+        },
+        {
+          "label": "editor actions flex",
+          "selector": ".editor-actions",
+          "property": "flex",
+          "expected": "0 0 auto",
+          "actual": "0 0 auto",
+          "pass": true
+        },
+        {
+          "label": "editor actions columns",
+          "selector": ".editor-actions",
+          "property": "grid-template-columns",
+          "expected": "repeat(2,minmax(0,1fr))",
+          "actual": "repeat(2,minmax(0,1fr))",
+          "pass": true
+        },
+        {
+          "label": "editor actions padding",
+          "selector": ".editor-actions",
+          "property": "padding",
+          "expected": "16rpx 6rpx 0",
+          "actual": "16rpx 6rpx 0",
+          "pass": true
+        },
+        {
+          "label": "endpoint input left padding",
+          "selector": ".provider-page .endpoint-field input",
+          "property": "padding-left",
+          "expected": "12rpx",
+          "actual": "12rpx",
+          "pass": true
+        },
+        {
+          "label": "key input left padding",
+          "selector": ".provider-page .key-field input",
+          "property": "padding-left",
+          "expected": "12rpx",
+          "actual": "12rpx",
+          "pass": true
+        },
+        {
+          "label": "endpoint input alignment",
+          "selector": ".provider-page .endpoint-field input",
+          "property": "text-align",
+          "expected": "left",
+          "actual": "left",
+          "pass": true
+        },
+        {
+          "label": "key input alignment",
+          "selector": ".provider-page .key-field input",
+          "property": "text-align",
+          "expected": "left",
+          "actual": "left",
+          "pass": true
         }
       ],
       "pass": true
     }
   ],
-  "checkedAt": "2026-09-02T00:38:01.237Z"
+  "checkedAt": "2026-09-04T03:38:43.859Z"
 }

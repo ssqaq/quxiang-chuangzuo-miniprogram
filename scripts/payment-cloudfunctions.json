@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "productionDeployment": {
-    "enabled": false,
-    "automaticDeployment": false,
+    "enabled": true,
+    "automaticDeployment": true,
     "requiresExplicitProductionAuthorization": true
   },
   "sharedCore": {
@@ -10,6 +10,7 @@
     "root": "cloudfunctions/payment-core",
     "packageJson": "cloudfunctions/payment-core/package.json",
     "lockRequired": false,
+    "runtimeRequire": "./vendor/payment-core",
     "vendorExcludedFiles": [
       ".env.example"
     ],
@@ -45,10 +46,10 @@
       "timeoutSeconds": 15,
       "sharedCoreRoot": "cloudfunctions/payment-core",
       "vendoredCoreRoot": "cloudfunctions/payment-api/vendor/payment-core",
-      "deploymentEnabled": false,
+      "deploymentEnabled": true,
       "clientInvocationAllowed": true,
       "runtimeSwitches": {
-        "orderCreationEnabled": false
+        "orderCreationEnabled": true
       },
       "httpRoute": {
         "declared": false,
@@ -73,15 +74,19 @@
       "timeoutSeconds": 15,
       "sharedCoreRoot": "cloudfunctions/payment-core",
       "vendoredCoreRoot": "cloudfunctions/payment-notify/vendor/payment-core",
-      "deploymentEnabled": false,
+      "deploymentEnabled": true,
       "clientInvocationAllowed": false,
       "runtimeSwitches": {
-        "callbackProcessingEnabled": false
+        "callbackProcessingEnabled": true
       },
       "httpRoute": {
         "declared": true,
-        "enabled": false,
-        "requiresExplicitProductionAuthorization": true
+        "enabled": true,
+        "requiresExplicitProductionAuthorization": true,
+        "path": "/payment/xingju/notify",
+        "enableAuth": false,
+        "qpsTotal": 100,
+        "qpsPerClient": 20
       },
       "timer": {
         "declared": false,
@@ -103,10 +108,10 @@
       "timeoutSeconds": 120,
       "sharedCoreRoot": "cloudfunctions/payment-core",
       "vendoredCoreRoot": "cloudfunctions/payment-reconcile/vendor/payment-core",
-      "deploymentEnabled": false,
+      "deploymentEnabled": true,
       "clientInvocationAllowed": false,
       "runtimeSwitches": {
-        "reconciliationEnabled": false
+        "reconciliationEnabled": true
       },
       "httpRoute": {
         "declared": false,
@@ -115,8 +120,10 @@
       },
       "timer": {
         "declared": true,
-        "enabled": false,
-        "requiresExplicitProductionAuthorization": true
+        "enabled": true,
+        "requiresExplicitProductionAuthorization": true,
+        "name": "payment-reconcile",
+        "cron": "0 */2 * * * * *"
       }
     }
   ]

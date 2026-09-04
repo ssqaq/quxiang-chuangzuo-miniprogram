@@ -145,3 +145,26 @@ button.button-hover {
   color: #1f6feb;
   font-size: 22rpx;
 }
+
+.visual-demo-control {
+  position: fixed;
+  right: 12px;
+  bottom: calc(12px + env(safe-area-inset-bottom));
+  z-index: 99;
+  display: flex;
+  height: 44px;
+  padding: 0 10px 0 12px;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #cfe0f7;
+  border-radius: 8px;
+  color: #35577f;
+  background: rgba(255, 255, 255, .96);
+  box-shadow: 0 6px 18px rgba(31, 49, 79, .12);
+  font-size: 11px;
+}
+
+.visual-demo-control switch {
+  transform: scale(.72);
+  transform-origin: center;
+}

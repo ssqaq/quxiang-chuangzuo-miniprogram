@@ -68,8 +68,10 @@ try {
   const written = budget.run({ projectRoot: tempRoot, maxBytes: expectedTotal, metric: "raw", json: reportPath });
   assert.strictEqual(written.jsonPath, reportPath);
   assert.deepStrictEqual(JSON.parse(fs.readFileSync(reportPath, "utf8")).totalBytes, expectedTotal);
-  const compressed = budget.run({ projectRoot: tempRoot, maxBytes: budget.DEFAULT_MAX_BYTES });
-  assert.strictEqual(compressed.metric, "compressed");
+  const defaultRaw = budget.run({ projectRoot: tempRoot, maxBytes: budget.DEFAULT_MAX_BYTES });
+  assert.strictEqual(defaultRaw.metric, "raw", "默认口径必须是微信开发者工具裸源码");
+  assert.strictEqual(defaultRaw.measuredBytes, defaultRaw.rawBytes);
+  const compressed = budget.run({ projectRoot: tempRoot, maxBytes: budget.DEFAULT_MAX_BYTES, metric: "compressed" });
   assert.ok(compressed.estimatedTransferBytes > 0);
   assert.strictEqual(compressed.measuredBytes, compressed.estimatedTransferBytes);
 

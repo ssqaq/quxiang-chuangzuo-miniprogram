@@ -6,6 +6,12 @@ const PAYMENT_FUNCTION_NAME = String(config.paymentCloudFunctionName || "payment
 const POINTS_FALLBACK_SOURCE = "points-api-fallback";
 const POINT_LEDGER_MAX_PAGE_SIZE = 50;
 const RECORD_FILTERS = Object.freeze(["all", "recharge", "spend", "reward", "refund"]);
+const RECORD_TYPE_GROUPS = Object.freeze({
+  recharge: Object.freeze(["recharge"]),
+  spend: Object.freeze(["spend"]),
+  reward: Object.freeze(["checkin", "daily-free", "promo-free"]),
+  refund: Object.freeze(["refund", "payment-reversal"])
+});
 
 function isAccountServiceNotDeployed(error) {
   return accountUi.accountErrorCode(error) === "ACCOUNT_SERVICE_NOT_DEPLOYED";
@@ -66,23 +72,31 @@ function pointLedgerRecords(result) {
     : [];
 }
 
-function matchesRecordFilter(item, filter) {
-  const value = String(filter || "").trim().toLowerCase();
-  const normalized = value || "all";
+function normalizeRecordFilter(filter) {
+  const normalized = String(
+    filter === undefined || filter === null ? "" : filter
+  ).trim().toLowerCase() || "all";
   if (!RECORD_FILTERS.includes(normalized)) {
     const error = new Error("记录筛选条件无效。");
     error.code = "PAYMENT_RECORD_FILTER_INVALID";
     throw error;
   }
+  return normalized;
+}
+
+function recordTypes(filter) {
+  const normalized = normalizeRecordFilter(filter);
+  return RECORD_TYPE_GROUPS[normalized]
+    ? RECORD_TYPE_GROUPS[normalized].slice()
+    : [];
+}
+
+function matchesRecordFilter(item, filter) {
+  const normalized = normalizeRecordFilter(filter);
+  const types = recordTypes(normalized);
   if (normalized === "all") return true;
   const type = String(item && (item.type || item.kind || item.category) || "").toLowerCase();
-  if (normalized === "recharge") return type === "recharge";
-  if (normalized === "spend") return type === "spend";
-  if (normalized === "refund") return type === "refund" || type === "payment-reversal";
-  if (normalized === "reward") {
-    return type === "checkin" || type === "daily-free" || type === "promo-free" || type === "refund";
-  }
-  return false;
+  return types.includes(type);
 }
 
 function fallbackUnavailableError(fallbackError) {
@@ -122,6 +136,7 @@ async function getPointsFallbackOverview() {
 }
 
 async function getPointsFallbackRecords(options = {}) {
+  const filter = normalizeRecordFilter(options.type);
   if (String(options.cursor || "")) {
     const error = new Error("积分记录暂不支持翻页，请稍后重试。");
     error.code = "ACCOUNT_RECORDS_PAGINATION_UNAVAILABLE";
@@ -130,8 +145,9 @@ async function getPointsFallbackRecords(options = {}) {
   }
   const result = await cloud.getPointLedger();
   const limit = Math.min(50, Math.max(1, Number(options.limit) || 20));
-  const records = pointLedgerRecords(result).filter((item) => (
-    matchesRecordFilter(item, options.type)
+  const rawRecords = pointLedgerRecords(result);
+  const records = rawRecords.filter((item) => (
+    matchesRecordFilter(item, filter)
   ));
   return {
     ok: true,
@@ -142,7 +158,7 @@ async function getPointsFallbackRecords(options = {}) {
     nextCursor: null,
     hasMore: false,
     source: POINTS_FALLBACK_SOURCE,
-    paginationLimited: records.length >= POINT_LEDGER_MAX_PAGE_SIZE
+    paginationLimited: rawRecords.length >= POINT_LEDGER_MAX_PAGE_SIZE
   };
 }
 
@@ -210,6 +226,8 @@ module.exports = {
     paymentError,
     isAccountServiceNotDeployed,
     normalizePointsAccount,
+    normalizeRecordFilter,
+    recordTypes,
     matchesRecordFilter,
     sanitizePointLedgerRecord,
     getPointsFallbackOverview,
@@ -242,16 +260,17 @@ module.exports = {
   },
 
   async getAccountRecords(options = {}) {
+    const filter = normalizeRecordFilter(options.type);
     try {
       return await invokePaymentApi("getRecords", {
         cursor: typeof options.cursor === "string" ? options.cursor : "",
         limit: Math.min(50, Math.max(1, Number(options.limit) || 20)),
-        type: String(options.type || "")
+        type: filter
       }, { retryLimit: 0 });
     } catch (error) {
       if (!isAccountServiceNotDeployed(error)) throw error;
       try {
-        return await getPointsFallbackRecords(options);
+        return await getPointsFallbackRecords(Object.assign({}, options, { type: filter }));
       } catch (fallbackError) {
         if (shouldPropagateFallbackError(fallbackError)) throw fallbackError;
         throw fallbackUnavailableError(fallbackError);

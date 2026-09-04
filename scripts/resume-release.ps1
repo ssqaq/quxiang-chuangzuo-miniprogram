@@ -702,6 +702,7 @@ try {
                 verifiedAt = [DateTimeOffset]::UtcNow.ToString("o")
                 status = "verified"
             }
+            $receipt = [pscustomobject]$receipt
             $context = Save-ResumeContext -Values @{ phase = "deployed"; cloudReceipt = $receipt; cloudDeployment = [ordered]@{ state = "verified"; idempotencyKey = $receipt.idempotencyKey; receipt = $receipt; updatedAt = [DateTimeOffset]::UtcNow.ToString("o") }; postMergeStatus = "running" }
             $phase = "deployed"
             $cloudReceiptValid = $true
@@ -850,6 +851,7 @@ try {
                 verifiedAt = [DateTimeOffset]::UtcNow.ToString("o")
                 status = "verified"
             }
+            $receipt = [pscustomobject]$receipt
             Assert-ResumeCloudReceipt -Receipt $receipt -Context $context | Out-Null
             $context = Save-ResumeContext -Values @{ phase = "deployed"; cloudReceipt = $receipt; cloudDeployment = [ordered]@{ state = "verified"; idempotencyKey = $receipt.idempotencyKey; receipt = $receipt; updatedAt = [DateTimeOffset]::UtcNow.ToString("o") } }
             $phase = "deployed"

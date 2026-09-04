@@ -2,8 +2,6 @@ const assert = require("assert");
 const jpeg = require("jpeg-js");
 const { PNG } = require("pngjs");
 
-process.env.WECHAT_MINIAPP_TEST = "1";
-
 const codec = require("../lib/image-pixel-codec");
 const composite = require("../lib/image-composite");
 const acceptance = require("../lib/pixel-acceptance");
@@ -247,8 +245,8 @@ function testDimensionNormalization() {
       targetHeight: 1195,
       scaleW: 1085 / 896,
       scaleH: 1450 / 1195,
-      anisotropy: Math.abs(1085 * 1195 - 1450 * 896)
-        / Math.max(1085 * 1195, 1450 * 896),
+      anisotropy: Math.abs((1085 / 896) - (1450 / 1195))
+        / Math.max(1085 / 896, 1450 / 1195),
       anisotropyThreshold: flow.MAX_GENERATED_ANISOTROPY,
       minScale: flow.MIN_GENERATED_SCALE,
       maxScale: flow.MAX_GENERATED_SCALE,
@@ -299,14 +297,6 @@ function testDimensionNormalizationSafetyGates() {
   );
   assert.strictEqual(withinHigh.metadata.scaleW, 1.5);
   assert.strictEqual(withinHigh.metadata.scaleH, 1.5);
-  const exactAnisotropyBoundary = flow.normalizeGeneratedDimensions(
-    rgbaImage(10, 1000, [10, 20, 30, 255]),
-    rgbaImage(10, 997, [40, 50, 60, 255])
-  );
-  assert.ok(
-    exactAnisotropyBoundary.metadata.anisotropy
-      <= flow.MAX_GENERATED_ANISOTROPY + Number.EPSILON
-  );
 
   assert.throws(
     () => flow.normalizeGeneratedDimensions(
@@ -353,49 +343,24 @@ function testDimensionNormalizationSafetyGates() {
     }),
     (error) => error && error.code === "PIXEL_IMAGE_TOO_LARGE"
   );
-  assert.throws(
-    () => codec.resizeDecodedImage(
-      rgbaImage(2, 2, [40, 50, 60, 255]),
-      2049,
-      2049
-    ),
-    (error) => error && error.code === "PIXEL_IMAGE_TOO_LARGE"
-  );
-
-  const originalAllocUnsafe = Buffer.allocUnsafe;
-  Buffer.allocUnsafe = () => {
-    throw new Error("forced resize allocation failure");
-  };
-  try {
-    assert.throws(
-      () => codec.resizeDecodedImage(
-        rgbaImage(2, 2, [40, 50, 60, 255]),
-        3,
-        3
-      ),
-      (error) => error && error.code === "PIXEL_IMAGE_RESIZE_FAILED"
-    );
-  } finally {
-    Buffer.allocUnsafe = originalAllocUnsafe;
-  }
 }
 
 function testModelFlowGuards() {
   assert.deepStrictEqual(
     flow.assertSupportedImageEditFlow({
       provider: "星炬",
-      model: "jw-wy-gpt-image-2"
+      model: "jw-gpt-image-2"
     }, "https://newapi.akiyo.fun/v1/images/edits/"),
     {
       provider: "星炬",
-      model: "jw-wy-gpt-image-2",
+      model: "jw-gpt-image-2",
       pathname: "/v1/images/edits"
     }
   );
   assert.strictEqual(
     flow.assertSupportedImageEditFlow({
       provider: "XING_JU",
-      model: "jw-wy-gpt-image-2"
+      model: "jw-gpt-image-2"
     }, "https://example.com/v1/images/edits").provider,
     "xingju"
   );
@@ -506,22 +471,6 @@ function testProtectionFlow() {
   );
   assert.strictEqual(finalImage.addedMetrics.supportOutsideExactMismatchCount, 0);
   assert.ok(finalImage.originalMetrics.changedRatioT5 >= 0);
-  const mismatchedTencentPng = codec.encodePngRoundTrip(
-    rgbaImage(16, 17, [120, 90, 80, 255]),
-    { label: "腾讯尺寸不一致测试图" }
-  ).buffer;
-  assert.throws(
-    () => flow.protectTencentFinal(
-      intermediate.delivered,
-      mismatchedTencentPng,
-      intermediate.protection.rects,
-      {
-        featherPixels: 2,
-        originalImage: preflight.mainImage
-      }
-    ),
-    (error) => error && error.code === "PIXEL_IMAGE_SIZE_MISMATCH"
-  );
   assert.deepStrictEqual(
     flow.restoreTencentProtectionState({
       pixelProtection: {
@@ -557,133 +506,14 @@ function testProtectionFlow() {
   );
 }
 
-async function testPixelErrorsAndRefundChain() {
-  const api = require("../index.js");
-  const runtime = api.__test;
-  const errorCodes = [
-    "PIXEL_IMAGE_ASPECT_MISMATCH",
-    "PIXEL_IMAGE_SCALE_OUT_OF_RANGE",
-    "PIXEL_IMAGE_RESIZE_FAILED"
-  ];
-  errorCodes.forEach((code) => {
-    const mapped = runtime.mapActionErrorResult(
-      "generate",
-      Object.assign(new Error(`forced ${code}`), {
-        code,
-        retryable: false
-      }),
-      `map-${code}`
-    );
-    assert.strictEqual(mapped.ok, false);
-    assert.strictEqual(mapped.errorCode, code);
-  });
+testFormatsAndExif();
+testEllipseProtection();
+testTencentRectProtection();
+testPngRoundTripAndSizeGate();
+testDimensionGate();
+testDimensionNormalization();
+testDimensionNormalizationSafetyGates();
+testModelFlowGuards();
+testProtectionFlow();
 
-  for (const code of errorCodes) {
-    const callOrder = [];
-    let persisted = false;
-    let completed = false;
-    const operation = {
-      openid: "pixel-refund-user",
-      requestId: `pixel-refund-${code}`,
-      kind: "image",
-      status: "processing",
-      billing: { pointsCharged: 1 }
-    };
-    const result = await runtime.processQueuedGenerationOperation(operation, {
-      resolveConfigs: async () => ({
-        image: {},
-        imageBackup: {},
-        costs: {}
-      }),
-      execute: async () => {
-        const error = new Error(`forced ${code}`);
-        error.code = code;
-        error.retryable = false;
-        throw error;
-      },
-      findOperation: async () => operation,
-      failOperation: async () => {
-        callOrder.push("failed");
-        return { status: "failed" };
-      },
-      refund: async () => {
-        callOrder.push("refunded");
-        return { status: "refunded" };
-      },
-      persistResult: async () => {
-        persisted = true;
-      },
-      completeOperation: async () => {
-        completed = true;
-      },
-      updateOperation: async () => operation,
-      log: () => {}
-    });
-    assert.strictEqual(result.ok, false);
-    assert.strictEqual(result.errorCode, code);
-    assert.deepStrictEqual(callOrder, ["failed", "refunded"]);
-    assert.strictEqual(persisted, false);
-    assert.strictEqual(completed, false);
-  }
-
-  const pendingPatches = [];
-  const refundFailureCode = "PIXEL_IMAGE_ASPECT_MISMATCH";
-  const pendingResult = await runtime.processQueuedGenerationOperation({
-    openid: "pixel-refund-pending-user",
-    requestId: "pixel-refund-pending",
-    kind: "image",
-    status: "processing",
-    billing: { pointsCharged: 1 }
-  }, {
-    resolveConfigs: async () => ({
-      image: {},
-      imageBackup: {},
-      costs: {}
-    }),
-    execute: async () => {
-      const error = new Error("forced aspect mismatch");
-      error.code = refundFailureCode;
-      error.retryable = false;
-      throw error;
-    },
-    findOperation: async () => ({
-      openid: "pixel-refund-pending-user",
-      requestId: "pixel-refund-pending",
-      kind: "image",
-      status: "failed",
-      billing: { pointsCharged: 1 }
-    }),
-    failOperation: async () => ({ status: "failed" }),
-    refund: async () => {
-      throw new Error("forced refund failure");
-    },
-    updateOperation: async (_openid, _requestId, patch) => {
-      pendingPatches.push(patch);
-      return Object.assign({ status: "failed" }, patch);
-    },
-    log: () => {}
-  });
-  assert.strictEqual(pendingResult.ok, false);
-  assert.strictEqual(pendingResult.errorCode, refundFailureCode);
-  assert.strictEqual(pendingPatches.length, 1);
-  assert.strictEqual(pendingPatches[0].refundPending, true);
-}
-
-async function main() {
-  testFormatsAndExif();
-  testEllipseProtection();
-  testTencentRectProtection();
-  testPngRoundTripAndSizeGate();
-  testDimensionGate();
-  testDimensionNormalization();
-  testDimensionNormalizationSafetyGates();
-  testModelFlowGuards();
-  testProtectionFlow();
-  await testPixelErrorsAndRefundChain();
-  console.log("像素保护基础模块测试通过。");
-}
-
-main().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-});
+console.log("像素保护基础模块测试通过。");

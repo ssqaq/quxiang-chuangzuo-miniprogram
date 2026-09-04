@@ -6,7 +6,8 @@ const regression = require("./admin-v2-pixel-regression");
 
 const ROOT = path.resolve(__dirname, "..");
 const DEFAULT_MAX_DIFF_RATIO = 0.5;
-const MANIFEST_PATH = path.join(ROOT, "visual-evidence", "admin-v2-pixel-manifest.json");
+const MANIFEST_PATH = path.join(ROOT, "visual-evidence", "admin-v2-pixel-manifest-current.json");
+const LEGACY_MANIFEST_PATH = path.join(ROOT, "visual-evidence", "admin-v2-pixel-manifest.json");
 const FALLBACK_BASELINES = [
   { name: "dashboard", actual: "visual-evidence/final-dashboard-v5-390x844.png", reference: "visual-evidence/pixel-baselines/dashboard-operations-reference-390x844.png" },
   { name: "operations", actual: "visual-evidence/final-operations-v5-390x844.png", reference: "visual-evidence/pixel-baselines/operations-usage-reference-390x844.png" },
@@ -14,11 +15,17 @@ const FALLBACK_BASELINES = [
   { name: "provider", actual: "visual-evidence/final-provider-v6-390x844.png", reference: "visual-evidence/pixel-baselines/provider-reference.png" }
 ];
 
-function readBaselines() {
-  if (!fs.existsSync(MANIFEST_PATH)) return FALLBACK_BASELINES;
-  const manifest = JSON.parse(fs.readFileSync(MANIFEST_PATH, "utf8"));
+function readBaselines(manifestPath = MANIFEST_PATH) {
+  const resolvedManifestPath = path.resolve(manifestPath);
+  if (!fs.existsSync(resolvedManifestPath)) {
+    if (resolvedManifestPath === MANIFEST_PATH && fs.existsSync(LEGACY_MANIFEST_PATH)) {
+      return readBaselines(LEGACY_MANIFEST_PATH);
+    }
+    return FALLBACK_BASELINES;
+  }
+  const manifest = JSON.parse(fs.readFileSync(resolvedManifestPath, "utf8"));
   if (!manifest || manifest.schemaVersion !== 1 || !Array.isArray(manifest.pages)) {
-    throw new Error(`像素基线 manifest 无效：${MANIFEST_PATH}`);
+    throw new Error(`像素基线 manifest 无效：${resolvedManifestPath}`);
   }
   return manifest.pages.map(item => ({ name: item.name, actual: item.actual, reference: item.reference }));
 }
@@ -42,8 +49,9 @@ function run(options = {}) {
   const maxDiffRatio = options.maxDiffRatio === undefined ? DEFAULT_MAX_DIFF_RATIO : Number(options.maxDiffRatio);
   const threshold = options.threshold === undefined ? 32 : Number(options.threshold);
   const outputRoot = path.resolve(ROOT, options.outputRoot || "visual-evidence/pixel-diffs");
+  const baselines = readBaselines(options.manifest || MANIFEST_PATH);
   fs.mkdirSync(outputRoot, { recursive: true });
-  const results = BASELINES.map(item => {
+  const results = baselines.map(item => {
     const summary = regression.runRegression({
       actualPath: path.resolve(ROOT, item.actual),
       referencePath: path.resolve(ROOT, item.reference),
@@ -53,13 +61,13 @@ function run(options = {}) {
     });
     return Object.assign({ name: item.name }, summary, { heatmap: summary.heatmapPath });
   });
-  return { pass: results.every(item => item.pass), threshold, maxDiffRatio, results };
+  return { pass: results.every(item => item.pass), threshold, maxDiffRatio, manifest: path.resolve(options.manifest || MANIFEST_PATH), results };
 }
 
 function main(argv = process.argv.slice(2)) {
   const options = parseArgs(argv);
   if (options.help) {
-    console.log("用法：node scripts/admin-v2-pixel-baseline.js [--threshold 32] [--max-diff-ratio 0.5] [--output-root visual-evidence/pixel-diffs]");
+    console.log("用法：node scripts/admin-v2-pixel-baseline.js [--manifest visual-evidence/admin-v2-pixel-manifest-current.json] [--threshold 32] [--max-diff-ratio 0.5] [--output-root visual-evidence/pixel-diffs]");
     return 0;
   }
   try {
@@ -77,6 +85,6 @@ function main(argv = process.argv.slice(2)) {
   }
 }
 
-module.exports = { BASELINES, parseArgs, run, main };
+module.exports = { MANIFEST_PATH, LEGACY_MANIFEST_PATH, FALLBACK_BASELINES, BASELINES, readBaselines, parseArgs, run, main };
 
 if (require.main === module) process.exitCode = main();

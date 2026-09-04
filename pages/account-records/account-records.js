@@ -1,10 +1,30 @@
 const accountService = require("../../services/account");
 const accountUi = require("../../utils/account-ui");
+const accountDemo = require("../../utils/account-demo");
 
 const PAGE_SIZE = 20;
 
+function requestOptions(options, defaultReset = true) {
+  if (typeof options === "boolean") {
+    return { reset: options, preserveExisting: false };
+  }
+  const source = options && typeof options === "object" ? options : {};
+  return {
+    reset: source.reset === undefined ? defaultReset : source.reset !== false,
+    preserveExisting: source.preserveExisting === true
+  };
+}
+
 Page({
   data: {
+    summary: {
+      pointsBalanceText: "--",
+      totalPurchasedPointsText: "--"
+    },
+    summaryLoading: true,
+    summaryRefreshing: false,
+    summaryHasData: false,
+    summaryError: "",
     filters: [
       { id: "all", label: "全部" },
       { id: "recharge", label: "充值" },
@@ -19,47 +39,109 @@ Page({
     errorMessage: "",
     nextCursor: null,
     hasMore: false,
-    paginationLimited: false
+    paginationLimited: false,
+    visualDemoAvailable: false,
+    visualDemoEnabled: false,
+    visualDemoControlVisible: false
   },
 
-  onLoad() {
-    this.loadRecords(true);
+  onLoad(options = {}) {
+    const mode = accountDemo.resolve(options);
+    this._demoMode = mode;
+    this._demoEnabled = mode.enabled;
+    this._accountClient = mode.enabled ? accountDemo.createAdapter() : accountService;
+    this.setData({
+      visualDemoAvailable: mode.available,
+      visualDemoEnabled: mode.enabled,
+      visualDemoControlVisible: mode.showControl
+    });
+    this._pageVisible = true;
+    this.loadSummary({ reset: true });
+    this.loadRecords({ reset: true });
   },
 
   onUnload() {
-    this._loadToken = (this._loadToken || 0) + 1;
+    this._pageVisible = false;
+    this._summaryToken = (this._summaryToken || 0) + 1;
+    this._recordsToken = (this._recordsToken || 0) + 1;
   },
 
   onPullDownRefresh() {
-    this.loadRecords(true).finally(() => {
+    Promise.all([
+      this.loadSummary({ refresh: true, preserveExisting: true }),
+      this.loadRecords({ reset: true, preserveExisting: true })
+    ]).finally(() => {
       if (typeof wx.stopPullDownRefresh === "function") wx.stopPullDownRefresh();
     });
   },
 
   chooseFilter(event) {
-    const filter = String(event.currentTarget.dataset.filter || "all");
-    if (!this.data.filters.some((item) => item.id === filter)) return;
-    if (filter === this.data.activeFilter || this.data.loading || this.data.loadingMore) return;
+    const filter = String(event && event.currentTarget && event.currentTarget.dataset
+      && event.currentTarget.dataset.filter || "all");
+    if (!this.data.filters.some((item) => item.id === filter)) return Promise.resolve();
+    if (filter === this.data.activeFilter || this.data.loading || this.data.loadingMore) {
+      return Promise.resolve();
+    }
     this.setData({ activeFilter: filter });
-    this.loadRecords(true);
+    return this.loadRecords({ reset: true });
   },
 
   retryLoad() {
-    this.loadRecords(!this.data.records.length);
+    return this.loadRecords({
+      reset: true,
+      preserveExisting: Boolean(this.data.records && this.data.records.length)
+    });
   },
 
   loadMore() {
-    if (this.data.loading || this.data.loadingMore || !this.data.hasMore) return;
-    this.loadRecords(false);
+    if (this.data.loading || this.data.loadingMore || !this.data.hasMore) {
+      return Promise.resolve();
+    }
+    return this.loadRecords({ reset: false });
   },
 
-  async loadRecords(reset) {
-    const loadToken = (this._loadToken || 0) + 1;
-    this._loadToken = loadToken;
-    const cursor = reset ? "" : String(this.data.nextCursor || "");
-    if (reset) {
+  async loadSummary(options = {}) {
+    const service = this._accountClient || accountService;
+    const hasData = Boolean(this.data.summaryHasData);
+    const summaryToken = (this._summaryToken || 0) + 1;
+    this._summaryToken = summaryToken;
+    this.setData({
+      summaryLoading: !hasData,
+      summaryRefreshing: hasData,
+      summaryError: ""
+    });
+
+    try {
+      const result = await service.getAccountOverview();
+      if (summaryToken !== this._summaryToken) return;
       this.setData({
-        records: [],
+        summary: accountUi.normalizeAccount(result || {}),
+        summaryLoading: false,
+        summaryRefreshing: false,
+        summaryHasData: true,
+        summaryError: ""
+      });
+    } catch (error) {
+      if (summaryToken !== this._summaryToken) return;
+      this.setData({
+        summaryLoading: false,
+        summaryRefreshing: false,
+        summaryError: accountUi.userErrorMessage(error, "余额读取失败，请稍后重试。")
+      });
+    }
+  },
+
+  async loadRecords(options = true) {
+    const service = this._accountClient || accountService;
+    const request = requestOptions(options);
+    const recordsToken = (this._recordsToken || 0) + 1;
+    this._recordsToken = recordsToken;
+    const filter = String(this.data.activeFilter || "all");
+    const cursor = request.reset ? "" : String(this.data.nextCursor || "");
+    const existingRecords = Array.isArray(this.data.records) ? this.data.records : [];
+    if (request.reset) {
+      this.setData({
+        records: request.preserveExisting ? existingRecords : [],
         loading: true,
         loadingMore: false,
         errorMessage: "",
@@ -72,15 +154,16 @@ Page({
     }
 
     try {
-      const result = await accountService.getAccountRecords({
+      const result = await service.getAccountRecords({
         cursor,
         limit: PAGE_SIZE,
-        type: this.data.activeFilter === "all" ? "" : this.data.activeFilter
+        type: filter === "all" ? "" : filter
       });
-      if (loadToken !== this._loadToken) return;
-      const items = accountUi.normalizeRecords(result.items || result.records || []);
-      const hasMore = Boolean(result.hasMore);
-      const nextCursor = typeof result.nextCursor === "string" && result.nextCursor
+      if (recordsToken !== this._recordsToken) return;
+      const sourceItems = result && (result.items || result.records);
+      const items = accountUi.normalizeRecords(sourceItems || []);
+      const hasMore = Boolean(result && result.hasMore);
+      const nextCursor = result && typeof result.nextCursor === "string" && result.nextCursor
         ? result.nextCursor
         : null;
       if (hasMore && !nextCursor) {
@@ -89,7 +172,7 @@ Page({
         throw error;
       }
       this.setData({
-        records: reset ? items : this.data.records.concat(items),
+        records: request.reset ? items : this.data.records.concat(items),
         loading: false,
         loadingMore: false,
         errorMessage: "",
@@ -98,12 +181,21 @@ Page({
         paginationLimited: Boolean(result.paginationLimited)
       });
     } catch (error) {
-      if (loadToken !== this._loadToken) return;
+      if (recordsToken !== this._recordsToken) return;
       this.setData({
         loading: false,
         loadingMore: false,
         errorMessage: accountUi.userErrorMessage(error, "收支记录读取失败，请重试。")
       });
     }
+  },
+
+  toggleVisualDemo(event) {
+    if (!this._demoMode || !this._demoMode.available) return;
+    const enabled = Boolean(event && event.detail && event.detail.value);
+    wx.redirectTo({
+      url: accountDemo.pageUrl("/pages/account-records/account-records", enabled),
+      fail: () => wx.showToast({ title: "演示模式切换失败", icon: "none" })
+    });
   }
 });

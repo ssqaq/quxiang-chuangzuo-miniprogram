@@ -73,7 +73,7 @@
     <view class="streak-head">
       <view class="streak-heading">
         <view class="section-title">{{pointsCopy.pointsSectionTitle}}</view>
-        <view class="section-subtitle">{{pointsCopy.streakRewardPrefix}} {{points.streakDays}} {{pointsCopy.streakRewardMiddle}} {{points.streakBonus}} {{pointsCopy.pointsUnit}}</view>
+        <view class="section-subtitle">{{pointsCopy.streakRewardPrefix}} {{points.streakDays}} {{pointsCopy.streakRewardMiddle}} {{points.streakBonusText}} {{pointsCopy.pointsUnit}}</view>
       </view>
       <view class="streak-count">
         <text>{{points.currentStreak}}</text>
@@ -96,10 +96,10 @@
       loading="{{checkingIn}}"
       disabled="{{checkingIn || points.checkedInToday}}"
     >
-      {{points.checkedInToday ? pointsCopy.checkedIn : (points.accountBound ? pointsCopy.checkInWithRewardPrefix + points.nextCheckinReward + pointsCopy.checkInWithRewardSuffix : pointsCopy.bindAndCheckIn)}}
+      {{points.checkedInToday ? pointsCopy.checkedIn : (points.accountBound ? pointsCopy.checkInWithRewardPrefix + points.nextCheckinRewardText + pointsCopy.checkInWithRewardSuffix : pointsCopy.bindAndCheckIn)}}
     </button>
     <view class="checkin-hint">
-      {{pointsCopy.checkInHintPrefix}} {{points.checkinPoints}} {{pointsCopy.checkInHintSuffix}}
+      {{pointsCopy.checkInHintPrefix}} {{points.checkinPointsText}} {{pointsCopy.checkInHintSuffix}}
     </view>
     <view wx:if="{{checkinCelebrationVisible}}" class="checkin-celebration">
       <view class="checkin-celebration-icon">✓</view>
@@ -122,11 +122,11 @@
       </view>
       <view class="usage-item">
         <text class="usage-label">{{pointsCopy.imageCostLabel}}</text>
-        <text class="usage-value">{{points.imageCost}} {{pointsCopy.pointsUnit}}</text>
+        <text class="usage-value">{{points.imageCostText}} {{pointsCopy.pointsUnit}}</text>
       </view>
       <view class="usage-item">
         <text class="usage-label">{{pointsCopy.videoCostLabel}}</text>
-        <text class="usage-value">{{points.videoCost}} {{pointsCopy.pointsUnit}}</text>
+        <text class="usage-value">{{points.videoCostText}} {{pointsCopy.pointsUnit}}</text>
       </view>
     </view>
     <view class="free-usage-progress">
@@ -151,11 +151,11 @@
       <view class="ledger-summary">
         <view class="ledger-summary-item">
           <text>累计获得</text>
-          <text class="ledger-summary-value ledger-summary-income">{{points.totalEarned}}</text>
+          <text class="ledger-summary-value ledger-summary-income">{{points.totalEarnedText}}</text>
         </view>
         <view class="ledger-summary-item">
           <text>累计使用</text>
-          <text class="ledger-summary-value ledger-summary-expense">{{points.totalSpent}}</text>
+          <text class="ledger-summary-value ledger-summary-expense">{{points.totalSpentText}}</text>
         </view>
       </view>
     </view>

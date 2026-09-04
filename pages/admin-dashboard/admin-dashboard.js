@@ -250,6 +250,19 @@ Page({
     wx.navigateTo({ url: `/pages/admin-provider/admin-provider${this.previewQuery()}` });
   },
 
+  backToMain() {
+    const url = "/pages/workbench/workbench";
+    if (wx.reLaunch) {
+      wx.reLaunch({ url });
+      return;
+    }
+    if (wx.switchTab) {
+      wx.switchTab({ url });
+      return;
+    }
+    if (wx.navigateTo) wx.navigateTo({ url });
+  },
+
   openConfig(event) {
     const slot = event.currentTarget.dataset.slot || "standard.face";
     const parts = String(slot).split(".");

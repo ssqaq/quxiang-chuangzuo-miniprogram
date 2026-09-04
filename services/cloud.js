@@ -726,6 +726,9 @@ module.exports = {
       silent: true
     });
   },
+  getPaymentMonitor() {
+    return this.getAdminPaymentMonitor();
+  },
   reportDiagnosticLogs(payload) {
     return callApi({
       action: "reportDiagnosticLogs",
@@ -831,14 +834,11 @@ module.exports = {
       expectedVersion: source.expectedVersion,
       providerKey: source.providerKey,
       provider: source.provider,
-      activeProviders: source.activeProviders,
-      activeSlot: source.activeSlot,
-      setActive: source.setActive,
       retryLimit: 0
     });
   },
   // V2 管理接口：供应商基础档案、模型确认和功能绑定分开写入。
-  // 公开目录不携带密钥；明文只通过管理员专用的单供应商接口读取。
+  // 这些方法不携带任何默认密钥，服务端只在专用凭证接口中处理密钥。
   getAdminConfigV2(options = {}) {
     return callApi({
       action: "getAdminConfigV2",
@@ -919,10 +919,6 @@ module.exports = {
       action: "listAdminProviderModelsV2",
       providerKey: String(source.providerKey || "").trim(),
       provider: source.provider,
-      slot: source.slot,
-      modelType: source.modelType,
-      cachedOnly: source.cachedOnly,
-      readOnly: source.readOnly,
       retryLimit: source.retryLimit === undefined ? 0 : source.retryLimit,
       silent: source.silent === undefined ? true : Boolean(source.silent)
     });
@@ -933,9 +929,6 @@ module.exports = {
       action: "probeAdminProviderV2",
       providerKey: source.providerKey,
       provider: source.provider,
-      slot: source.slot,
-      modelType: source.modelType,
-      modelId: source.modelId,
       retryLimit: 0
     });
   },

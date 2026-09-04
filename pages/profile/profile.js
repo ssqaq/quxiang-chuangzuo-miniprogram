@@ -1,5 +1,6 @@
 const cloud = require("../../services/cloud");
 const diagnosticLog = require("../../utils/diagnostic-log");
+const accountUi = require("../../utils/account-ui");
 
 const WORKBENCH_URL = "/pages/workbench/workbench";
 const USER_CENTER_URL = "/pages/user-center/user-center";
@@ -135,11 +136,11 @@ Page({
       if (this.data.fromCheckIn) {
         try {
           const checkInResult = await cloud.checkIn();
-          const earned = Number(checkInResult && checkInResult.earnedToday) || 0;
+          const earned = accountUi.safeNumber(checkInResult && checkInResult.earnedToday, 0);
           wx.showToast({
             title: checkInResult && checkInResult.duplicate
               ? "今天已经签过了"
-              : `签到成功，获得${earned}积分`,
+              : `签到成功，获得${accountUi.formatPoints(earned, { fallback: "0" })}积分`,
             icon: checkInResult && checkInResult.duplicate ? "none" : "success"
           });
         } catch (checkInError) {

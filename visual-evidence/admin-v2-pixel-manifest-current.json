@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "viewport": { "width": 390, "height": 844, "device": "iPhone 12/13 (Pro)" },
+  "mode": "demo=1",
+  "fixtureId": "admin-v2-reference-20260901-v1",
+  "fontProfile": "admin-reference-font-v1",
+  "stateId": "collapsed-default-v1",
+  "threshold": 32,
+  "maxDiffRatio": 0.08,
+  "baselineVersion": "0.57.133",
+  "baselineStatus": "accepted",
+  "capture": {
+    "tool": "wechat-devtools-skill-cli",
+    "source": "visual-evidence/captured-v0.57.133-390/capture-manifest.json",
+    "generatedAt": "2026-09-03"
+  },
+  "pages": [
+    {
+      "name": "dashboard",
+      "route": "/pages/admin-dashboard/admin-dashboard?demo=1&fixture=admin-v2-reference-20260901-v1",
+      "actual": "visual-evidence/captured-v0.57.133-390/dashboard-390x844.png",
+      "reference": "visual-evidence/browser-reference-v5/dashboard-browser-390x844.png"
+    },
+    {
+      "name": "operations",
+      "route": "/pages/admin-operations/admin-operations?view=usage&demo=1&fixture=admin-v2-reference-20260901-v1",
+      "actual": "visual-evidence/captured-v0.57.133-390/operations-390x844.png",
+      "reference": "visual-evidence/browser-reference-v5/operations-browser-390x844.png"
+    },
+    {
+      "name": "config",
+      "route": "/pages/admin-config/admin-config?demo=1&fixture=admin-v2-reference-20260901-v1",
+      "actual": "visual-evidence/captured-v0.57.133-390/config-390x844.png",
+      "reference": "visual-evidence/browser-reference-v5/config-browser-390x844.png"
+    },
+    {
+      "name": "provider",
+      "route": "/pages/admin-provider/admin-provider?demo=1&fixture=admin-v2-reference-20260901-v1",
+      "actual": "visual-evidence/captured-v0.57.133-390/provider-390x844.png",
+      "reference": "visual-evidence/browser-reference-v5/provider-browser-390x844.png"
+    }
+  ]
+}

@@ -11,11 +11,12 @@ page { background:#f4f8fe; color:#10294b; font-family:"Microsoft YaHei","PingFan
 .appbar-title { flex:1; min-width:0; color:#10294b; font-size:42rpx; line-height:38rpx; font-weight:900; }
 .appbar-link { color:#2f73ee; font-size:23rpx; line-height:1; font-weight:900; }
 .appbar-link text { font-size:30rpx; }
-.provider-scroll { width:100%; height:calc(100vh - 104rpx - env(safe-area-inset-top)); padding:24rpx 24rpx calc(24rpx + env(safe-area-inset-bottom)); box-sizing:border-box; overflow-x:hidden; }
-.provider-card { width:100%; min-width:0; min-height:0; padding:20rpx; display:flex; flex-direction:column; box-sizing:border-box; border:2rpx solid #b9d4f5; border-radius:28rpx; background:#fff; }
+.provider-scroll { width:100%; height:calc(100vh - 104rpx - env(safe-area-inset-top)); padding:24rpx 24rpx calc(24rpx + env(safe-area-inset-bottom)); box-sizing:border-box; overflow-x:hidden; scrollbar-width:none; }
+.provider-scroll::-webkit-scrollbar { display:none; width:0; height:0; }
+.provider-card { width:100%; height:100%; min-width:0; min-height:0; padding:20rpx; display:flex; flex-direction:column; box-sizing:border-box; overflow:hidden; border:2rpx solid #b9d4f5; border-radius:28rpx; background:#fff; }
 .notice { padding:18rpx 20rpx; border-radius:20rpx; background:#edf5ff; color:#61799a; font-size:21rpx; font-weight:400; line-height:1.5; }
-.provider-layout { width:100%; min-width:0; min-height:0; flex:1; margin-top:18rpx; display:grid; grid-template-columns:252rpx minmax(0,1fr); gap:16rpx; align-items:stretch; }
-.directory-panel { min-width:0; min-height:1208rpx; padding:14rpx; display:flex; flex-direction:column; border:2rpx solid #c8dbf3; border-radius:22rpx; background:#f9fbff; }
+.provider-layout { position:relative; width:100%; min-width:0; min-height:0; flex:1 1 auto; margin-top:18rpx; display:grid; grid-template-columns:242rpx minmax(0,1fr); gap:16rpx; align-items:stretch; }
+.directory-panel { position:absolute; top:0; bottom:0; left:0; width:242rpx; min-width:0; min-height:0; padding:14rpx; overflow:hidden; display:flex; flex-direction:column; box-sizing:border-box; border:2rpx solid #c8dbf3; border-radius:22rpx; background:#f9fbff; }
 .directory-title { display:flex; align-items:center; justify-content:space-between; gap:8rpx; white-space:nowrap; }
 .directory-title text:first-child { color:#10294b; font-size:23rpx; font-weight:900; }
 .directory-count { color:#61799a; font-size:18rpx; }
@@ -26,12 +27,12 @@ button { margin:0; box-sizing:border-box; }
 .danger-btn { border:2rpx solid #f2b7b7; background:#fff1f1; color:#e85a5a; }
 .small-btn { min-height:58rpx; padding:0 8rpx; border:2rpx solid #9dc3f6; background:#fff; color:#2f73ee; }
 .small-btn[disabled] { opacity:.42; }
-.add-btn { width:100%; height:68rpx; min-height:68rpx; margin-top:12rpx; padding:0 3rpx; }
+.add-btn { width:100%; height:56rpx; min-height:56rpx; margin-top:10rpx; padding:0 3rpx; display:flex; align-items:center; justify-content:center; line-height:1; }
 .order-row { display:grid; grid-template-columns:1fr 1fr; gap:10rpx; margin-top:12rpx; }
 .order-row .small-btn { min-height:58rpx; font-size:19rpx; }
-.provider-list { flex:0 0 992rpx; min-width:0; max-width:100%; min-height:0; height:992rpx; max-height:992rpx; margin-top:12rpx; overflow-x:hidden; overflow-y:scroll; scrollbar-width:none; }
+.provider-list { flex:1 1 auto; width:100%; min-width:0; max-width:100%; min-height:0; height:auto; max-height:none; margin-top:12rpx; overflow-x:hidden; overflow-y:scroll; scrollbar-width:none; }
 .provider-list::-webkit-scrollbar,.model-options::-webkit-scrollbar { display:none; width:0; height:0; }
-.provider-row { height:113.5rpx; min-height:0; margin:0; padding:8rpx 9rpx; overflow:hidden; display:flex; flex-direction:column; justify-content:center; box-sizing:border-box; border:2rpx solid #d5e3f4; border-radius:18rpx; background:#fff; }
+.provider-row { height:110rpx !important; min-height:110rpx !important; max-height:110rpx !important; flex:0 0 110rpx; margin:0; padding:8rpx 9rpx; overflow:hidden; display:flex; flex-direction:column; justify-content:center; box-sizing:border-box !important; border:2rpx solid #d5e3f4; border-radius:18rpx; background:#fff; }
 .provider-row.spaced { margin-top:12rpx; }
 .provider-row.active { border:4rpx solid #2f73ee; padding:6rpx 7rpx; background:#f8fbff; }
 .provider-name { display:flex; align-items:center; min-width:0; gap:8rpx; }
@@ -42,21 +43,43 @@ button { margin:0; box-sizing:border-box; }
 .provider-ability text { display:block; min-width:0; overflow:hidden; font-size:16rpx; text-overflow:ellipsis; white-space:nowrap; }
 .status-tag { align-self:flex-start; margin-left:19rpx; padding:3rpx 9rpx; border-radius:999rpx; background:#e5f8f1; color:#07875c; font-size:15rpx; font-weight:900; line-height:1.2; }
 .status-tag.off { background:#fff2db; color:#aa6300; }
-.editor-panel { min-width:0; min-height:1208rpx; overflow:visible; display:flex; flex-direction:column; }
+.editor-panel { min-width:0; min-height:0; overflow:hidden; display:flex; flex-direction:column; grid-column:2; }
+.editor-scroll { width:100%; min-width:0; min-height:0; height:0; flex:1 1 auto; overflow-x:hidden; overflow-y:scroll; scrollbar-width:none; }
+.editor-scroll::-webkit-scrollbar { display:none; width:0; height:0; }
 .editor-title { min-width:0; overflow:hidden; color:#10294b; font-size:30rpx; font-weight:900; text-overflow:ellipsis; white-space:nowrap; }
 .editor-copy { max-width:100%; margin:5rpx 0 14rpx; overflow-wrap:anywhere; color:#61799a; font-size:18rpx; line-height:1.45; }
-.field { min-width:0; margin-bottom:10rpx; padding:14rpx 16rpx; border:2rpx solid #c8dbf3; border-radius:18rpx; background:#fff; }
-.field-label { display:block; margin:0 0 5rpx; color:#61799a; font-size:19rpx; line-height:1.1; }
-.field-heading { min-width:0; margin-bottom:5rpx; display:flex; align-items:center; justify-content:space-between; gap:8rpx; }
+.field { min-width:0; margin-bottom:8rpx; padding:12rpx 14rpx; border:2rpx solid #c8dbf3; border-radius:18rpx; background:#fff; }
+.field-label { display:block; margin:0 0 4rpx; color:#61799a; font-size:19rpx; line-height:1.1; }
+.field-heading { min-width:0; margin-bottom:4rpx; display:flex; align-items:center; justify-content:space-between; gap:8rpx; }
 .field-heading .field-label { min-width:0; margin:0; }
 .secret-state { flex:0 0 auto; color:#61799a; font-size:15rpx; font-weight:700; white-space:nowrap; }
 .secret-state.ready { color:#07875c; }
 .secret-state.dirty { color:#2f73ee; }
 .secret-state.failure { color:#b05f00; }
 .secret-state.loading { color:#61799a; }
-.field input { width:100%; height:54rpx; min-height:54rpx; padding:0 6rpx; overflow:hidden; border:2rpx solid #c9dcf3; border-radius:14rpx; background:#fbfdff; color:#10294b; font-size:22rpx; font-weight:900; line-height:54rpx; }
+.field input { width:100%; height:50rpx; min-height:50rpx; padding:0 6rpx; overflow:hidden; border:2rpx solid #c9dcf3; border-radius:14rpx; background:#fbfdff; color:#10294b; font-size:22rpx; font-weight:900; line-height:50rpx; white-space:nowrap; text-overflow:ellipsis; }
+.secret-placeholder { overflow:hidden; color:#61799a; white-space:nowrap; text-overflow:ellipsis; }
 .field input[disabled] { background:#f2f5f9; color:#61799a; }
+.provider-page .endpoint-field input,
+.provider-page .key-field input,
+.provider-page .key-field input[disabled] { background:#fbfdff; color:#10294b; opacity:1; text-align:left; }
 .key-field { border-color:#89ddb9; background:#f0fbf7; }
+/* API Key 输入层：不允许控件按内容撑高或换行。 */
+.provider-page .secret-input,
+.provider-page .key-field .secret-input {
+  display:block;
+  width:100%;
+  height:50rpx;
+  min-height:50rpx;
+  min-width:0;
+  max-width:100%;
+  box-sizing:border-box;
+  overflow:hidden;
+  line-height:50rpx;
+  text-align:left;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
 .auth-switch { width:100%; margin:2rpx 0 10rpx; padding:8rpx; display:grid; grid-template-columns:1fr 1fr; gap:8rpx; border-radius:18rpx; background:#e8f2ff; }
 .auth-tab { min-width:0; height:60rpx; min-height:60rpx; display:flex; align-items:center; justify-content:center; border-radius:14rpx; color:#426182; font-size:20rpx; font-weight:900; }
 .auth-tab.active { background:#fff; color:#2f73ee; box-shadow:0 4rpx 12rpx rgba(47,115,238,.16); }
@@ -84,16 +107,18 @@ button { margin:0; box-sizing:border-box; }
 .capability-title { margin-bottom:10rpx; color:#10294b; font-size:22rpx; font-weight:900; }
 .capability-grid { display:grid; grid-template-columns:1fr 1fr; gap:12rpx; }
 .capability { min-height:70rpx; padding:5rpx; display:flex; align-items:center; gap:4rpx; border:2rpx solid #c7dcf5; border-radius:16rpx; background:#fff; color:#10294b; font-size:18rpx; font-weight:900; }
-.capability switch { margin:-8rpx -13rpx; transform:scale(.58); transform-origin:center; }
+.capability-check { width:28rpx; height:28rpx; flex:0 0 28rpx; display:flex; align-items:center; justify-content:center; box-sizing:border-box; border:2rpx solid #c7dcf5; border-radius:4rpx; background:#fff; color:#fff; }
+.capability-check.checked { border-color:#2f73ee; background:#2f73ee; }
+.capability-check text { font-size:20rpx; line-height:1; font-weight:900; }
 .editor-note { margin-top:12rpx; padding:16rpx 18rpx; border-radius:16rpx; background:#edf5ff; color:#61799a; font-size:21rpx; font-weight:400; line-height:1.45; }
 .message { margin-top:10rpx; padding:10rpx 12rpx; border-radius:10rpx; background:#e5f8f1; color:#07875c; font-size:17rpx; line-height:1.4; }
-.editor-actions { min-width:0; margin-top:auto; padding-top:16rpx; display:grid; grid-template-columns:1fr 1.35fr; gap:14rpx; }
+.editor-actions { width:100%; min-width:0; flex:0 0 auto; position:relative; z-index:4; margin-top:16rpx; padding:16rpx 6rpx 0; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12rpx; box-sizing:border-box; background:#fff; border-top:2rpx solid #dbe7f5; box-shadow:0 -4rpx 12rpx rgba(16,41,75,.08); }
 .editor-actions.single { grid-template-columns:1fr; }
 .editor-actions button { width:100%; height:84rpx; min-height:84rpx; padding:0 4rpx; display:flex; align-items:center; justify-content:center; }
 .bottom-space { height:0; }
 .tap { opacity:.78; }
 @media (max-width:700rpx) {
-  .provider-layout { grid-template-columns:252rpx minmax(0,1fr); gap:16rpx; }
+  .provider-layout { grid-template-columns:242rpx minmax(0,1fr); gap:16rpx; }
 }
 
 .provider-page,
@@ -102,6 +127,7 @@ button { margin:0; box-sizing:border-box; }
 .provider-page .provider-layout,
 .provider-page .directory-panel,
 .provider-page .editor-panel,
+.provider-page .editor-scroll,
 .provider-page .order-row,
 .provider-page .tools-actions,
 .provider-page .picker-actions,
@@ -195,6 +221,18 @@ button { margin:0; box-sizing:border-box; }
   white-space:nowrap;
 }
 
+/* 端点和 API Key 必须从同一左边距起排，长值只在一行内省略。 */
+.provider-page .endpoint-field input,
+.provider-page .key-field input,
+.provider-page .key-field input[disabled] {
+  padding-left:12rpx;
+  padding-right:12rpx;
+  overflow:hidden;
+  text-align:left;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+
 .provider-page .capability {
   min-width:0;
   min-height:64rpx;
@@ -203,6 +241,7 @@ button { margin:0; box-sizing:border-box; }
   font-size:18rpx;
 }
 
+/* 兼容旧版样式契约；当前实际控件使用 capability-check。 */
 .provider-page .capability switch {
   flex:0 0 auto;
   margin:-8rpx -13rpx;
@@ -215,4 +254,142 @@ button { margin:0; box-sizing:border-box; }
   overflow:hidden;
   text-overflow:ellipsis;
   white-space:nowrap;
+}
+
+/* Credential key final invariant: keep this block last so every auth branch stays identical. */
+.provider-page .credential-key-field {
+  min-width:0;
+  height:124rpx !important;
+  min-height:124rpx !important;
+  max-height:124rpx !important;
+  padding:12rpx 14rpx !important;
+  display:flex !important;
+  flex-direction:column !important;
+  flex-wrap:nowrap !important;
+  box-sizing:border-box;
+  overflow:hidden !important;
+  border:2rpx solid #89ddb9 !important;
+  background:#f0fbf7 !important;
+}
+
+.provider-page .credential-key-field > .field-heading {
+  min-width:0;
+  flex:0 0 22rpx !important;
+  height:22rpx !important;
+  min-height:22rpx !important;
+  max-height:22rpx !important;
+  display:flex !important;
+  flex-direction:row !important;
+  flex-wrap:nowrap !important;
+  align-items:center !important;
+  justify-content:space-between !important;
+  gap:8rpx;
+}
+
+.provider-page .credential-key-field > .field-heading > .field-label {
+  min-width:0;
+  margin:0 !important;
+  line-height:22rpx !important;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap !important;
+}
+
+.provider-page .credential-key-field > .field-heading > .secret-state {
+  flex:0 0 auto;
+  line-height:22rpx !important;
+  white-space:nowrap !important;
+}
+
+.provider-page .credential-key-field > .secret-input {
+  display:block;
+  flex:0 0 70rpx !important;
+  width:100%;
+  min-width:0;
+  max-width:100%;
+  height:70rpx !important;
+  min-height:70rpx !important;
+  max-height:70rpx !important;
+  padding:0 12rpx !important;
+  box-sizing:border-box;
+  overflow:hidden !important;
+  line-height:70rpx !important;
+  text-align:left !important;
+  text-overflow:ellipsis !important;
+  white-space:nowrap !important;
+}
+
+.provider-page .credential-key-placeholder {
+  display:block;
+  width:100%;
+  min-width:0;
+  max-width:100%;
+  height:70rpx !important;
+  line-height:70rpx !important;
+  overflow:hidden !important;
+  text-align:left !important;
+  text-overflow:ellipsis !important;
+  white-space:nowrap !important;
+}
+
+/* SecretId final invariant: mirror SecretKey geometry while retaining the normal blue field skin. */
+.provider-page .credential-id-field {
+  min-width:0;
+  height:124rpx !important;
+  min-height:124rpx !important;
+  max-height:124rpx !important;
+  padding:12rpx 14rpx !important;
+  display:flex !important;
+  flex-direction:column !important;
+  flex-wrap:nowrap !important;
+  box-sizing:border-box;
+  overflow:hidden !important;
+}
+
+.provider-page .credential-id-field > .field-heading {
+  min-width:0;
+  flex:0 0 22rpx !important;
+  height:22rpx !important;
+  min-height:22rpx !important;
+  max-height:22rpx !important;
+  display:flex !important;
+  flex-direction:row !important;
+  flex-wrap:nowrap !important;
+  align-items:center !important;
+  justify-content:space-between !important;
+  gap:8rpx;
+}
+
+.provider-page .credential-id-field > .field-heading > .field-label {
+  min-width:0;
+  margin:0 !important;
+  line-height:22rpx !important;
+  overflow:hidden;
+  text-align:left !important;
+  text-overflow:ellipsis;
+  white-space:nowrap !important;
+}
+
+.provider-page .credential-id-field > .field-heading > .secret-state {
+  flex:0 0 auto;
+  line-height:22rpx !important;
+  white-space:nowrap !important;
+}
+
+.provider-page .credential-id-field > .secret-input {
+  display:block;
+  flex:0 0 70rpx !important;
+  width:100%;
+  min-width:0;
+  max-width:100%;
+  height:70rpx !important;
+  min-height:70rpx !important;
+  max-height:70rpx !important;
+  padding:0 12rpx !important;
+  box-sizing:border-box;
+  overflow:hidden !important;
+  line-height:70rpx !important;
+  text-align:left !important;
+  text-overflow:ellipsis !important;
+  white-space:nowrap !important;
 }

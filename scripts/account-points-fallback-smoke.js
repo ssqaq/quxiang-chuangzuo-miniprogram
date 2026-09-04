@@ -187,6 +187,11 @@ async function main() {
 
     const allRecords = await accountService.getAccountRecords({ type: "all", limit: 20 });
     assert.strictEqual(allRecords.items.length, ledgerRows.length, "回退记录返回旧 api 提供的完整批次");
+    assert.deepStrictEqual(
+      allRecords.items.map((item) => item.id),
+      ledgerRows.map((item) => item.id),
+      "全部筛选必须保留旧类型和未知类型"
+    );
     assert.strictEqual(allRecords.hasMore, false);
     assert.strictEqual(allRecords.paginationLimited, false);
     const spend = await accountService.getAccountRecords({ type: "spend", limit: 20 });
@@ -196,17 +201,90 @@ async function main() {
     const reward = await accountService.getAccountRecords({ type: "reward", limit: 20 });
     assert.deepStrictEqual(
       reward.items.map((item) => item.type),
-      ["checkin", "refund", "daily-free", "promo-free"]
+      ["checkin", "daily-free", "promo-free"]
     );
     const refunds = await accountService.getAccountRecords({ type: "refund", limit: 20 });
     assert.deepStrictEqual(refunds.items.map((item) => item.type), ["refund", "payment-reversal"]);
+
+    const expectedFilterTypes = {
+      all: [],
+      recharge: ["recharge"],
+      spend: ["spend"],
+      reward: ["checkin", "daily-free", "promo-free"],
+      refund: ["refund", "payment-reversal"]
+    };
+    Object.entries(expectedFilterTypes).forEach(([filter, types]) => {
+      assert.deepStrictEqual(helpers.recordTypes(filter), types, `${filter} 回退类型矩阵必须固定`);
+    });
+    assert.deepStrictEqual(
+      helpers.recordTypes(" Reward "),
+      expectedFilterTypes.reward,
+      "回退筛选必须先 trim 并转成小写"
+    );
+    const narrowFilters = ["recharge", "spend", "reward", "refund"];
+    const expectedMembership = {
+      recharge: "recharge",
+      spend: "spend",
+      checkin: "reward",
+      "daily-free": "reward",
+      "promo-free": "reward",
+      refund: "refund",
+      "payment-reversal": "refund"
+    };
+    Object.entries(expectedMembership).forEach(([type, expectedFilter]) => {
+      const matched = narrowFilters.filter((filter) => helpers.matchesRecordFilter({ type }, filter));
+      assert.deepStrictEqual(matched, [expectedFilter], `${type} 必须只属于一个窄筛选`);
+    });
+    ["purchase", "unknown", "future-v2", ""].forEach((type) => {
+      const matched = narrowFilters.filter((filter) => helpers.matchesRecordFilter({ type }, filter));
+      assert.deepStrictEqual(matched, [], `${type || "空类型"} 只能由全部筛选兜底`);
+      assert.strictEqual(helpers.matchesRecordFilter({ type }, "all"), true);
+    });
+    const paymentCallsBeforeInvalidFilter = paymentCalls;
     await assert.rejects(
-      () => accountService.getAccountRecords({ type: "unsupported" }),
+      () => accountService.getAccountRecords({ type: " Unsupported ", cursor: "legacy-cursor" }),
       (error) => error && error.code === "PAYMENT_RECORD_FILTER_INVALID"
     );
+    assert.strictEqual(
+      paymentCalls,
+      paymentCallsBeforeInvalidFilter,
+      "主路径必须在调用 payment-api 前校验筛选"
+    );
+    await assert.rejects(
+      () => helpers.getPointsFallbackRecords({ type: " Unsupported ", cursor: "legacy-cursor" }),
+      (error) => error && error.code === "PAYMENT_RECORD_FILTER_INVALID"
+    );
+    const ledgerCallsBeforeInvalidNetwork = ledgerCalls;
+    ledgerError = new Error("ledger network unavailable");
+    await assert.rejects(
+      () => helpers.getPointsFallbackRecords({ type: " Unsupported " }),
+      (error) => error && error.code === "PAYMENT_RECORD_FILTER_INVALID"
+    );
+    assert.strictEqual(
+      ledgerCalls,
+      ledgerCallsBeforeInvalidNetwork,
+      "非法筛选必须在账本网络请求前失败"
+    );
+    ledgerError = null;
     await assert.rejects(
       () => accountService.getAccountRecords({ cursor: "legacy-cursor" }),
       (error) => error && error.code === "ACCOUNT_RECORDS_PAGINATION_UNAVAILABLE"
+    );
+
+    ledgerRows = Array.from({ length: 50 }, (_value, index) => ({
+      id: `raw-page-${index}`,
+      type: index === 0 ? "spend" : "unknown",
+      amount: index === 0 ? -1 : 0,
+      balanceAfter: 0,
+      description: index === 0 ? "积分消费" : "历史记录",
+      createdAt: `2026-07-${String(31 - Math.floor(index / 2)).padStart(2, "0")}T15:00:00.000Z`
+    }));
+    const narrowLimited = await accountService.getAccountRecords({ type: " Spend ", limit: 20 });
+    assert.deepStrictEqual(narrowLimited.items.map((item) => item.id), ["raw-page-0"]);
+    assert.strictEqual(
+      narrowLimited.paginationLimited,
+      true,
+      "原始批次达到 50 条时，窄筛选命中少也必须标记分页受限"
     );
 
     ledgerRows = Array.from({ length: 55 }, (_value, index) => ({
@@ -256,7 +334,9 @@ async function main() {
     assert.strictEqual(page.data.accountServicePreparing, false, "余额回退成功后不能显示准备中");
     assert.strictEqual(page.data.account.pointsBalanceText, "55", "用户中心应显示签到余额");
     assert.strictEqual(page.data.recentRecords[0].type, "checkin", "用户中心应显示签到记录");
-    assert.strictEqual(page.data.rechargeVisible, false, "payment-api 缺失时充值入口必须隐藏");
+    assert.strictEqual(page.data.rechargeVisible, true, "payment-api 未上线时仍应保留充值入口");
+    assert.strictEqual(page.data.rechargeDisabled, true, "payment-api 未上线时充值入口必须禁用");
+    assert.strictEqual(page.data.rechargeHint, "充值服务暂未开放", "payment-api 未上线时必须提示服务状态");
 
     ledgerError = new Error("ledger unavailable");
     await page.loadUserCenter();

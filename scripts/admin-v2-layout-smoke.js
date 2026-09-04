@@ -159,7 +159,7 @@ assert.strictEqual(providerJson.navigationStyle, "custom", "供应商页必须�
 assert.ok(providerWxml.includes('class="provider-card"') && !/class=["'][^"']*\bback\b/.test(providerWxml), "供应商页必须有右图外卡且没有返回箭头");
 assert.ok(providerWxml.includes('style="{{appbarStyle}}"') && providerWxml.includes('style="{{providerScrollStyle}}"'), "供应商页必须绑定真机导航高度");
 assert.ok(providerJs.includes("getMenuButtonBoundingClientRect") && providerJs.includes("providerScrollStyle"), "供应商页必须为微信胶囊留出安全区");
-assert.ok(/grid-template-columns:\s*252rpx\s+minmax\(0\s*,\s*1fr\)/.test(providerWxss), "供应商双栏必须按右图使用 252rpx 左栏");
+assert.ok(/grid-template-columns:\s*242rpx\s+minmax\(0\s*,\s*1fr\)/.test(providerWxss), "供应商双栏必须按右图使用 242rpx 左栏");
 assert.ok(/\.provider-card\s*\{[^}]*border-radius:\s*28rpx/.test(providerWxss), "供应商外卡圆角必须为 28rpx");
 assert.ok(/\.provider-name text\s*\{[^}]*font-size:\s*21rpx/.test(providerWxss), "供应商名称字号必须可读");
 assert.strictEqual(cssValue(cssRule(providerWxss, ".provider-row.active"), "border"), "4rpx solid #2f73ee", "选中供应商必须使用 4rpx 边框");
@@ -174,6 +174,7 @@ assert.strictEqual(dashboardJson.navigationStyle, "custom", "控制台必须使�
 assert.ok(dashboardWxml.includes('style="{{appbarStyle}}"') && dashboardWxml.includes('style="{{dashboardScrollStyle}}"'), "控制台必须绑定动态导航高度");
 assert.ok(dashboardJs.includes("getMenuButtonBoundingClientRect") && dashboardJs.includes("dashboardScrollStyle"), "控制台必须为微信胶囊留出安全区");
 assert.ok(dashboardJs.includes("onResize()"), "控制台必须响应屏幕尺寸变化");
+assert.ok(dashboardWxml.includes('bindtap="backToMain"') && dashboardWxml.includes("返回主页面"), "控制台右上角必须返回主页面");
 assert.ok(operationsJson.navigationStyle === "custom", "运营页必须使用自定义导航");
 assert.ok(operationsWxml.includes('style="{{appbarStyle}}"') && operationsWxml.includes('style="{{operationsScrollStyle}}"'), "运营页必须绑定动态导航高度");
 assert.ok(operationsWxml.includes("返回控制台"), "运营页必须保留返回控制台入口");

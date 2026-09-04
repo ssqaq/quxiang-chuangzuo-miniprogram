@@ -162,6 +162,7 @@ async function testServerCursor() {
   ]);
   const loaded = loadPaymentApi(database);
   const helpers = loaded.api.__test__;
+  const fallbackHelpers = require(path.join(root, "services", "account.js")).__test__;
   try {
     const first = await helpers.loadRecords("user-a", { type: "all", limit: 2 });
     assert.deepStrictEqual(first.items.map((item) => item.id), ["same-z", "same-y"]);
@@ -200,6 +201,68 @@ async function testServerCursor() {
     assert.deepStrictEqual(
       recharge.items.map((item) => item.id),
       ["inserted-after-first-page", "same-z", "older-z"]
+    );
+
+    [
+      { _id: "daily-free-z", openid: "user-a", type: "daily-free", amount: 0, createdAt: new Date("2026-08-29T03:00:00.000Z") },
+      { _id: "promo-free-z", openid: "user-a", type: "promo-free", amount: 0, createdAt: new Date("2026-08-29T02:00:00.000Z") },
+      { _id: "reversal-z", openid: "user-a", type: "payment-reversal", amount: -10, createdAt: new Date("2026-08-29T01:00:00.000Z") },
+      { _id: "purchase-z", openid: "user-a", type: "purchase", amount: 10, createdAt: new Date("2026-08-29T00:00:00.000Z") },
+      { _id: "unknown-z", openid: "user-a", type: "future-v2", amount: 1, createdAt: new Date("2026-08-28T23:00:00.000Z") }
+    ].forEach((row) => database.insert(row));
+
+    const expectedFilterTypes = {
+      all: [],
+      recharge: ["recharge"],
+      spend: ["spend"],
+      reward: ["checkin", "daily-free", "promo-free"],
+      refund: ["refund", "payment-reversal"]
+    };
+    Object.entries(expectedFilterTypes).forEach(([filter, types]) => {
+      assert.deepStrictEqual(helpers.recordTypes(filter), types, `${filter} 云函数类型矩阵必须固定`);
+      assert.deepStrictEqual(
+        fallbackHelpers.recordTypes(filter),
+        types,
+        `${filter} 云函数与回退类型矩阵必须一致`
+      );
+    });
+    assert.deepStrictEqual(
+      helpers.recordTypes(" Reward "),
+      expectedFilterTypes.reward,
+      "云函数筛选必须先 trim 并转成小写"
+    );
+    assert.deepStrictEqual(
+      fallbackHelpers.recordTypes(" Reward "),
+      expectedFilterTypes.reward,
+      "云函数与回退必须接受相同的大小写输入"
+    );
+
+    const reward = await helpers.loadRecords("user-a", { type: " Reward ", limit: 50 });
+    assert.deepStrictEqual(
+      reward.items.map((item) => item.id),
+      ["oldest-z", "daily-free-z", "promo-free-z"],
+      "奖励筛选不得再包含退款"
+    );
+    const refunds = await helpers.loadRecords("user-a", { type: "refund", limit: 50 });
+    assert.deepStrictEqual(refunds.items.map((item) => item.id), ["same-x", "reversal-z"]);
+    const allWithUnknown = await helpers.loadRecords("user-a", { type: "all", limit: 50 });
+    assert.ok(allWithUnknown.items.some((item) => item.id === "purchase-z"), "全部筛选必须保留旧类型");
+    assert.ok(allWithUnknown.items.some((item) => item.id === "unknown-z"), "全部筛选必须保留未知类型");
+    for (const filter of ["recharge", "spend", "reward", "refund"]) {
+      const filtered = await helpers.loadRecords("user-a", { type: filter, limit: 50 });
+      assert.strictEqual(filtered.items.some((item) => item.id === "purchase-z"), false);
+      assert.strictEqual(filtered.items.some((item) => item.id === "unknown-z"), false);
+    }
+
+    database.failOnce(new Error("database unavailable after invalid filter"));
+    await assert.rejects(
+      helpers.loadRecords("user-a", { type: " Unsupported ", cursor: "not-a-cursor", limit: 2 }),
+      (error) => error && error.code === "PAYMENT_RECORD_FILTER_INVALID"
+    );
+    await assert.rejects(
+      helpers.loadRecords("user-a", { type: "all", limit: 2 }),
+      (error) => error && error.code === "PAYMENT_RECORDS_UNAVAILABLE",
+      "非法筛选不得消费已排队的数据库错误"
     );
 
     assert.throws(

@@ -54,6 +54,12 @@ const appConfig = JSON.parse(fs.readFileSync(path.join(projectRoot, "app.json"),
 ["pages/admin-dashboard/admin-dashboard", "pages/admin-provider/admin-provider", "pages/admin-config/admin-config", "pages/admin-operations/admin-operations"].forEach((page) => {
   assert.ok(appConfig.pages.includes(page), `app.json 未登记 ${page}`);
 });
+assert.ok(!appConfig.pages.includes("pages/admin/admin"), "旧管理员页面路由必须退役，避免预览继续打包重复页面");
+const projectConfig = JSON.parse(fs.readFileSync(path.join(projectRoot, "project.config.json"), "utf8"));
+const ignoredFolders = (((projectConfig || {}).packOptions || {}).ignore || [])
+  .filter(rule => rule && rule.type === "folder")
+  .map(rule => rule.value);
+assert.ok(ignoredFolders.includes("pages/admin"), "旧管理员源码目录必须加入预览忽略，避免占用裸源码预算");
 
 const dashboard = read("admin-dashboard", "wxml");
 const dashboardJs = read("admin-dashboard", "js");
@@ -67,6 +73,7 @@ assert.ok(dashboardJs.includes("pages/admin-operations/admin-operations?view="),
 assert.ok(dashboardJs.includes("featureSlots.length + 1") && dashboardJs.includes("isReady(video)"), "控制台九项统计必须包含共享视频且只统计主模型");
 assert.strictEqual(dashboardJson.navigationStyle, "custom", "控制台必须关闭原生标题栏，避免出现双导航");
 assert.ok(dashboard.includes('style="{{appbarStyle}}"') && dashboard.includes('style="{{dashboardScrollStyle}}"'), "控制台必须绑定自定义导航和滚动高度");
+assert.ok(dashboard.includes('bindtap="backToMain"') && dashboard.includes("返回主页面"), "控制台右上角必须返回主页面");
 assert.ok(dashboardJs.includes("onResize()"), "控制台尺寸变化时必须重算导航高度");
 assert.ok(!dashboard.includes('class="metric-icon"'), "运营四卡必须和浏览器基准一样只显示标题与动作");
 assert.ok(workbenchJs.includes('wx.navigateTo({ url: "/pages/admin-dashboard/admin-dashboard" })'), "工作台管理员入口必须进入新控制台");
@@ -77,6 +84,7 @@ const providerJs = read("admin-provider", "js");
 const providerJson = JSON.parse(read("admin-provider", "json"));
 assert.strictEqual(providerJson.navigationStyle, "custom", "供应商页必须关闭原生标题栏，避免出现双导航");
 assert.ok(!/class=["'][^"']*\bback\b/.test(providerWxml), "供应商页右图没有返回箭头");
+assert.ok(providerWxml.includes('bindtap="backToDashboard"') && providerWxml.includes("返回控制台"), "供应商右上角必须返回控制台");
 assert.ok(providerWxml.includes('class="provider-card"') && providerWxml.includes('wx:if="{{!editing}}"'), "供应商页必须使用右图外卡，编辑态隐藏不可变 ID");
 assert.ok(providerWxml.includes("供应商目录") && providerWxml.includes("新增供应商"));
 assert.ok(providerWxml.includes("测试连接") && providerWxml.includes("获取模型") && providerWxml.includes("手动确认模型"));
@@ -85,7 +93,8 @@ assert.ok(providerWxml.includes("删除供应商") && providerWxml.includes("保
 assert.ok(providerJs.includes("for (let index = 0; index < labels.length; index += 2)"), "功能标签必须每行最多两个");
 assert.ok(providerWxss.includes(".provider-list::-webkit-scrollbar") && providerWxss.includes("scrollbar-width:none"), "供应商列表应可滚动且隐藏滚动条");
 assert.ok(providerJs.includes("selectedFetchedModel: \"\"") && providerJs.includes("modelPickerOpen: models.length > 0"), "获取真实模型后必须等待管理员手动确认");
-assert.ok(providerWxss.includes("height:113.5rpx") && providerWxss.includes("flex:0 0 992rpx"), "375px 宽度下供应商目录首屏应稳定显示八条");
+assert.ok(providerWxss.includes("height:110rpx !important") && providerWxss.includes("min-height:110rpx !important") && providerWxss.includes("max-height:110rpx !important") && providerWxss.includes("flex:0 0 110rpx") && providerWxss.includes("flex:1 1 auto") && providerWxss.includes("height:auto") && providerWxss.includes("max-height:none"), "390px 宽度下供应商目录卡片必须锁死 110rpx 并保持列表滚动，不得留下底部空白");
+assert.ok(!providerWxss.includes("min-height:1162rpx") && !providerWxss.includes("margin-top:auto"), "供应商卡片必须按内容收口，底部按钮上下都不能留大块死空白");
 assert.ok(providerJs.includes("mergeDirectoryTemplates") && providerJs.includes("isTemplate: true"), "云端目录不足八条时必须补齐可编辑的未配置模板");
 assert.ok(providerJs.includes("const nextProviders = mergeDirectoryTemplates(providers)") && providerJs.includes("providers: nextProviders"), "删除供应商后必须立即补齐目录模板，不能留下空白");
 assert.ok(!/(sk-[A-Za-z0-9_-]{8,}|AKID[A-Za-z0-9_-]{4,}|secret-example)/.test(providerJs), "供应商演示数据不得包含明文密钥");
@@ -136,6 +145,14 @@ assert.ok(providerWxss.includes("margin:-8rpx -13rpx") && providerWxss.includes(
 
 const configWxss = read("admin-config", "wxss");
 assert.ok(/grid-template-columns:\s*repeat\(4\s*,\s*minmax\(0\s*,\s*1fr\)\)/.test(configWxss), "四项页签必须固定为四列，不能横向滚动");
+const apiKeyValueMatches = configWxml.match(/<text class="field-value api-key-value">\{\{selectedTab\.(?:keyText|backupKeyText)\}\}<\/text>/g) || [];
+assert.strictEqual(apiKeyValueMatches.length, 2, "主备 API Key 必须使用专用单行展示类");
+const apiKeyRule = configWxss.match(/\.api-key-value\s*\{([^}]*)\}/);
+assert.ok(apiKeyRule, "API Key 专用单行样式缺失");
+[/display:\s*block/, /width:\s*100%/, /min-width:\s*0/, /overflow:\s*hidden/, /white-space:\s*nowrap/, /word-break:\s*normal/, /overflow-wrap:\s*normal/, /text-overflow:\s*ellipsis/].forEach((rule) => {
+  assert.ok(rule.test(apiKeyRule[1]), `API Key 单行样式缺少 ${rule}`);
+});
+assert.ok(/\.field-value\.multiline\s*\{[^}]*white-space:\s*normal/.test(configWxss), "失败策略说明必须继续允许多行");
 assert.ok(/font-family:\s*["']Microsoft YaHei["']\s*,\s*["']PingFang SC["']\s*,/.test(configWxss), "功能配置页字体栈必须与浏览器参考稿一致");
 assert.ok(configWxss.includes("env(safe-area-inset-top)") && configWxss.includes("env(safe-area-inset-bottom)"), "自定义导航和页面底部必须处理安全区");
 assert.ok(/overflow-x:\s*hidden/.test(configWxss) && /white-space:\s*nowrap/.test(configWxss), "窄屏下功能入口不得换行或横向溢出");

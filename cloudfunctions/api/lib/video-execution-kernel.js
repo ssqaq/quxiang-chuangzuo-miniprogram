@@ -122,7 +122,7 @@ function videoProviderCandidates(configs = {}) {
 
 function shouldUseBackupProvider(error) {
   const status = Number(error && (error.status || error.statusCode)) || 0;
-  if (status === 403 || status === 408 || status === 429 || status >= 500) {
+  if (status === 401 || status === 403 || status === 408 || status === 429 || status >= 500) {
     return true;
   }
   if (error && error.retryable) return true;
@@ -133,10 +133,11 @@ function shouldUseBackupProvider(error) {
 
 function videoConfigForOperation(configs = {}, operation = {}) {
   const requestedProvider = normalizedProviderId(operation);
+  const requestedProviderKey = text(operation.providerKey, 160).toLowerCase();
   const candidates = videoProviderCandidates(configs);
-  if (requestedProvider) {
+  if (requestedProvider || requestedProviderKey) {
     const matched = candidates.find(
-      (candidate) => normalizedProviderId(candidate.video) === requestedProvider
+      (candidate) => sameVideoProvider(candidate.video, operation)
     );
     return matched ? matched.video : {};
   }
@@ -653,6 +654,7 @@ function createVideoExecutionKernel(services = {}) {
               Number(prepared.bytes || prepared.sourceImageBytes) || 0
             ),
             provider: text(activeVideo.provider, 80),
+            providerKey: text(activeVideo.providerKey, 160),
             providerRole: candidate.role,
             providerFallbackUsed: candidate.role === "backup",
             providerFallbackFrom: candidate.role === "backup"
@@ -738,6 +740,7 @@ function createVideoExecutionKernel(services = {}) {
       const result = Object.assign({}, normalized, {
         requestId,
         provider: activeVideo.provider,
+        providerKey: activeVideo.providerKey || "",
         providerRole: activeProviderRole,
         providerFallbackUsed: activeProviderRole === "backup",
         model: requestPayload.model,
@@ -768,6 +771,7 @@ function createVideoExecutionKernel(services = {}) {
           providerTaskId: normalized.taskId,
           providerStatus: normalized.providerStatus,
           provider: activeVideo.provider,
+          providerKey: activeVideo.providerKey || "",
           providerRole: activeProviderRole,
           providerFallbackUsed: activeProviderRole === "backup",
           providerFallbackFrom: activeProviderRole === "backup"

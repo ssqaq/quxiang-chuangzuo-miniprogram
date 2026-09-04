@@ -2,7 +2,7 @@
 
 const crypto = require("crypto");
 const cloud = require("wx-server-sdk");
-const payment = require("aips-payment-core");
+const payment = require("./vendor/payment-core");
 
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 const db = cloud.database();
@@ -11,6 +11,12 @@ const RECORD_CURSOR_VERSION = 1;
 const RECORD_CURSOR_MAX_LENGTH = 768;
 const RECORD_CURSOR_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 const RECORD_FILTERS = Object.freeze(["all", "recharge", "spend", "reward", "refund"]);
+const RECORD_TYPE_GROUPS = Object.freeze({
+  recharge: Object.freeze(["recharge"]),
+  spend: Object.freeze(["spend"]),
+  reward: Object.freeze(["checkin", "daily-free", "promo-free"]),
+  refund: Object.freeze(["refund", "payment-reversal"])
+});
 
 function success(data = {}) {
   return Object.assign({ ok: true }, data);
@@ -105,11 +111,9 @@ async function readAccount(openid) {
 
 function recordTypes(filter) {
   const value = normalizeRecordFilter(filter);
-  if (value === "recharge") return ["recharge"];
-  if (value === "spend") return ["spend"];
-  if (value === "reward") return ["checkin", "daily-free", "promo-free", "refund"];
-  if (value === "refund") return ["refund", "payment-reversal"];
-  return [];
+  return RECORD_TYPE_GROUPS[value]
+    ? RECORD_TYPE_GROUPS[value].slice()
+    : [];
 }
 
 function recordCursorError() {
@@ -120,7 +124,9 @@ function recordCursorError() {
 }
 
 function normalizeRecordFilter(value) {
-  const normalized = String(value === undefined || value === null ? "" : value).trim() || "all";
+  const normalized = String(
+    value === undefined || value === null ? "" : value
+  ).trim().toLowerCase() || "all";
   if (!RECORD_FILTERS.includes(normalized)) {
     throw payment.paymentError("PAYMENT_RECORD_FILTER_INVALID", "记录筛选条件无效。");
   }

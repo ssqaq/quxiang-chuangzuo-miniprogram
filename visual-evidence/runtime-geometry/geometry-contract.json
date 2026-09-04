@@ -39,6 +39,9 @@
           "reason": ""
         }
       ],
+      "blankSpace": null,
+      "inputAlignment": null,
+      "directoryScroll": null,
       "errors": [],
       "pass": true
     },
@@ -72,6 +75,9 @@
           "reason": ""
         }
       ],
+      "blankSpace": null,
+      "inputAlignment": null,
+      "directoryScroll": null,
       "errors": [],
       "pass": true
     },
@@ -117,6 +123,9 @@
           "reason": ""
         }
       ],
+      "blankSpace": null,
+      "inputAlignment": null,
+      "directoryScroll": null,
       "errors": [],
       "pass": true
     },
@@ -154,12 +163,96 @@
           "present": true,
           "pass": true,
           "reason": ""
+        },
+        {
+          "selector": ".provider-card",
+          "present": true,
+          "pass": true,
+          "reason": ""
+        },
+        {
+          "selector": ".directory",
+          "present": true,
+          "pass": true,
+          "reason": ""
+        },
+        {
+          "selector": ".provider-list",
+          "present": true,
+          "pass": true,
+          "reason": ""
+        },
+        {
+          "selector": ".editor",
+          "present": true,
+          "pass": true,
+          "reason": ""
+        },
+        {
+          "selector": ".editor-note",
+          "present": true,
+          "pass": true,
+          "reason": ""
+        },
+        {
+          "selector": ".provider-actions",
+          "present": true,
+          "pass": true,
+          "reason": ""
+        },
+        {
+          "selector": "#endpointInput",
+          "present": true,
+          "pass": true,
+          "reason": ""
+        },
+        {
+          "selector": "#keyInput",
+          "present": true,
+          "pass": true,
+          "reason": ""
         }
       ],
+      "blankSpace": {
+        "pass": true,
+        "metrics": {
+          "noteToActions": 8,
+          "actionsToCardBottom": 11,
+          "listToDirectoryBottom": 8,
+          "columnHeightDelta": 0
+        },
+        "limits": {
+          "noteToActions": 16,
+          "actionsToCardBottom": 16,
+          "listToDirectoryBottom": 16,
+          "columnHeightDelta": 2
+        },
+        "errors": []
+      },
+      "inputAlignment": {
+        "pass": true,
+        "leftDelta": 0,
+        "textAlign": {
+          "endpoint": "left",
+          "key": "left"
+        },
+        "errors": []
+      },
+      "directoryScroll": {
+        "pass": true,
+        "metrics": {
+          "scrollHeight": 704,
+          "clientHeight": 562,
+          "maxScrollTop": 142,
+          "topScrollTop": 0,
+          "bottomScrollTop": 142
+        },
+        "errors": []
+      },
       "errors": [],
       "pass": true
     }
   ],
   "errors": [],
-  "checkedAt": "2026-09-01T15:16:46.125Z"
+  "checkedAt": "2026-09-04T12:45:39.007Z"
 }

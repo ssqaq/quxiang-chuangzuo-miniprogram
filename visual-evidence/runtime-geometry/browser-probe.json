@@ -297,41 +297,41 @@
         },
         {
           "rect": {
-            "bottom": 870,
+            "bottom": 864,
             "computed": {
               "display": "grid",
               "fontFamily": "\"Microsoft YaHei\", \"PingFang SC\", SimHei, system-ui, sans-serif",
               "fontSize": "16px",
               "textAlign": "start"
             },
-            "height": 676.75,
+            "height": 670.75,
             "left": 23,
-            "right": 357,
+            "right": 367,
             "top": 193.25,
-            "width": 334
+            "width": 344
           },
           "selector": ".provider-layout"
         },
         {
           "rect": {
-            "bottom": 903,
+            "bottom": 897,
             "computed": {
               "display": "block",
               "fontFamily": "\"Microsoft YaHei\", \"PingFang SC\", SimHei, system-ui, sans-serif",
               "fontSize": "16px",
               "textAlign": "start"
             },
-            "height": 807,
+            "height": 801,
             "left": 0,
-            "right": 380,
+            "right": 390,
             "top": 96,
-            "width": 380
+            "width": 390
           },
           "selector": ".app-content"
         },
         {
           "rect": {
-            "bottom": 266.875,
+            "bottom": 265.875,
             "computed": {
               "display": "block",
               "fontFamily": "\"Microsoft YaHei\", \"PingFang SC\", SimHei, system-ui, sans-serif",
@@ -340,11 +340,159 @@
             },
             "height": 10.4375,
             "left": 166,
-            "right": 348,
-            "top": 256.4375,
-            "width": 182
+            "right": 358,
+            "top": 255.4375,
+            "width": 192
           },
           "selector": ".field-label"
+        },
+        {
+          "rect": {
+            "bottom": 875,
+            "computed": {
+              "display": "flex",
+              "fontFamily": "\"Microsoft YaHei\", \"PingFang SC\", SimHei, system-ui, sans-serif",
+              "fontSize": "16px",
+              "textAlign": "start"
+            },
+            "height": 767,
+            "left": 12,
+            "right": 378,
+            "top": 108,
+            "width": 366
+          },
+          "selector": ".provider-card"
+        },
+        {
+          "rect": {
+            "bottom": 864,
+            "computed": {
+              "display": "flex",
+              "fontFamily": "\"Microsoft YaHei\", \"PingFang SC\", SimHei, system-ui, sans-serif",
+              "fontSize": "16px",
+              "textAlign": "start"
+            },
+            "height": 670.75,
+            "left": 23,
+            "right": 149,
+            "top": 193.25,
+            "width": 126
+          },
+          "selector": ".directory"
+        },
+        {
+          "rect": {
+            "bottom": 856,
+            "computed": {
+              "display": "grid",
+              "fontFamily": "\"Microsoft YaHei\", \"PingFang SC\", SimHei, system-ui, sans-serif",
+              "fontSize": "16px",
+              "textAlign": "start"
+            },
+            "height": 561.75,
+            "left": 31,
+            "right": 141,
+            "top": 294.25,
+            "width": 110
+          },
+          "selector": ".provider-list",
+          "scroll": {
+            "scrollHeight": 704,
+            "clientHeight": 562,
+            "topScrollTop": 0,
+            "bottomScrollTop": 142,
+            "topFirstRowTop": 294.25,
+            "bottomLastRowBottom": 856
+          }
+        },
+        {
+          "rect": {
+            "bottom": 864,
+            "computed": {
+              "display": "flex",
+              "fontFamily": "\"Microsoft YaHei\", \"PingFang SC\", SimHei, system-ui, sans-serif",
+              "fontSize": "16px",
+              "textAlign": "start"
+            },
+            "height": 670.75,
+            "left": 157,
+            "right": 367,
+            "top": 193.25,
+            "width": 210
+          },
+          "selector": ".editor"
+        },
+        {
+          "rect": {
+            "bottom": 814,
+            "computed": {
+              "display": "block",
+              "fontFamily": "\"Microsoft YaHei\", \"PingFang SC\", SimHei, system-ui, sans-serif",
+              "fontSize": "10.5px",
+              "textAlign": "start"
+            },
+            "height": 65.25,
+            "left": 157,
+            "right": 367,
+            "top": 748.75,
+            "width": 210
+          },
+          "selector": ".editor-note"
+        },
+        {
+          "rect": {
+            "bottom": 864,
+            "computed": {
+              "display": "grid",
+              "fontFamily": "\"Microsoft YaHei\", \"PingFang SC\", SimHei, system-ui, sans-serif",
+              "fontSize": "16px",
+              "textAlign": "start"
+            },
+            "height": 42,
+            "left": 157,
+            "right": 367,
+            "top": 822,
+            "width": 210
+          },
+          "selector": ".provider-actions"
+        },
+        {
+          "selector": "#endpointInput",
+          "rect": {
+            "left": 166,
+            "right": 358,
+            "width": 192,
+            "top": 375.3125,
+            "bottom": 402.3125,
+            "height": 27,
+            "computed": {
+              "textAlign": "left",
+              "paddingLeft": "6px",
+              "paddingRight": "6px",
+              "whiteSpace": "nowrap",
+              "overflow": "clip",
+              "textOverflow": "ellipsis"
+            }
+          }
+        },
+        {
+          "selector": "#keyInput",
+          "rect": {
+            "left": 166,
+            "right": 358,
+            "width": 192,
+            "top": 436.75,
+            "bottom": 463.75,
+            "height": 27,
+            "computed": {
+              "textAlign": "left",
+              "paddingLeft": "6px",
+              "paddingRight": "6px",
+              "whiteSpace": "nowrap",
+              "overflow": "clip",
+              "textOverflow": "ellipsis"
+            }
+          }
         }
       ],
       "pageFontFamily": "\"Microsoft YaHei\", \"PingFang SC\", SimHei, system-ui, sans-serif",

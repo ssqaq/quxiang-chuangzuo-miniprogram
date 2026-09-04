@@ -1,0 +1,396 @@
+{
+  "schemaVersion": 1,
+  "contract": "G1",
+  "previewVersion": "0.1.3",
+  "capture": {
+    "selector": "[data-g1-root]",
+    "viewport": {
+      "width": 338,
+      "height": 654,
+      "dpr": 1
+    },
+    "outerViewport": {
+      "width": 1440,
+      "height": 1000
+    },
+    "browser": "Microsoft Edge 152.0.4191.53",
+    "colorScheme": "light",
+    "locale": "zh-CN",
+    "scrollTop": 0
+  },
+  "fixture": {
+    "balance": 128.5,
+    "selectedProduct": {
+      "id": "pkg_2990",
+      "price": "¥29.9",
+      "points": 330
+    },
+    "filters": [
+      "全部",
+      "充值",
+      "消费",
+      "奖励",
+      "退款"
+    ],
+    "paymentChannel": "wxpay"
+  },
+  "sourceFiles": [
+    {
+      "path": "app/page.tsx",
+      "sha256": "17672111d6d02226f4f42b507fe0406e3a46afd9fd66b2e418cb022a033057d0"
+    },
+    {
+      "path": "app/globals.css",
+      "sha256": "7989bbfd3e9bcf8b211ff807d0015ac54980562f3cec8a023efcba8c055ded3c"
+    },
+    {
+      "path": "scripts/freeze-g1.mjs",
+      "sha256": "e847175b25bd1b8a890e865c23da0577e7cd54d639a1d3b661b0e60d7d38a59a"
+    },
+    {
+      "path": "package.json",
+      "sha256": "d1f98b5e9396076a6a417f910225ea3cd05875e66725bf9026c0be6dad649ddd"
+    },
+    {
+      "path": "package-lock.json",
+      "sha256": "a3df64e689c80c06cd82d4add3bff63e9eb68c235bc1bf2a657fb033049660d2"
+    }
+  ],
+  "captures": {
+    "user-center": {
+      "route": "#user-center",
+      "payState": "enabled",
+      "screenshot": "user-center.png",
+      "screenshotSha256": "6cad13e63701cbc6b53ed53e1f02a6bd80b20abe9cde3bab6c567303dbf4cb1b",
+      "dom": {
+        "page": "center",
+        "payState": "enabled",
+        "captureShell": true,
+        "root": {
+          "x": 874.031,
+          "y": 200.75,
+          "width": 338,
+          "height": 654
+        },
+        "content": {
+          "x": 874.031,
+          "y": 200.75,
+          "width": 338,
+          "height": 654
+        },
+        "scroll": {
+          "rootClientWidth": 338,
+          "rootScrollWidth": 338,
+          "pageClientWidth": 338,
+          "pageScrollWidth": 338
+        },
+        "forbidden": {
+          ".mini-nav": 0,
+          ".phone-status": 0,
+          ".phone-sensor": 0,
+          ".phone-home-bar": 0,
+          ".phone-shell": 0
+        },
+        "boxes": {
+          ".profile-card": {
+            "x": 886.031,
+            "y": 218.75,
+            "width": 314,
+            "height": 71
+          },
+          ".balance-card": {
+            "x": 886.031,
+            "y": 298.75,
+            "width": 314,
+            "height": 166.25
+          },
+          ".quick-grid": {
+            "x": 886.031,
+            "y": 474,
+            "width": 314,
+            "height": 56
+          },
+          ".account-panel": {
+            "x": 886.031,
+            "y": 539,
+            "width": 314,
+            "height": 192.5
+          },
+          ".recharge-balance": null,
+          ".package-grid": null,
+          ".channel-list": null,
+          ".pay-button": null,
+          ".record-summary": null,
+          ".record-tabs": null,
+          ".records-panel": null,
+          ".transaction-row": {
+            "x": 899.031,
+            "y": 574.5,
+            "width": 288,
+            "height": 48
+          }
+        },
+        "tokens": {
+          "pageBackground": "rgb(245, 247, 251)",
+          "pagePadding": "11px 12px 28px"
+        },
+        "tabCount": 0,
+        "tabWidths": [],
+        "channelCount": 0,
+        "channelLabels": [],
+        "hasAlipay": false,
+        "expectedArrival": null,
+        "cta": {
+          "state": "enabled",
+          "disabled": false,
+          "text": "立即充值",
+          "box": {
+            "x": 903.031,
+            "y": 419,
+            "width": 76,
+            "height": 29
+          }
+        }
+      }
+    },
+    "recharge": {
+      "route": "#recharge",
+      "payState": "enabled",
+      "screenshot": "recharge.png",
+      "screenshotSha256": "7cf5a5b9e52991fe391c2b2c5f40d3f53975cd4005de4bd290c8cac41eb4ed52",
+      "dom": {
+        "page": "recharge",
+        "payState": "enabled",
+        "captureShell": true,
+        "root": {
+          "x": 874.031,
+          "y": 200.75,
+          "width": 338,
+          "height": 654
+        },
+        "content": {
+          "x": 874.031,
+          "y": 200.75,
+          "width": 338,
+          "height": 654
+        },
+        "scroll": {
+          "rootClientWidth": 338,
+          "rootScrollWidth": 338,
+          "pageClientWidth": 338,
+          "pageScrollWidth": 338
+        },
+        "forbidden": {
+          ".mini-nav": 0,
+          ".phone-status": 0,
+          ".phone-sensor": 0,
+          ".phone-home-bar": 0,
+          ".phone-shell": 0
+        },
+        "boxes": {
+          ".profile-card": null,
+          ".balance-card": null,
+          ".quick-grid": null,
+          ".account-panel": null,
+          ".recharge-balance": {
+            "x": 886.031,
+            "y": 216.75,
+            "width": 314,
+            "height": 49.5
+          },
+          ".package-grid": {
+            "x": 886.031,
+            "y": 305.75,
+            "width": 314,
+            "height": 101
+          },
+          ".channel-list": {
+            "x": 886.031,
+            "y": 446.25,
+            "width": 314,
+            "height": 51
+          },
+          ".pay-button": {
+            "x": 886.031,
+            "y": 513.25,
+            "width": 314,
+            "height": 38.5
+          },
+          ".record-summary": null,
+          ".record-tabs": null,
+          ".records-panel": null,
+          ".transaction-row": null
+        },
+        "tokens": {
+          "pageBackground": "rgb(245, 247, 251)",
+          "pagePadding": "11px 12px 28px"
+        },
+        "tabCount": 0,
+        "tabWidths": [],
+        "channelCount": 1,
+        "channelLabels": [
+          "微微信支付当前可用"
+        ],
+        "hasAlipay": false,
+        "expectedArrival": "本次预计到账+330 积分",
+        "cta": {
+          "state": "enabled",
+          "disabled": false,
+          "text": "确认支付 ¥29.9",
+          "box": {
+            "x": 886.031,
+            "y": 513.25,
+            "width": 314,
+            "height": 38.5
+          }
+        }
+      }
+    },
+    "records": {
+      "route": "#records",
+      "payState": "enabled",
+      "screenshot": "records.png",
+      "screenshotSha256": "1684fd4e1dac8f073f72c85285891a58b1a507f274db05a81c3e1bf38af0da0d",
+      "dom": {
+        "page": "records",
+        "payState": "enabled",
+        "captureShell": true,
+        "root": {
+          "x": 874.031,
+          "y": 200.75,
+          "width": 338,
+          "height": 654
+        },
+        "content": {
+          "x": 874.031,
+          "y": 200.75,
+          "width": 338,
+          "height": 654
+        },
+        "scroll": {
+          "rootClientWidth": 338,
+          "rootScrollWidth": 338,
+          "pageClientWidth": 338,
+          "pageScrollWidth": 338
+        },
+        "forbidden": {
+          ".mini-nav": 0,
+          ".phone-status": 0,
+          ".phone-sensor": 0,
+          ".phone-home-bar": 0,
+          ".phone-shell": 0
+        },
+        "boxes": {
+          ".profile-card": null,
+          ".balance-card": null,
+          ".quick-grid": null,
+          ".account-panel": {
+            "x": 886.031,
+            "y": 361.75,
+            "width": 314,
+            "height": 266
+          },
+          ".recharge-balance": null,
+          ".package-grid": null,
+          ".channel-list": null,
+          ".pay-button": null,
+          ".record-summary": {
+            "x": 886.031,
+            "y": 216.75,
+            "width": 314,
+            "height": 96
+          },
+          ".record-tabs": {
+            "x": 886.031,
+            "y": 321.75,
+            "width": 314,
+            "height": 32
+          },
+          ".records-panel": {
+            "x": 886.031,
+            "y": 361.75,
+            "width": 314,
+            "height": 266
+          },
+          ".transaction-row": {
+            "x": 899.031,
+            "y": 374.75,
+            "width": 288,
+            "height": 48
+          }
+        },
+        "tokens": {
+          "pageBackground": "rgb(245, 247, 251)",
+          "pagePadding": "11px 12px 28px"
+        },
+        "tabCount": 5,
+        "tabWidths": [
+          61.188,
+          61.203,
+          61.203,
+          61.203,
+          61.203
+        ],
+        "channelCount": 0,
+        "channelLabels": [],
+        "hasAlipay": false,
+        "expectedArrival": null,
+        "cta": null
+      }
+    }
+  },
+  "ctaStates": {
+    "hidden": {
+      "user-center": null,
+      "recharge": null
+    },
+    "disabled": {
+      "user-center": {
+        "state": "disabled",
+        "disabled": true,
+        "text": "通道准备中",
+        "box": {
+          "x": 903.031,
+          "y": 419.75,
+          "width": 65,
+          "height": 27.5
+        }
+      },
+      "recharge": {
+        "state": "disabled",
+        "disabled": true,
+        "text": "通道准备中",
+        "box": {
+          "x": 886.031,
+          "y": 513.25,
+          "width": 314,
+          "height": 38.5
+        }
+      }
+    },
+    "enabled": {
+      "user-center": {
+        "state": "enabled",
+        "disabled": false,
+        "text": "立即充值",
+        "box": {
+          "x": 903.031,
+          "y": 419,
+          "width": 76,
+          "height": 29
+        }
+      },
+      "recharge": {
+        "state": "enabled",
+        "disabled": false,
+        "text": "确认支付 ¥29.9",
+        "box": {
+          "x": 886.031,
+          "y": 513.25,
+          "width": 314,
+          "height": 38.5
+        }
+      }
+    }
+  }
+}

@@ -2,7 +2,6 @@ const config = require("../../config");
 const cloud = require("../../services/cloud");
 const diagnosticLog = require("../../utils/diagnostic-log");
 const {
-  XINGJU_VIDEO_DEFAULTS,
   applyAdminVideoProviderDefaults
 } = require("../../services/admin-video-config");
 const adminProviderRegistry = require("../../services/admin-provider-registry");
@@ -58,6 +57,59 @@ const ADMIN_COST_KEYS = Object.freeze([
   ...VIDEO_COST_KEYS,
   "videoDefaultDuration"
 ]);
+const ADMIN_POINT_RULES = Object.freeze({
+  dailyFreeLimit: Object.freeze({
+    minimum: 0,
+    maximum: 100,
+    integer: true,
+    defaultValue: 3
+  }),
+  imageCost: Object.freeze({
+    minimum: 0,
+    maximum: 100000,
+    integer: false,
+    defaultValue: 10
+  }),
+  videoCost: Object.freeze({
+    minimum: 0,
+    maximum: 100000,
+    integer: false,
+    defaultValue: 10
+  }),
+  checkinPoints: Object.freeze({
+    minimum: 0,
+    maximum: 100000,
+    integer: false,
+    defaultValue: 5
+  }),
+  streakBonus: Object.freeze({
+    minimum: 0,
+    maximum: 100000,
+    integer: false,
+    defaultValue: 20
+  }),
+  streakDays: Object.freeze({
+    minimum: 1,
+    maximum: 30,
+    integer: true,
+    defaultValue: 7
+  })
+});
+const ADMIN_POINT_KEYS = Object.freeze(Object.keys(ADMIN_POINT_RULES));
+const ADMIN_CONFIG_SAVE_SECTIONS = Object.freeze([
+  "providers",
+  "face",
+  "faceBackup",
+  "analysis",
+  "analysisBackup",
+  "image",
+  "imageBackup",
+  "video",
+  "videoBackup",
+  "points",
+  "costs",
+  "generationQueue"
+]);
 const VIDEO_COST_FIELD_BY_RESOLUTION = Object.freeze({
   "480p": "video480p",
   "720p": "video720p",
@@ -74,26 +126,15 @@ const VIDEO_QUALITY_OPTIONS = Object.freeze([
   { value: "1080p", label: "1080p" }
 ]);
 const ADMIN_PROVIDER_LABELS = Object.freeze({
-  dashscope: "阿里云百炼",
   xingju: "星炬",
   lingyun: "凌云",
-  laoli: "老李",
-  panda: "熊猫"
+  dashscope: "阿里云百炼"
 });
-const ADMIN_PROVIDER_LABEL_MAX_LENGTH = 20;
-const ADMIN_PROVIDER_LABEL_REQUIRED = "ADMIN_PROVIDER_LABEL_REQUIRED";
-const ADMIN_PROVIDER_DANGEROUS_KEYS = Object.freeze([
-  "__proto__",
-  "prototype",
-  "constructor"
-]);
 const ADMIN_PROVIDER_VALUES = Object.freeze({
-  阿里云百炼: "dashscope",
-  阿里百炼: "dashscope",
   星炬: "xingju",
   凌云: "lingyun",
-  老李: "laoli",
-  熊猫: "panda"
+  阿里云百炼: "dashscope",
+  阿里百炼: "dashscope"
 });
 const ADMIN_PROVIDER_FORM_SECTIONS = Object.freeze([
   "face",
@@ -105,395 +146,32 @@ const ADMIN_PROVIDER_FORM_SECTIONS = Object.freeze([
   "video",
   "videoBackup"
 ]);
-// 备用视觉/视频模型是独立的运行时槽位，但仍复用同一份服务商目录。
-// 目录本身保持 5 个能力槽，activeBackups 只记录备用槽位当前引用。
+
+const ADMIN_PROVIDER_BACKUP_BASE = Object.freeze({
+  faceBackup: "face",
+  analysisBackup: "analysis",
+  videoBackup: "video"
+});
+// 备用槽位复用服务商目录，但不污染目录里的五个主能力槽。
 const ADMIN_PROVIDER_BACKUP_SECTIONS = Object.freeze([
   "faceBackup",
   "analysisBackup",
   "videoBackup"
 ]);
-const ADMIN_PROVIDER_BACKUP_BASE_SECTIONS = Object.freeze({
-  faceBackup: "face",
-  analysisBackup: "analysis",
-  videoBackup: "video"
-});
-const ADMIN_PROVIDER_PROFILE_SECTIONS = Object.freeze([
-  "face",
-  "analysis",
-  "image",
-  "imageBackup",
-  "video"
-]);
-const ADMIN_PROVIDER_PICKER_SECTIONS = Object.freeze([
-  ...ADMIN_PROVIDER_PROFILE_SECTIONS,
-  "videoBackup"
-]);
-const ADMIN_PROVIDER_PROFILE_STATE = Object.freeze({
-  face: Object.freeze({
-    options: "faceProviderProfileOptions",
-    index: "faceProviderProfileIndex"
-  }),
-  analysis: Object.freeze({
-    options: "analysisProviderProfileOptions",
-    index: "analysisProviderProfileIndex"
-  }),
-  image: Object.freeze({
-    options: "imageProviderProfileOptions",
-    index: "imageProviderProfileIndex"
-  }),
-  imageBackup: Object.freeze({
-    options: "imageBackupProviderProfileOptions",
-    index: "imageBackupProviderProfileIndex"
-  }),
-  video: Object.freeze({
-    options: "videoProviderProfileOptions",
-    index: "videoProviderProfileIndex"
-  }),
-  videoBackup: Object.freeze({
-    options: "videoBackupProviderProfileOptions",
-    index: "videoBackupProviderProfileIndex"
-  })
-});
-const ADMIN_PROVIDER_DISPLAY_ORDER = Object.freeze([
-  "dashscope",
-  "xingju",
-  "lingyun",
-  "laoli",
-  "panda"
-]);
-const ADMIN_BUILT_IN_PROVIDER_ORDER = ADMIN_PROVIDER_DISPLAY_ORDER;
-const ADMIN_VISUAL_PROVIDER_DEFAULTS = Object.freeze({
-  dashscope: Object.freeze({
-    baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
-    endpoint: "",
-    model: "qwen3-vl-flash",
-    timeoutMs: "30000"
-  })
-});
-const ADMIN_IMAGE_PROVIDER_DEFAULTS = Object.freeze({
-  xingju: Object.freeze({
-    baseUrl: "https://newapi.akiyo.fun/v1",
-    endpoint: "",
-    model: "jw-wy-gpt-image-2",
-    mode: "edits",
-    size: "1080x1440",
-    resolution: "1K",
-    compatibilityMode: false,
-    timeoutMs: "150000"
-  }),
-  lingyun: Object.freeze({
-    baseUrl: "https://api.lingyunapi.xyz/v1",
-    endpoint: "https://api.lingyunapi.xyz/v1/images/edits",
-    model: "gpt-image-2",
-    mode: "edits",
-    size: "1080x1440",
-    resolution: "1K",
-    compatibilityMode: false,
-    timeoutMs: "150000"
-  }),
-  laoli: Object.freeze({
-    baseUrl: "https://api.laoliimage2.win/v1",
-    endpoint: "https://api.laoliimage2.win/v1/images/edits",
-    model: "gpt-image-2",
-    mode: "edits",
-    size: "1080x1440",
-    resolution: "1K",
-    compatibilityMode: false,
-    timeoutMs: "150000"
-  }),
-  panda: Object.freeze({
-    baseUrl: "https://api.pandatk.com",
-    endpoint: "",
-    model: "gpt-image-2",
-    mode: "edits",
-    size: "1080x1440",
-    resolution: "1K",
-    compatibilityMode: false,
-    timeoutMs: "150000"
-  })
-});
-let activeAdminProviderLabels = Object.assign({}, ADMIN_PROVIDER_LABELS);
-
-function mergeAdminProviderLabels(value) {
-  const result = Object.assign({}, ADMIN_PROVIDER_LABELS);
-  if (!value || typeof value !== "object" || Array.isArray(value)) return result;
-  Object.keys(value).forEach((rawProviderId) => {
-    const rawId = String(rawProviderId || "").trim();
-    if (!rawId || ADMIN_PROVIDER_DANGEROUS_KEYS.includes(rawId)) return;
-    const lowerId = rawId.toLowerCase();
-    const providerId = ADMIN_PROVIDER_LABELS[lowerId] ? lowerId : rawId;
-    const label = String(value[rawProviderId] == null ? "" : value[rawProviderId]).trim();
-    if (label) result[providerId] = label;
-  });
-  return result;
-}
-
-function setActiveAdminProviderLabels(value) {
-  activeAdminProviderLabels = mergeAdminProviderLabels(value);
-  return Object.assign({}, activeAdminProviderLabels);
-}
-
-function providerIdFromDisplay(value, labels = activeAdminProviderLabels) {
-  const raw = String(value === undefined || value === null ? "" : value).trim();
-  if (!raw) return "";
-  if (ADMIN_PROVIDER_VALUES[raw]) return ADMIN_PROVIDER_VALUES[raw];
-  const lower = raw.toLowerCase();
-  if (ADMIN_PROVIDER_LABELS[lower]) return lower;
-  const effectiveLabels = mergeAdminProviderLabels(labels);
-  const matchedId = Object.keys(effectiveLabels).find(
-    (providerId) => effectiveLabels[providerId] === raw
-  );
-  return matchedId || raw;
-}
 
 function normalizeAdminProviderInput(value) {
-  return providerIdFromDisplay(value);
+  const raw = String(value === undefined || value === null ? "" : value).trim();
+  const text = raw.toLowerCase();
+  if (ADMIN_PROVIDER_VALUES[raw]) return ADMIN_PROVIDER_VALUES[raw];
+  if (ADMIN_PROVIDER_LABELS[text]) return text;
+  return raw;
 }
 
 function displayAdminProvider(value, fallback = "") {
   const raw = String(value === undefined || value === null ? "" : value).trim();
   if (!raw) return fallback;
-  const normalized = providerIdFromDisplay(raw);
-  return activeAdminProviderLabels[normalized] || ADMIN_PROVIDER_LABELS[normalized] || raw;
-}
-
-function adminProviderIdsFromForm(form) {
-  const source = form && typeof form === "object" ? form : {};
-  const providerIds = [];
-  ADMIN_PROVIDER_FORM_SECTIONS.forEach((section) => {
-    const providerId = providerIdFromDisplay(
-      source[section]
-      && (source[section].provider || source[section].providerKey)
-    );
-    if (providerId && !providerIds.includes(providerId)) providerIds.push(providerId);
-  });
-  return sortAdminProviderIds(providerIds);
-}
-
-function adminProviderIdsFromProfiles(form) {
-  const source = form && typeof form === "object" ? form : {};
-  const profiles = normalizeAdminProviderProfiles(source.providerProfiles);
-  const providerIds = [];
-  ADMIN_PROVIDER_PROFILE_SECTIONS.forEach((section) => {
-    Object.keys(profiles[section] || {}).forEach((providerId) => {
-      if (providerId && !providerIds.includes(providerId)) providerIds.push(providerId);
-    });
-  });
-  return providerIds;
-}
-
-function providerLabelsFromForm(form) {
-  const source = form && typeof form === "object" ? form : {};
-  return mergeAdminProviderLabels(source.providerLabels);
-}
-
-function adminProviderSortLabel(providerId, rawLabels = {}) {
-  const normalizedId = String(providerId || "").trim();
-  const labels = rawLabels && typeof rawLabels === "object" && !Array.isArray(rawLabels)
-    ? rawLabels
-    : {};
-  const directLabel = Object.prototype.hasOwnProperty.call(labels, normalizedId)
-    ? labels[normalizedId]
-    : "";
-  return String(
-    directLabel
-      || activeAdminProviderLabels[normalizedId]
-      || ADMIN_PROVIDER_LABELS[normalizedId]
-      || normalizedId
-  ).trim();
-}
-
-function sortAdminProviderIds(providerIds, rawLabels = {}) {
-  const ids = Array.from(new Set(
-    (Array.isArray(providerIds) ? providerIds : [])
-      .map((providerId) => String(providerId || "").trim())
-      .filter((providerId) => (
-        providerId
-        && !ADMIN_PROVIDER_DANGEROUS_KEYS.includes(providerId)
-      ))
-  ));
-  return ids.sort((left, right) => {
-    const leftIndex = ADMIN_BUILT_IN_PROVIDER_ORDER.indexOf(left.toLowerCase());
-    const rightIndex = ADMIN_BUILT_IN_PROVIDER_ORDER.indexOf(right.toLowerCase());
-    const leftBuiltIn = leftIndex >= 0;
-    const rightBuiltIn = rightIndex >= 0;
-    if (leftBuiltIn || rightBuiltIn) {
-      if (leftBuiltIn && rightBuiltIn) return leftIndex - rightIndex;
-      return leftBuiltIn ? -1 : 1;
-    }
-    return adminProviderSortLabel(left, rawLabels).localeCompare(
-      adminProviderSortLabel(right, rawLabels),
-      "zh-CN",
-      { numeric: true, sensitivity: "base" }
-    ) || left.localeCompare(right, undefined, {
-      numeric: true,
-      sensitivity: "base"
-    });
-  });
-}
-
-function buildAdminProviderLabelRows(form, errors = {}) {
-  const source = form && typeof form === "object" ? form : {};
-  const rawLabels = source.providerLabels && typeof source.providerLabels === "object"
-    && !Array.isArray(source.providerLabels)
-    ? source.providerLabels
-    : {};
-  const providerIds = [
-    ...Object.keys(ADMIN_PROVIDER_LABELS),
-    ...Object.keys(rawLabels),
-    ...adminProviderIdsFromForm(source),
-    ...adminProviderIdsFromProfiles(source)
-  ]
-    .map((providerId) => String(providerId || "").trim())
-    .filter((providerId) => (
-      providerId
-      && !ADMIN_PROVIDER_DANGEROUS_KEYS.includes(providerId)
-    ));
-  return sortAdminProviderIds(providerIds, rawLabels)
-    .map((providerId) => {
-      const hasRawLabel = Object.prototype.hasOwnProperty.call(rawLabels, providerId);
-      const label = String(
-        hasRawLabel
-          ? rawLabels[providerId]
-          : activeAdminProviderLabels[providerId] || ADMIN_PROVIDER_LABELS[providerId] || ""
-      ).trim();
-      return {
-        providerId,
-        label,
-        builtIn: Boolean(ADMIN_PROVIDER_LABELS[providerId]),
-        error: String(errors[providerId] || "")
-      };
-    });
-}
-
-function validateAdminProviderLabelRows(rows) {
-  const errors = {};
-  (Array.isArray(rows) ? rows : []).forEach((item) => {
-    const providerId = String(item && item.providerId || "").trim();
-    const label = String(item && item.label || "").trim();
-    if (!providerId) return;
-    if (!label) {
-      errors[providerId] = `服务商 ${providerId} 还没有中文名称，请先填写。`;
-      return;
-    }
-    if (!/[\u3400-\u9fff]/.test(label)) {
-      errors[providerId] = `服务商 ${providerId} 的名称必须包含中文，不能只写英文。`;
-      return;
-    }
-    if (Array.from(label).length > ADMIN_PROVIDER_LABEL_MAX_LENGTH) {
-      errors[providerId] = `服务商 ${providerId} 的中文名称最多 20 个字符。`;
-    }
-  });
-  return errors;
-}
-
-function buildAdminProviderFilterState(form, selectedValue = "all") {
-  const source = form && typeof form === "object" ? form : {};
-  const providerIds = sortAdminProviderIds(
-    adminProviderIdsFromForm(source),
-    source.providerLabels
-  );
-  const options = [{ value: "all", label: "全部服务商" }].concat(
-    providerIds.map((providerId) => ({
-      value: providerId,
-      label: displayAdminProvider(providerId, providerId)
-    }))
-  );
-  const requested = String(selectedValue || "all").trim() || "all";
-  const selected = options.some((item) => item.value === requested)
-    ? requested
-    : "all";
-  const index = Math.max(0, options.findIndex((item) => item.value === selected));
-  const sectionProviderId = (section) => providerIdFromDisplay(
-    form
-    && form[section]
-    && (form[section].provider || form[section].providerKey)
-  );
-  const matches = (section) => selected === "all" || sectionProviderId(section) === selected;
-  return {
-    providerFilterOptions: options,
-    providerFilterValue: selected,
-    providerFilterIndex: index,
-    providerFilterLabel: options[index] && options[index].label || "全部服务商",
-    providerSectionVisibility: {
-      face: selected === "all"
-        || sectionProviderId("face") === selected
-        || sectionProviderId("faceBackup") === selected,
-      analysis: selected === "all"
-        || sectionProviderId("analysis") === selected
-        || sectionProviderId("analysisBackup") === selected,
-      image: selected === "all"
-        || sectionProviderId("image") === selected
-        || sectionProviderId("imageBackup") === selected,
-      tencentFaceFusion: selected === "all"
-        || sectionProviderId("image") === selected
-        || sectionProviderId("imageBackup") === selected,
-      video: selected === "all"
-        || sectionProviderId("video") === selected
-        || sectionProviderId("videoBackup") === selected
-    }
-  };
-}
-
-function filterAdminModelProbeResults(modelProbes, selectedValue = "all") {
-  const source = modelProbes && typeof modelProbes === "object"
-    ? modelProbes
-    : emptyModelProbes();
-  const results = (Array.isArray(source.results) ? source.results : []).map((item) => {
-    const providerId = providerIdFromDisplay(item && (item.providerId || item.provider));
-    return Object.assign({}, item, {
-      providerId: providerIdFromDisplay(item.provider) || providerId,
-      provider: displayAdminProvider(providerId, "未填写")
-    });
-  });
-  const selected = String(selectedValue || "all").trim() || "all";
-  return Object.assign({}, source, {
-    results,
-    filteredResults: selected === "all"
-      ? results.slice()
-      : results.filter((item) => item.providerId === selected)
-  });
-}
-
-function buildAdminProviderManagementState(
-  form,
-  modelProbes,
-  selectedValue = "all",
-  errors = {}
-) {
-  const filterState = buildAdminProviderFilterState(form, selectedValue);
-  return Object.assign({
-    providerLabelRows: buildAdminProviderLabelRows(form, errors),
-    providerLabelErrors: Object.assign({}, errors),
-    modelProbes: filterAdminModelProbeResults(
-      modelProbes,
-      filterState.providerFilterValue
-    )
-  }, filterState);
-}
-
-function relabelAdminProviderForm(form, nextLabels, previousLabels = activeAdminProviderLabels) {
-  const source = form && typeof form === "object" ? form : {};
-  const providerIds = {};
-  ADMIN_PROVIDER_FORM_SECTIONS.forEach((section) => {
-    providerIds[section] = providerIdFromDisplay(
-      source[section] && source[section].provider,
-      previousLabels
-    );
-  });
-  const activeLabels = setActiveAdminProviderLabels(nextLabels);
-  const result = Object.assign({}, source, {
-    providerLabels: Object.assign({}, nextLabels),
-    providerProfiles: normalizeAdminProviderProfiles(source.providerProfiles)
-  });
-  ADMIN_PROVIDER_FORM_SECTIONS.forEach((section) => {
-    result[section] = Object.assign({}, source[section] || {}, {
-      provider: providerIds[section]
-        ? activeLabels[providerIds[section]] || providerIds[section]
-        : ""
-    });
-  });
-  return result;
+  const normalized = normalizeAdminProviderInput(raw);
+  return ADMIN_PROVIDER_LABELS[normalized] || raw;
 }
 
 function normalizeAdminImageProviderInput(value) {
@@ -550,6 +228,54 @@ function validateAdminCostFields(costs = {}) {
     if (error) errors[key] = error;
     return errors;
   }, {});
+}
+
+function validateAdminPointInput(value, key) {
+  const rule = ADMIN_POINT_RULES[key];
+  if (!rule) return "";
+  const text = String(value === undefined || value === null ? "" : value).trim();
+  if (!text) return "不能为空";
+  if (!/^(?:0|[1-9]\d*)(?:\.\d{1,4})?$/.test(text)) {
+    return rule.integer
+      ? "必须是非负整数"
+      : "必须是非负数字，最多 4 位小数";
+  }
+  const number = Number(text);
+  if (
+    !Number.isFinite(number)
+    || number < rule.minimum
+    || number > rule.maximum
+    || (rule.integer && !Number.isInteger(number))
+  ) {
+    return rule.integer
+      ? `请输入 ${rule.minimum}～${rule.maximum} 的整数`
+      : `请输入 ${rule.minimum}～${rule.maximum}`;
+  }
+  return "";
+}
+
+function validateAdminPointFields(points = {}) {
+  const source = points && typeof points === "object" ? points : {};
+  return ADMIN_POINT_KEYS.reduce((errors, key) => {
+    const error = validateAdminPointInput(source[key], key);
+    if (error) errors[key] = error;
+    return errors;
+  }, {});
+}
+
+function normalizeAdminPointText(value, key) {
+  const rule = ADMIN_POINT_RULES[key];
+  if (!rule) return String(value === undefined || value === null ? "" : value).trim();
+  const text = String(value === undefined || value === null ? "" : value).trim();
+  return validateAdminPointInput(text, key)
+    ? String(rule.defaultValue)
+    : text;
+}
+
+function adminPointNumber(value, key) {
+  const normalized = normalizeAdminPointText(value, key);
+  const number = Number(normalized);
+  return Number.isFinite(number) ? number : ADMIN_POINT_RULES[key].defaultValue;
 }
 
 function adminCostText(value) {
@@ -701,27 +427,6 @@ function normalizeAdminBoolean(value, fallback = false) {
     if (["1", "true", "yes", "on"].includes(normalized)) return true;
   }
   return Boolean(value);
-}
-
-function hasAdminImageProviderDetails(config) {
-  const source = config && typeof config === "object" ? config : {};
-  return Boolean(
-    String(source.provider || "").trim()
-    && String(source.model || "").trim()
-    && String(source.apiKey || "").trim()
-    && (
-      String(source.baseUrl || "").trim()
-      || String(source.endpoint || "").trim()
-    )
-  );
-}
-
-function adminImageBackupEnabled(config) {
-  const source = config && typeof config === "object" ? config : {};
-  if (Object.prototype.hasOwnProperty.call(source, "enabled")) {
-    return normalizeAdminBoolean(source.enabled, false);
-  }
-  return hasAdminImageProviderDetails(source);
 }
 
 function normalizeAdminCapabilityValues(type, values) {
@@ -911,523 +616,6 @@ function buildQualityPickerState(form, capabilityPayload = {}) {
   );
 }
 
-const ADMIN_PROVIDER_PROFILE_FORM_KEYS = Object.freeze({
-  face: Object.freeze([
-    "provider",
-    "baseUrl",
-    "endpoint",
-    "apiKey",
-    "model",
-    "timeoutMs"
-  ]),
-  analysis: Object.freeze([
-    "provider",
-    "baseUrl",
-    "endpoint",
-    "apiKey",
-    "model",
-    "timeoutMs"
-  ]),
-  image: Object.freeze([
-    "provider",
-    "baseUrl",
-    "endpoint",
-    "apiKey",
-    "model",
-    "mode",
-    "size",
-    "resolution",
-    "compatibilityMode",
-    "timeoutMs",
-    "maxRetries",
-    "retryEnabled",
-    "retryPreferenceVersion"
-  ]),
-  imageBackup: Object.freeze([
-    "enabled",
-    "provider",
-    "baseUrl",
-    "endpoint",
-    "apiKey",
-    "model",
-    "mode",
-    "size",
-    "resolution",
-    "compatibilityMode",
-    "timeoutMs",
-    "maxRetries",
-    "retryEnabled",
-    "retryPreferenceVersion"
-  ]),
-  video: Object.freeze([
-    "enabled",
-    "provider",
-    "baseUrl",
-    "endpoint",
-    "queryEndpoint",
-    "model",
-    "createPath",
-    "queryPath",
-    "resolution",
-    "aspectRatio",
-    "timeoutMs"
-  ])
-});
-
-function normalizeAdminProviderProfiles(value) {
-  const source = value && typeof value === "object" && !Array.isArray(value)
-    ? value
-    : {};
-  const result = {};
-  ADMIN_PROVIDER_PROFILE_SECTIONS.forEach((section) => {
-    const rawSection = source[section];
-    if (!rawSection || typeof rawSection !== "object" || Array.isArray(rawSection)) return;
-    const profiles = {};
-    Object.keys(rawSection).forEach((rawProviderId) => {
-      const providerId = providerIdFromDisplay(rawProviderId);
-      if (!providerId || ADMIN_PROVIDER_DANGEROUS_KEYS.includes(providerId)) return;
-      const rawProfile = rawSection[rawProviderId];
-      if (!rawProfile || typeof rawProfile !== "object" || Array.isArray(rawProfile)) return;
-      const profile = {};
-      (ADMIN_PROVIDER_PROFILE_FORM_KEYS[section] || []).forEach((key) => {
-        if (!Object.prototype.hasOwnProperty.call(rawProfile, key)) return;
-        profile[key] = rawProfile[key];
-      });
-      profile.provider = displayAdminProvider(providerId, providerId);
-      profile.apiKeyConfigured = Boolean(
-        rawProfile.apiKeyConfigured
-        || String(rawProfile.apiKey || "").trim()
-      );
-      profiles[providerId] = profile;
-    });
-    if (Object.keys(profiles).length) result[section] = profiles;
-  });
-  return result;
-}
-
-function formSectionToProviderConfig(section, source = {}) {
-  const value = source && typeof source === "object" ? source : {};
-  if (
-    section === "face"
-    || section === "analysis"
-    || section === "faceBackup"
-    || section === "analysisBackup"
-  ) {
-    const result = {
-      provider: normalizeAdminProviderInput(value.provider),
-      baseUrl: String(value.baseUrl || "").trim(),
-      endpoint: String(value.endpoint || "").trim(),
-      apiKey: String(value.apiKey || "").trim(),
-      model: String(value.model || "").trim(),
-      timeoutMs: Number(value.timeoutMs || 0)
-    };
-    if (section === "faceBackup" || section === "analysisBackup") {
-      result.enabled = Boolean(value.enabled);
-      result.providerKey = String(value.providerKey || "").trim();
-    }
-    return result;
-  }
-  if (section === "image") {
-    return {
-      provider: normalizeAdminImageProviderInput(value.provider),
-      baseUrl: String(value.baseUrl || "").trim(),
-      endpoint: String(value.endpoint || "").trim(),
-      apiKey: String(value.apiKey || "").trim(),
-      model: String(value.model || "").trim(),
-      mode: String(value.mode || "").trim().toLowerCase(),
-      size: String(value.size || "").trim(),
-      resolution: normalizeAdminImageResolution(
-        value.resolution || value.size,
-        "1K"
-      ),
-      compatibilityMode: Boolean(value.compatibilityMode),
-      timeoutMs: Number(value.timeoutMs || 0),
-      maxRetries: Number(value.maxRetries || 0),
-      retryEnabled: Boolean(value.retryEnabled),
-      retryPreferenceVersion: 1
-    };
-  }
-  if (section === "imageBackup") {
-    return {
-      enabled: Boolean(value.enabled),
-      provider: normalizeAdminImageProviderInput(value.provider),
-      baseUrl: String(value.baseUrl || "").trim(),
-      endpoint: String(value.endpoint || "").trim(),
-      apiKey: String(value.apiKey || "").trim(),
-      model: String(value.model || "").trim(),
-      mode: String(value.mode || "edits").trim().toLowerCase(),
-      size: String(value.size || "").trim(),
-      resolution: normalizeAdminImageResolution(
-        value.resolution || value.size,
-        "1K"
-      ),
-      compatibilityMode: Boolean(value.compatibilityMode),
-      timeoutMs: Number(value.timeoutMs || 0),
-      maxRetries: 0,
-      retryEnabled: false,
-      retryPreferenceVersion: 1
-    };
-  }
-  if (section === "video" || section === "videoBackup") {
-    return {
-      enabled: section === "videoBackup"
-        ? Boolean(value.enabled)
-        : value.enabled === undefined ? true : Boolean(value.enabled),
-      provider: normalizeAdminProviderInput(value.provider),
-      baseUrl: String(value.baseUrl || "").trim(),
-      endpoint: String(value.endpoint || "").trim(),
-      queryEndpoint: String(value.queryEndpoint || "").trim(),
-      apiKey: String(value.apiKey || "").trim(),
-      model: String(value.model || "").trim(),
-      createPath: String(value.createPath || "").trim(),
-      queryPath: String(value.queryPath || "").trim(),
-      resolution: String(value.resolution || "").trim(),
-      aspectRatio: String(value.aspectRatio || "").trim(),
-      timeoutMs: Number(value.timeoutMs || 0)
-    };
-  }
-  return {};
-}
-
-function providerProfilesFromForm(form) {
-  const source = form && typeof form === "object" ? form : {};
-  const normalized = normalizeAdminProviderProfiles(source.providerProfiles);
-  const result = {};
-  ADMIN_PROVIDER_PROFILE_SECTIONS.forEach((section) => {
-    result[section] = {};
-    const savedProfiles = normalized[section] || {};
-    Object.keys(savedProfiles).forEach((providerId) => {
-      const saved = savedProfiles[providerId] || {};
-      const profile = Object.assign(
-        {},
-        saved,
-        formSectionToProviderConfig(section, saved),
-        {
-          provider: providerId
-        }
-      );
-      if (saved.apiKeyConfigured && !profile.apiKey) profile.apiKeyConfigured = true;
-      result[section][providerId] = profile;
-    });
-    const active = source[section] && typeof source[section] === "object"
-      ? source[section]
-      : {};
-    const providerId = providerIdFromDisplay(active.provider);
-    if (!providerId || ADMIN_PROVIDER_DANGEROUS_KEYS.includes(providerId)) return;
-    const previous = result[section][providerId] || {};
-    const current = formSectionToProviderConfig(section, active);
-    const merged = Object.assign({}, previous, current, { provider: providerId });
-    if (section === "video") {
-      delete merged.apiKey;
-      merged.apiKeyConfigured = false;
-    } else {
-      if (!current.apiKey && previous.apiKey) merged.apiKey = previous.apiKey;
-      merged.apiKeyConfigured = Boolean(
-        active.apiKeyConfigured
-        || previous.apiKeyConfigured
-        || merged.apiKey
-      );
-    }
-    result[section][providerId] = merged;
-  });
-  const backup = source.videoBackup && typeof source.videoBackup === "object"
-    ? source.videoBackup
-    : {};
-  const backupProviderId = providerIdFromDisplay(backup.provider);
-  if (
-    backupProviderId
-    && !ADMIN_PROVIDER_DANGEROUS_KEYS.includes(backupProviderId)
-  ) {
-    result.video = Object.assign({}, result.video || {});
-    const previous = result.video[backupProviderId] || {};
-    const current = formSectionToProviderConfig("videoBackup", backup);
-    const merged = Object.assign(
-      {},
-      previous,
-      current,
-      { provider: backupProviderId }
-    );
-    delete merged.apiKey;
-    merged.apiKeyConfigured = false;
-    result.video[backupProviderId] = merged;
-  }
-  return result;
-}
-
-function syncAdminProviderProfiles(form) {
-  const source = form && typeof form === "object" ? form : {};
-  const next = Object.assign({}, source, {
-    providerProfiles: providerProfilesFromForm(source)
-  });
-  return next;
-}
-
-function buildAdminProviderProfileOptions(form, section) {
-  const source = form && typeof form === "object" ? form : {};
-  const profileSectionName = section === "videoBackup" ? "video" : section;
-  const profileSection = source.providerProfiles
-    && source.providerProfiles[profileSectionName]
-    && typeof source.providerProfiles[profileSectionName] === "object"
-    ? source.providerProfiles[profileSectionName]
-    : {};
-  const currentProviderId = providerIdFromDisplay(
-    source[section] && source[section].provider
-  );
-  const ids = sortAdminProviderIds([
-    ...Object.keys(ADMIN_PROVIDER_LABELS),
-    ...Object.keys(
-      source.providerLabels
-      && typeof source.providerLabels === "object"
-      && !Array.isArray(source.providerLabels)
-        ? source.providerLabels
-        : {}
-    ),
-    ...Object.keys(profileSection),
-    ...Object.keys(
-      source.providerRegistry
-      && source.providerRegistry.providers
-      && typeof source.providerRegistry.providers === "object"
-        ? source.providerRegistry.providers
-        : {}
-    ),
-    currentProviderId
-  ], source.providerLabels);
-  const options = ids.map((providerId) => ({
-    value: providerId,
-    label: `${displayAdminProvider(providerId, providerId)}${
-      profileSection[providerId]
-        || hasKnownAdminProviderDefaults(section, providerId)
-        ? "（已有参数）"
-        : "（未配置）"
-    }`
-  }));
-  return section === "videoBackup"
-    ? [{ value: "", label: "未启用" }].concat(options)
-    : options;
-}
-
-function hasKnownAdminProviderDefaults(section, providerId) {
-  const normalizedProviderId = providerIdFromDisplay(providerId);
-  if (section === "videoBackup") {
-    return Boolean(
-      normalizedProviderId
-      && normalizedProviderId === "xingju"
-    );
-  }
-  if (section === "face" || section === "analysis") {
-    return Boolean(ADMIN_VISUAL_PROVIDER_DEFAULTS[normalizedProviderId]);
-  }
-  if (section === "image" || section === "imageBackup") {
-    return Boolean(ADMIN_IMAGE_PROVIDER_DEFAULTS[normalizedProviderId]);
-  }
-  if (section === "video") {
-    return normalizedProviderId === "xingju";
-  }
-  return false;
-}
-
-function buildAdminProviderProfilePickerState(form) {
-  const source = form && typeof form === "object" ? form : {};
-  const patch = {};
-  ADMIN_PROVIDER_PICKER_SECTIONS.forEach((section) => {
-    const state = ADMIN_PROVIDER_PROFILE_STATE[section];
-    const options = buildAdminProviderProfileOptions(source, section);
-    const currentProviderId = providerIdFromDisplay(
-      source[section] && source[section].provider
-    );
-    patch[state.options] = options;
-    patch[state.index] = pickerIndex(options, currentProviderId, 0);
-  });
-  return patch;
-}
-
-function captureAdminProviderProfile(form, section) {
-  const source = form && typeof form === "object" ? form : {};
-  const current = source[section] && typeof source[section] === "object"
-    ? source[section]
-    : {};
-  const providerId = providerIdFromDisplay(current.provider);
-  if (!providerId || ADMIN_PROVIDER_DANGEROUS_KEYS.includes(providerId)) {
-    return normalizeAdminProviderProfiles(source.providerProfiles);
-  }
-  const profileSection = section === "videoBackup" ? "video" : section;
-  const profiles = normalizeAdminProviderProfiles(source.providerProfiles);
-  profiles[profileSection] = Object.assign({}, profiles[profileSection] || {});
-  const previous = profiles[profileSection][providerId] || {};
-  const captured = Object.assign(
-    {},
-    previous,
-    formSectionToProviderConfig(section, current),
-    {
-      provider: displayAdminProvider(providerId, providerId),
-      apiKeyConfigured: Boolean(
-        current.apiKeyConfigured
-        || previous.apiKeyConfigured
-        || current.apiKey
-      )
-    }
-  );
-  if (profileSection === "video") {
-    delete captured.apiKey;
-    captured.apiKeyConfigured = false;
-  } else if (!captured.apiKey && previous.apiKey) {
-    captured.apiKey = previous.apiKey;
-  }
-  profiles[profileSection][providerId] = captured;
-  return profiles;
-}
-
-function providerProfileDefaultForm(section, providerId) {
-  const normalizedProviderId = providerIdFromDisplay(providerId);
-  const defaults = emptyForm();
-  const source = defaults[section] && typeof defaults[section] === "object"
-    ? defaults[section]
-    : {};
-  const result = Object.assign({}, source, {
-    provider: displayAdminProvider(normalizedProviderId, normalizedProviderId),
-    baseUrl: "",
-    endpoint: "",
-    apiKey: "",
-    apiKeyConfigured: false,
-    model: ""
-  });
-  if (section === "face" || section === "analysis") {
-    Object.assign(
-      result,
-      ADMIN_VISUAL_PROVIDER_DEFAULTS[normalizedProviderId] || {}
-    );
-  }
-  if (section === "image" || section === "imageBackup") {
-    Object.assign(
-      result,
-      ADMIN_IMAGE_PROVIDER_DEFAULTS[normalizedProviderId] || {}
-    );
-  }
-  if (
-    (section === "video" || section === "videoBackup")
-    && normalizedProviderId === "xingju"
-  ) {
-    Object.assign(result, XINGJU_VIDEO_DEFAULTS);
-  } else if (section === "video" || section === "videoBackup") {
-    result.queryEndpoint = "";
-    result.createPath = "";
-    result.queryPath = "";
-    result.resolution = "";
-    result.aspectRatio = "";
-    result.timeoutMs = String(source.timeoutMs || "90000");
-  }
-  result.enabled = section === "videoBackup"
-    ? Boolean(source.enabled)
-    : true;
-  return result;
-}
-
-function profileFormForProvider(form, section, providerId) {
-  const source = form && typeof form === "object" ? form : {};
-  const normalizedProviderId = providerIdFromDisplay(providerId);
-  const profileSection = section === "videoBackup" ? "video" : section;
-  const profile = source.providerProfiles
-    && source.providerProfiles[profileSection]
-    && source.providerProfiles[profileSection][normalizedProviderId]
-    && typeof source.providerProfiles[profileSection][normalizedProviderId] === "object"
-    ? source.providerProfiles[profileSection][normalizedProviderId]
-    : null;
-  const defaults = providerProfileDefaultForm(section, normalizedProviderId);
-  if (profile) {
-    const merged = Object.assign({}, defaults);
-    (ADMIN_PROVIDER_PROFILE_FORM_KEYS[profileSection] || []).forEach((key) => {
-      if (!Object.prototype.hasOwnProperty.call(profile, key)) return;
-      const value = profile[key];
-      if (key === "compatibilityMode" || key === "retryEnabled" || key === "enabled") {
-        merged[key] = Boolean(value);
-        return;
-      }
-      if (key === "apiKeyConfigured") {
-        merged[key] = Boolean(value || profile.apiKey);
-        return;
-      }
-      if (String(value === undefined || value === null ? "" : value).trim()) {
-        merged[key] = value;
-      }
-    });
-    return Object.assign({}, merged, {
-      provider: displayAdminProvider(normalizedProviderId, normalizedProviderId),
-      apiKeyConfigured: Boolean(profile.apiKeyConfigured || profile.apiKey)
-    });
-  }
-  return defaults;
-}
-
-function updateAdminProviderProfileForm(form, section, patch) {
-  const source = form && typeof form === "object" ? form : {};
-  const next = Object.assign({}, source, {
-    [section]: Object.assign({}, source[section] || {}, patch || {})
-  });
-  return Object.assign({}, next, {
-    providerProfiles: captureAdminProviderProfile(next, section)
-  });
-}
-
-function switchAdminProviderProfile(form, section, providerId) {
-  const source = form && typeof form === "object" ? form : {};
-  if (!ADMIN_PROVIDER_PICKER_SECTIONS.includes(section)) return source;
-  const normalizedProviderId = providerIdFromDisplay(providerId);
-  if (section === "videoBackup" && !normalizedProviderId) {
-    const capturedProfiles = captureAdminProviderProfile(source, section);
-    return Object.assign({}, source, {
-      providerProfiles: capturedProfiles,
-      videoBackup: Object.assign({}, emptyForm().videoBackup)
-    });
-  }
-  if (
-    !normalizedProviderId
-    || ADMIN_PROVIDER_DANGEROUS_KEYS.includes(normalizedProviderId)
-  ) {
-    return source;
-  }
-  const capturedProfiles = captureAdminProviderProfile(source, section);
-  const working = Object.assign({}, source, {
-    providerProfiles: capturedProfiles
-  });
-  const selected = profileFormForProvider(
-    working,
-    section,
-    normalizedProviderId
-  );
-  if (section === "videoBackup") {
-    selected.enabled = true;
-    selected.apiKey = String(
-      source.videoBackup
-      && source.videoBackup.apiKey
-      || ""
-    ).trim();
-    selected.apiKeyConfigured = Boolean(
-      source.videoBackup
-      && source.videoBackup.apiKeyConfigured
-      || selected.apiKey
-    );
-  } else if (section === "imageBackup") {
-    selected.enabled = Boolean(
-      source.imageBackup
-      && source.imageBackup.enabled
-    );
-  } else if (section === "video") {
-    selected.apiKey = String(
-      source.video
-      && source.video.apiKey
-      || ""
-    ).trim();
-    selected.apiKeyConfigured = Boolean(
-      source.video
-      && source.video.apiKeyConfigured
-      || selected.apiKey
-    );
-  }
-  return Object.assign({}, working, {
-    [section]: selected
-  });
-}
-
 function emptyVisionBackupForm(section = "faceBackup") {
   const isVideo = section === "videoBackup";
   return isVideo
@@ -1457,160 +645,11 @@ function emptyVisionBackupForm(section = "faceBackup") {
         apiKeyConfigured: false,
         model: "",
         timeoutMs: "30000"
-  };
-}
-
-// 旧版视频页签仍使用 onProviderProfileChange；当目录已存在时，
-// 也要按稳定 providerKey 读取档案，不能把上一家服务商的字段带过去。
-function findAdminProviderRecordByRef(registry, value) {
-  const raw = String(value === undefined || value === null ? "" : value).trim();
-  if (!raw) return null;
-  const direct = getAdminProviderRecord(registry, raw);
-  if (direct) return direct;
-  const providers = registry && registry.providers && typeof registry.providers === "object"
-    ? registry.providers
-    : {};
-  const lower = raw.toLowerCase();
-  const key = Object.keys(providers).find((candidate) => {
-    const record = providers[candidate];
-    return record
-      && (String(record.id || "").toLowerCase() === lower
-        || String(record.name || "") === raw);
-  });
-  return key ? providers[key] : null;
-}
-
-function adminVideoBackupFormFromRecord(record, previous = {}, secretRows = []) {
-  const source = record && typeof record === "object" ? record : {};
-  const cap = source.capabilities && source.capabilities.video || {};
-  const previousProviderKey = String(previous.providerKey || "").trim();
-  const sameProvider = previousProviderKey
-    && previousProviderKey === String(source.providerKey || "").trim();
-  const secretRow = (Array.isArray(secretRows) ? secretRows : []).find(
-    (item) => item && item.providerKey === source.providerKey
-  );
-  const secretKey = String(secretRow && secretRow.videoBackupApiKey || "").trim();
-  const value = (field, fallback = "") => {
-    if (sameProvider && previous[field] !== undefined && String(previous[field] || "").trim()) {
-      return previous[field];
-    }
-    if (cap[field] !== undefined && cap[field] !== "") return cap[field];
-    return fallback;
-  };
-  const previousKey = sameProvider
-    ? String(previous.apiKey || "").trim()
-    : "";
-  const next = Object.assign({}, emptyVisionBackupForm("videoBackup"), {
-    enabled: true,
-    providerKey: String(source.providerKey || "").trim(),
-    provider: String(source.name || displayAdminProvider(source.id, source.id) || "").trim(),
-    baseUrl: value("baseUrl", source.common && source.common.baseUrl || ""),
-    endpoint: value("endpoint"),
-    queryEndpoint: value("queryEndpoint"),
-    model: value("model"),
-    createPath: value("createPath", "/v1/videos/generations"),
-    queryPath: value("queryPath", "/v1/videos/{taskId}"),
-    resolution: value("resolution", "720p"),
-    aspectRatio: value("aspectRatio"),
-    timeoutMs: String(value("timeoutMs", "90000")),
-    apiKey: previousKey || secretKey,
-    apiKeyConfigured: Boolean(
-      previousKey
-      || secretKey
-      || cap.apiKeyConfigured
-      || source.common && source.common.apiKeyConfigured
-    )
-  });
-  return applyAdminVideoProviderDefaults({ videoBackup: next }, "videoBackup").videoBackup;
-}
-
-function normalizeAdminActiveBackups(value, registry, effective = {}) {
-  const hasValueObject = Boolean(value && typeof value === "object");
-  const source = hasValueObject && value.activeBackups && typeof value.activeBackups === "object"
-    ? value.activeBackups
-    : hasValueObject ? value : {};
-  const hasExplicitSource = hasValueObject;
-  const normalizedRegistry = normalizeAdminProviderRegistry(registry || {});
-  const output = {};
-  ADMIN_PROVIDER_BACKUP_SECTIONS.forEach((slot) => {
-    const section = effective && effective[slot] && typeof effective[slot] === "object"
-      ? effective[slot]
-      : {};
-    const hasExplicit = hasExplicitSource
-      || Object.prototype.hasOwnProperty.call(source, slot);
-    if (!hasExplicitSource && section.enabled === false) {
-      output[slot] = "";
-      return;
-    }
-    const raw = String(
-      hasExplicit
-        ? source[slot]
-        : section.providerKey
-          || section.provider
-          || ""
-    ).trim();
-    if (!raw) {
-      output[slot] = "";
-      return;
-    }
-    if (normalizedRegistry.providers && normalizedRegistry.providers[raw]) {
-      output[slot] = raw;
-      return;
-    }
-    const found = Object.keys(normalizedRegistry.providers || {}).find((key) => {
-      const record = normalizedRegistry.providers[key];
-      if (!record) return false;
-      return String(record.id || "").toLowerCase() === raw.toLowerCase()
-        || String(record.name || "") === raw;
-    });
-    if (found) {
-      output[slot] = found;
-      return;
-    }
-    // 旧配置可能只给了 provider 字符串；保留空值，让用户明确重新选择，
-    // 不把不存在的引用带进保存请求。
-    output[slot] = "";
-  });
-  return output;
-}
-
-function buildAdminBackupProviderOptions(registry, activeBackups, section) {
-  const baseSlot = ADMIN_PROVIDER_BACKUP_BASE_SECTIONS[section] || section;
-  const active = activeBackups && typeof activeBackups === "object"
-    ? activeBackups
-    : {};
-  const options = buildAdminProviderOptions(
-    registry,
-    { [baseSlot]: active[section] || "" },
-    baseSlot
-  );
-  return options.map((item) => Object.assign({}, item, {
-    active: item.value === (active[section] || "")
-  }));
-}
-
-function applyAdminBackupProviderDefaults(form, section) {
-  const source = form && typeof form === "object" ? form : emptyForm();
-  const current = Object.assign(
-    {},
-    emptyVisionBackupForm(section),
-    source[section] && typeof source[section] === "object" ? source[section] : {}
-  );
-  if (section === "videoBackup") {
-    return Object.assign({}, source, {
-      [section]: applyAdminVideoProviderDefaults(
-        Object.assign({}, source, { [section]: current }),
-        section
-      )[section]
-    });
-  }
-  return Object.assign({}, source, { [section]: current });
+      };
 }
 
 function emptyForm() {
   return {
-    providerLabels: Object.assign({}, ADMIN_PROVIDER_LABELS),
-    providerProfiles: {},
     face: {
       provider: "",
       baseUrl: "",
@@ -1619,6 +658,7 @@ function emptyForm() {
       model: "",
       timeoutMs: "30000"
     },
+    faceBackup: emptyVisionBackupForm("faceBackup"),
     analysis: {
       provider: "",
       baseUrl: "",
@@ -1627,14 +667,13 @@ function emptyForm() {
       model: "",
       timeoutMs: "30000"
     },
-    faceBackup: emptyVisionBackupForm("faceBackup"),
     analysisBackup: emptyVisionBackupForm("analysisBackup"),
     image: {
       provider: "星炬",
       baseUrl: "https://newapi.akiyo.fun/v1",
       endpoint: "",
       apiKey: "",
-      model: "jw-wy-gpt-image-2",
+      model: "jw-gpt-image-2",
       mode: "edits",
       size: "1080x1440",
       resolution: "1K",
@@ -1660,9 +699,7 @@ function emptyForm() {
       retryEnabled: false,
       retryPreferenceVersion: 1
     },
-    tencentFaceFusion: emptyTencentFaceFusionForm(),
     video: {
-      enabled: true,
       provider: "",
       baseUrl: "",
       endpoint: "",
@@ -1675,22 +712,7 @@ function emptyForm() {
       aspectRatio: "",
       timeoutMs: "90000"
     },
-    videoBackup: {
-      enabled: false,
-      provider: "",
-      providerKey: "",
-      baseUrl: "",
-      endpoint: "",
-      queryEndpoint: "",
-      apiKey: "",
-      apiKeyConfigured: false,
-      model: "",
-      createPath: "/v1/videos/generations",
-      queryPath: "/v1/videos/{taskId}",
-      resolution: "720p",
-      aspectRatio: "",
-      timeoutMs: "90000"
-    },
+    videoBackup: emptyVisionBackupForm("videoBackup"),
     points: {
       dailyFreeLimit: "3",
       imageCost: "10",
@@ -1843,10 +865,13 @@ function pickModelName() {
 function emptyCurrentConfigModels() {
   return {
     face: "未配置",
+    faceBackup: "未配置",
     analysis: "未配置",
+    analysisBackup: "未配置",
     image: "未配置",
-    tencentFaceFusion: "未配置",
-    video: "未配置"
+    imageBackup: "未配置",
+    video: "未配置",
+    videoBackup: "未配置"
   };
 }
 
@@ -1855,11 +880,7 @@ function buildCurrentConfigModels(form) {
   return ["face", "analysis", "image", "video"].reduce((result, key) => {
     result[key] = displayModelName(source[key] && source[key].model);
     return result;
-  }, Object.assign(emptyCurrentConfigModels(), {
-    tencentFaceFusion: displayModelName(
-      source.tencentFaceFusion && source.tencentFaceFusion.model
-    )
-  }));
+  }, emptyCurrentConfigModels());
 }
 
 // 成本金额只展示到小数点后 4 位并直接截断，底层统计和 Excel 仍保留原值。
@@ -1874,7 +895,7 @@ const CONFIG_SECTION_TITLES = Object.freeze({
   face: "人脸识别模型",
   analysis: "图片分析模型",
   image: "生图模型",
-  tencentFaceFusion: "开始新创作-腾讯版",
+  tencentFaceFusion: "生图模型-腾讯版",
   video: "视频模型",
   points: "签到与积分规则",
   costs: "模型成本配置",
@@ -1921,6 +942,7 @@ const AUTO_FACE_FAILURE_SECTION_KEYS = Object.freeze([
   "monthly"
 ]);
 const MONITOR_LAYOUT_STORAGE_KEY = "admin-monitor-layout-v3";
+const TENCENT_FACEFUSION_LAST_TEST_STORAGE_KEY = "admin-tencent-facefusion-last-test-v1";
 const AUTO_FACE_FAILURE_AUTO_REFRESH_MS = 10 * 60 * 1000;
 const MODEL_FAILURE_AUTO_REFRESH_MS = 10 * 60 * 1000;
 
@@ -2076,7 +1098,7 @@ function emptyImageProviderStats() {
     todayKey: "",
     totalRequests: 0,
     totalAttempts: 0,
-    primary: emptyImageProviderAttemptCounter("xingju", "jw-wy-gpt-image-2"),
+    primary: emptyImageProviderAttemptCounter("xingju", "jw-gpt-image-2"),
     backup: emptyImageProviderAttemptCounter("lingyun", "gpt-image-2"),
     switchCount: 0,
     switchRate: 0,
@@ -2151,7 +1173,7 @@ function formatImageProviderStats(result) {
     primary: formatImageProviderAttemptCounter(
       source.primary,
       "xingju",
-      "jw-wy-gpt-image-2"
+      "jw-gpt-image-2"
     ),
     backup: formatImageProviderAttemptCounter(
       source.backup,
@@ -2307,6 +1329,44 @@ function emptyAutoFaceProbeHistory() {
   };
 }
 
+function emptyPaymentMonitor() {
+  return {
+    available: false,
+    status: "idle",
+    statusText: "读取中",
+    tone: "neutral",
+    mode: "disabled",
+    modeText: "关闭态",
+    severity: "unknown",
+    severityText: "未知",
+    summaryText: "",
+    heartbeatText: "暂无",
+    lastRunStartedAtText: "暂无",
+    lastRunCompletedAtText: "暂无",
+    lastSuccessAtText: "暂无",
+    updatedAtText: "暂无",
+    durationText: "暂无",
+    scanned: 0,
+    claimed: 0,
+    fulfilled: 0,
+    failed: 0,
+    skipped: 0,
+    stoppedEarly: false,
+    dueBacklogCount: 0,
+    oldestDueAtText: "暂无",
+    lastRunText: "尚未运行",
+    lastSuccessText: "尚无成功记录",
+    oldestDueText: "暂无积压",
+    reviewCount: 0,
+    refundReviewCount: 0,
+    paidUnfulfilledCount: 0,
+    consecutiveFailureCount: 0,
+    reasonCodes: [],
+    reasonTexts: [],
+    message: ""
+  };
+}
+
 function emptyUserStats() {
   return {
     total: 0,
@@ -2388,36 +1448,6 @@ function emptyGenerationQueue() {
   };
 }
 
-function emptyPaymentMonitor() {
-  return {
-    available: false,
-    unavailable: false,
-    mode: "disabled",
-    stale: false,
-    severity: "disabled",
-    tone: "neutral",
-    statusText: "尚未启用",
-    summaryText: "补单监控保持关闭",
-    reasonTexts: [],
-    lastRunText: "尚未运行",
-    lastSuccessText: "尚无成功记录",
-    oldestDueText: "暂无积压",
-    durationText: "0 ms",
-    scanned: 0,
-    claimed: 0,
-    fulfilled: 0,
-    failed: 0,
-    skipped: 0,
-    dueBacklogCount: 0,
-    reviewCount: 0,
-    refundReviewCount: 0,
-    paidUnfulfilledCount: 0,
-    consecutiveFailureCount: 0,
-    metricsAvailable: true,
-    message: ""
-  };
-}
-
 function emptyCostTrend() {
   return {
     days: [],
@@ -2436,8 +1466,8 @@ function buildTodayFailureText(usageStats, moduleStates) {
 }
 
 const ADMIN_MODULE_KEYS = [
-  "paymentMonitor",
   "generationQueue",
+  "paymentMonitor",
   "usage",
   "imageProviderStats",
   "configAudit",
@@ -2662,91 +1692,6 @@ function formatQueueDuration(seconds) {
   if (value < 60) return `${Math.floor(value)}秒`;
   if (value < 3600) return `${Math.floor(value / 60)}分钟`;
   return `${Math.floor(value / 3600)}小时${Math.floor((value % 3600) / 60)}分钟`;
-}
-
-function paymentMonitorReasonText(code) {
-  const labels = {
-    RECONCILIATION_DISABLED: "补单任务未开启",
-    RECONCILE_RUN_FAILED: "本轮补单失败",
-    RECONCILE_CONSECUTIVE_FAILURES: "补单连续失败",
-    PAID_UNFULFILLED: "存在已支付未入账订单",
-    REVIEW_REQUIRED: "存在待人工复核订单",
-    REFUND_REVIEW_REQUIRED: "存在退款待复核订单",
-    DUE_BACKLOG_COUNT: "待补单数量过多",
-    DUE_BACKLOG_AGE: "最早待补单等待过久",
-    METRICS_UNAVAILABLE: "监控指标读取失败",
-    TIMER_STALE: "定时补单长时间未运行"
-  };
-  return labels[String(code || "")] || String(code || "");
-}
-
-function formatPaymentMonitor(result) {
-  const source = result && typeof result === "object" ? result : {};
-  const defaults = emptyPaymentMonitor();
-  const severity = ["disabled", "healthy", "warning", "critical"]
-    .includes(source.severity)
-    ? source.severity
-    : "disabled";
-  const tone = severity === "critical"
-    ? "danger"
-    : severity === "warning"
-      ? "warning"
-      : severity === "healthy"
-        ? "normal"
-        : "neutral";
-  const statusText = source.unavailable
-    ? "尚未部署"
-    : source.stale
-      ? "定时任务断跑"
-      : severity === "critical"
-        ? "需要立即处理"
-        : severity === "warning"
-          ? "需要检查"
-          : severity === "healthy"
-            ? "运行正常"
-            : "尚未启用";
-  const dueBacklogCount = Math.max(0, Number(source.dueBacklogCount) || 0);
-  const reviewCount = Math.max(0, Number(source.reviewCount) || 0);
-  const refundReviewCount = Math.max(0, Number(source.refundReviewCount) || 0);
-  const paidUnfulfilledCount = Math.max(0, Number(source.paidUnfulfilledCount) || 0);
-  const durationMs = Math.max(0, Number(source.durationMs) || 0);
-  return Object.assign({}, defaults, {
-    available: Boolean(source.available),
-    unavailable: Boolean(source.unavailable),
-    mode: source.mode === "enabled" ? "enabled" : "disabled",
-    stale: Boolean(source.stale),
-    severity,
-    tone,
-    statusText,
-    summaryText: `待补单 ${dueBacklogCount} · 待复核 ${reviewCount + refundReviewCount} · 支付未入账 ${paidUnfulfilledCount}`,
-    reasonTexts: (Array.isArray(source.reasonCodes) ? source.reasonCodes : [])
-      .map(paymentMonitorReasonText)
-      .filter(Boolean),
-    lastRunText: source.lastRunCompletedAt
-      ? formatAdminDate(source.lastRunCompletedAt)
-      : "尚未运行",
-    lastSuccessText: source.lastSuccessAt
-      ? formatAdminDate(source.lastSuccessAt)
-      : "尚无成功记录",
-    oldestDueText: source.oldestDueAt
-      ? formatAdminDate(source.oldestDueAt)
-      : "暂无积压",
-    durationText: durationMs >= 1000
-      ? `${(durationMs / 1000).toFixed(1)} 秒`
-      : `${durationMs} ms`,
-    scanned: Math.max(0, Number(source.scanned) || 0),
-    claimed: Math.max(0, Number(source.claimed) || 0),
-    fulfilled: Math.max(0, Number(source.fulfilled) || 0),
-    failed: Math.max(0, Number(source.failed) || 0),
-    skipped: Math.max(0, Number(source.skipped) || 0),
-    dueBacklogCount,
-    reviewCount,
-    refundReviewCount,
-    paidUnfulfilledCount,
-    consecutiveFailureCount: Math.max(0, Number(source.consecutiveFailureCount) || 0),
-    metricsAvailable: source.metricsAvailable !== false,
-    message: String(source.message || "")
-  });
 }
 
 function applyGenerationQueueFilters(queue, kind = "all", status = "all") {
@@ -3157,22 +2102,6 @@ function emptyTencentFaceFusionStatus() {
   };
 }
 
-function emptyTencentFaceFusionForm() {
-  return {
-    secretId: "",
-    secretKey: "",
-    region: "ap-guangzhou",
-    endpoint: "https://facefusion.tencentcloudapi.com",
-    apiVersion: "2022-09-27",
-    action: "FuseFaceUltra",
-    model: "FuseFaceUltra",
-    swapModelType: "4",
-    logoAdd: false,
-    timeoutMs: "75000",
-    maxImageBytes: String(5 * 1024 * 1024)
-  };
-}
-
 function tencentFaceFusionCallStatusText(value) {
   const status = String(value || "not-called").trim().toLowerCase();
   const labels = {
@@ -3257,60 +2186,92 @@ function formatTencentFaceFusionStatus(result) {
   });
 }
 
-function tencentFaceFusionConfigFromForm(form) {
-  const source = form && form.tencentFaceFusion
-    ? form.tencentFaceFusion
-    : emptyTencentFaceFusionForm();
-  return {
-    secretId: String(source.secretId || "").trim(),
-    secretKey: String(source.secretKey || "").trim(),
-    region: String(source.region || "").trim(),
-    endpoint: String(source.endpoint || "").trim(),
-    apiVersion: String(source.apiVersion || "").trim(),
-    action: String(source.action || "").trim(),
-    model: String(source.model || "").trim(),
-    swapModelType: Number(source.swapModelType || 0),
-    logoAdd: Boolean(source.logoAdd),
-    timeoutMs: Number(source.timeoutMs || 0),
-    maxImageBytes: Number(source.maxImageBytes || 0)
-  };
+function readTencentFaceFusionLocalStatus() {
+  try {
+    const value = wx.getStorageSync(TENCENT_FACEFUSION_LAST_TEST_STORAGE_KEY);
+    if (!value || typeof value !== "object") return null;
+    return Object.assign(emptyTencentFaceFusionStatus(), value);
+  } catch (error) {
+    return null;
+  }
 }
 
-function validateTencentFaceFusionForm(form) {
-  const source = form && form.tencentFaceFusion
-    ? form.tencentFaceFusion
-    : emptyTencentFaceFusionForm();
-  const errors = {};
-  const endpoint = String(source.endpoint || "").trim();
-  const apiVersion = String(source.apiVersion || "").trim();
-  const swapModelType = Number(source.swapModelType);
-  const timeoutMs = Number(source.timeoutMs);
-  const maxImageBytes = Number(source.maxImageBytes);
-  if (!String(source.region || "").trim()) errors.region = "Region 不能为空";
-  if (!endpoint) {
-    errors.endpoint = "Endpoint 不能为空";
-  } else if (!/^https:\/\//i.test(endpoint)) {
-    errors.endpoint = "Endpoint 必须使用 HTTPS";
+function saveTencentFaceFusionLocalStatus(status) {
+  try {
+    const source = status && typeof status === "object" ? status : {};
+    wx.setStorageSync(
+      TENCENT_FACEFUSION_LAST_TEST_STORAGE_KEY,
+      {
+        lastCallStatus: String(source.lastCallStatus || "not-called"),
+        lastCallStage: String(source.lastCallStage || ""),
+        lastErrorCode: String(source.lastErrorCode || ""),
+        lastErrorMessage: String(source.lastErrorMessage || ""),
+        lastRequestId: String(source.lastRequestId || ""),
+        lastDurationMs: Number(source.lastDurationMs) || 0,
+        lastTestType: String(source.lastTestType || ""),
+        lastCalledAt: String(source.lastCalledAt || ""),
+        lastCallTimestamp: Number(source.lastCallTimestamp) || 0,
+        checkedAt: new Date().toISOString()
+      }
+    );
+  } catch (error) {
+    diagnosticLog.warn(
+      "admin",
+      "tencent-facefusion-local-status-save-failed",
+      "腾讯测试状态本地保存失败",
+      { error }
+    );
   }
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(apiVersion)) {
-    errors.apiVersion = "API Version 必须是 YYYY-MM-DD";
-  }
-  if (!String(source.action || "").trim()) errors.action = "Action 不能为空";
-  if (!String(source.model || "").trim()) errors.model = "模型不能为空";
-  if (!Number.isInteger(swapModelType) || swapModelType < 1 || swapModelType > 9) {
-    errors.swapModelType = "必须填写 1～9 的整数";
-  }
-  if (!Number.isFinite(timeoutMs) || timeoutMs < 5000 || timeoutMs > 120000) {
-    errors.timeoutMs = "必须填写 5000～120000";
-  }
+}
+
+function mergeTencentFaceFusionStatus(remoteStatus) {
+  const remote = formatTencentFaceFusionStatus(remoteStatus);
+  const local = formatTencentFaceFusionStatus(readTencentFaceFusionLocalStatus());
+  if (!local || !local.lastCallTimestamp) return remote;
   if (
-    !Number.isFinite(maxImageBytes)
-    || maxImageBytes < 256 * 1024
-    || maxImageBytes > 8 * 1024 * 1024
+    !remote.lastCallTimestamp
+    || local.lastCallTimestamp > remote.lastCallTimestamp
   ) {
-    errors.maxImageBytes = "必须填写 262144～8388608";
+    return Object.assign({}, local, {
+      configured: remote.configured,
+      readFailed: remote.readFailed,
+      statusText: remote.statusText,
+      secretId: remote.secretId,
+      secretKey: remote.secretKey,
+      region: remote.region,
+      endpoint: remote.endpoint,
+      model: remote.model,
+      apiVersion: remote.apiVersion,
+      action: remote.action,
+      swapModelType: remote.swapModelType,
+      logoAdd: remote.logoAdd,
+      logoAddText: remote.logoAddText,
+      timeoutMs: remote.timeoutMs,
+      timeoutText: remote.timeoutText,
+      maxImageBytes: remote.maxImageBytes,
+      maxImageBytesText: remote.maxImageBytesText,
+      checkedAt: remote.checkedAt
+    });
   }
-  return errors;
+  return remote;
+}
+
+function buildTencentFaceFusionLocalStatus(result, requestId, status, errorMessage = "") {
+  const now = Date.now();
+  return Object.assign(emptyTencentFaceFusionStatus(), {
+    configured: true,
+    region: String(result && result.region || ""),
+    model: String(result && result.model || "FuseFaceUltra"),
+    lastCallStatus: status,
+    lastCallStage: status === "succeeded" ? "succeeded" : "facefusion",
+    lastErrorMessage: String(errorMessage || ""),
+    lastRequestId: String(requestId || ""),
+    lastDurationMs: Number(result && result.durationMs) || 0,
+    lastTestType: "admin-real-call",
+    lastCalledAt: new Date(now).toISOString(),
+    lastCallTimestamp: now,
+    checkedAt: new Date(now).toISOString()
+  });
 }
 
 function emptyImageEditCapabilityProbe() {
@@ -3368,7 +2329,7 @@ function formatImageEditCapabilityProbe(result) {
     maskField: String(fields.mask || ""),
     referenceField: String(fields.references || ""),
     maskInvertText: source.maskInvert ? "已开启" : "关闭",
-    apiKeyStatusText: source.apiKeyConfigured ? "已配置" : "未配置",
+    apiKeyStatusText: source.apiKeyConfigured ? "已配置（不显示内容）" : "未配置",
     liveVerified: Boolean(source.liveVerified),
     liveVerifiedText: source.liveVerified ? "已真实验证" : "未真实生图",
     billingRiskText: source.billingRisk ? "可能扣费" : "不扣费",
@@ -3560,6 +2521,159 @@ function formatAutoFaceProbeHistory(result) {
       checkedAt: item.checkedAt || "",
       checkedAtText: item.checkedAt ? formatAdminDate(item.checkedAt) : "未知时间"
     }))
+  });
+}
+
+function paymentMonitorReasonText(code) {
+  const labels = {
+    RECONCILIATION_DISABLED: "补单任务未开启",
+    RECONCILE_RUN_FAILED: "本轮补单失败",
+    RECONCILE_CONSECUTIVE_FAILURES: "补单连续失败",
+    PAID_UNFULFILLED: "存在已支付未入账订单",
+    REVIEW_REQUIRED: "存在待人工复核订单",
+    REFUND_REVIEW_REQUIRED: "存在退款待复核订单",
+    DUE_BACKLOG_COUNT: "待补单数量过多",
+    DUE_BACKLOG_AGE: "最早待补单等待过久",
+    METRICS_UNAVAILABLE: "监控指标读取失败",
+    TIMER_STALE: "定时补单长时间未运行"
+  };
+  return labels[String(code || "")] || String(code || "");
+}
+
+function formatPaymentMonitor(result) {
+  const source = result && result.monitor && typeof result.monitor === "object"
+    ? result.monitor
+    : result && typeof result === "object"
+      ? result
+      : {};
+  const hasSnapshot = Boolean(
+    source
+    && (
+      source.updatedAt
+      || source.lastRunCompletedAt
+      || source.lastSuccessAt
+      || source.schemaVersion
+    )
+  );
+  const severity = String(source.severity || (hasSnapshot ? "healthy" : "disabled"));
+  const mode = String(source.mode || (hasSnapshot ? "enabled" : "disabled"));
+  const staleMs = 5 * 60 * 1000;
+  const completedAt = source.lastRunCompletedAt ? new Date(source.lastRunCompletedAt) : null;
+  const completedAtMs = completedAt && !Number.isNaN(completedAt.getTime())
+    ? completedAt.getTime()
+    : 0;
+  const stale = Boolean(
+    hasSnapshot
+    && mode !== "disabled"
+    && completedAtMs
+    && Date.now() - completedAtMs > staleMs
+  );
+  const reasonCodes = Array.isArray(source.reasonCodes)
+    ? source.reasonCodes.map((item) => String(item || "").trim()).filter(Boolean)
+    : [];
+  const durationMs = Number(source.durationMs);
+  const tone = stale
+    ? "warn"
+    : severity === "critical"
+      ? "danger"
+      : severity === "warning"
+        ? "warn"
+        : severity === "disabled"
+          ? "neutral"
+          : "normal";
+  const summaryParts = [];
+  if (!hasSnapshot) {
+    summaryParts.push("还没有收到支付健康快照");
+  } else if (mode === "disabled") {
+    summaryParts.push("关闭态安全心跳已写入");
+  } else if (stale) {
+    summaryParts.push("Timer 心跳超时");
+  } else {
+    summaryParts.push("Timer 心跳正常");
+  }
+  if (reasonCodes.length) {
+    summaryParts.push(`原因 ${reasonCodes.join("、")}`);
+  }
+  if (Number.isFinite(durationMs)) {
+    summaryParts.push(`本轮耗时 ${Math.max(0, Math.round(durationMs))} 毫秒`);
+  }
+  const lastRunCompletedAtText = source.lastRunCompletedAt
+    ? formatAdminDate(source.lastRunCompletedAt)
+    : "暂无";
+  const lastSuccessAtText = source.lastSuccessAt
+    ? formatAdminDate(source.lastSuccessAt)
+    : "暂无";
+  const updatedAtText = source.updatedAt
+    ? formatAdminDate(source.updatedAt)
+    : source.checkedAt
+      ? formatAdminDate(source.checkedAt)
+      : "暂无";
+  return Object.assign(emptyPaymentMonitor(), {
+    available: hasSnapshot,
+    status: hasSnapshot
+      ? severity === "critical"
+        ? "critical"
+        : severity === "warning"
+          ? "warning"
+          : "ready"
+      : "idle",
+    statusText: !hasSnapshot
+      ? "未生成快照"
+      : severity === "critical"
+        ? "严重"
+        : severity === "warning"
+          ? "警告"
+          : severity === "disabled"
+            ? "关闭"
+            : stale
+              ? "超时"
+              : "健康",
+    tone,
+    mode,
+    modeText: mode === "disabled" ? "关闭态" : "运行中",
+    severity,
+    severityText: !hasSnapshot
+      ? "未知"
+      : severity === "critical"
+        ? "严重"
+        : severity === "warning"
+          ? "警告"
+          : severity === "disabled"
+            ? "关闭"
+            : "健康",
+    summaryText: summaryParts.join(" · "),
+    heartbeatText: hasSnapshot
+      ? (stale ? "已超时" : lastRunCompletedAtText)
+      : "暂无",
+    lastRunText: source.lastRunCompletedAt
+      ? formatAdminDate(source.lastRunCompletedAt)
+      : "尚未运行",
+    lastSuccessText: source.lastSuccessAt
+      ? formatAdminDate(source.lastSuccessAt)
+      : "尚无成功记录",
+    lastRunStartedAtText: source.lastRunStartedAt ? formatAdminDate(source.lastRunStartedAt) : "暂无",
+    lastRunCompletedAtText,
+    lastSuccessAtText,
+    updatedAtText,
+    durationText: Number.isFinite(durationMs)
+      ? `${Math.max(0, Math.round(durationMs))} 毫秒`
+      : "暂无",
+    scanned: Math.max(0, Number(source.scanned) || 0),
+    claimed: Math.max(0, Number(source.claimed) || 0),
+    fulfilled: Math.max(0, Number(source.fulfilled) || 0),
+    failed: Math.max(0, Number(source.failed) || 0),
+    skipped: Math.max(0, Number(source.skipped) || 0),
+    stoppedEarly: Boolean(source.stoppedEarly),
+    dueBacklogCount: Math.max(0, Number(source.dueBacklogCount) || 0),
+    oldestDueAtText: source.oldestDueAt ? formatAdminDate(source.oldestDueAt) : "暂无",
+    oldestDueText: source.oldestDueAt ? formatAdminDate(source.oldestDueAt) : "暂无积压",
+    reviewCount: Math.max(0, Number(source.reviewCount) || 0),
+    refundReviewCount: Math.max(0, Number(source.refundReviewCount) || 0),
+    paidUnfulfilledCount: Math.max(0, Number(source.paidUnfulfilledCount) || 0),
+    consecutiveFailureCount: Math.max(0, Number(source.consecutiveFailureCount) || 0),
+    reasonCodes,
+    reasonTexts: reasonCodes.map(paymentMonitorReasonText).filter(Boolean),
+    message: source.message || (result && result.message) || ""
   });
 }
 
@@ -4238,8 +3352,7 @@ function buildEntryHealth(
   autoFaceProbeHistory,
   autoFaceFailureStats,
   userStats,
-  moduleStates,
-  tencentFaceFusionStatus
+  moduleStates
 ) {
   const configs = effective || {};
   const usage = usageStats || emptyUsageStats();
@@ -4256,26 +3369,6 @@ function buildEntryHealth(
     const value = configs[section] || {};
     return Boolean(value.apiKeyConfigured && value.provider && value.model);
   };
-  const videoBackupEnabled = Boolean(
-    configs.videoBackup
-    && configs.videoBackup.enabled
-  );
-  const imageBackupEnabled = Boolean(
-    configs.imageBackup
-    && configs.imageBackup.enabled
-  );
-  const tencentStatus = tencentFaceFusionStatus || {};
-  const tencentConfig = configs.tencentFaceFusion || {};
-  const tencentConfigured = !tencentStatus.readFailed && Boolean(
-    tencentStatus.configured
-    || tencentConfig.configured
-    || (tencentConfig.secretId && tencentConfig.secretKey)
-  );
-  const tencentPipelineReady = Boolean(
-    configReady("image")
-    && (!imageBackupEnabled || configReady("imageBackup"))
-    && tencentConfigured
-  );
   const failureFor = (section) => Number(today[section] && today[section].failure) || 0;
   const stateLabel = (key, normalLabel = "正常") => {
     const state = states[key] || createModuleState("ready", true);
@@ -4287,6 +3380,9 @@ function buildEntryHealth(
     || latestProbeStatus === "failed"
     || failureFor("face") > 0
     || Number(autoFaceFailureStats && autoFaceFailureStats.today) > 0;
+  const imageBackupEnabled = Boolean(
+    configs.imageBackup && configs.imageBackup.enabled
+  );
   return {
     face: {
       abnormal: faceAbnormal,
@@ -4299,40 +3395,18 @@ function buildEntryHealth(
     image: {
       abnormal: (
         !configReady("image")
-        || !configReady("imageBackup")
+        || imageBackupEnabled && !configReady("imageBackup")
         || failureFor("image") > 0
       ),
       label: (
         !configReady("image")
-        || !configReady("imageBackup")
+        || imageBackupEnabled && !configReady("imageBackup")
         || failureFor("image") > 0
       ) ? "异常" : "正常"
     },
-    tencentFaceFusion: {
-      abnormal: !tencentPipelineReady,
-      label: tencentPipelineReady ? "正常" : "未就绪",
-      primaryReady: configReady("image"),
-      primaryText: configReady("image") ? "主生图已配置" : "主生图未配置",
-      backupReady: !imageBackupEnabled || configReady("imageBackup"),
-      backupText: !imageBackupEnabled
-        ? "备用未启用"
-        : configReady("imageBackup")
-          ? "备用生图已配置"
-          : "备用生图未配置",
-      tencentReady: tencentConfigured,
-      tencentText: tencentConfigured ? "腾讯融合已配置" : "腾讯融合未配置"
-    },
     video: {
-      abnormal: (
-        !configReady("video")
-        || (videoBackupEnabled && !configReady("videoBackup"))
-        || failureFor("video") > 0
-      ),
-      label: (
-        !configReady("video")
-        || (videoBackupEnabled && !configReady("videoBackup"))
-        || failureFor("video") > 0
-      ) ? "异常" : "正常"
+      abnormal: !configReady("video") || failureFor("video") > 0,
+      label: !configReady("video") || failureFor("video") > 0 ? "异常" : "正常"
     },
     points: { abnormal: false, label: "正常" },
     costs: {
@@ -4355,17 +3429,12 @@ function buildEntryHealth(
 
 function formFromConfig(result) {
   const source = result && result.effective ? result.effective : {};
-  const providerLabels = setActiveAdminProviderLabels(source.providerLabels);
-  const providerProfiles = normalizeAdminProviderProfiles(
-    source.providerProfiles
-  );
   const face = source.face || {};
   const faceBackup = source.faceBackup || {};
   const analysis = source.analysis || {};
   const analysisBackup = source.analysisBackup || {};
   const image = source.image || {};
   const imageBackup = source.imageBackup || {};
-  const tencentFaceFusion = source.tencentFaceFusion || {};
   const video = source.video || {};
   const videoBackup = source.videoBackup || {};
   const points = source.points || {};
@@ -4393,57 +3462,52 @@ function formFromConfig(result) {
   const videoCosts = costs.video || {};
   const generationQueue = source.generationQueue || {};
   const form = {
-    providerLabels,
-    providerProfiles,
     face: {
       provider: displayAdminProvider(face.provider),
+      providerKey: face.providerKey || "",
       baseUrl: face.baseUrl || "",
       endpoint: face.endpoint || "",
       apiKey: face.apiKey || "",
-      apiKeyConfigured: Boolean(face.apiKeyConfigured || face.apiKey),
       model: face.model || "",
       timeoutMs: String(face.timeoutMs || 30000)
     },
-    analysis: {
-      provider: displayAdminProvider(analysis.provider),
-      baseUrl: analysis.baseUrl || "",
-      endpoint: analysis.endpoint || "",
-      apiKey: analysis.apiKey || "",
-      apiKeyConfigured: Boolean(
-        analysis.apiKeyConfigured
-        || analysis.apiKey
-      ),
-      model: analysis.model || "",
-      timeoutMs: String(analysis.timeoutMs || 30000)
-    },
-    faceBackup: {
-      enabled: Boolean(faceBackup.enabled && (faceBackup.provider || faceBackup.providerKey)),
+    faceBackup: Object.assign(emptyVisionBackupForm("faceBackup"), {
+      enabled: Boolean(faceBackup.enabled),
       provider: displayAdminProvider(faceBackup.provider),
-      providerKey: String(faceBackup.providerKey || ""),
+      providerKey: faceBackup.providerKey || "",
       baseUrl: faceBackup.baseUrl || "",
       endpoint: faceBackup.endpoint || "",
       apiKey: faceBackup.apiKey || "",
       apiKeyConfigured: Boolean(faceBackup.apiKeyConfigured || faceBackup.apiKey),
       model: faceBackup.model || "",
       timeoutMs: String(faceBackup.timeoutMs || 30000)
+    }),
+    analysis: {
+      provider: displayAdminProvider(analysis.provider),
+      providerKey: analysis.providerKey || "",
+      baseUrl: analysis.baseUrl || "",
+      endpoint: analysis.endpoint || "",
+      apiKey: analysis.apiKey || "",
+      model: analysis.model || "",
+      timeoutMs: String(analysis.timeoutMs || 30000)
     },
-    analysisBackup: {
-      enabled: Boolean(analysisBackup.enabled && (analysisBackup.provider || analysisBackup.providerKey)),
+    analysisBackup: Object.assign(emptyVisionBackupForm("analysisBackup"), {
+      enabled: Boolean(analysisBackup.enabled),
       provider: displayAdminProvider(analysisBackup.provider),
-      providerKey: String(analysisBackup.providerKey || ""),
+      providerKey: analysisBackup.providerKey || "",
       baseUrl: analysisBackup.baseUrl || "",
       endpoint: analysisBackup.endpoint || "",
       apiKey: analysisBackup.apiKey || "",
       apiKeyConfigured: Boolean(analysisBackup.apiKeyConfigured || analysisBackup.apiKey),
       model: analysisBackup.model || "",
       timeoutMs: String(analysisBackup.timeoutMs || 30000)
-    },
+    }),
     image: {
       provider: displayAdminImageProvider(image.provider),
+      providerKey: image.providerKey || "",
       baseUrl: image.baseUrl || "",
       endpoint: image.endpoint || "",
       apiKey: image.apiKey || "",
-      apiKeyConfigured: Boolean(image.apiKeyConfigured || image.apiKey),
       model: image.model || "",
       mode: image.mode || "edits",
       size: image.size || "1080x1440",
@@ -4460,15 +3524,14 @@ function formFromConfig(result) {
       retryPreferenceVersion: 1
     },
     imageBackup: {
-      enabled: adminImageBackupEnabled(imageBackup),
+      enabled: imageBackup.enabled === undefined
+        ? Boolean(imageBackup.apiKeyConfigured || imageBackup.apiKey)
+        : Boolean(imageBackup.enabled),
       provider: displayAdminImageProvider(imageBackup.provider, "凌云"),
+      providerKey: imageBackup.providerKey || "",
       baseUrl: imageBackup.baseUrl || "https://api.lingyunapi.xyz/v1",
       endpoint: imageBackup.endpoint || "",
       apiKey: imageBackup.apiKey || "",
-      apiKeyConfigured: Boolean(
-        imageBackup.apiKeyConfigured
-        || imageBackup.apiKey
-      ),
       model: imageBackup.model || "gpt-image-2",
       mode: imageBackup.mode || "edits",
       size: imageBackup.size || image.size || "1080x1440",
@@ -4485,27 +3548,13 @@ function formFromConfig(result) {
       retryEnabled: false,
       retryPreferenceVersion: 1
     },
-    tencentFaceFusion: {
-      secretId: String(tencentFaceFusion.secretId || "").trim(),
-      secretKey: String(tencentFaceFusion.secretKey || "").trim(),
-      region: tencentFaceFusion.region || "ap-guangzhou",
-      endpoint: tencentFaceFusion.endpoint || "https://facefusion.tencentcloudapi.com",
-      apiVersion: tencentFaceFusion.apiVersion || "2022-09-27",
-      action: tencentFaceFusion.action || "FuseFaceUltra",
-      model: tencentFaceFusion.model || "FuseFaceUltra",
-      swapModelType: String(tencentFaceFusion.swapModelType || 4),
-      logoAdd: Boolean(tencentFaceFusion.logoAdd),
-      timeoutMs: String(tencentFaceFusion.timeoutMs || 75000),
-      maxImageBytes: String(tencentFaceFusion.maxImageBytes || 5 * 1024 * 1024)
-    },
     video: {
-      enabled: video.enabled === undefined ? true : Boolean(video.enabled),
       provider: displayAdminProvider(video.provider),
+      providerKey: video.providerKey || "",
       baseUrl: video.baseUrl || "",
       endpoint: video.endpoint || "",
       queryEndpoint: video.queryEndpoint || "",
       apiKey: video.apiKey || "",
-      apiKeyConfigured: Boolean(video.apiKeyConfigured || video.apiKey),
       model: video.model || "",
       createPath: video.createPath || "/v1/videos/generations",
       queryPath: video.queryPath || "/v1/videos/{taskId}",
@@ -4513,32 +3562,29 @@ function formFromConfig(result) {
       aspectRatio: video.aspectRatio || "",
       timeoutMs: String(video.timeoutMs || 90000)
     },
-    videoBackup: {
-      enabled: Boolean(videoBackup.enabled && videoBackup.provider),
+    videoBackup: Object.assign(emptyVisionBackupForm("videoBackup"), {
+      enabled: Boolean(videoBackup.enabled),
       provider: displayAdminProvider(videoBackup.provider),
-      providerKey: String(videoBackup.providerKey || ""),
+      providerKey: videoBackup.providerKey || "",
       baseUrl: videoBackup.baseUrl || "",
       endpoint: videoBackup.endpoint || "",
       queryEndpoint: videoBackup.queryEndpoint || "",
       apiKey: videoBackup.apiKey || "",
-      apiKeyConfigured: Boolean(
-        videoBackup.apiKeyConfigured
-        || videoBackup.apiKey
-      ),
+      apiKeyConfigured: Boolean(videoBackup.apiKeyConfigured || videoBackup.apiKey),
       model: videoBackup.model || "",
       createPath: videoBackup.createPath || "/v1/videos/generations",
       queryPath: videoBackup.queryPath || "/v1/videos/{taskId}",
       resolution: videoBackup.resolution || "720p",
       aspectRatio: videoBackup.aspectRatio || "",
       timeoutMs: String(videoBackup.timeoutMs || 90000)
-    },
+    }),
     points: {
-      dailyFreeLimit: String(points.dailyFreeLimit || 3),
-      imageCost: String(points.imageCost || 10),
-      videoCost: String(points.videoCost || 10),
-      checkinPoints: String(points.checkinPoints || 5),
-      streakBonus: String(points.streakBonus || 20),
-      streakDays: String(points.streakDays || 7),
+      dailyFreeLimit: normalizeAdminPointText(points.dailyFreeLimit, "dailyFreeLimit"),
+      imageCost: normalizeAdminPointText(points.imageCost, "imageCost"),
+      videoCost: normalizeAdminPointText(points.videoCost, "videoCost"),
+      checkinPoints: normalizeAdminPointText(points.checkinPoints, "checkinPoints"),
+      streakBonus: normalizeAdminPointText(points.streakBonus, "streakBonus"),
+      streakDays: normalizeAdminPointText(points.streakDays, "streakDays"),
       promoStartDate: points.promoStartDate || "2026-08-23",
       promoEndDate: points.promoEndDate || "2026-08-24",
       timeZone: points.timeZone || "Asia/Shanghai"
@@ -4615,47 +3661,16 @@ function formFromConfig(result) {
     normalizedRegistry,
     source
   );
-  const activeBackups = normalizeAdminActiveBackups(
-    result && result.activeBackups,
-    normalizedRegistry,
-    source
-  );
   return Object.assign(
-    applyAdminVideoProviderDefaults(
-      applyAdminVideoProviderDefaults(form),
-      "videoBackup"
-    ),
+    applyAdminVideoProviderDefaults(form),
     {
       providerRegistry: normalizedRegistry,
-      activeProviders,
-      activeBackups
+      activeProviders
     }
   );
 }
 
-function providerProfilesToConfig(form) {
-  const profiles = providerProfilesFromForm(form);
-  const result = {};
-  ADMIN_PROVIDER_PROFILE_SECTIONS.forEach((section) => {
-    result[section] = {};
-    Object.keys(profiles[section] || {}).forEach((providerId) => {
-      result[section][providerId] = Object.assign(
-        {},
-        formSectionToProviderConfig(
-          section,
-          profiles[section][providerId]
-        ),
-        { provider: providerId }
-      );
-    });
-  });
-  return result;
-}
-
 function formToConfig(form) {
-  form = syncAdminProviderProfiles(form);
-  const providerLabels = providerLabelsFromForm(form);
-  setActiveAdminProviderLabels(providerLabels);
   const xingjuImagePrices = {
     "1K": adminCostText(form.costs.imageXingju1K),
     "2K": adminCostText(form.costs.imageXingju2K),
@@ -4669,12 +3684,10 @@ function formToConfig(form) {
   const primaryImagePrices = normalizeAdminImageCostProvider(form.image.provider) === "lingyun"
     ? lingyunImagePrices
     : xingjuImagePrices;
-  const tencentFaceFusion = form.tencentFaceFusion || emptyTencentFaceFusionForm();
   return {
-    providerLabels: providerLabelsFromForm(form),
-    providerProfiles: providerProfilesToConfig(form),
     face: {
       provider: normalizeAdminProviderInput(form.face.provider),
+      providerKey: String(form.face.providerKey || "").trim(),
       baseUrl: String(form.face.baseUrl || "").trim(),
       endpoint: String(form.face.endpoint || "").trim(),
       apiKey: String(form.face.apiKey || "").trim(),
@@ -4693,6 +3706,7 @@ function formToConfig(form) {
     },
     analysis: {
       provider: normalizeAdminProviderInput(form.analysis.provider),
+      providerKey: String(form.analysis.providerKey || "").trim(),
       baseUrl: String(form.analysis.baseUrl || "").trim(),
       endpoint: String(form.analysis.endpoint || "").trim(),
       apiKey: String(form.analysis.apiKey || "").trim(),
@@ -4711,6 +3725,7 @@ function formToConfig(form) {
     },
     image: {
       provider: normalizeAdminImageProviderInput(form.image.provider),
+      providerKey: String(form.image.providerKey || "").trim(),
       baseUrl: String(form.image.baseUrl || "").trim(),
       endpoint: String(form.image.endpoint || "").trim(),
       apiKey: String(form.image.apiKey || "").trim(),
@@ -4728,8 +3743,9 @@ function formToConfig(form) {
       retryPreferenceVersion: 1
     },
     imageBackup: {
-      enabled: Boolean(form.imageBackup.enabled),
+      enabled: Boolean(form.imageBackup && form.imageBackup.enabled),
       provider: normalizeAdminImageProviderInput(form.imageBackup.provider),
+      providerKey: String(form.imageBackup.providerKey || "").trim(),
       baseUrl: String(form.imageBackup.baseUrl || "").trim(),
       endpoint: String(form.imageBackup.endpoint || "").trim(),
       apiKey: String(form.imageBackup.apiKey || "").trim(),
@@ -4753,21 +3769,9 @@ function formToConfig(form) {
       retryEnabled: false,
       retryPreferenceVersion: 1
     },
-    tencentFaceFusion: {
-      secretId: String(tencentFaceFusion.secretId || "").trim(),
-      secretKey: String(tencentFaceFusion.secretKey || "").trim(),
-      region: String(tencentFaceFusion.region || "").trim(),
-      endpoint: String(tencentFaceFusion.endpoint || "").trim(),
-      apiVersion: String(tencentFaceFusion.apiVersion || "").trim(),
-      action: String(tencentFaceFusion.action || "").trim(),
-      model: String(tencentFaceFusion.model || "").trim(),
-      swapModelType: Number(tencentFaceFusion.swapModelType || 0),
-      logoAdd: Boolean(tencentFaceFusion.logoAdd),
-      timeoutMs: Number(tencentFaceFusion.timeoutMs || 0),
-      maxImageBytes: Number(tencentFaceFusion.maxImageBytes || 0)
-    },
     video: {
       provider: normalizeAdminProviderInput(form.video.provider),
+      providerKey: String(form.video.providerKey || "").trim(),
       baseUrl: String(form.video.baseUrl || "").trim(),
       endpoint: String(form.video.endpoint || "").trim(),
       queryEndpoint: String(form.video.queryEndpoint || "").trim(),
@@ -4780,33 +3784,30 @@ function formToConfig(form) {
       timeoutMs: Number(form.video.timeoutMs || 0)
     },
     videoBackup: {
-      enabled: Boolean(
-        form.videoBackup.enabled
-        && form.videoBackup.provider
-      ),
-      provider: normalizeAdminProviderInput(form.videoBackup.provider),
-      providerKey: String(form.videoBackup.providerKey || "").trim(),
-      baseUrl: String(form.videoBackup.baseUrl || "").trim(),
-      endpoint: String(form.videoBackup.endpoint || "").trim(),
-      queryEndpoint: String(form.videoBackup.queryEndpoint || "").trim(),
-      apiKey: String(form.videoBackup.apiKey || "").trim(),
-      model: String(form.videoBackup.model || "").trim(),
-      createPath: String(form.videoBackup.createPath || "").trim(),
-      queryPath: String(form.videoBackup.queryPath || "").trim(),
-      resolution: String(form.videoBackup.resolution || "").trim(),
-      aspectRatio: String(form.videoBackup.aspectRatio || "").trim(),
-      timeoutMs: Number(form.videoBackup.timeoutMs || 0)
+      enabled: Boolean(form.videoBackup && form.videoBackup.enabled),
+      provider: normalizeAdminProviderInput(form.videoBackup && form.videoBackup.provider),
+      providerKey: String(form.videoBackup && form.videoBackup.providerKey || "").trim(),
+      baseUrl: String(form.videoBackup && form.videoBackup.baseUrl || "").trim(),
+      endpoint: String(form.videoBackup && form.videoBackup.endpoint || "").trim(),
+      queryEndpoint: String(form.videoBackup && form.videoBackup.queryEndpoint || "").trim(),
+      apiKey: String(form.videoBackup && form.videoBackup.apiKey || "").trim(),
+      model: String(form.videoBackup && form.videoBackup.model || "").trim(),
+      createPath: String(form.videoBackup && form.videoBackup.createPath || "").trim(),
+      queryPath: String(form.videoBackup && form.videoBackup.queryPath || "").trim(),
+      resolution: String(form.videoBackup && form.videoBackup.resolution || "").trim(),
+      aspectRatio: String(form.videoBackup && form.videoBackup.aspectRatio || "").trim(),
+      timeoutMs: Number(form.videoBackup && form.videoBackup.timeoutMs || 0)
     },
     points: {
-      dailyFreeLimit: Number(form.points.dailyFreeLimit || 0),
-      imageCost: Number(form.points.imageCost || 0),
-      videoCost: Number(form.points.videoCost || 0),
-      checkinPoints: Number(form.points.checkinPoints || 0),
-      streakBonus: Number(form.points.streakBonus || 0),
-      streakDays: Number(form.points.streakDays || 0),
-      promoStartDate: String(form.points.promoStartDate || "").trim(),
-      promoEndDate: String(form.points.promoEndDate || "").trim(),
-      timeZone: String(form.points.timeZone || "Asia/Shanghai").trim()
+      dailyFreeLimit: adminPointNumber(form.points && form.points.dailyFreeLimit, "dailyFreeLimit"),
+      imageCost: adminPointNumber(form.points && form.points.imageCost, "imageCost"),
+      videoCost: adminPointNumber(form.points && form.points.videoCost, "videoCost"),
+      checkinPoints: adminPointNumber(form.points && form.points.checkinPoints, "checkinPoints"),
+      streakBonus: adminPointNumber(form.points && form.points.streakBonus, "streakBonus"),
+      streakDays: adminPointNumber(form.points && form.points.streakDays, "streakDays"),
+      promoStartDate: String(form.points && form.points.promoStartDate || "").trim(),
+      promoEndDate: String(form.points && form.points.promoEndDate || "").trim(),
+      timeZone: String(form.points && form.points.timeZone || "Asia/Shanghai").trim()
     },
     costs: {
       currency: "CNY",
@@ -4850,10 +3851,6 @@ function formToConfig(form) {
 }
 
 function emptyAdminImageApiKeys() {
-  const providerProfiles = {};
-  ADMIN_PROVIDER_PROFILE_SECTIONS.forEach((section) => {
-    providerProfiles[section] = {};
-  });
   return {
     face: "",
     faceBackup: "",
@@ -4862,262 +3859,258 @@ function emptyAdminImageApiKeys() {
     image: "",
     imageBackup: "",
     video: "",
-    videoBackup: "",
-    providerProfiles
+    videoBackup: ""
   };
 }
 
 function normalizeAdminImageApiKeys(result) {
   const source = result && typeof result === "object" ? result : {};
-  const normalized = emptyAdminImageApiKeys();
-  ADMIN_PROVIDER_PROFILE_SECTIONS.forEach((section) => {
-    const topLevel = source[section];
-    normalized[section] = String(
-      topLevel && typeof topLevel === "object"
-        ? topLevel.apiKey || ""
-        : topLevel || ""
-    ).trim();
-    const rawProfiles = source.providerProfiles
-      && source.providerProfiles[section]
-      && typeof source.providerProfiles[section] === "object"
-      && !Array.isArray(source.providerProfiles[section])
-      ? source.providerProfiles[section]
-      : {};
-    Object.keys(rawProfiles).forEach((rawProviderId) => {
-      const providerId = providerIdFromDisplay(rawProviderId);
-      if (
-        !providerId
-        || ADMIN_PROVIDER_DANGEROUS_KEYS.includes(providerId)
-      ) {
-        return;
-      }
-      const profile = rawProfiles[rawProviderId];
-      normalized.providerProfiles[section][providerId] = String(
-        profile && typeof profile === "object"
-          ? profile.apiKey || ""
-          : profile || ""
-      ).trim();
-    });
-  });
-  ["faceBackup", "analysisBackup"].forEach((section) => {
-    const value = source[section];
-    normalized[section] = String(
-      value && typeof value === "object" ? value.apiKey || "" : value || ""
-    ).trim();
-  });
-  const videoBackup = source.videoBackup;
-  normalized.videoBackup = String(
-    videoBackup && typeof videoBackup === "object"
-      ? videoBackup.apiKey || ""
-      : videoBackup || ""
-  ).trim();
-  return normalized;
+  return {
+    face: String(
+      source.face
+      && source.face.apiKey
+      || ""
+    ).trim(),
+    faceBackup: String(
+      source.faceBackup
+      && source.faceBackup.apiKey
+      || ""
+    ).trim(),
+    analysis: String(
+      source.analysis
+      && source.analysis.apiKey
+      || ""
+    ).trim(),
+    analysisBackup: String(
+      source.analysisBackup
+      && source.analysisBackup.apiKey
+      || ""
+    ).trim(),
+    image: String(
+      source.image
+      && source.image.apiKey
+      || ""
+    ).trim(),
+    imageBackup: String(
+      source.imageBackup
+      && source.imageBackup.apiKey
+      || ""
+    ).trim(),
+    video: String(
+      source.video
+      && source.video.apiKey
+      || ""
+    ).trim(),
+    videoBackup: String(
+      source.videoBackup
+      && source.videoBackup.apiKey
+      || ""
+    ).trim()
+  };
 }
 
 function adminImageApiKeysFromForm(form) {
-  const source = syncAdminProviderProfiles(
-    form && typeof form === "object" ? form : {}
-  );
-  const result = emptyAdminImageApiKeys();
-  const profiles = normalizeAdminProviderProfiles(source.providerProfiles);
-  ADMIN_PROVIDER_PROFILE_SECTIONS.forEach((section) => {
-    result[section] = String(
-      source[section]
-      && source[section].apiKey
+  const source = form && typeof form === "object" ? form : {};
+  return {
+    face: String(
+      source.face
+      && source.face.apiKey
       || ""
-    ).trim();
-    Object.keys(profiles[section] || {}).forEach((providerId) => {
-      result.providerProfiles[section][providerId] = String(
-        profiles[section][providerId]
-        && profiles[section][providerId].apiKey
-        || ""
-      ).trim();
-    });
-    const activeProviderId = providerIdFromDisplay(
-      source[section]
-      && source[section].provider
-    );
-    if (
-      activeProviderId
-      && result[section]
-      && !result.providerProfiles[section][activeProviderId]
-    ) {
-      result.providerProfiles[section][activeProviderId] = result[section];
-    }
-  });
-  ["faceBackup", "analysisBackup"].forEach((section) => {
-    result[section] = String(
-      source[section]
-      && source[section].apiKey
+    ).trim(),
+    faceBackup: String(
+      source.faceBackup
+      && source.faceBackup.apiKey
       || ""
-    ).trim();
-  });
-  result.videoBackup = String(
-    source.videoBackup
-    && source.videoBackup.apiKey
-    || ""
-  ).trim();
-  return result;
+    ).trim(),
+    analysis: String(
+      source.analysis
+      && source.analysis.apiKey
+      || ""
+    ).trim(),
+    analysisBackup: String(
+      source.analysisBackup
+      && source.analysisBackup.apiKey
+      || ""
+    ).trim(),
+    image: String(
+      source.image
+      && source.image.apiKey
+      || ""
+    ).trim(),
+    imageBackup: String(
+      source.imageBackup
+      && source.imageBackup.apiKey
+      || ""
+    ).trim(),
+    video: String(
+      source.video
+      && source.video.apiKey
+      || ""
+    ).trim(),
+    videoBackup: String(
+      source.videoBackup
+      && source.videoBackup.apiKey
+      || ""
+    ).trim()
+  };
 }
 
 function formWithAdminImageApiKeys(form, apiKeys) {
   const source = form && typeof form === "object" ? form : {};
-  const keys = normalizeAdminImageApiKeys(apiKeys);
-  const providerProfiles = normalizeAdminProviderProfiles(
-    source.providerProfiles
-  );
-  ADMIN_PROVIDER_PROFILE_SECTIONS.forEach((section) => {
-    providerProfiles[section] = Object.assign(
-      {},
-      providerProfiles[section] || {}
-    );
-    const profileKeys = keys.providerProfiles[section] || {};
-    Object.keys(profileKeys).forEach((providerId) => {
-      const existing = providerProfiles[section][providerId];
-      if (!existing) return;
-      const apiKey = String(profileKeys[providerId] || "").trim();
-      providerProfiles[section][providerId] = Object.assign({}, existing, {
-        apiKey,
-        apiKeyConfigured: Boolean(
-          existing.apiKeyConfigured
-          || apiKey
-        )
-      });
-    });
+  const keys = normalizeAdminImageApiKeys({
+    face: { apiKey: apiKeys && apiKeys.face },
+    faceBackup: { apiKey: apiKeys && apiKeys.faceBackup },
+    analysis: { apiKey: apiKeys && apiKeys.analysis },
+    analysisBackup: { apiKey: apiKeys && apiKeys.analysisBackup },
+    image: { apiKey: apiKeys && apiKeys.image },
+    imageBackup: { apiKey: apiKeys && apiKeys.imageBackup },
+    video: { apiKey: apiKeys && apiKeys.video },
+    videoBackup: { apiKey: apiKeys && apiKeys.videoBackup }
   });
-  let next = Object.assign({}, source, { providerProfiles });
-  ADMIN_PROVIDER_PROFILE_SECTIONS.forEach((section) => {
-    const activeProviderId = providerIdFromDisplay(
-      source[section]
-      && source[section].provider
-    );
-    const profileKey = activeProviderId
-      ? String(
-        keys.providerProfiles[section]
-        && keys.providerProfiles[section][activeProviderId]
-        || ""
-      ).trim()
-      : "";
-    const apiKey = profileKey
-      || keys[section]
-      || String(
-        source[section]
-        && source[section].apiKey
-        || ""
-      ).trim();
-    next = Object.assign({}, next, {
-      [section]: Object.assign({}, source[section] || {}, {
-        apiKey,
-        apiKeyConfigured: Boolean(
-          source[section]
-          && source[section].apiKeyConfigured
-          || apiKey
-        )
-      })
-    });
-    next.providerProfiles = captureAdminProviderProfile(next, section);
-  });
-  ["faceBackup", "analysisBackup"].forEach((section) => {
-    const backupKey = String(keys[section] || "").trim();
-    next = Object.assign({}, next, {
-      [section]: Object.assign({}, source[section] || {}, {
-        apiKey: backupKey,
-        apiKeyConfigured: Boolean(
-          source[section]
-          && source[section].apiKeyConfigured
-          || backupKey
-        )
-      })
-    });
-  });
-  const backupKey = String(keys.videoBackup || "").trim();
-  next = Object.assign({}, next, {
+  return Object.assign({}, source, {
+    face: Object.assign({}, source.face || {}, {
+      apiKey: keys.face || String(source.face && source.face.apiKey || "").trim()
+    }),
+    faceBackup: Object.assign({}, source.faceBackup || {}, {
+      apiKey: keys.faceBackup || String(source.faceBackup && source.faceBackup.apiKey || "").trim()
+    }),
+    analysis: Object.assign({}, source.analysis || {}, {
+      apiKey: keys.analysis || String(source.analysis && source.analysis.apiKey || "").trim()
+    }),
+    analysisBackup: Object.assign({}, source.analysisBackup || {}, {
+      apiKey: keys.analysisBackup || String(source.analysisBackup && source.analysisBackup.apiKey || "").trim()
+    }),
+    image: Object.assign({}, source.image || {}, {
+      apiKey: keys.image || String(source.image && source.image.apiKey || "").trim()
+    }),
+    imageBackup: Object.assign({}, source.imageBackup || {}, {
+      apiKey: keys.imageBackup || String(source.imageBackup && source.imageBackup.apiKey || "").trim()
+    }),
+    video: Object.assign({}, source.video || {}, {
+      apiKey: keys.video || String(source.video && source.video.apiKey || "").trim()
+    }),
     videoBackup: Object.assign({}, source.videoBackup || {}, {
-      apiKey: backupKey,
-      apiKeyConfigured: Boolean(
-        source.videoBackup
-        && source.videoBackup.apiKeyConfigured
-        || backupKey
-      )
+      apiKey: keys.videoBackup || String(source.videoBackup && source.videoBackup.apiKey || "").trim()
     })
   });
-  return next;
 }
 
-function adminConfigSavePayload(
-  form,
-  baseline,
-  expectedVersion,
-  activeProvidersOverride,
-  activeBackupsOverride
-) {
-  const syncedForm = syncAdminProviderProfiles(form);
-  const configPayload = formToConfig(syncedForm);
-  const currentKeys = adminImageApiKeysFromForm(syncedForm);
-  const loadedKeys = normalizeAdminImageApiKeys(baseline);
-  ADMIN_PROVIDER_PROFILE_SECTIONS.forEach((section) => {
+function normalizeAdminConfigDirtySections(value) {
+  const source = value instanceof Set
+    ? Array.from(value)
+    : Array.isArray(value)
+      ? value
+      : [];
+  return Array.from(new Set(
+    source.filter((section) => ADMIN_CONFIG_SAVE_SECTIONS.includes(String(section)))
+      .map((section) => String(section))
+  ));
+}
+
+function cloneAdminConfigValue(value) {
+  if (Array.isArray(value)) return value.map((item) => cloneAdminConfigValue(item));
+  if (!value || typeof value !== "object") return value;
+  return Object.keys(value).reduce((result, key) => {
+    result[key] = cloneAdminConfigValue(value[key]);
+    return result;
+  }, {});
+}
+
+function adminConfigValueSnapshot(value) {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => adminConfigValueSnapshot(item)).join(",")}]`;
+  }
+  if (!value || typeof value !== "object") return JSON.stringify(value);
+  return `{${Object.keys(value).sort().map((key) => (
+    `${JSON.stringify(key)}:${adminConfigValueSnapshot(value[key])}`
+  )).join(",")}}`;
+}
+
+function inferAdminConfigDirtySections(baselineForm, currentForm, trackedSections) {
+  const tracked = normalizeAdminConfigDirtySections(trackedSections);
+  if (!baselineForm || typeof baselineForm !== "object") return tracked;
+  const baseline = baselineForm;
+  const current = currentForm && typeof currentForm === "object" ? currentForm : {};
+  const dirty = new Set(tracked);
+  ADMIN_CONFIG_SAVE_SECTIONS.forEach((section) => {
+    if (section === "providers") return;
+    if (
+      adminConfigValueSnapshot(baseline[section])
+      !== adminConfigValueSnapshot(current[section])
+    ) {
+      dirty.add(section);
+    }
+  });
+  if (
+    adminConfigValueSnapshot(baseline.activeProviders)
+      !== adminConfigValueSnapshot(current.activeProviders)
+    || adminConfigValueSnapshot(baseline.activeBackups)
+      !== adminConfigValueSnapshot(current.activeBackups)
+  ) {
+    dirty.add("providers");
+  }
+  return normalizeAdminConfigDirtySections(dirty);
+}
+
+function mergeAdminConfigForms(latestForm, currentForm, dirtySections) {
+  const latest = latestForm && typeof latestForm === "object" ? latestForm : emptyForm();
+  const current = currentForm && typeof currentForm === "object" ? currentForm : {};
+  const sections = normalizeAdminConfigDirtySections(dirtySections);
+  if (!sections.length) return cloneAdminConfigValue(current);
+  const merged = cloneAdminConfigValue(latest);
+  sections.forEach((section) => {
+    if (section === "providers") {
+      [
+        "providerRegistry",
+        "activeProviders",
+        "activeBackups",
+        ...ADMIN_PROVIDER_FORM_SECTIONS
+      ].forEach((key) => {
+        if (Object.prototype.hasOwnProperty.call(current, key)) {
+          merged[key] = cloneAdminConfigValue(current[key]);
+        }
+      });
+      return;
+    }
+    if (Object.prototype.hasOwnProperty.call(current, section)) {
+      merged[section] = cloneAdminConfigValue(current[section]);
+    }
+  });
+  return merged;
+}
+
+function isAdminConfigConflict(error) {
+  const payload = error && error.payload && typeof error.payload === "object"
+    ? error.payload
+    : {};
+  const code = String(
+    error && (error.code || error.errorCode)
+    || payload.errorCode
+    || payload.code
+    || ""
+  ).trim();
+  return code === "ADMIN_CONFIG_CONFLICT"
+    || /配置版本冲突/.test(String(error && error.message || payload.message || ""));
+}
+
+function adminConfigSavePayload(form, baseline, expectedVersion, dirtySections) {
+  const configPayload = formToConfig(form);
+  const currentKeys = adminImageApiKeysFromForm(form);
+  const loadedKeys = Object.assign(
+    emptyAdminImageApiKeys(),
+    baseline && typeof baseline === "object" ? baseline : {}
+  );
+  ["face", "faceBackup", "analysis", "analysisBackup", "image", "imageBackup"].forEach((section) => {
     const current = currentKeys[section];
-    const activeProviderId = providerIdFromDisplay(
-      syncedForm[section]
-      && syncedForm[section].provider
-    );
-    const loaded = activeProviderId
-      ? String(
-        loadedKeys.providerProfiles[section]
-        && loadedKeys.providerProfiles[section][activeProviderId]
-        || ""
-      ).trim()
-      : String(loadedKeys[section] || "").trim();
+    const loaded = String(loadedKeys[section] || "").trim();
     if (!current || current === loaded) {
       delete configPayload[section].apiKey;
     }
-    const payloadProfiles = configPayload.providerProfiles
-      && configPayload.providerProfiles[section]
-      || {};
-    Object.keys(payloadProfiles).forEach((providerId) => {
-      const profileKey = String(
-        currentKeys.providerProfiles[section]
-        && currentKeys.providerProfiles[section][providerId]
-        || ""
-      ).trim();
-      const loadedProfileKey = String(
-        loadedKeys.providerProfiles[section]
-        && loadedKeys.providerProfiles[section][providerId]
-        || ""
-      ).trim();
-      if (!profileKey || profileKey === loadedProfileKey) {
-        delete payloadProfiles[providerId].apiKey;
-      }
-    });
   });
-  ["faceBackup", "analysisBackup"].forEach((section) => {
-    const current = String(currentKeys[section] || "").trim();
-    const loaded = String(loadedKeys[section] || "").trim();
-    if (!current || current === loaded) {
-      if (configPayload[section]) delete configPayload[section].apiKey;
-    }
-  });
-  if (configPayload.video) {
-    delete configPayload.video.apiKey;
-  }
-  if (configPayload.videoBackup) {
-    delete configPayload.videoBackup.apiKey;
-  }
-  if (
-    configPayload.providerProfiles
-    && configPayload.providerProfiles.video
-    && typeof configPayload.providerProfiles.video === "object"
-  ) {
-    Object.keys(configPayload.providerProfiles.video).forEach((providerId) => {
-      const profile = configPayload.providerProfiles.video[providerId];
-      if (profile && typeof profile === "object") {
-        delete profile.apiKey;
-      }
-    });
-  }
-  const activeProviders = activeProvidersOverride && typeof activeProvidersOverride === "object"
-    ? Object.assign({}, activeProvidersOverride)
-    : form && form.activeProviders && typeof form.activeProviders === "object"
+  // 视频 Key 由云函数环境变量提供，管理员页面只显示，不写入动态配置。
+  if (configPayload.video) delete configPayload.video.apiKey;
+  if (configPayload.videoBackup) delete configPayload.videoBackup.apiKey;
+  const activeProviders = form && form.activeProviders && typeof form.activeProviders === "object"
     ? Object.assign({}, form.activeProviders)
     : {};
   const activeOverrides = {};
@@ -5128,97 +4121,28 @@ function adminConfigSavePayload(
     delete section.provider;
     activeOverrides[slot] = section;
   });
-  configPayload.activeProviders = activeProviders;
-  configPayload.activeBackups = normalizeAdminActiveBackups(
-    activeBackupsOverride && typeof activeBackupsOverride === "object"
-      ? activeBackupsOverride
-      : form && form.activeBackups,
-    form && form.providerRegistry,
-    form
-  );
-  configPayload.activeOverrides = activeOverrides;
+  const selectedSections = normalizeAdminConfigDirtySections(dirtySections);
+  const scopedSave = selectedSections.length > 0;
+  if (scopedSave) {
+    const sectionsToSave = new Set(selectedSections);
+    ["face", "analysis", "image", "video"].forEach((section) => {
+      if (sectionsToSave.has(section)) sectionsToSave.add(`${section}Backup`);
+    });
+    ADMIN_CONFIG_SAVE_SECTIONS.forEach((section) => {
+      if (!sectionsToSave.has(section)) delete configPayload[section];
+    });
+    if (selectedSections.includes("providers")) {
+      configPayload.activeProviders = activeProviders;
+      configPayload.activeOverrides = activeOverrides;
+    }
+  } else {
+    configPayload.activeProviders = activeProviders;
+    configPayload.activeOverrides = activeOverrides;
+  }
   if (expectedVersion !== undefined && expectedVersion !== null && expectedVersion !== "") {
     configPayload.expectedVersion = Number(expectedVersion) || 0;
   }
   return configPayload;
-}
-
-function formWithTencentFaceFusionSecrets(form, current) {
-  const source = form && typeof form === "object" ? form : {};
-  const currentConfig = current && typeof current === "object"
-    ? current
-    : {};
-  return Object.assign({}, source, {
-    tencentFaceFusion: Object.assign(
-      {},
-      source.tencentFaceFusion || emptyTencentFaceFusionForm(),
-      {
-        secretId: String(
-          currentConfig.secretId
-          || source.tencentFaceFusion
-          && source.tencentFaceFusion.secretId
-          || ""
-        ).trim(),
-        secretKey: String(
-          currentConfig.secretKey
-          || source.tencentFaceFusion
-          && source.tencentFaceFusion.secretKey
-          || ""
-        ).trim()
-      }
-    )
-  });
-}
-
-function adminImageApiKeysAfterSave(form, baseline) {
-  const syncedForm = syncAdminProviderProfiles(form);
-  const currentKeys = adminImageApiKeysFromForm(syncedForm);
-  const loadedKeys = normalizeAdminImageApiKeys(baseline);
-  const result = emptyAdminImageApiKeys();
-  ADMIN_PROVIDER_PROFILE_SECTIONS.forEach((section) => {
-    const providerIds = new Set([
-      ...Object.keys(loadedKeys.providerProfiles[section] || {}),
-      ...Object.keys(currentKeys.providerProfiles[section] || {})
-    ]);
-    Array.from(providerIds).forEach((providerId) => {
-      result.providerProfiles[section][providerId] = String(
-        currentKeys.providerProfiles[section][providerId]
-        || loadedKeys.providerProfiles[section][providerId]
-        || ""
-      ).trim();
-    });
-    const activeProviderId = providerIdFromDisplay(
-      syncedForm[section]
-      && syncedForm[section].provider
-    );
-    result[section] = String(
-      currentKeys[section]
-      || activeProviderId
-        && result.providerProfiles[section][activeProviderId]
-      || (!activeProviderId && loadedKeys[section])
-      || ""
-    ).trim();
-    if (
-      activeProviderId
-      && result[section]
-      && !result.providerProfiles[section][activeProviderId]
-    ) {
-      result.providerProfiles[section][activeProviderId] = result[section];
-    }
-  });
-  ["faceBackup", "analysisBackup"].forEach((section) => {
-    result[section] = String(
-      currentKeys[section]
-      || loadedKeys[section]
-      || ""
-    ).trim();
-  });
-  result.videoBackup = String(
-    currentKeys.videoBackup
-    || loadedKeys.videoBackup
-    || ""
-  ).trim();
-  return result;
 }
 
 function emptyAdminProviderUiState() {
@@ -5246,34 +4170,48 @@ function emptyAdminProviderUiState() {
   };
 }
 
-function buildAdminProviderUiState(registry, activeProviders, activeBackups, effective = {}) {
+function backupProviderKeyFromForm(form, section) {
+  const value = form && form[section] && typeof form[section] === "object"
+    ? form[section]
+    : {};
+  const raw = String(
+    value.providerKey
+    || normalizeAdminProviderInput(value.provider)
+    || ""
+  ).trim();
+  if (!raw) return "";
+  const record = findAdminProviderRecordByRef(form && form.providerRegistry, raw)
+    || findAdminProviderRecordByRef(form && form.__providerRegistry, raw);
+  return String(record && record.providerKey || raw).trim();
+}
+
+function buildAdminBackupProviderOptions(registry, form, section) {
+  const baseSlot = ADMIN_PROVIDER_BACKUP_BASE[section] || section;
+  const key = backupProviderKeyFromForm(form, section);
+  const options = buildAdminProviderOptions(
+    registry,
+    { [baseSlot]: key },
+    baseSlot
+  );
+  if (section === "videoBackup" && options.length) {
+    options[0] = Object.assign({}, options[0], { label: "未启用" });
+  }
+  return options;
+}
+
+function buildAdminProviderUiState(registry, activeProviders, form) {
   const source = normalizeAdminProviderRegistry(registry || {});
   const active = normalizeAdminActiveProviders(activeProviders, source);
-  const backups = normalizeAdminActiveBackups(activeBackups, source, effective);
-  const rows = buildAdminProviderRows(source, active);
-  rows.forEach((row) => {
-    const backupSlots = ADMIN_PROVIDER_BACKUP_SECTIONS.filter(
-      (slot) => backups[slot] === row.providerKey
-    );
-    if (!backupSlots.length) return;
-    // 备用槽位也算“使用中”。buildProviderRows 只看主槽位，
-    // 这里把仅被备用引用的自定义档案状态补回来；内置/未配置状态仍保留。
-    if (row.status !== "内置" && row.status !== "未配置") {
-      row.status = "使用中";
-      row.statusClass = "active";
-    }
-    const backupLabels = backupSlots.map((slot) => (
-      slot === "faceBackup" ? "人脸备用" : slot === "analysisBackup" ? "分析备用" : "视频备用"
-    ));
-    row.usedText = row.usedText === "未绑定功能"
-      ? backupLabels.join("、")
-      : `${row.usedText}、${backupLabels.join("、")}`;
+  const currentForm = form && typeof form === "object" ? form : {};
+  const activeBackups = {};
+  ADMIN_PROVIDER_BACKUP_SECTIONS.forEach((section) => {
+    activeBackups[section] = backupProviderKeyFromForm(currentForm, section);
   });
   const patch = {
     providerRegistry: source,
     activeProviders: active,
-    activeBackups: backups,
-    providerRows: rows
+    activeBackups,
+    providerRows: buildAdminProviderRows(source, active)
   };
   ADMIN_PROVIDER_SLOTS.forEach((slot) => {
     const suffix = slot.charAt(0).toUpperCase() + slot.slice(1);
@@ -5282,14 +4220,107 @@ function buildAdminProviderUiState(registry, activeProviders, activeBackups, eff
     const index = options.findIndex((item) => item.value === active[slot]);
     patch[`providerPickerIndex${suffix}`] = index >= 0 ? index : 0;
   });
-  ADMIN_PROVIDER_BACKUP_SECTIONS.forEach((slot) => {
-    const suffix = slot.charAt(0).toUpperCase() + slot.slice(1);
-    const options = buildAdminBackupProviderOptions(source, backups, slot);
+  ADMIN_PROVIDER_BACKUP_SECTIONS.forEach((section) => {
+    const suffix = section.charAt(0).toUpperCase() + section.slice(1);
+    const options = buildAdminBackupProviderOptions(source, currentForm, section);
     patch[`providerPickerOptions${suffix}`] = options;
-    const index = options.findIndex((item) => item.value === backups[slot]);
+    const index = options.findIndex((item) => item.value === activeBackups[section]);
     patch[`providerPickerIndex${suffix}`] = index >= 0 ? index : 0;
   });
   return patch;
+}
+
+function applyAdminProviderRegistryToForm(form, registry, activeProviders) {
+  const source = form && typeof form === "object" ? form : emptyForm();
+  const output = Object.assign({}, source);
+  const active = activeProviders || {};
+  ADMIN_PROVIDER_SLOTS.forEach((slot) => {
+    const key = String(active[slot] || "").trim();
+    const record = getAdminProviderRecord(registry, key);
+    if (!record) return;
+    const current = Object.assign({}, output[slot] || {});
+    const cap = record.capabilities && record.capabilities[slot] || {};
+    current.providerKey = key;
+    current.provider = slot === "image" || slot === "imageBackup"
+      ? displayAdminImageProvider(record.id)
+      : displayAdminProvider(record.id);
+    if (record.common && record.common.baseUrl) current.baseUrl = record.common.baseUrl;
+    [
+      "endpoint", "queryEndpoint", "model", "mode", "size", "resolution",
+      "compatibilityMode", "timeoutMs", "maxRetries", "retryEnabled",
+      "retryPreferenceVersion", "createPath", "queryPath", "aspectRatio", "enabled"
+    ].forEach((field) => {
+      if (cap[field] !== undefined && cap[field] !== "") current[field] = cap[field];
+    });
+    current.apiKeyConfigured = Boolean(
+      cap.apiKeyConfigured
+      || record.common && record.common.apiKeyConfigured
+      || current.apiKey
+    );
+    output[slot] = current;
+  });
+  ADMIN_PROVIDER_BACKUP_SECTIONS.forEach((section) => {
+    const baseSlot = ADMIN_PROVIDER_BACKUP_BASE[section] || section;
+    const current = Object.assign(
+      {},
+      emptyVisionBackupForm(section),
+      output[section] && typeof output[section] === "object" ? output[section] : {}
+    );
+    const key = String(
+      current.providerKey
+      || normalizeAdminProviderInput(current.provider)
+      || ""
+    ).trim();
+    const record = getAdminProviderRecord(registry, key)
+      || findAdminProviderRecordByRef(registry, current.provider);
+    if (!record) {
+      output[section] = current;
+      return;
+    }
+    const cap = record.capabilities && record.capabilities[baseSlot] || {};
+    current.providerKey = record.providerKey || key;
+    current.provider = displayAdminProvider(record.id, record.name || record.id);
+    if (record.common && record.common.baseUrl && !String(current.baseUrl || "").trim()) {
+      current.baseUrl = record.common.baseUrl;
+    }
+    [
+      "endpoint", "queryEndpoint", "model", "mode", "size", "resolution",
+      "compatibilityMode", "timeoutMs", "maxRetries", "retryEnabled",
+      "retryPreferenceVersion", "createPath", "queryPath", "aspectRatio"
+    ].forEach((field) => {
+      if (cap[field] !== undefined && cap[field] !== "") current[field] = cap[field];
+    });
+    // enabled 是备用槽位自己的开关，不能被主能力档案覆盖。
+    current.enabled = Boolean(
+      output[section] && output[section].enabled
+    );
+    current.apiKeyConfigured = Boolean(
+      current.apiKeyConfigured
+      || cap.apiKeyConfigured
+      || record.common && record.common.apiKeyConfigured
+      || current.apiKey
+    );
+    output[section] = current;
+  });
+  return output;
+}
+
+function findAdminProviderRecordByRef(registry, value) {
+  const raw = String(value === undefined || value === null ? "" : value).trim();
+  if (!raw) return null;
+  const direct = getAdminProviderRecord(registry, raw);
+  if (direct) return direct;
+  const providers = registry && registry.providers && typeof registry.providers === "object"
+    ? registry.providers
+    : {};
+  const lower = raw.toLowerCase();
+  const key = Object.keys(providers).find((candidate) => {
+    const record = providers[candidate];
+    return record
+      && (String(record.id || "").toLowerCase() === lower
+        || String(record.name || "") === raw);
+  });
+  return key ? providers[key] : null;
 }
 
 function buildAdminProviderSecretRows(registry, secretsByKey = {}) {
@@ -5318,8 +4349,6 @@ function buildAdminProviderSecretRows(registry, secretsByKey = {}) {
       caps[slot] && (caps[slot].apiKey || caps[slot].key)
       || ""
     ).trim();
-    // 档案可能没有公共 Key、只在能力覆盖里配置独立 Key；
-    // 列表仍要显示一枚真实明文，不能误报“读取失败”。
     const commonKey = String(
       common.apiKey
       || nested.apiKey
@@ -5337,7 +4366,6 @@ function buildAdminProviderSecretRows(registry, secretsByKey = {}) {
       imageApiKey: keyFor("image") || commonKey,
       imageBackupApiKey: keyFor("imageBackup") || commonKey,
       videoApiKey: keyFor("video") || commonKey,
-      // 备用槽位可能使用独立覆盖 Key，不能回填主槽位的值。
       faceBackupApiKey: keyFor("faceBackup") || keyFor("face") || commonKey,
       analysisBackupApiKey: keyFor("analysisBackup") || keyFor("analysis") || commonKey,
       videoBackupApiKey: keyFor("videoBackup") || keyFor("video") || commonKey,
@@ -5350,109 +4378,6 @@ function buildAdminProviderSecretRows(registry, secretsByKey = {}) {
       loaded: Boolean(Object.keys(response).length)
     };
   }).filter(Boolean);
-}
-
-function applyAdminProviderRegistryToForm(form, registry, activeProviders, activeBackups) {
-  const source = form && typeof form === "object" ? form : emptyForm();
-  const output = Object.assign({}, source);
-  const active = activeProviders || {};
-  ADMIN_PROVIDER_SLOTS.forEach((slot) => {
-    const key = String(active[slot] || "").trim();
-    const record = getAdminProviderRecord(registry, key);
-    if (!record) return;
-    const current = Object.assign({}, output[slot] || {});
-    const cap = record.capabilities && record.capabilities[slot] || {};
-    current.providerKey = key;
-    current.provider = slot === "image" || slot === "imageBackup"
-      ? displayAdminImageProvider(record.id)
-      : displayAdminProvider(record.id);
-    if (record.common && Object.prototype.hasOwnProperty.call(record.common, "baseUrl")) {
-      current.baseUrl = record.common.baseUrl;
-    }
-    [
-      "endpoint", "queryEndpoint", "model", "mode", "size", "resolution",
-      "compatibilityMode", "timeoutMs", "maxRetries", "retryEnabled",
-      "retryPreferenceVersion", "createPath", "queryPath", "aspectRatio", "enabled"
-    ].forEach((field) => {
-      // 目录档案是当前能力的唯一来源；空字符串也要覆盖旧服务商的值，
-      // 否则切换到未填完整的档案时会偷偷沿用上一家服务商的模型/路径。
-      if (cap[field] !== undefined) current[field] = cap[field];
-    });
-    current.apiKeyConfigured = Boolean(
-      cap.apiKeyConfigured
-      || record.common && record.common.apiKeyConfigured
-      || current.apiKey
-    );
-    output[slot] = current;
-  });
-  const backups = normalizeAdminActiveBackups(
-    activeBackups,
-    registry,
-    source
-  );
-  ADMIN_PROVIDER_BACKUP_SECTIONS.forEach((slot) => {
-    const key = String(backups[slot] || "").trim();
-    const baseSlot = ADMIN_PROVIDER_BACKUP_BASE_SECTIONS[slot];
-    const record = getAdminProviderRecord(registry, key);
-    const current = Object.assign(
-      {},
-      emptyVisionBackupForm(slot),
-      output[slot] && typeof output[slot] === "object" ? output[slot] : {}
-    );
-    if (!record) {
-      if (
-        activeBackups
-        && typeof activeBackups === "object"
-        && Object.prototype.hasOwnProperty.call(activeBackups, slot)
-      ) {
-        // 明确没有目录引用时，不能把上一家服务商的地址、模型或 Key
-        // 留在表单里；否则保存后仍可能把失效档案投影回旧配置。
-        output[slot] = Object.assign({}, emptyVisionBackupForm(slot), {
-          enabled: false
-        });
-        return;
-      }
-      output[slot] = current;
-      return;
-    }
-    const cap = record.capabilities && record.capabilities[baseSlot] || {};
-    const sameProvider = String(current.providerKey || "").trim() === key;
-    if (!sameProvider) {
-      Object.assign(current, emptyVisionBackupForm(slot), {
-        enabled: true,
-        providerKey: key
-      });
-    }
-    current.providerKey = key;
-    current.provider = baseSlot === "image" || baseSlot === "imageBackup"
-      ? displayAdminImageProvider(record.id)
-      : displayAdminProvider(record.id);
-    current.enabled = Boolean(current.enabled || key === backups[slot]);
-    if (
-      (cap.baseUrl || record.common && Object.prototype.hasOwnProperty.call(record.common, "baseUrl"))
-    ) {
-      // 目录档案切换后，公共地址必须来自新档案；同一档案的未保存草稿
-      // 则保留用户刚输入的值，避免切页签时把草稿冲掉。
-      if (!sameProvider || !String(current.baseUrl || "").trim()) {
-        current.baseUrl = cap.baseUrl || record.common.baseUrl;
-      }
-    }
-    ["endpoint", "queryEndpoint", "model", "createPath", "queryPath", "resolution", "aspectRatio", "timeoutMs", "enabled"].forEach((field) => {
-      // cap 中的空字符串也是明确值（例如清除旧路径），不能因为
-      // emptyVisionBackupForm 的默认值而继续沿用上一家服务商。
-      if (cap[field] !== undefined && (!sameProvider || field === "enabled" || field === "endpoint" || field === "queryEndpoint" || field === "model" || field === "createPath" || field === "queryPath" || field === "resolution" || field === "aspectRatio" || field === "timeoutMs")) {
-        current[field] = cap[field];
-      }
-    });
-    current.apiKeyConfigured = Boolean(
-      current.apiKeyConfigured
-      || cap.apiKeyConfigured
-      || record.common && record.common.apiKeyConfigured
-      || current.apiKey
-    );
-    output[slot] = current;
-  });
-  return output;
 }
 
 function providerSecretFingerprint(value) {
@@ -5521,12 +4446,29 @@ function normalizeAdminProviderRebound(value) {
   return [];
 }
 
-function adminApiKeyBaselineWithoutProvider(
-  baseline,
-  activeProviders,
-  providerKey,
-  activeBackups = activeProviders
-) {
+function adminImageApiKeysAfterSave(form, baseline) {
+  const currentKeys = adminImageApiKeysFromForm(form);
+  const loadedKeys = Object.assign(
+    emptyAdminImageApiKeys(),
+    baseline && typeof baseline === "object" ? baseline : {}
+  );
+  return {
+    face: currentKeys.face || String(loadedKeys.face || "").trim(),
+    analysis: currentKeys.analysis
+      || String(loadedKeys.analysis || "").trim(),
+    image: currentKeys.image || String(loadedKeys.image || "").trim(),
+    imageBackup: currentKeys.imageBackup
+      || String(loadedKeys.imageBackup || "").trim(),
+    video: String(loadedKeys.video || "").trim(),
+    faceBackup: currentKeys.faceBackup
+      || String(loadedKeys.faceBackup || "").trim(),
+    analysisBackup: currentKeys.analysisBackup
+      || String(loadedKeys.analysisBackup || "").trim(),
+    videoBackup: String(loadedKeys.videoBackup || "").trim()
+  };
+}
+
+function adminApiKeyBaselineWithoutProvider(baseline, activeProviders, providerKey, form) {
   const output = Object.assign(
     emptyAdminImageApiKeys(),
     baseline && typeof baseline === "object" ? baseline : {}
@@ -5539,9 +4481,15 @@ function adminApiKeyBaselineWithoutProvider(
     }
   });
   ADMIN_PROVIDER_BACKUP_SECTIONS.forEach((slot) => {
-    if (String(activeBackups && activeBackups[slot] || "").trim() === target) {
-      output[slot] = "";
-    }
+    const current = form && form[slot] && typeof form[slot] === "object"
+      ? form[slot]
+      : {};
+    const key = String(
+      current.providerKey
+      || normalizeAdminProviderInput(current.provider)
+      || ""
+    ).trim();
+    if (key === target) output[slot] = "";
   });
   return output;
 }
@@ -5550,7 +4498,7 @@ async function fetchAdminConfigBundle() {
   const apiKeyTask = withTimeout(
     cloud.getAdminImageApiKeys({ retryLimit: 0 }),
     10000,
-    "服务商完整 Key"
+    "生图完整 Key"
   )
     .then((result) => {
       if (!result || result.ok === false) {
@@ -5753,53 +4701,9 @@ function diagnosticLogCopyText(item = {}) {
   ].join("\n");
 }
 
-// C 结构只负责把最常用的模型参数放到一个窄屏可读的工作台，
-// 复杂监控和服务商档案仍由原有管理区承接。
-const COMPACT_MODEL_TABS = Object.freeze([
-  { value: "face", label: "人脸", title: "人脸识别", description: "启用后可被人脸功能选择", backup: "faceBackup" },
-  { value: "analysis", label: "分析", title: "图片分析", description: "用于图片内容理解与分析", backup: "analysisBackup" },
-  { value: "tencentFaceFusion", label: "图片分析", title: "图片分析", description: "腾讯融合使用独立参数", backup: "" },
-  { value: "image", label: "生图", title: "生图", description: "控制图片生成与编辑模型", backup: "imageBackup" },
-  { value: "video", label: "视频", title: "视频生成", description: "控制视频创建与查询模型", backup: "videoBackup" }
-]);
-
-const COMPACT_MODEL_SECTIONS = COMPACT_MODEL_TABS.map((item) => item.value);
-
-function compactModelReady(section = {}, sectionName = "") {
-  const source = section && typeof section === "object" ? section : {};
-  if (sectionName === "tencentFaceFusion") {
-    return Boolean(
-      String(source.endpoint || "").trim()
-      && String(source.model || "").trim()
-      && String(source.secretId || "").trim()
-      && String(source.secretKey || "").trim()
-    );
-  }
-  return Boolean(
-    String(source.provider || source.providerKey || "").trim()
-    && String(source.model || "").trim()
-    && String(source.baseUrl || source.endpoint || source.queryEndpoint || "").trim()
-    && (source.apiKeyConfigured || String(source.apiKey || "").trim())
-  );
-}
-
-function compactTimeoutText(value) {
-  const milliseconds = Number(value);
-  if (!Number.isFinite(milliseconds) || milliseconds <= 0) return "未设置";
-  if (milliseconds % 1000 === 0) return `${milliseconds / 1000} 秒`;
-  return `${milliseconds} 毫秒`;
-}
-
-function compactSectionSuffix(section = "") {
-  const text = String(section || "");
-  return text ? text.charAt(0).toUpperCase() + text.slice(1) : "";
-}
-
 Page({
   data: {
     appVersion: config.appVersion,
-    onlineApiVersion: "",
-    onlineBuildMarker: "",
     loading: true,
     canRetry: false,
     saving: false,
@@ -5819,50 +4723,8 @@ Page({
     refreshingAll: false,
     isAdmin: false,
     form: emptyForm(),
-    faceProviderProfileOptions: buildAdminProviderProfileOptions(
-      emptyForm(),
-      "face"
-    ),
-    faceProviderProfileIndex: 0,
-    analysisProviderProfileOptions: buildAdminProviderProfileOptions(
-      emptyForm(),
-      "analysis"
-    ),
-    analysisProviderProfileIndex: 0,
-    imageProviderProfileOptions: buildAdminProviderProfileOptions(
-      emptyForm(),
-      "image"
-    ),
-    imageProviderProfileIndex: 0,
-    imageBackupProviderProfileOptions: buildAdminProviderProfileOptions(
-      emptyForm(),
-      "imageBackup"
-    ),
-    imageBackupProviderProfileIndex: 1,
-    videoProviderProfileOptions: buildAdminProviderProfileOptions(
-      emptyForm(),
-      "video"
-    ),
-    videoProviderProfileIndex: 0,
-    videoBackupProviderProfileOptions: buildAdminProviderProfileOptions(
-      emptyForm(),
-      "videoBackup"
-    ),
-    videoBackupProviderProfileIndex: 0,
-    providerLabelRows: buildAdminProviderLabelRows(emptyForm()),
-    providerLabelErrors: {},
-    providerFilterOptions: buildAdminProviderFilterState(emptyForm()).providerFilterOptions,
-    providerFilterValue: "all",
-    providerFilterIndex: 0,
-    providerFilterLabel: "全部服务商",
-    providerSectionVisibility: {
-      face: true,
-      analysis: true,
-      image: true,
-      tencentFaceFusion: true,
-      video: true
-    },
     costFieldErrors: {},
+    pointFieldErrors: {},
     imageQualityOptions: buildAdminImageQualityOptions(
       emptyForm().costs,
       emptyForm().image.provider
@@ -5901,8 +4763,7 @@ Page({
     imageQualityProbe: emptyImageQualityProbe(),
     modelCapabilityProfiles: {
       image: {},
-      video: {},
-      videoBackup: {}
+      video: {}
     },
     currentConfigModels: emptyCurrentConfigModels(),
     defaults: null,
@@ -5910,6 +4771,8 @@ Page({
     deployment: null,
     logs: [],
     message: "",
+    paymentMonitorLoading: false,
+    paymentMonitor: emptyPaymentMonitor(),
     usageLoading: false,
     usageExporting: false,
     usageStats: emptyUsageStats(),
@@ -5944,8 +4807,6 @@ Page({
     selectedUserDetail: null,
     diagnosticLogsLoading: false,
     diagnosticLogs: emptyAdminDiagnosticLogs(),
-    paymentMonitorLoading: false,
-    paymentMonitor: emptyPaymentMonitor(),
     generationQueueLoading: false,
     generationQueue: emptyGenerationQueue(),
     generationCleanupLoading: false,
@@ -6023,7 +4884,6 @@ Page({
     faceConfigSummary: emptyFaceConfigSummary(),
     analysisConfigSummary: emptyAnalysisConfigSummary(),
     tencentFaceFusionStatus: emptyTencentFaceFusionStatus(),
-    tencentFaceFusionFieldErrors: {},
     tencentTestTemplate: null,
     tencentTestFace: null,
     tencentTestLoading: false,
@@ -6031,11 +4891,6 @@ Page({
     imageEditCapabilityProbe: emptyImageEditCapabilityProbe(),
     imageBackupEditCapabilityLoading: false,
     imageBackupEditCapabilityProbe: emptyImageEditCapabilityProbe(),
-    imageWizardStep: 1,
-    imageWizardAdvancedOpen: false,
-    tencentPipelineWizardStep: 1,
-    videoWizardStep: 1,
-    videoWizardAdvancedOpen: false,
     entryHealth: buildEntryHealth(),
     configVersion: 0,
     providerRegistry: normalizeAdminProviderRegistry({}),
@@ -6074,61 +4929,15 @@ Page({
     providerDeleting: false,
     providerSecretsLoading: false,
     providerAutoRebound: [],
-    compactModelMode: true,
-    compactActiveSection: "face",
-    compactModelTabs: COMPACT_MODEL_TABS.slice(),
-    compactActiveModel: {
-      title: "人脸识别",
-      description: "启用后可被人脸功能选择",
-      provider: "",
-      model: "",
-      baseUrl: "",
-      apiKey: "",
-      keyReady: false,
-      keyText: "未配置",
-      timeoutMs: "",
-      timeoutText: "未设置",
-      createPath: "",
-      queryPath: ""
-    },
-    compactOverview: {
-      readyCount: 0,
-      backupCount: 0,
-      status: "读取中",
-      tone: "neutral",
-      cloudStatus: "读取中",
-      cloudTone: "neutral"
-    },
-    compactBackupSection: "faceBackup",
-    compactActiveBackup: {
-      title: "备用人脸模型",
-      caption: "未启用 · 点击展开配置参数",
-      enabled: false,
-      provider: "",
-      model: "",
-      baseUrl: "",
-      apiKey: "",
-      keyReady: false,
-      keyText: "未配置",
-      timeoutMs: ""
-    },
-    compactBackupEnabledText: "未启用",
-    compactBackupExpanded: false,
-    compactProviderOptions: [{ value: "", label: "未配置" }],
-    compactProviderIndex: 0,
-    compactBackupProviderOptions: [{ value: "", label: "未配置" }],
-    compactBackupProviderIndex: 0,
-    compactAdvancedExpanded: false,
     activeConfigSection: "",
     activeConfigTitle: "",
+    monitorExpanded: true,
+    usageExpanded: true,
     faceBackupExpanded: false,
     analysisBackupExpanded: false,
     imageBackupExpanded: false,
     videoBackupExpanded: false,
-    monitorExpanded: true,
-    usageExpanded: true,
     monitorSections: {
-      paymentMonitor: true,
       generationQueue: true,
       autoFaceFailure: false,
       diagnosticLogs: false,
@@ -6139,317 +4948,58 @@ Page({
     deploymentSections: defaultDeploymentSections()
   },
 
-  onLoad() {
+  onLoad(options = {}) {
     this._adminLoadToken = 0;
-    this._providerDraftRequestSeq = 0;
+    this._providerSecretRowsRequestSeq = 0;
     this._imageApiKeyBaseline = emptyAdminImageApiKeys();
+    this._adminConfigDirtySections = new Set();
+    this._adminConfigBaselineForm = null;
     this.restoreMonitorLayout();
+    this.applyDashboardSection(options.section);
     this.loadAdminPage();
     this.startModelFailureAutoRefresh();
     this.startAutoFaceFailureAutoRefresh();
   },
 
-  buildCompactModelPatch(form = this.data.form, activeSection = this.data.compactActiveSection) {
-    const source = form && typeof form === "object" ? form : {};
-    const tab = COMPACT_MODEL_TABS.find((item) => item.value === activeSection)
-      || COMPACT_MODEL_TABS[0];
-    const section = source[tab.value] && typeof source[tab.value] === "object"
-      ? source[tab.value]
-      : {};
-    const keyReady = Boolean(section.apiKeyConfigured || String(section.apiKey || "").trim());
-    const model = Object.assign({}, section, {
-      title: tab.title,
-      description: tab.description,
-      providerKey: String(
-        section.providerKey
-        || (this.data.activeProviders && this.data.activeProviders[tab.value])
-        || ""
-      ).trim(),
-      provider: String(section.provider || "").trim(),
-      model: String(section.model || "").trim(),
-      baseUrl: String(section.baseUrl || section.endpoint || section.queryEndpoint || "").trim(),
-      apiKey: String(section.apiKey || ""),
-      keyReady,
-      keyText: keyReady ? "已配置 Key" : "未配置",
-      timeoutMs: String(section.timeoutMs || ""),
-      timeoutText: compactTimeoutText(section.timeoutMs),
-      createPath: String(section.createPath || ""),
-      queryPath: String(section.queryPath || "")
-    });
-    const backupSection = tab.backup || "";
-    const backup = backupSection && source[backupSection]
-      ? source[backupSection]
-      : {};
-    const backupKeyReady = Boolean(
-      backup.apiKeyConfigured
-      || String(backup.apiKey || "").trim()
-    );
-    const backupExpandedKey = backupSection === "faceBackup"
-      ? "faceBackupExpanded"
-      : backupSection === "analysisBackup"
-        ? "analysisBackupExpanded"
-        : backupSection === "imageBackup"
-          ? "imageBackupExpanded"
-          : backupSection === "videoBackup"
-            ? "videoBackupExpanded"
-            : "";
-    const backupExpanded = backupExpandedKey
-      ? Boolean(this.data[backupExpandedKey])
-      : false;
-    const backupView = Object.assign({}, backup, {
-      title: `${tab.label}备用模型`,
-      caption: backup.enabled
-        ? `${backup.provider || "未选择服务商"} · ${backup.model || "未填写模型"}`
-        : "未启用 · 点击展开配置参数",
-      provider: String(backup.provider || "").trim(),
-      providerKey: String(
-        backup.providerKey
-        || (this.data.activeBackups && this.data.activeBackups[backupSection])
-        || ""
-      ).trim(),
-      model: String(backup.model || "").trim(),
-      baseUrl: String(backup.baseUrl || backup.endpoint || backup.queryEndpoint || "").trim(),
-      apiKey: String(backup.apiKey || ""),
-      keyReady: backupKeyReady,
-      keyText: backupKeyReady ? "已配置 Key" : "未配置",
-      timeoutMs: String(backup.timeoutMs || ""),
-      timeoutText: compactTimeoutText(backup.timeoutMs)
-    });
-    const readySections = ["face", "analysis", "image", "video"];
-    const readyCount = readySections.filter((name) => compactModelReady(source[name], name)).length;
-    const backupCount = ["faceBackup", "analysisBackup", "imageBackup", "videoBackup"]
-      .filter((name) => Boolean(source[name] && source[name].enabled)).length;
-    const cloudConfigured = Boolean(String(config.cloudEnvId || "").trim());
-    const overview = {
-      readyCount,
-      backupCount,
-      status: readyCount === readySections.length ? "主模型正常" : `${readyCount}/4 已配置`,
-      tone: readyCount === readySections.length ? "ready" : "warning",
-      cloudStatus: cloudConfigured ? "已配置" : "未配置",
-      cloudTone: cloudConfigured ? "ready" : "warning"
-    };
-    const providerOptions = this.data[`providerPickerOptions${compactSectionSuffix(tab.value)}`]
-      || [{ value: "", label: "未配置" }];
-    const backupProviderOptions = backupSection
-      ? this.data[`providerPickerOptions${compactSectionSuffix(backupSection)}`]
-        || [{ value: "", label: "未配置" }]
-      : [{ value: "", label: "未配置" }];
-    return {
-      compactModelTabs: COMPACT_MODEL_TABS.slice(),
-      compactActiveSection: tab.value,
-      compactActiveModel: model,
-      compactOverview: overview,
-      compactBackupSection: backupSection,
-      compactActiveBackup: backupView,
-      compactBackupEnabledText: backup.enabled ? "已启用" : "未启用",
-      compactBackupExpanded: backupExpanded,
-      compactProviderOptions: providerOptions,
-      compactProviderIndex: Number(this.data[`providerPickerIndex${compactSectionSuffix(tab.value)}`]) || 0,
-      compactBackupProviderOptions: backupProviderOptions,
-      compactBackupProviderIndex: backupSection
-        ? Number(this.data[`providerPickerIndex${compactSectionSuffix(backupSection)}`]) || 0
-        : 0
-    };
+  onReady() {
+    const section = this._dashboardInitialSection;
+    if (!section || typeof wx.pageScrollTo !== "function") return;
+    const selector = section === "usage"
+      ? "#usage-section"
+      : configEditorSelector(section);
+    const scroll = () => wx.pageScrollTo({ selector, duration: 220 });
+    if (typeof wx.nextTick === "function") wx.nextTick(scroll);
+    else scroll();
   },
 
-  refreshCompactModelState(form = this.data.form, activeSection = this.data.compactActiveSection) {
-    this.setData(this.buildCompactModelPatch(form, activeSection));
-  },
-
-  switchCompactModelTab(event) {
-    const section = String(
-      event && event.currentTarget && event.currentTarget.dataset
-        ? event.currentTarget.dataset.section || ""
-        : ""
-    );
-    if (!COMPACT_MODEL_SECTIONS.includes(section)) return;
-    this.setData(Object.assign({
-      activeConfigSection: section,
-      activeConfigTitle: (COMPACT_MODEL_TABS.find((item) => item.value === section) || {}).title || "模型配置",
-      compactAdvancedExpanded: false
-    }, this.buildCompactModelPatch(this.data.form, section)));
-  },
-
-  toggleCompactBackup() {
-    const section = String(this.data.compactBackupSection || "");
-    const key = section === "faceBackup"
-      ? "faceBackupExpanded"
-      : section === "analysisBackup"
-        ? "analysisBackupExpanded"
-        : section === "imageBackup"
-          ? "imageBackupExpanded"
-          : section === "videoBackup"
-            ? "videoBackupExpanded"
-            : "";
-    if (!key) return;
-    const expanded = !Boolean(this.data[key]);
-    const patch = this.buildCompactModelPatch(this.data.form, this.data.compactActiveSection);
-    patch[key] = expanded;
-    patch.compactBackupExpanded = expanded;
-    this.setData(patch);
-  },
-
-  toggleCompactBackupEnabled(event) {
-    const section = String(this.data.compactBackupSection || "");
-    const detail = event && event.detail ? event.detail : {};
-    const proxy = {
-      currentTarget: { dataset: { section } },
-      detail: { value: Boolean(detail.value) }
-    };
-    if (section === "faceBackup" || section === "analysisBackup") {
-      this.onVisionBackupEnabledChange(proxy);
-    } else if (section === "imageBackup") {
-      this.onImageBackupEnabledChange(proxy);
-    } else if (section === "videoBackup") {
-      this.onVideoBackupEnabledChange(proxy);
+  applyDashboardSection(rawSection) {
+    const requested = String(rawSection || "").trim();
+    const section = requested === "cost" ? "costs" : requested;
+    if (section === "usage") {
+      this._dashboardInitialSection = "usage";
+      this.setData({ usageExpanded: true });
+      return;
     }
-    setTimeout(() => this.refreshCompactModelState(this.data.form), 0);
-  },
-
-  onCompactProviderChange(event) {
-    const section = String(this.data.compactActiveSection || "");
-    if (!section || section === "tencentFaceFusion") return;
-    this.onProviderPickerChange({
-      currentTarget: { dataset: { section } },
-      detail: { value: Number(event && event.detail && event.detail.value) || 0 }
-    });
-    setTimeout(() => this.refreshCompactModelState(this.data.form), 0);
-  },
-
-  onCompactBackupProviderChange(event) {
-    const section = String(this.data.compactBackupSection || "");
-    if (!section) return;
-    this.onProviderPickerChange({
-      currentTarget: { dataset: { section } },
-      detail: { value: Number(event && event.detail && event.detail.value) || 0 }
-    });
-    setTimeout(() => this.refreshCompactModelState(this.data.form), 0);
-  },
-
-  toggleCompactAdvanced() {
-    this.setData({ compactAdvancedExpanded: !Boolean(this.data.compactAdvancedExpanded) });
-  },
-
-  openCompactProviderDirectory() {
+    if (!["points", "costs", "users"].includes(section)) return;
+    this._dashboardInitialSection = section;
     this.setData({
-      compactModelMode: false,
-      activeConfigSection: "providers",
-      activeConfigTitle: CONFIG_SECTION_TITLES.providers
-    }, () => {
-      if (typeof wx.pageScrollTo === "function") {
-        wx.pageScrollTo({ selector: "#config-editor-providers", duration: 220 });
-      }
+      activeConfigSection: section,
+      activeConfigTitle: CONFIG_SECTION_TITLES[section]
     });
-  },
-
-  openCompactProviderEditor(event) {
-    const dataset = event && event.currentTarget && event.currentTarget.dataset
-      ? event.currentTarget.dataset
-      : {};
-    const providerKey = String(
-      dataset.providerKey
-      || (this.data.compactActiveModel && this.data.compactActiveModel.providerKey)
-      || ""
-    ).trim();
-    const tab = String(dataset.tab || this.data.compactActiveSection || "").trim();
-    this.setData({
-      compactModelMode: false,
-      activeConfigSection: "providers",
-      activeConfigTitle: CONFIG_SECTION_TITLES.providers
-    }, () => {
-      if (providerKey) {
-        this.openProviderDraft(providerKey, {
-          tab: ADMIN_PROVIDER_MAIN_SLOTS.includes(tab) ? tab : "face"
-        });
-      } else {
-        this.startAddProvider();
-      }
-      if (typeof wx.pageScrollTo === "function") {
-        wx.pageScrollTo({ selector: "#config-editor-providers", duration: 220 });
-      }
-    });
-  },
-
-  openCompactBackupEditor(event) {
-    const dataset = event && event.currentTarget && event.currentTarget.dataset
-      ? event.currentTarget.dataset
-      : {};
-    const providerKey = String(
-      dataset.providerKey
-      || (this.data.compactActiveBackup && this.data.compactActiveBackup.providerKey)
-      || ""
-    ).trim();
-    const tab = String(dataset.tab || this.data.compactActiveSection || "").trim();
-    this.setData({
-      compactModelMode: false,
-      activeConfigSection: "providers",
-      activeConfigTitle: CONFIG_SECTION_TITLES.providers
-    }, () => {
-      if (providerKey) {
-        this.openProviderDraft(providerKey, {
-          tab: tab === "analysis"
-            ? "analysis"
-            : tab === "image"
-              ? "image"
-              : tab === "video"
-                ? "video"
-                : "face"
-        });
-      } else {
-        this.startAddProvider();
-      }
-      if (typeof wx.pageScrollTo === "function") {
-        wx.pageScrollTo({ selector: "#config-editor-providers", duration: 220 });
-      }
-    });
-  },
-
-  startCompactProvider() {
-    this.setData({
-      compactModelMode: false,
-      activeConfigSection: "providers",
-      activeConfigTitle: CONFIG_SECTION_TITLES.providers
-    }, () => {
-      this.startAddProvider();
-      if (typeof wx.pageScrollTo === "function") {
-        wx.pageScrollTo({ selector: "#config-editor-providers", duration: 220 });
-      }
-    });
-  },
-
-  openCompactFullEditor() {
-    this.setData({ compactModelMode: false }, () => {
-      if (typeof wx.pageScrollTo === "function") {
-        wx.pageScrollTo({ selector: configEditorSelector(this.data.compactActiveSection), duration: 220 });
-      }
-    });
-  },
-
-  backToCompactModel() {
-    this.setData(Object.assign({
-      compactModelMode: true,
-      activeConfigSection: "",
-      activeConfigTitle: ""
-    }, this.buildCompactModelPatch(this.data.form, this.data.compactActiveSection)));
   },
 
   onUnload() {
     this._adminLoadToken = (this._adminLoadToken || 0) + 1;
-    this._providerDraftRequestSeq = (this._providerDraftRequestSeq || 0) + 1;
     this._providerSecretRowsRequestSeq = (this._providerSecretRowsRequestSeq || 0) + 1;
     this._imageApiKeyBaseline = emptyAdminImageApiKeys();
+    this._adminConfigDirtySections = new Set();
+    this._adminConfigBaselineForm = null;
     this.stopModelFailureAutoRefresh();
     this.stopAutoFaceFailureAutoRefresh();
   },
 
   onPullDownRefresh() {
-    const refresh = () => this.loadAdminPage().finally(() => wx.stopPullDownRefresh());
-    if (this.providerDraftHasChanges()) {
-      wx.stopPullDownRefresh();
-      this.confirmDiscardProviderDraft(refresh);
-      return;
-    }
-    refresh();
+    this.loadAdminPage().finally(() => wx.stopPullDownRefresh());
   },
 
   isCurrentAdminLoad(token) {
@@ -6477,9 +5027,6 @@ Page({
       ? overrides.modelFailureSelectedMonth
       : this.data.modelFailureSelectedMonth;
     const userStats = hasOwnValue("userStats") ? overrides.userStats : this.data.userStats;
-    const tencentFaceFusionStatus = hasOwnValue("tencentFaceFusionStatus")
-      ? overrides.tencentFaceFusionStatus
-      : this.data.tencentFaceFusionStatus;
     return Object.assign(
       {
         currentConfigModels: buildCurrentConfigModels(form),
@@ -6503,14 +5050,13 @@ Page({
         ),
         analysisConfigSummary: buildAnalysisConfigSummary(effective),
         entryHealth: buildEntryHealth(
-          effective || form,
+          effective,
           usageStats,
           autoFaceProbe,
           autoFaceProbeHistory,
           autoFaceFailureStats,
           userStats,
-          moduleStates,
-          tencentFaceFusionStatus
+          moduleStates
         ),
         todayFailureText: buildTodayFailureText(usageStats, moduleStates),
         modelFailureView: buildModelFailureView(
@@ -6650,7 +5196,7 @@ Page({
         formatPaymentMonitor,
         (paymentMonitor) => ({ paymentMonitor }),
         {
-          label: "支付监控",
+          label: "支付健康监控",
           loadingKey: "paymentMonitorLoading"
         }
       ),
@@ -6792,6 +5338,8 @@ Page({
       isAdmin: false,
       canRetry: false,
       moduleStates: emptyAdminModuleStates(),
+      paymentMonitorLoading: false,
+      paymentMonitor: emptyPaymentMonitor(),
       generationQueueLoading: false,
       usageLoading: false,
       userStatsLoading: false,
@@ -6871,31 +5419,33 @@ Page({
         : emptyAdminImageApiKeys();
       const effective = result && result.effective ? result.effective : null;
       const rawForm = formFromConfig(result);
-      const providerUi = buildAdminProviderUiState(
+      let providerUi = buildAdminProviderUiState(
         rawForm.providerRegistry,
         rawForm.activeProviders,
-        rawForm.activeBackups,
         rawForm
       );
       const form = formWithAdminImageApiKeys(
         applyAdminProviderRegistryToForm(
           rawForm,
           providerUi.providerRegistry,
-          providerUi.activeProviders,
-          providerUi.activeBackups
+          providerUi.activeProviders
         ),
         imageApiKeys
       );
-      this._imageApiKeyBaseline = adminImageApiKeysFromForm(form);
+      providerUi = buildAdminProviderUiState(
+        form.providerRegistry,
+        form.activeProviders,
+        form
+      );
+      this._imageApiKeyBaseline = imageApiKeys;
       const moduleStates = loadingAdminModuleStates(this.data.moduleStates);
       const basePatch = Object.assign({}, providerUi, {
         loading: false,
         isAdmin: true,
         canRetry: false,
-        onlineApiVersion: String(status.buildVersion || "").trim(),
-        onlineBuildMarker: String(status.buildMarker || "").trim(),
         form,
         costFieldErrors: {},
+        pointFieldErrors: {},
         defaults: result.defaults || null,
         configVersion: Number(result.version) || 0,
         effective,
@@ -6903,28 +5453,19 @@ Page({
         message: apiKeyResult.ok
           ? ""
           : "普通配置已读取，但完整 Key 读取失败，请刷新。"
-      }, providerUi, buildQualityPickerState(form), buildAdminProviderProfilePickerState(form),
-      buildAdminProviderManagementState(
-        form,
-        this.data.modelProbes,
-        this.data.providerFilterValue,
-        {}
-      ));
+      }, buildQualityPickerState(form));
       Object.assign(basePatch, this.buildAdminDerivedPatch(basePatch, moduleStates));
-      this.setData(basePatch, () => {
-        if (this.data.compactModelMode) {
-          this.refreshCompactModelState(this.data.form, this.data.compactActiveSection);
-        }
-      });
-      void this.loadProviderSecretRows(providerUi.providerRegistry);
+      this.setData(basePatch);
       diagnosticLog.info("admin", "config-loaded", "管理员配置读取完成", {
         runtimeConfigVersion: result.version || 0
       });
+      this._adminConfigDirtySections = new Set();
+      this._adminConfigBaselineForm = cloneAdminConfigValue(form);
       if (!apiKeyResult.ok) {
         diagnosticLog.warn(
           "admin",
-          "provider-api-key-load-failed",
-          "管理员服务商完整 Key 读取失败",
+          "image-api-key-load-failed",
+          "管理员生图完整 Key 读取失败",
           adminImageApiKeyFailureLog(apiKeyResult.error)
         );
       }
@@ -6987,7 +5528,7 @@ Page({
       formatPaymentMonitor,
       (paymentMonitor) => ({ paymentMonitor }),
       {
-        label: "支付监控",
+        label: "支付健康监控",
         loadingKey: "paymentMonitorLoading"
       }
     );
@@ -7643,15 +6184,6 @@ Page({
 
   async refreshAll() {
     if (this.data.refreshingAll) return;
-    if (this.providerDraftHasChanges()) {
-      const shouldRefresh = await this.confirmDiscardProviderDraft();
-      if (!shouldRefresh) return;
-    }
-    return this.refreshAllNow();
-  },
-
-  async refreshAllNow() {
-    if (this.data.refreshingAll) return;
     const token = (this._adminLoadToken || 0) + 1;
     this._adminLoadToken = token;
     const loadingStates = loadingAdminModuleStates(this.data.moduleStates);
@@ -7659,7 +6191,6 @@ Page({
       refreshingAll: true,
       message: "正在刷新全部数据...",
       moduleStates: loadingStates,
-      paymentMonitorLoading: true,
       generationQueueLoading: true,
       usageLoading: true,
       userStatsLoading: true,
@@ -7681,44 +6212,42 @@ Page({
           ? apiKeyResult.apiKeys
           : emptyAdminImageApiKeys();
         const rawForm = formFromConfig(result);
-        const providerUi = buildAdminProviderUiState(
+        let providerUi = buildAdminProviderUiState(
           rawForm.providerRegistry,
           rawForm.activeProviders,
-          rawForm.activeBackups,
           rawForm
         );
         const form = formWithAdminImageApiKeys(
           applyAdminProviderRegistryToForm(
             rawForm,
             providerUi.providerRegistry,
-            providerUi.activeProviders,
-            providerUi.activeBackups
+            providerUi.activeProviders
           ),
           imageApiKeys
         );
-        this._imageApiKeyBaseline = adminImageApiKeysFromForm(form);
+        providerUi = buildAdminProviderUiState(
+          form.providerRegistry,
+          form.activeProviders,
+          form
+        );
+        this._imageApiKeyBaseline = imageApiKeys;
         const patch = Object.assign({}, providerUi, {
           form,
           costFieldErrors: {},
+          pointFieldErrors: {},
           defaults: result.defaults || null,
           configVersion: Number(result.version) || 0,
           effective: result.effective || null
-        }, buildQualityPickerState(form), buildAdminProviderProfilePickerState(form),
-        buildAdminProviderManagementState(
-          form,
-          this.data.modelProbes,
-          this.data.providerFilterValue,
-          {}
-        ));
+        }, buildQualityPickerState(form));
         Object.assign(patch, this.buildAdminDerivedPatch(patch, this.data.moduleStates));
         this.setData(patch);
-        void this.loadProviderSecretRows(providerUi.providerRegistry);
-        await this.loadTencentFaceFusionStatus(token);
+        this._adminConfigDirtySections = new Set();
+        this._adminConfigBaselineForm = cloneAdminConfigValue(form);
         if (!apiKeyResult.ok) {
           diagnosticLog.warn(
             "admin",
-            "provider-api-key-refresh-failed",
-            "刷新管理员服务商完整 Key 失败",
+            "image-api-key-refresh-failed",
+            "刷新管理员生图完整 Key 失败",
             adminImageApiKeyFailureLog(apiKeyResult.error)
           );
         }
@@ -7739,14 +6268,6 @@ Page({
     })();
 
     const moduleTasks = [
-      this.loadAdminModule(
-        token,
-        "paymentMonitor",
-        () => cloud.getAdminPaymentMonitor(),
-        formatPaymentMonitor,
-        (paymentMonitor) => ({ paymentMonitor }),
-        { label: "支付监控", loadingKey: "paymentMonitorLoading" }
-      ),
       this.loadAdminModule(
         token,
         "generationQueue",
@@ -7832,7 +6353,7 @@ Page({
     const failed = [];
     if (!configResult.ok) failed.push("模型配置");
     if (configResult.ok && configResult.imageApiKeysOk === false) {
-      failed.push("服务商完整 Key");
+      failed.push("生图完整 Key");
     }
     parts.forEach((part, index) => {
       if (!part || part.ok) return;
@@ -7920,381 +6441,63 @@ Page({
     }
   },
 
-  onProviderProfileChange(event) {
-    const section = String(
-      event
-      && event.currentTarget
-      && event.currentTarget.dataset
-      && event.currentTarget.dataset.section
-      || ""
-    ).trim();
-    const state = ADMIN_PROVIDER_PROFILE_STATE[section];
-    if (!state) return;
-    const options = Array.isArray(this.data[state.options])
-      ? this.data[state.options]
-      : [];
-    const index = Math.max(
-      0,
-      Number(event && event.detail && event.detail.value) || 0
-    );
-    const option = options[index];
-    if (!option || (section !== "videoBackup" && !option.value)) return;
-    const previousSection = this.data.form && this.data.form[section]
-      && typeof this.data.form[section] === "object"
-      ? this.data.form[section]
-      : {};
-    const previousRecord = section === "videoBackup"
-      ? findAdminProviderRecordByRef(
-        this.data.providerRegistry,
-        previousSection.providerKey || previousSection.provider
-      )
-      : null;
-    const selectedRecord = section === "videoBackup"
-      ? findAdminProviderRecordByRef(this.data.providerRegistry, option.value)
-      : null;
-    let nextForm;
-    const activeBackups = Object.assign({}, this.data.activeBackups || {});
-    if (section === "videoBackup") {
-      activeBackups.videoBackup = selectedRecord
-        ? selectedRecord.providerKey
-        : "";
-      if (selectedRecord) {
-        const capturedProfiles = captureAdminProviderProfile(this.data.form, section);
-        nextForm = Object.assign({}, this.data.form, {
-          providerProfiles: capturedProfiles,
-          videoBackup: adminVideoBackupFormFromRecord(
-            selectedRecord,
-            Object.assign({}, previousSection, {
-              providerKey: previousSection.providerKey
-                || previousRecord && previousRecord.providerKey
-                || ""
-            }),
-            this.data.providerSecretRows
-          )
-        });
-      } else if (!option.value) {
-        nextForm = Object.assign({}, this.data.form, {
-          providerProfiles: captureAdminProviderProfile(this.data.form, section),
-          videoBackup: Object.assign({}, emptyVisionBackupForm("videoBackup"), {
-            enabled: false
-          })
-        });
-      } else {
-        // 兼容尚未迁移到目录的旧版档案。
-        nextForm = switchAdminProviderProfile(
-          this.data.form,
-          section,
-          option.value
-        );
-      }
-    } else {
-      nextForm = switchAdminProviderProfile(
-        this.data.form,
-        section,
-        option.value
-      );
-    }
-    if (section === "video" || section === "videoBackup") {
-      const currentVideoApiKey = String(
-        this.data.form
-        && this.data.form[section]
-        && this.data.form[section].apiKey
-        || ""
-      ).trim();
-      nextForm = applyAdminVideoProviderDefaults(nextForm, section);
-      const nextProviderId = providerIdFromDisplay(
-        nextForm[section] && nextForm[section].provider
-      );
-      const previousProviderId = providerIdFromDisplay(
-        previousSection.provider
-        || previousRecord && previousRecord.id
-      );
-      const sameProvider = Boolean(
-        currentVideoApiKey
-        && previousProviderId
-        && nextProviderId
-        && previousProviderId.toLowerCase() === nextProviderId.toLowerCase()
-      );
-      if (currentVideoApiKey && sameProvider) {
-        nextForm = Object.assign({}, nextForm, {
-          [section]: Object.assign({}, nextForm[section], {
-            apiKey: currentVideoApiKey,
-            apiKeyConfigured: true
-          })
-        });
-      }
-      if (section === "videoBackup" && !sameProvider) {
-        const selectedKey = activeBackups.videoBackup;
-        const secretRow = (this.data.providerSecretRows || []).find(
-          (item) => item && item.providerKey === selectedKey
-        );
-        if (secretRow && secretRow.videoBackupApiKey) {
-          nextForm = Object.assign({}, nextForm, {
-            videoBackup: Object.assign({}, nextForm.videoBackup, {
-              apiKey: secretRow.videoBackupApiKey,
-              apiKeyConfigured: true
-            })
-          });
-        }
-      }
-    }
-    const imageModel = String(
-      nextForm.image
-      && nextForm.image.model
-      || ""
-    ).trim();
-    const videoModel = String(
-      nextForm.video
-      && nextForm.video.model
-      || ""
-    ).trim();
-    const videoBackupModel = String(
-      nextForm.videoBackup
-      && nextForm.videoBackup.model
-      || ""
-    ).trim();
-    const capabilityProfiles = this.data.modelCapabilityProfiles || {};
-    const patch = Object.assign({
-      form: Object.assign({}, nextForm, { activeBackups }),
-      activeBackups,
-      message: section === "videoBackup" && !option.value
-        ? "已关闭备用视频服务商；保存后，主服务商失败时不会自动切换。"
-        : `已切换到${displayAdminProvider(option.value, option.value)}；当前只修改页面草稿，点击“保存全部配置”后才写入云端。`
-    }, buildAdminProviderProfilePickerState(nextForm),
-    buildAdminProviderManagementState(
-      nextForm,
-      this.data.modelProbes,
-      this.data.providerFilterValue,
-      this.data.providerLabelErrors
-    ), buildQualityPickerState(nextForm, {
-      image: capabilityProfiles.image
-        && capabilityProfiles.image[imageModel]
-        || {},
-      video: capabilityProfiles.video
-        && capabilityProfiles.video[videoModel]
-        || {},
-      videoBackup: capabilityProfiles.videoBackup
-        && capabilityProfiles.videoBackup[videoBackupModel]
-        || {}
-    }));
-    Object.assign(
-      patch,
-      this.buildAdminDerivedPatch({ form: nextForm }, this.data.moduleStates)
-    );
-    Object.assign(
-      patch,
-      this.buildCompactModelPatch(nextForm, this.data.compactActiveSection)
-    );
-    this.setData(patch);
-  },
-
-  onProviderLabelInput(event) {
-    const providerId = String(
-      event
-      && event.currentTarget
-      && event.currentTarget.dataset
-      && event.currentTarget.dataset.providerId
-      || ""
-    ).trim();
-    if (
-      !providerId
-      || ADMIN_PROVIDER_DANGEROUS_KEYS.includes(providerId)
-    ) {
-      return;
-    }
-    const label = String(
-      event
-      && event.detail
-      && event.detail.value
-      || ""
-    ).slice(0, ADMIN_PROVIDER_LABEL_MAX_LENGTH);
-    const previousLabels = Object.assign({}, activeAdminProviderLabels);
-    const nextLabels = Object.assign(
-      {},
-      this.data.form
-      && this.data.form.providerLabels
-      || {},
-      { [providerId]: label }
-    );
-    const nextForm = relabelAdminProviderForm(
-      this.data.form,
-      nextLabels,
-      previousLabels
-    );
-    const providerLabelErrors = validateAdminProviderLabelRows(
-      buildAdminProviderLabelRows(nextForm)
-    );
-    const patch = Object.assign({
-      form: nextForm
-    }, buildAdminProviderProfilePickerState(nextForm),
-    buildAdminProviderManagementState(
-      nextForm,
-      this.data.modelProbes,
-      this.data.providerFilterValue,
-      providerLabelErrors
-    ), buildQualityPickerState(nextForm));
-    Object.assign(
-      patch,
-      this.buildAdminDerivedPatch({ form: nextForm }, this.data.moduleStates)
-    );
-    this.setData(patch);
-  },
-
-  onProviderFilterChange(event) {
-    const options = Array.isArray(this.data.providerFilterOptions)
-      ? this.data.providerFilterOptions
-      : [];
-    const index = Math.max(
-      0,
-      Number(event && event.detail && event.detail.value) || 0
-    );
-    const option = options[index] || options[0] || {
-      value: "all",
-      label: "全部服务商"
-    };
-    const patch = buildAdminProviderManagementState(
-      this.data.form,
-      this.data.modelProbes,
-      option.value,
-      this.data.providerLabelErrors
-    );
-    const activeSection = String(this.data.activeConfigSection || "");
-    if (
-      ["face", "analysis", "image", "tencentFaceFusion", "video"].includes(activeSection)
-      && patch.providerSectionVisibility
-      && !patch.providerSectionVisibility[activeSection]
-    ) {
-      patch.activeConfigSection = "";
-      patch.activeConfigTitle = "";
-    }
-    this.setData(patch, () => this.persistMonitorLayout());
-  },
-
   onInput(event) {
     const section = event.currentTarget.dataset.section;
-    const key = event.currentTarget.dataset.key
-      || event.currentTarget.dataset.fieldKey;
+    const key = event.currentTarget.dataset.key;
     if (!section || !key) return;
-    let inputValue = event.detail.value;
-    if (section === "image" && key === "maxRetries") {
-      const parsed = Number(inputValue);
-      inputValue = Number.isFinite(parsed)
-        ? String(Math.max(0, Math.min(5, Math.round(parsed))))
-        : "0";
-    }
+    const inputValue = event.detail.value;
     const value = (
       ADMIN_PROVIDER_FORM_SECTIONS.includes(section)
       && key === "provider"
     )
       ? displayAdminProvider(inputValue)
       : inputValue;
-    let nextForm;
-    if (ADMIN_PROVIDER_PICKER_SECTIONS.includes(section)) {
-      if (key === "provider") {
-        const currentProviderId = providerIdFromDisplay(
-          this.data.form[section]
-          && this.data.form[section].provider
-        );
-        const nextProviderId = providerIdFromDisplay(value);
-        nextForm = currentProviderId === nextProviderId
-          ? updateAdminProviderProfileForm(
-            this.data.form,
-            section,
-            { provider: value }
-          )
-          : switchAdminProviderProfile(
-            this.data.form,
-            section,
-            nextProviderId
-          );
-      } else {
-        nextForm = updateAdminProviderProfileForm(
-          this.data.form,
-          section,
-          { [key]: value }
-        );
+    const patch = {
+      [`form.${section}.${key}`]: value
+    };
+    if (ADMIN_CONFIG_SAVE_SECTIONS.includes(section)) {
+      if (!(this._adminConfigDirtySections instanceof Set)) {
+        this._adminConfigDirtySections = new Set();
       }
-    } else {
-      nextForm = Object.assign({}, this.data.form, {
-        [section]: Object.assign({}, this.data.form[section] || {}, {
-          [key]: value
-        })
-      });
-    }
-    let activeBackups = this.data.activeBackups;
-    if (
-      ADMIN_PROVIDER_BACKUP_SECTIONS.includes(section)
-      && key === "provider"
-    ) {
-      const providerId = providerIdFromDisplay(value);
-      const registry = this.data.providerRegistry || {};
-      const selectedKey = Object.keys(registry.providers || {}).find((candidate) => {
-        const record = registry.providers[candidate];
-        return record && (
-          candidate === providerId
-          || String(record.id || "").toLowerCase() === providerId.toLowerCase()
-          || String(record.name || "") === value
-        );
-      }) || "";
-      activeBackups = Object.assign({}, this.data.activeBackups || {}, {
-        [section]: selectedKey
-      });
-      nextForm[section] = Object.assign({}, nextForm[section] || {}, {
-        providerKey: selectedKey,
-        enabled: Boolean(selectedKey)
-      });
-    }
-    if (section === "video" || section === "videoBackup") {
-      nextForm = applyAdminVideoProviderDefaults(nextForm, section);
-    }
-    if (section === "image" && key === "maxRetries") {
-      nextForm = updateAdminProviderProfileForm(
-        nextForm,
-        "image",
-        { retryEnabled: true }
-      );
-    }
-    const patch = { form: nextForm };
-    if (activeBackups && activeBackups !== this.data.activeBackups) {
-      patch.activeBackups = activeBackups;
-      nextForm = Object.assign({}, nextForm, { activeBackups });
-      patch.form = nextForm;
-    }
-    if (section === "tencentFaceFusion") {
-      patch[`tencentFaceFusionFieldErrors.${key}`] = "";
+      this._adminConfigDirtySections.add(section);
     }
     if (section === "costs" && ADMIN_COST_KEYS.includes(key)) {
       patch[`costFieldErrors.${key}`] = validateAdminCostInput(value);
     }
-    if (ADMIN_PROVIDER_PICKER_SECTIONS.includes(section)) {
-      Object.assign(
-        patch,
-        buildAdminProviderProfilePickerState(nextForm),
-        buildAdminProviderManagementState(
-          nextForm,
-          this.data.modelProbes,
-          this.data.providerFilterValue,
-          this.data.providerLabelErrors
-        )
-      );
-      if (
-        ["face", "analysis", "image", "tencentFaceFusion", "video"].includes(this.data.activeConfigSection)
-        && patch.providerSectionVisibility
-        && !patch.providerSectionVisibility[this.data.activeConfigSection]
-      ) {
-        patch.activeConfigSection = "";
-        patch.activeConfigTitle = "";
-      }
+    if (section === "points" && ADMIN_POINT_RULES[key]) {
+      patch[`pointFieldErrors.${key}`] = validateAdminPointInput(value, key);
+    }
+    if (key === "model") {
+      patch[`currentConfigModels.${section}`] = displayModelName(event.detail.value);
     }
     if (
       (
         section === "image"
         || section === "imageBackup"
         || section === "video"
+        || section === "faceBackup"
+        || section === "analysisBackup"
         || section === "videoBackup"
       )
       && (key === "model" || key === "provider")
     ) {
+      let nextForm = Object.assign({}, this.data.form, {
+        [section]: Object.assign({}, this.data.form[section], {
+          [key]: value
+        })
+      });
+      if (section === "video" || section === "videoBackup") {
+        nextForm = applyAdminVideoProviderDefaults(nextForm, section);
+        const currentVideo = this.data.form[section] || {};
+        Object.keys(nextForm[section] || {}).forEach((videoKey) => {
+          if (nextForm[section][videoKey] !== currentVideo[videoKey]) {
+            patch[`form.${section}.${videoKey}`] = nextForm[section][videoKey];
+          }
+        });
+        patch[`currentConfigModels.${section}`] = displayModelName(
+          nextForm[section] && nextForm[section].model
+        );
+      }
       const profiles = this.data.modelCapabilityProfiles
         && this.data.modelCapabilityProfiles[section]
         ? this.data.modelCapabilityProfiles[section]
@@ -8308,6 +6511,11 @@ Page({
       section === "costs"
       && (IMAGE_COST_KEYS.includes(key) || VIDEO_COST_KEYS.includes(key))
     ) {
+      const nextForm = Object.assign({}, this.data.form, {
+        costs: Object.assign({}, this.data.form.costs, {
+          [key]: event.detail.value
+        })
+      });
       const currentImageModel = String(nextForm.image && nextForm.image.model || "").trim();
       const currentVideoModel = String(nextForm.video && nextForm.video.model || "").trim();
       const profiles = this.data.modelCapabilityProfiles || {};
@@ -8316,20 +6524,15 @@ Page({
         video: profiles.video && profiles.video[currentVideoModel] || {}
       }));
     }
-    Object.assign(
-      patch,
-      this.buildAdminDerivedPatch({ form: nextForm }, this.data.moduleStates)
-    );
     this.setData(patch);
   },
 
   providerUiPatch(
     registry = this.data.providerRegistry,
     activeProviders = this.data.activeProviders,
-    activeBackups = this.data.activeBackups,
-    effective = this.data.effective || {}
+    form = this.data.form
   ) {
-    return buildAdminProviderUiState(registry, activeProviders, activeBackups, effective);
+    return buildAdminProviderUiState(registry, activeProviders, form);
   },
 
   providerDraftHasChanges() {
@@ -8340,39 +6543,29 @@ Page({
 
   confirmDiscardProviderDraft(callback) {
     if (!this.providerDraftHasChanges()) {
-      if (typeof callback === "function") callback();
-      return Promise.resolve(true);
+      callback();
+      return;
     }
-    return new Promise((resolve) => {
-      wx.showModal({
-        title: "丢弃未保存修改？",
-        content: "当前服务商编辑器还有未保存内容，继续切换会丢失这些修改。",
-        confirmText: "丢弃并继续",
-        cancelText: "继续编辑",
-        success: (result) => {
-          const confirmed = Boolean(result && result.confirm);
-          if (confirmed && typeof callback === "function") callback();
-          resolve(confirmed);
-        },
-        fail: () => resolve(false)
-      });
+    wx.showModal({
+      title: "丢弃未保存修改？",
+      content: "当前服务商编辑器还有未保存内容，继续切换会丢失这些修改。",
+      confirmText: "丢弃并继续",
+      cancelText: "继续编辑",
+      success: (result) => {
+        if (result && result.confirm) callback();
+      }
     });
   },
 
   openProviderDraft(providerKey, options = {}) {
     const key = String(providerKey || "").trim();
     const open = async () => {
-      const requestSeq = (this._providerDraftRequestSeq || 0) + 1;
-      this._providerDraftRequestSeq = requestSeq;
-      this.setData({ providerSecretsLoading: Boolean(key) });
       let draft = emptyProviderDraft();
       let secretError = null;
       if (key) {
         const record = getAdminProviderRecord(this.data.providerRegistry, key);
-        if (!record) {
-          this.setData({ providerSecretsLoading: false });
-          return;
-        }
+        if (!record) return;
+        this.setData({ providerSecretsLoading: true });
         try {
           const secrets = await cloud.getAdminProviderSecrets(key, { retryLimit: 0 });
           draft = adminProviderDraftFromRecord(record, secrets || {});
@@ -8380,10 +6573,8 @@ Page({
           secretError = error;
           draft = adminProviderDraftFromRecord(record, {});
         }
-        if (requestSeq !== this._providerDraftRequestSeq) return;
         this.setData({ providerSecretsLoading: false });
       }
-      if (requestSeq !== this._providerDraftRequestSeq) return;
       const snapshot = providerDraftSnapshot(draft);
       this.setData({
         providerDraft: draft,
@@ -8398,60 +6589,6 @@ Page({
       });
     };
     this.confirmDiscardProviderDraft(open);
-  },
-
-  async loadProviderSecretRows(registry = this.data.providerRegistry) {
-    const source = normalizeAdminProviderRegistry(registry || {});
-    const rows = buildAdminProviderRows(source, this.data.activeProviders || {});
-    if (!rows.length) {
-      this.setData({ providerSecretRows: [] });
-      return;
-    }
-    const requestSeq = (this._providerSecretRowsRequestSeq || 0) + 1;
-    this._providerSecretRowsRequestSeq = requestSeq;
-    this.setData({ providerSecretsLoading: true });
-    const loaded = {};
-    await Promise.all(rows.map(async (row) => {
-      try {
-        loaded[row.providerKey] = await cloud.getAdminProviderSecrets(
-          row.providerKey,
-          { retryLimit: 0 }
-        );
-      } catch (error) {
-        loaded[row.providerKey] = { __error: String(error && error.message || "") };
-      }
-    }));
-    if (requestSeq !== this._providerSecretRowsRequestSeq) return;
-    const secretRows = buildAdminProviderSecretRows(source, loaded);
-    let nextForm = this.data.form;
-    const backupPatch = {};
-    ADMIN_PROVIDER_BACKUP_SECTIONS.forEach((section) => {
-      const key = this.data.activeBackups && this.data.activeBackups[section];
-      const row = secretRows.find((item) => item.providerKey === key);
-      if (!row) return;
-      const field = section === "faceBackup"
-        ? "faceBackupApiKey"
-        : section === "analysisBackup"
-          ? "analysisBackupApiKey"
-          : "videoBackupApiKey";
-      const current = nextForm && nextForm[section] || {};
-      if (current.apiKey || !row[field]) return;
-      backupPatch[section] = Object.assign({}, current, {
-        apiKey: row[field],
-        apiKeyConfigured: true
-      });
-    });
-    if (Object.keys(backupPatch).length) {
-      nextForm = Object.assign({}, nextForm, backupPatch);
-      const keys = Object.assign({}, this._imageApiKeyBaseline || {});
-      Object.keys(backupPatch).forEach((section) => { keys[section] = backupPatch[section].apiKey; });
-      this._imageApiKeyBaseline = keys;
-    }
-    this.setData({
-      providerSecretRows: secretRows,
-      form: nextForm,
-      providerSecretsLoading: false
-    });
   },
 
   startAddProvider() {
@@ -8469,10 +6606,7 @@ Page({
     const path = event && event.currentTarget && event.currentTarget.dataset
       ? String(event.currentTarget.dataset.path || "").trim()
       : "";
-    if (
-      !path
-      || path.split(".").some((part) => ADMIN_PROVIDER_DANGEROUS_KEYS.includes(part))
-    ) return;
+    if (!path) return;
     this.setData({
       [`providerDraft.${path}`]: event.detail && event.detail.value !== undefined
         ? event.detail.value
@@ -8509,7 +6643,6 @@ Page({
     const target = event && event.currentTarget && event.currentTarget.dataset
       ? String(event.currentTarget.dataset.target || "common").trim()
       : "common";
-    if (target !== "common" && !ADMIN_PROVIDER_SLOTS.includes(target)) return;
     const path = target === "common"
       ? "providerDraft.common.clearApiKey"
       : `providerDraft.capabilities.${target}.clearApiKey`;
@@ -8556,11 +6689,6 @@ Page({
         registry,
         result && result.effective || this.data.effective || {}
       );
-      const activeBackups = normalizeAdminActiveBackups(
-        result && result.activeBackups || this.data.activeBackups,
-        registry,
-        result && result.effective || this.data.effective || {}
-      );
       const effective = result && result.effective || this.data.effective;
       const savedKey = String(
         result && result.provider && result.provider.providerKey
@@ -8573,19 +6701,19 @@ Page({
         this._imageApiKeyBaseline,
         active,
         savedKey,
-        activeBackups
+        this.data.form
       );
-      const nextForm = effective
-        ? formWithAdminImageApiKeys(
-          applyAdminProviderRegistryToForm(formFromConfig(result), registry, active, activeBackups),
-          nextApiKeyBaseline
-        )
-        : this.data.form;
+       const nextForm = effective
+         ? formWithAdminImageApiKeys(
+           applyAdminProviderRegistryToForm(formFromConfig(result), registry, active),
+           nextApiKeyBaseline
+         )
+         : this.data.form;
       const savedRecord = getAdminProviderRecord(registry, savedKey);
       const nextDraft = savedRecord
         ? adminProviderDraftFromRecord(savedRecord, draft)
         : draft;
-      const patch = Object.assign({}, this.providerUiPatch(registry, active, activeBackups, effective), {
+       const patch = Object.assign({}, this.providerUiPatch(registry, active, nextForm), {
         form: nextForm,
         effective,
         configVersion: Number(result && result.version) || this.data.configVersion,
@@ -8599,7 +6727,8 @@ Page({
       });
       this._imageApiKeyBaseline = nextApiKeyBaseline;
       this.setData(patch);
-      void this.loadProviderSecretRows(registry);
+      this._adminConfigDirtySections = new Set();
+      this._adminConfigBaselineForm = cloneAdminConfigValue(nextForm);
       wx.showToast({ title: "服务商已保存", icon: "success" });
     } catch (error) {
       this.setData({ providerSaving: false });
@@ -8613,22 +6742,15 @@ Page({
     const record = getAdminProviderRecord(this.data.providerRegistry, key);
     if (!record) return [];
     const active = this.data.activeProviders || {};
-    const activeBackups = this.data.activeBackups || {};
-    const slots = ADMIN_PROVIDER_SLOTS.filter((slot) => active[slot] === key)
-      .concat(ADMIN_PROVIDER_BACKUP_SECTIONS.filter((slot) => activeBackups[slot] === key));
-    return slots.map((slot) => {
+    return ADMIN_PROVIDER_SLOTS.filter((slot) => active[slot] === key).map((slot) => {
       const fallback = slot === "face" || slot === "analysis"
         ? "阿里云百炼"
         : slot === "image"
           ? "星炬"
           : slot === "imageBackup"
             ? "凌云"
-            : slot === "faceBackup" || slot === "analysisBackup"
-              ? "其他完整服务商"
             : "当前环境预设";
-      const label = ADMIN_PROVIDER_CAPABILITY_LABELS[slot]
-        || (slot === "faceBackup" ? "人脸备用模型" : slot === "analysisBackup" ? "分析备用模型" : "视频备用模型");
-      return `${label}：${fallback}`;
+      return `${ADMIN_PROVIDER_CAPABILITY_LABELS[slot]}：${fallback}`;
     });
   },
 
@@ -8665,21 +6787,16 @@ Page({
             registry,
             result && result.effective || {}
           );
-          const activeBackups = normalizeAdminActiveBackups(
-            result && result.activeBackups || {},
-            registry,
-            result && result.effective || {}
-          );
           const effective = result && result.effective || null;
           const nextApiKeyBaseline = adminApiKeyBaselineWithoutProvider(
             this._imageApiKeyBaseline,
             this.data.activeProviders,
             key,
-            this.data.activeBackups
+            this.data.form
           );
           const form = effective
             ? formWithAdminImageApiKeys(
-              applyAdminProviderRegistryToForm(formFromConfig(result), registry, active, activeBackups),
+              applyAdminProviderRegistryToForm(formFromConfig(result), registry, active),
               nextApiKeyBaseline
             )
             : this.data.form;
@@ -8687,7 +6804,7 @@ Page({
           const nextKey = rows.length ? rows[0].providerKey : "";
           const nextRecord = getAdminProviderRecord(registry, nextKey);
           const nextDraft = nextRecord ? adminProviderDraftFromRecord(nextRecord, {}) : emptyProviderDraft();
-          const patch = Object.assign({}, this.providerUiPatch(registry, active, activeBackups, effective), {
+           const patch = Object.assign({}, this.providerUiPatch(registry, active, form), {
             form,
             effective,
             configVersion: Number(result && result.version) || this.data.configVersion,
@@ -8703,7 +6820,8 @@ Page({
           });
           this._imageApiKeyBaseline = nextApiKeyBaseline;
           this.setData(patch);
-          void this.loadProviderSecretRows(registry);
+          this._adminConfigDirtySections = new Set();
+          this._adminConfigBaselineForm = cloneAdminConfigValue(form);
           wx.showToast({ title: "服务商已删除", icon: "success" });
         } catch (error) {
           this.setData({ providerDeleting: false });
@@ -8719,16 +6837,21 @@ Page({
       ? String(event.currentTarget.dataset.section || "")
       : "";
     const isBackup = ADMIN_PROVIDER_BACKUP_SECTIONS.includes(section);
-    if (!ADMIN_PROVIDER_SLOTS.includes(section) && !isBackup) return;
+    const isMain = ADMIN_PROVIDER_SLOTS.includes(section);
+    if (!isMain && !isBackup) return;
+    const baseSlot = isBackup
+      ? ADMIN_PROVIDER_BACKUP_BASE[section] || section
+      : section;
     const index = Number(event && event.detail && event.detail.value) || 0;
     const suffix = section.charAt(0).toUpperCase() + section.slice(1);
     const options = this.data[`providerPickerOptions${suffix}`] || [];
     const option = options[index] || options[0];
     const key = option && option.value || "";
-    const active = Object.assign({}, this.data.activeProviders || {});
+    const active = isMain
+      ? Object.assign({}, this.data.activeProviders, { [section]: key })
+      : Object.assign({}, this.data.activeProviders);
     const activeBackups = Object.assign({}, this.data.activeBackups || {});
     if (isBackup) activeBackups[section] = key;
-    else active[section] = key;
     this._imageApiKeyBaseline = Object.assign(
       emptyAdminImageApiKeys(),
       this._imageApiKeyBaseline || {},
@@ -8736,84 +6859,49 @@ Page({
     );
     let nextForm = Object.assign({}, this.data.form);
     if (!key) {
-      if (isBackup) {
-        // 选择“未配置”就是清空该备用槽位，避免上一家服务商的模型、地址
-        // 或 Key 继续藏在草稿里，随后又被保存/兜底逻辑误用。
-        nextForm[section] = Object.assign({}, emptyVisionBackupForm(section), {
-          enabled: false
-        });
-      } else {
-        // 主槽位仍保留原有字段形状（尤其是生图的 mode/size 和视频路径），
-        // 只清掉服务商引用与 Key，避免切回“未配置”时表单结构被备用模板覆盖。
-        nextForm[section] = Object.assign({}, nextForm[section] || {}, {
-          provider: "",
-          providerKey: "",
-          apiKey: "",
-          apiKeyConfigured: false
-        });
-      }
+      nextForm[section] = Object.assign({}, nextForm[section] || {}, {
+        provider: "",
+        providerKey: "",
+        apiKey: "",
+        apiKeyConfigured: false,
+        ...(isBackup ? { enabled: false } : {})
+      });
     } else {
       const record = getAdminProviderRecord(this.data.providerRegistry, key);
       if (!record) return;
-      if (isBackup) {
-        const baseSlot = ADMIN_PROVIDER_BACKUP_BASE_SECTIONS[section];
-        const cap = record.capabilities && record.capabilities[baseSlot] || {};
-        const current = Object.assign(
-          {},
-          emptyVisionBackupForm(section),
-          { enabled: true }
-        );
-        const secretRow = (this.data.providerSecretRows || []).find(
-          (item) => item && item.providerKey === key
-        );
-        const secretValue = section === "faceBackup"
-          ? secretRow && secretRow.faceBackupApiKey
-          : section === "analysisBackup"
-            ? secretRow && secretRow.analysisBackupApiKey
-            : secretRow && secretRow.videoBackupApiKey;
-        nextForm[section] = Object.assign(current, {
-          providerKey: key,
-          provider: displayAdminProvider(record.id),
-          enabled: true,
-          baseUrl: cap.baseUrl || record.common && record.common.baseUrl || "",
-          endpoint: cap.endpoint !== undefined ? cap.endpoint : current.endpoint,
-          queryEndpoint: cap.queryEndpoint !== undefined ? cap.queryEndpoint : current.queryEndpoint,
-          model: cap.model !== undefined ? cap.model : current.model,
-          createPath: cap.createPath !== undefined ? cap.createPath : current.createPath,
-          queryPath: cap.queryPath !== undefined ? cap.queryPath : current.queryPath,
-          resolution: cap.resolution !== undefined ? cap.resolution : current.resolution,
-          aspectRatio: cap.aspectRatio !== undefined ? cap.aspectRatio : current.aspectRatio,
-          timeoutMs: cap.timeoutMs !== undefined ? String(cap.timeoutMs) : current.timeoutMs,
-          apiKey: current.apiKey || secretValue || "",
-          apiKeyConfigured: Boolean(current.apiKeyConfigured || secretValue || cap.apiKeyConfigured || record.common && record.common.apiKeyConfigured)
-        });
-      } else {
-        nextForm[section] = adminProviderEffectiveSection(
-          record,
-          section,
-          Object.assign({}, nextForm[section] || {}, { apiKey: "" })
-        );
-        nextForm[section].providerKey = key;
-        nextForm[section].provider = section === "image" || section === "imageBackup"
-          ? displayAdminImageProvider(record.id)
-          : displayAdminProvider(record.id);
-        if (section === "video") nextForm = applyAdminVideoProviderDefaults(nextForm);
+      const previous = Object.assign({}, nextForm[section] || {});
+      const effective = adminProviderEffectiveSection(
+        record,
+        baseSlot,
+        Object.assign({}, previous, { apiKey: "" })
+      );
+      nextForm[section] = Object.assign({}, previous, effective, {
+        providerKey: key,
+        provider: section === "image" || section === "imageBackup"
+        ? displayAdminImageProvider(record.id)
+          : displayAdminProvider(record.id)
+      });
+      if (isBackup) nextForm[section].enabled = Boolean(previous.enabled);
+      if (section === "video" || section === "videoBackup") {
+        nextForm = applyAdminVideoProviderDefaults(nextForm, section);
       }
     }
+    nextForm.activeBackups = activeBackups;
     const patch = Object.assign({}, this.providerUiPatch(
       this.data.providerRegistry,
       active,
-      activeBackups,
-      this.data.effective || nextForm
+      nextForm
     ), {
-      form: Object.assign({}, nextForm, {
-        activeProviders: active,
-        activeBackups
-      }),
+      form: nextForm,
+      activeBackups,
       message: key && option.status === "empty"
         ? "这个服务商页签还没配置完整，保存后不会自动兜底。"
         : "已切换服务商；点击“保存全部配置”后生效。"
     });
+    if (!(this._adminConfigDirtySections instanceof Set)) {
+      this._adminConfigDirtySections = new Set();
+    }
+    this._adminConfigDirtySections.add("providers");
     this.setData(Object.assign(patch, buildQualityPickerState(nextForm)));
   },
 
@@ -8826,67 +6914,20 @@ Page({
         "腾讯人脸融合状态"
       );
       if (!this.isCurrentAdminLoad(token) || !this.data.isAdmin) return;
-      const currentForm = this.data.form.tencentFaceFusion
-        || emptyTencentFaceFusionForm();
-      const tencentForm = Object.assign({}, currentForm, {
-        secretId: String(result && result.secretId || currentForm.secretId || "").trim(),
-        secretKey: String(result && result.secretKey || currentForm.secretKey || "").trim(),
-        region: String(result && result.region || currentForm.region || "ap-guangzhou"),
-        endpoint: String(
-          result && result.endpoint
-            || currentForm.endpoint
-            || "https://facefusion.tencentcloudapi.com"
-        ),
-        apiVersion: String(result && result.apiVersion || currentForm.apiVersion || "2022-09-27"),
-        action: String(result && result.action || currentForm.action || "FuseFaceUltra"),
-        model: String(result && result.model || currentForm.model || "FuseFaceUltra"),
-        swapModelType: String(
-          result && result.swapModelType !== undefined
-            ? result.swapModelType
-            : currentForm.swapModelType || 4
-        ),
-        logoAdd: result && result.logoAdd !== undefined
-          ? Boolean(result.logoAdd)
-          : Boolean(currentForm.logoAdd),
-        timeoutMs: String(
-          result && result.timeoutMs !== undefined
-            ? result.timeoutMs
-            : currentForm.timeoutMs || 75000
-        ),
-        maxImageBytes: String(
-          result && result.maxImageBytes !== undefined
-            ? result.maxImageBytes
-            : currentForm.maxImageBytes || 5 * 1024 * 1024
-        )
+      this.setData({
+        tencentFaceFusionStatus: mergeTencentFaceFusionStatus(result)
       });
-      const tencentStatus = formatTencentFaceFusionStatus(result);
-      const nextForm = Object.assign({}, this.data.form, {
-        tencentFaceFusion: tencentForm
-      });
-      const patch = {
-        tencentFaceFusionStatus: tencentStatus,
-        form: nextForm
-      };
-      Object.assign(
-        patch,
-        this.buildAdminDerivedPatch(patch, this.data.moduleStates)
-      );
-      this.setData(patch);
     } catch (error) {
       diagnosticLog.warn("admin", "tencent-facefusion-status-failed", "腾讯人脸融合状态读取失败", {
         error
       });
       if (this.isCurrentAdminLoad(token) && this.data.isAdmin) {
-        const tencentStatus = formatTencentFaceFusionStatus({
-          readFailed: true,
-          lastCallStatus: "unavailable"
+        this.setData({
+          tencentFaceFusionStatus: formatTencentFaceFusionStatus({
+            readFailed: true,
+            lastCallStatus: "unavailable"
+          })
         });
-        const patch = { tencentFaceFusionStatus: tencentStatus };
-        Object.assign(
-          patch,
-          this.buildAdminDerivedPatch(patch, this.data.moduleStates)
-        );
-        this.setData(patch);
       }
     }
   },
@@ -8927,29 +6968,15 @@ Page({
       wx.showToast({ title: "请先选择模板图和参考脸", icon: "none" });
       return;
     }
-    const tencentConfig = tencentFaceFusionConfigFromForm(this.data.form);
-    const fieldErrors = validateTencentFaceFusionForm(this.data.form);
-    if (Object.keys(fieldErrors).length) {
-      this.setData({
-        activeConfigSection: "tencentFaceFusion",
-        activeConfigTitle: CONFIG_SECTION_TITLES.tencentFaceFusion,
-        tencentPipelineWizardStep: 3,
-        tencentFaceFusionFieldErrors: fieldErrors,
-        message: "腾讯融合参数有误，请先修正标红字段。"
-      });
-      wx.showToast({ title: "请先修正腾讯参数", icon: "none" });
-      return;
-    }
-    if (!tencentConfig.secretId || !tencentConfig.secretKey) {
-      wx.showToast({ title: "请先填写腾讯 SecretId 和 SecretKey", icon: "none" });
+    if (!this.data.tencentFaceFusionStatus.configured) {
+      wx.showToast({ title: "腾讯配置还没完成", icon: "none" });
       return;
     }
     const requestId = `admin-tencent-test-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
     this.setData({
       tencentTestLoading: true,
       "tencentFaceFusionStatus.lastCallStatus": "processing",
-      "tencentFaceFusionStatus.lastErrorMessage": "",
-      "tencentFaceFusionStatus.lastErrorCode": ""
+      "tencentFaceFusionStatus.lastErrorMessage": ""
     });
     let templateFileID = "";
     let faceFileID = "";
@@ -8968,42 +6995,38 @@ Page({
       const result = await cloud.testTencentFaceFusion({
         templateFileID,
         faceFileID,
-        tencentFaceFusion: tencentConfig,
         requestId
       }, { requestId });
-      const tencentStatus = formatTencentFaceFusionStatus(
-        Object.assign({}, tencentConfig, {
-          configured: true,
-          lastCallStatus: "succeeded",
-          lastErrorCode: "",
-          lastErrorMessage: ""
-        })
+      await this.loadTencentFaceFusionStatus(this._adminLoadToken || 0);
+      const successStatus = buildTencentFaceFusionLocalStatus(
+        result,
+        requestId,
+        "succeeded"
       );
-      const statusPatch = { tencentFaceFusionStatus: tencentStatus };
-      Object.assign(
-        statusPatch,
-        this.buildAdminDerivedPatch(statusPatch, this.data.moduleStates)
-      );
-      this.setData(statusPatch);
+      saveTencentFaceFusionLocalStatus(successStatus);
+      this.setData({
+        tencentFaceFusionStatus: mergeTencentFaceFusionStatus(
+          this.data.tencentFaceFusionStatus
+        )
+      });
       wx.showToast({
-        title: "真实测试成功",
+        title: `真实测试成功 ${Number(result.durationMs) || 0}ms`,
         icon: "success"
       });
     } catch (error) {
-      const tencentStatus = formatTencentFaceFusionStatus(
-        Object.assign({}, tencentConfig, {
-          configured: true,
-          lastCallStatus: "failed",
-          lastErrorCode: String(error && (error.code || error.errCode) || ""),
-          lastErrorMessage: String(error && error.message || "腾讯真实测试失败")
-        })
+      await this.loadTencentFaceFusionStatus(this._adminLoadToken || 0);
+      const failureStatus = buildTencentFaceFusionLocalStatus(
+        error,
+        requestId,
+        "failed",
+        error && error.message
       );
-      const statusPatch = { tencentFaceFusionStatus: tencentStatus };
-      Object.assign(
-        statusPatch,
-        this.buildAdminDerivedPatch(statusPatch, this.data.moduleStates)
-      );
-      this.setData(statusPatch);
+      saveTencentFaceFusionLocalStatus(failureStatus);
+      this.setData({
+        tencentFaceFusionStatus: mergeTencentFaceFusionStatus(
+          this.data.tencentFaceFusionStatus
+        )
+      });
       this.showError("腾讯真实测试失败", error);
     } finally {
       this.setData({
@@ -9077,14 +7100,14 @@ Page({
   onImageQualityChange(event) {
     const index = Math.max(0, Number(event && event.detail && event.detail.value) || 0);
     const option = this.data.imageQualityOptions[index] || IMAGE_QUALITY_OPTIONS[0];
-    const nextForm = updateAdminProviderProfileForm(
-      this.data.form,
-      "image",
-      { resolution: option.value }
-    );
+    const nextForm = Object.assign({}, this.data.form, {
+      image: Object.assign({}, this.data.form.image, {
+        resolution: option.value
+      })
+    });
     this.setData(Object.assign({
-      form: nextForm
-    }, buildAdminProviderProfilePickerState(nextForm), buildQualityPickerState(nextForm, {
+      "form.image.resolution": option.value
+    }, buildQualityPickerState(nextForm, {
       image: this.data.modelCapabilityProfiles.image
         && this.data.modelCapabilityProfiles.image[nextForm.image.model]
         || {}
@@ -9094,413 +7117,57 @@ Page({
   onImageSizeChange(event) {
     const index = Math.max(0, Number(event && event.detail && event.detail.value) || 0);
     const option = this.data.imageSizeOptions[index] || IMAGE_SIZE_OPTIONS[0];
-    const nextForm = updateAdminProviderProfileForm(
-      this.data.form,
-      "image",
-      { size: option.value }
-    );
+    const nextForm = Object.assign({}, this.data.form, {
+      image: Object.assign({}, this.data.form.image, {
+        size: option.value
+      })
+    });
     this.setData(Object.assign({
-      form: nextForm
-    }, buildAdminProviderProfilePickerState(nextForm), buildQualityPickerState(nextForm, {
+      "form.image.size": option.value
+    }, buildQualityPickerState(nextForm, {
       image: this.data.modelCapabilityProfiles.image
         && this.data.modelCapabilityProfiles.image[nextForm.image.model]
         || {}
-    })));
+      })));
   },
 
   onImageBackupQualityChange(event) {
     const index = Math.max(0, Number(event && event.detail && event.detail.value) || 0);
     const option = this.data.imageBackupQualityOptions[index] || IMAGE_QUALITY_OPTIONS[0];
-    const nextForm = updateAdminProviderProfileForm(
-      this.data.form,
-      "imageBackup",
-      { resolution: option.value }
-    );
+    const nextForm = Object.assign({}, this.data.form, {
+      imageBackup: Object.assign({}, this.data.form.imageBackup, {
+        resolution: option.value
+      })
+    });
     this.setData(Object.assign({
-      form: nextForm
-    }, buildAdminProviderProfilePickerState(nextForm), buildQualityPickerState(nextForm)));
+      "form.imageBackup.resolution": option.value
+    }, buildQualityPickerState(nextForm)));
   },
 
   onImageBackupSizeChange(event) {
     const index = Math.max(0, Number(event && event.detail && event.detail.value) || 0);
     const option = this.data.imageBackupSizeOptions[index] || IMAGE_SIZE_OPTIONS[0];
-    const nextForm = updateAdminProviderProfileForm(
-      this.data.form,
-      "imageBackup",
-      { size: option.value }
-    );
-    this.setData(Object.assign({
-      form: nextForm
-    }, buildAdminProviderProfilePickerState(nextForm), buildQualityPickerState(nextForm)));
-  },
-
-  onImageBackupEnabledChange(event) {
-    const enabled = Boolean(event && event.detail && event.detail.value);
-    const nextForm = updateAdminProviderProfileForm(
-      this.data.form,
-      "imageBackup",
-      { enabled }
-    );
-    this.setData(Object.assign({
-      form: nextForm,
-      message: enabled
-        ? "已开启备用图片模型；填写完整后，主模型失败时才会切换。"
-        : "已关闭备用图片模型；已填写的备用参数会保留。"
-    }, buildAdminProviderProfilePickerState(nextForm), buildQualityPickerState(nextForm),
-    this.buildCompactModelPatch(nextForm)));
-  },
-
-  onVisionBackupEnabledChange(event) {
-    const section = String(
-      event
-      && event.currentTarget
-      && event.currentTarget.dataset
-      && event.currentTarget.dataset.section
-      || ""
-    ).trim();
-    if (section !== "faceBackup" && section !== "analysisBackup") return;
-    const enabled = Boolean(event && event.detail && event.detail.value);
     const nextForm = Object.assign({}, this.data.form, {
-      [section]: Object.assign(
-        {},
-        emptyVisionBackupForm(section),
-        this.data.form && this.data.form[section] || {},
-        { enabled }
-      )
+      imageBackup: Object.assign({}, this.data.form.imageBackup, {
+        size: option.value
+      })
     });
-    const activeBackups = Object.assign({}, this.data.activeBackups || {});
-    if (!enabled) {
-      activeBackups[section] = "";
-    } else {
-      const existing = nextForm[section] || {};
-      let restored = String(activeBackups[section] || "").trim();
-      if (!restored) {
-        const foundRecord = findAdminProviderRecordByRef(
-          this.data.providerRegistry,
-          existing.providerKey || existing.provider
-        );
-        restored = String(foundRecord && foundRecord.providerKey || "").trim();
-      }
-      activeBackups[section] = restored;
-      // 旧配置可能只有 provider/name，没有稳定 key；重新启用时把解析出的
-      // key 同步回表单，后续保存才不会再次丢失备用档案引用。
-      if (restored) {
-        const record = getAdminProviderRecord(this.data.providerRegistry, restored);
-        nextForm[section] = Object.assign({}, existing, {
-          providerKey: restored,
-          provider: record
-            ? String(record.name || displayAdminProvider(record.id, record.id))
-            : existing.provider
-        });
-      }
-    }
-    nextForm.activeBackups = activeBackups;
     this.setData(Object.assign({
-      form: nextForm,
-      activeBackups,
-      message: enabled
-        ? `已开启${section === "faceBackup" ? "备用人脸" : "备用分析"}模型；配置完整后主模型失败时才会切换。`
-        : `已关闭${section === "faceBackup" ? "备用人脸" : "备用分析"}模型；已填写参数会保留。`
-    }, this.providerUiPatch(
-      this.data.providerRegistry,
-      this.data.activeProviders,
-      activeBackups,
-      this.data.effective || nextForm
-    ), this.buildCompactModelPatch(nextForm)));
-  },
-
-  onVideoBackupEnabledChange(event) {
-    const enabled = Boolean(event && event.detail && event.detail.value);
-    let nextForm = updateAdminProviderProfileForm(
-      this.data.form,
-      "videoBackup",
-      { enabled }
-    );
-    const currentVideoBackup = nextForm.videoBackup || {};
-    let restoredKey = String(
-      this.data.activeBackups
-      && this.data.activeBackups.videoBackup
-      || currentVideoBackup.providerKey
-      || ""
-    ).trim();
-    if (enabled && !restoredKey) {
-      const foundRecord = findAdminProviderRecordByRef(
-        this.data.providerRegistry,
-        currentVideoBackup.provider
-      );
-      restoredKey = String(foundRecord && foundRecord.providerKey || "").trim();
-    }
-    if (enabled && restoredKey) {
-      const record = getAdminProviderRecord(this.data.providerRegistry, restoredKey);
-      nextForm = Object.assign({}, nextForm, {
-        videoBackup: Object.assign({}, currentVideoBackup, {
-          enabled: true,
-          providerKey: restoredKey,
-          provider: record
-            ? String(record.name || displayAdminProvider(record.id, record.id))
-            : currentVideoBackup.provider
-        })
-      });
-    }
-    const activeBackups = Object.assign({}, this.data.activeBackups || {}, {
-      videoBackup: enabled
-        ? restoredKey
-        : ""
-    });
-    nextForm.activeBackups = activeBackups;
-    this.setData(Object.assign({
-      form: nextForm,
-      activeBackups,
-      message: enabled
-        ? "已开启备用视频模型；参数完整后，主模型创建失败时才会切换。"
-        : "已关闭备用视频模型；已填写的备用参数会保留。"
-    }, buildAdminProviderProfilePickerState(nextForm), buildQualityPickerState(nextForm),
-    this.providerUiPatch(
-      this.data.providerRegistry,
-      this.data.activeProviders,
-      activeBackups,
-      this.data.effective || nextForm
-    ), this.buildCompactModelPatch(nextForm)));
-  },
-
-  toggleFaceBackup() {
-    const expanded = !this.data.faceBackupExpanded;
-    const patch = this.buildCompactModelPatch(this.data.form);
-    patch.faceBackupExpanded = expanded;
-    if (this.data.compactBackupSection === "faceBackup") patch.compactBackupExpanded = expanded;
-    this.setData(patch);
-  },
-
-  toggleAnalysisBackup() {
-    const expanded = !this.data.analysisBackupExpanded;
-    const patch = this.buildCompactModelPatch(this.data.form);
-    patch.analysisBackupExpanded = expanded;
-    if (this.data.compactBackupSection === "analysisBackup") patch.compactBackupExpanded = expanded;
-    this.setData(patch);
-  },
-
-  toggleImageBackup() {
-    const expanded = !this.data.imageBackupExpanded;
-    const patch = this.buildCompactModelPatch(this.data.form);
-    patch.imageBackupExpanded = expanded;
-    if (this.data.compactBackupSection === "imageBackup") patch.compactBackupExpanded = expanded;
-    this.setData(patch);
-  },
-
-  toggleVideoBackup() {
-    const expanded = !this.data.videoBackupExpanded;
-    const patch = this.buildCompactModelPatch(this.data.form);
-    patch.videoBackupExpanded = expanded;
-    if (this.data.compactBackupSection === "videoBackup") patch.compactBackupExpanded = expanded;
-    this.setData(patch);
-  },
-
-  validateImageWizardStep(step = this.data.imageWizardStep) {
-    const image = this.data.form && this.data.form.image || {};
-    const backup = this.data.form && this.data.form.imageBackup || {};
-    if (step === 1) {
-      if (!String(image.provider || "").trim()) return "请选择主模型服务商。";
-      if (!String(image.model || "").trim()) return "请填写主模型名称。";
-      if (!String(image.apiKey || "").trim() && !image.apiKeyConfigured) return "请填写主模型 API Key。";
-      if (!String(image.baseUrl || image.endpoint || "").trim()) return "请填写主模型接口地址。";
-    }
-    if (step === 2 && backup.enabled) {
-      if (!String(backup.provider || "").trim()) return "请选择备用服务商。";
-      if (!String(backup.model || "").trim()) return "请填写备用模型名称。";
-      if (!String(backup.apiKey || "").trim() && !backup.apiKeyConfigured) return "请填写备用模型 API Key，或先关闭备用。";
-      if (!String(backup.baseUrl || backup.endpoint || "").trim()) return "请填写备用模型接口地址。";
-    }
-    if (step === 4) {
-      const retries = Number(image.maxRetries);
-      if (!Number.isFinite(retries) || retries < 0 || retries > 5) return "主模型重试次数只能填 0～5。";
-    }
-    return "";
-  },
-
-  onImageWizardNext(event) {
-    const wizardSection = String(
-      event
-      && event.currentTarget
-      && event.currentTarget.dataset
-      && event.currentTarget.dataset.wizardSection
-      || ""
-    ).trim();
-    if (
-      wizardSection === "tencentFaceFusion"
-      || this.data.activeConfigSection === "tencentFaceFusion"
-    ) {
-      return this.onTencentWizardNext(event);
-    }
-    const step = Math.max(1, Number(this.data.imageWizardStep) || 1);
-    const message = this.validateImageWizardStep(step);
-    if (message) {
-      this.setData({ message });
-      wx.showToast({ title: message, icon: "none" });
-      return;
-    }
-    this.setData({ imageWizardStep: Math.min(4, step + 1), message: "" });
-  },
-
-  onImageWizardPrev(event) {
-    const wizardSection = String(
-      event
-      && event.currentTarget
-      && event.currentTarget.dataset
-      && event.currentTarget.dataset.wizardSection
-      || ""
-    ).trim();
-    if (
-      wizardSection === "tencentFaceFusion"
-      || this.data.activeConfigSection === "tencentFaceFusion"
-    ) {
-      return this.onTencentWizardPrev(event);
-    }
-    const step = Math.max(1, Number(this.data.imageWizardStep) || 1);
-    this.setData({ imageWizardStep: Math.max(1, step - 1), message: "" });
-  },
-
-  toggleImageAdvancedSettings() {
-    this.setData({ imageWizardAdvancedOpen: !this.data.imageWizardAdvancedOpen });
-  },
-
-  validateTencentWizardStep(step = this.data.tencentPipelineWizardStep) {
-    const currentStep = Math.max(1, Math.min(4, Number(step) || 1));
-    if (currentStep === 1) {
-      return this.validateImageWizardStep(1);
-    }
-    if (currentStep === 2) {
-      const backup = this.data.form && this.data.form.imageBackup || {};
-      return backup.enabled ? this.validateImageWizardStep(2) : "";
-    }
-    if (currentStep === 3) {
-      const fieldErrors = validateTencentFaceFusionForm(this.data.form);
-      const invalidKeys = Object.keys(fieldErrors);
-      return invalidKeys.length ? fieldErrors[invalidKeys[0]] : "";
-    }
-    return "";
-  },
-
-  onTencentWizardNext(event) {
-    const step = Math.max(
-      1,
-      Math.min(4, Number(this.data.tencentPipelineWizardStep) || 1)
-    );
-    const message = this.validateTencentWizardStep(step);
-    if (message) {
-      const patch = { message };
-      if (step === 3) {
-        patch.tencentFaceFusionFieldErrors = validateTencentFaceFusionForm(this.data.form);
-      }
-      this.setData(patch);
-      wx.showToast({ title: message, icon: "none" });
-      return;
-    }
-    this.setData({
-      tencentPipelineWizardStep: Math.min(4, step + 1),
-      message: ""
-    });
-  },
-
-  onTencentWizardPrev() {
-    const step = Math.max(
-      1,
-      Math.min(4, Number(this.data.tencentPipelineWizardStep) || 1)
-    );
-    this.setData({
-      tencentPipelineWizardStep: Math.max(1, step - 1),
-      message: ""
-    });
-  },
-
-  // 保留更直观的别名，便于后续模板按腾讯版前缀绑定。
-  onTencentPipelineWizardNext(event) {
-    return this.onTencentWizardNext(event);
-  },
-
-  onTencentPipelineWizardPrev(event) {
-    return this.onTencentWizardPrev(event);
-  },
-
-  validateVideoWizardStep(step = this.data.videoWizardStep) {
-    const video = this.data.form && this.data.form.video || {};
-    const backup = this.data.form && this.data.form.videoBackup || {};
-    if (step === 1) {
-      if (!String(video.provider || "").trim()) return "请选择主视频服务商。";
-      if (!String(video.model || "").trim()) return "请填写主视频模型名称。";
-      if (!String(video.apiKey || "").trim() && !video.apiKeyConfigured) return "主视频 API Key 尚未配置，请先配置云函数环境变量。";
-      if (!String(video.baseUrl || video.endpoint || "").trim()) return "请填写主视频接口地址。";
-    }
-    if (step === 2 && backup.enabled) {
-      if (!String(backup.provider || "").trim()) return "请选择备用视频服务商。";
-      if (
-        providerIdFromDisplay(video.provider)
-        && providerIdFromDisplay(video.provider) === providerIdFromDisplay(backup.provider)
-      ) return "备用视频服务商要和主服务商不同。";
-      if (!String(backup.model || "").trim()) return "请填写备用视频模型名称。";
-      if (!String(backup.apiKey || "").trim() && !backup.apiKeyConfigured) return "备用视频 API Key 尚未配置，请先配置环境变量，或关闭备用。";
-      if (!String(backup.baseUrl || backup.endpoint || "").trim()) return "请填写备用视频接口地址。";
-    }
-    if (step === 3) {
-      const timeout = Number(video.timeoutMs);
-      if (!Number.isFinite(timeout) || timeout < 10000 || timeout > 900000) return "主视频超时必须在 10000～900000 毫秒之间。";
-      if (backup.enabled) {
-        const backupTimeout = Number(backup.timeoutMs);
-        if (!Number.isFinite(backupTimeout) || backupTimeout < 10000 || backupTimeout > 900000) return "备用视频超时必须在 10000～900000 毫秒之间。";
-      }
-    }
-    return "";
-  },
-
-  validateVisionBackupSection(section) {
-    if (section !== "faceBackup" && section !== "analysisBackup") return "";
-    const backup = this.data.form && this.data.form[section] || {};
-    if (!backup.enabled) return "";
-    const primarySection = section === "faceBackup" ? "face" : "analysis";
-    const primary = this.data.form && this.data.form[primarySection] || {};
-    if (!String(backup.provider || backup.providerKey || "").trim()) return "请选择备用服务商。";
-    if (
-      providerIdFromDisplay(backup.provider)
-      && providerIdFromDisplay(backup.provider) === providerIdFromDisplay(primary.provider)
-    ) return "备用服务商要和主服务商不同。";
-    if (!String(backup.model || "").trim()) return "请填写备用模型名称。";
-    if (!String(backup.apiKey || "").trim() && !backup.apiKeyConfigured) return "备用模型 API Key 尚未配置，请先填写或配置服务商 Key。";
-    if (!String(backup.baseUrl || backup.endpoint || "").trim()) return "请填写备用模型接口地址。";
-    const timeout = Number(backup.timeoutMs);
-    if (!Number.isFinite(timeout) || timeout < 10000 || timeout > 900000) return "备用模型超时必须在 10000～900000 毫秒之间。";
-    return "";
-  },
-
-  onVideoWizardNext() {
-    const step = Math.max(1, Number(this.data.videoWizardStep) || 1);
-    const message = this.validateVideoWizardStep(step);
-    if (message) {
-      this.setData({ message });
-      wx.showToast({ title: message, icon: "none" });
-      return;
-    }
-    this.setData({ videoWizardStep: Math.min(4, step + 1), message: "" });
-  },
-
-  onVideoWizardPrev() {
-    const step = Math.max(1, Number(this.data.videoWizardStep) || 1);
-    this.setData({ videoWizardStep: Math.max(1, step - 1), message: "" });
-  },
-
-  toggleVideoAdvancedSettings() {
-    this.setData({ videoWizardAdvancedOpen: !this.data.videoWizardAdvancedOpen });
+      "form.imageBackup.size": option.value
+    }, buildQualityPickerState(nextForm)));
   },
 
   onVideoQualityChange(event) {
     const index = Math.max(0, Number(event && event.detail && event.detail.value) || 1);
     const option = this.data.videoQualityOptions[index] || VIDEO_QUALITY_OPTIONS[1];
-    const nextForm = updateAdminProviderProfileForm(
-      this.data.form,
-      "video",
-      { resolution: option.value }
-    );
+    const nextForm = Object.assign({}, this.data.form, {
+      video: Object.assign({}, this.data.form.video, {
+        resolution: option.value
+      })
+    });
     this.setData(Object.assign({
-      form: nextForm
-    }, buildAdminProviderProfilePickerState(nextForm), buildQualityPickerState(nextForm, {
+      "form.video.resolution": option.value
+    }, buildQualityPickerState(nextForm, {
       video: this.data.modelCapabilityProfiles.video
         && this.data.modelCapabilityProfiles.video[nextForm.video.model]
         || {}
@@ -9509,71 +7176,90 @@ Page({
 
   onVideoBackupQualityChange(event) {
     const index = Math.max(0, Number(event && event.detail && event.detail.value) || 1);
-    const option = this.data.videoBackupQualityOptions[index] || VIDEO_QUALITY_OPTIONS[1];
-    const nextForm = updateAdminProviderProfileForm(
-      this.data.form,
-      "videoBackup",
-      { resolution: option.value }
-    );
+    const options = this.data.videoBackupQualityOptions || VIDEO_QUALITY_OPTIONS;
+    const option = options[index] || VIDEO_QUALITY_OPTIONS[1];
+    const nextForm = Object.assign({}, this.data.form, {
+      videoBackup: Object.assign({}, this.data.form.videoBackup, {
+        resolution: option.value
+      })
+    });
     this.setData(Object.assign({
-      form: nextForm
-    }, buildAdminProviderProfilePickerState(nextForm), buildQualityPickerState(nextForm, {
-      videoBackup: this.data.modelCapabilityProfiles.videoBackup
-        && this.data.modelCapabilityProfiles.videoBackup[nextForm.videoBackup.model]
-        || {}
-    })));
+      "form.videoBackup.resolution": option.value
+    }, buildQualityPickerState(nextForm)));
+  },
+
+  onImageBackupEnabledChange(event) {
+    const enabled = Boolean(event && event.detail && event.detail.value);
+    const nextForm = Object.assign({}, this.data.form, {
+      imageBackup: Object.assign({}, this.data.form.imageBackup, { enabled })
+    });
+    this.setData(Object.assign({
+      form: nextForm,
+      message: enabled
+        ? "已开启备用生图模型；主模型失败后才会调用。"
+        : "已关闭备用生图模型；参数会保留，之后可随时展开启用。"
+    }, buildQualityPickerState(nextForm)));
+  },
+
+  onVisionBackupEnabledChange(event) {
+    const section = String(
+      event && event.currentTarget && event.currentTarget.dataset
+        ? event.currentTarget.dataset.section || ""
+        : ""
+    );
+    if (section !== "faceBackup" && section !== "analysisBackup") return;
+    const enabled = Boolean(event && event.detail && event.detail.value);
+    const nextForm = Object.assign({}, this.data.form, {
+      [section]: Object.assign({}, this.data.form[section] || emptyVisionBackupForm(section), { enabled })
+    });
+    this.setData({
+      form: nextForm,
+      message: enabled
+        ? `已开启${section === "faceBackup" ? "备用人脸" : "备用分析"}模型；主模型失败时自动切换。`
+        : `已关闭${section === "faceBackup" ? "备用人脸" : "备用分析"}模型；参数会保留。`
+    });
+  },
+
+  onVideoBackupEnabledChange(event) {
+    const enabled = Boolean(event && event.detail && event.detail.value);
+    const nextForm = Object.assign({}, this.data.form, {
+      videoBackup: Object.assign({}, this.data.form.videoBackup || emptyVisionBackupForm("videoBackup"), { enabled })
+    });
+    this.setData({
+      form: nextForm,
+      message: enabled
+        ? "已开启备用视频模型；仅在主模型创建失败时切换。"
+        : "已关闭备用视频模型；已填写参数会保留。"
+    });
+  },
+
+  toggleFaceBackup() {
+    this.setData({ faceBackupExpanded: !this.data.faceBackupExpanded }, () => this.persistMonitorLayout());
+  },
+
+  toggleAnalysisBackup() {
+    this.setData({ analysisBackupExpanded: !this.data.analysisBackupExpanded }, () => this.persistMonitorLayout());
+  },
+
+  toggleImageBackup() {
+    this.setData({ imageBackupExpanded: !this.data.imageBackupExpanded }, () => this.persistMonitorLayout());
+  },
+
+  toggleVideoBackup() {
+    this.setData({ videoBackupExpanded: !this.data.videoBackupExpanded }, () => this.persistMonitorLayout());
   },
 
   onRetryChange(event) {
-    const nextForm = updateAdminProviderProfileForm(
-      this.data.form,
-      "image",
-      {
-        retryEnabled: Array.isArray(event.detail.value)
-          && event.detail.value.includes("enabled")
-      }
-    );
-    this.setData(Object.assign({
-      form: nextForm
-    }, buildAdminProviderProfilePickerState(nextForm)));
+    this.setData({
+      "form.image.retryEnabled": Array.isArray(event.detail.value)
+        && event.detail.value.includes("enabled")
+    });
   },
 
   onImageCompatibilityChange(event) {
-    const nextForm = updateAdminProviderProfileForm(
-      this.data.form,
-      "image",
-      {
-        compatibilityMode: Array.isArray(event.detail.value)
-          && event.detail.value.includes("enabled")
-      }
-    );
-    this.setData(Object.assign({
-      form: nextForm
-    }, buildAdminProviderProfilePickerState(nextForm)));
-  },
-
-  onImageBackupCompatibilityChange(event) {
-    const nextForm = updateAdminProviderProfileForm(
-      this.data.form,
-      "imageBackup",
-      {
-        compatibilityMode: Array.isArray(
-          event
-          && event.detail
-          && event.detail.value
-        ) && event.detail.value.includes("enabled")
-      }
-    );
-    this.setData(Object.assign({
-      form: nextForm
-    }, buildAdminProviderProfilePickerState(nextForm)));
-  },
-
-  onTencentLogoAddChange(event) {
     this.setData({
-      "form.tencentFaceFusion.logoAdd": Array.isArray(event && event.detail && event.detail.value)
-        && event.detail.value.includes("enabled"),
-      "tencentFaceFusionFieldErrors.logoAdd": ""
+      "form.image.compatibilityMode": Array.isArray(event.detail.value)
+        && event.detail.value.includes("enabled")
     });
   },
 
@@ -9581,85 +7267,32 @@ Page({
     const face = this.data.form && this.data.form.face
       ? this.data.form.face
       : emptyForm().face;
-    const targetProviderId = providerIdFromDisplay(face.provider);
-    const currentProviderId = providerIdFromDisplay(
-      this.data.form
-      && this.data.form.analysis
-      && this.data.form.analysis.provider
-    );
-    let nextForm = this.data.form;
-    if (targetProviderId && targetProviderId !== currentProviderId) {
-      nextForm = switchAdminProviderProfile(
-        nextForm,
-        "analysis",
-        targetProviderId
-      );
-    }
-    nextForm = updateAdminProviderProfileForm(
-      nextForm,
-      "analysis",
-      {
-        provider: face.provider || "",
-        baseUrl: face.baseUrl || "",
-        endpoint: face.endpoint || "",
-        apiKey: face.apiKey || "",
-        apiKeyConfigured: Boolean(face.apiKey),
-        model: face.model || "",
-        timeoutMs: String(face.timeoutMs || "30000")
-      }
-    );
-    const patch = Object.assign({
-      form: nextForm,
+    this.setData({
+      "form.analysis.provider": face.provider || "",
+      "form.analysis.baseUrl": face.baseUrl || "",
+      "form.analysis.endpoint": face.endpoint || "",
+      "form.analysis.apiKey": face.apiKey || "",
+      "form.analysis.model": face.model || "",
+      "form.analysis.timeoutMs": String(face.timeoutMs || "30000"),
       message: "已复制人脸配置到图片分析；点击“保存全部配置”后才会生效。"
-    }, buildAdminProviderProfilePickerState(nextForm),
-    buildAdminProviderManagementState(
-      nextForm,
-      this.data.modelProbes,
-      this.data.providerFilterValue,
-      this.data.providerLabelErrors
-    ));
-    Object.assign(
-      patch,
-      this.buildAdminDerivedPatch({ form: nextForm }, this.data.moduleStates)
-    );
-    this.setData(patch);
+    });
     wx.showToast({ title: "已复制，记得保存", icon: "none" });
   },
 
   toggleConfigSection(event) {
-    const rawSection = event.currentTarget.dataset.section;
-    const section = rawSection === "tencentImage" ? "tencentFaceFusion" : rawSection;
+    const section = event.currentTarget.dataset.section;
     if (!CONFIG_SECTION_TITLES[section]) return;
-    const nextSection = section === "users"
-      ? section
-      : this.data.activeConfigSection === section
+    const nextSection = section === "tencentFaceFusion" && this.data.activeConfigSection === section
       ? ""
       : section;
     const apply = () => {
-      const patch = {
+      this.setData({
         activeConfigSection: nextSection,
         activeConfigTitle: nextSection ? CONFIG_SECTION_TITLES[nextSection] : ""
-      };
-      if (section === "image") {
-        patch.tencentFaceFusionFieldErrors = {};
-        patch.imageWizardStep = 1;
-        patch.imageWizardAdvancedOpen = false;
-      }
-      if (section === "tencentFaceFusion") {
-        patch.tencentPipelineWizardStep = 1;
-        patch.tencentFaceFusionFieldErrors = {};
-      }
-      if (section === "video") {
-        patch.videoWizardStep = 1;
-        patch.videoWizardAdvancedOpen = false;
-      }
-      this.setData(patch, () => {
+      }, () => {
         if (nextSection === "providers" && !this.data.providerEditingKey) {
           const first = this.data.providerRows && this.data.providerRows[0];
           if (first) this.openProviderDraft(first.providerKey);
-        }
-        if (nextSection === "providers") {
-          void this.loadProviderSecretRows(this.data.providerRegistry);
         }
         this.persistMonitorLayout();
         if (nextSection === "users" && this.data.userStats.unavailable) {
@@ -9681,19 +7314,10 @@ Page({
   },
 
   closeConfigSection() {
-    const close = () => {
-      const patch = {
-        activeConfigSection: "",
-        activeConfigTitle: "",
-        tencentFaceFusionFieldErrors: {},
-        imageWizardStep: 1,
-        imageWizardAdvancedOpen: false,
-        tencentPipelineWizardStep: 1,
-        videoWizardStep: 1,
-        videoWizardAdvancedOpen: false
-      };
-      this.setData(patch, () => this.persistMonitorLayout());
-    };
+    const close = () => this.setData({
+      activeConfigSection: "",
+      activeConfigTitle: ""
+    }, () => this.persistMonitorLayout());
     if (this.data.activeConfigSection === "providers") {
       this.confirmDiscardProviderDraft(close);
       return;
@@ -9775,24 +7399,9 @@ Page({
     const storedUsageSections = stored.usageSections || {};
     const storedAutoFaceFailureSections = stored.autoFaceFailureSections || {};
     const storedDeploymentSections = stored.deploymentSections || {};
-    const storedProviderFilterValue = String(
-      stored.providerFilterValue === undefined || stored.providerFilterValue === null
-        ? "all"
-        : stored.providerFilterValue
-    ).trim() || "all";
-    const storedActiveConfigSectionValue = typeof stored.activeConfigSection === "string"
+    const storedActiveConfigSection = typeof stored.activeConfigSection === "string"
+      && CONFIG_SECTION_TITLES[stored.activeConfigSection]
       ? stored.activeConfigSection
-      : "";
-    const legacyTencentImagePanel = storedActiveConfigSectionValue === "tencentImage"
-      || (
-        storedActiveConfigSectionValue === "image"
-        && stored.tencentImageTab === "fusion"
-      );
-    const normalizedActiveConfigSection = legacyTencentImagePanel
-      ? "tencentFaceFusion"
-      : storedActiveConfigSectionValue;
-    const storedActiveConfigSection = CONFIG_SECTION_TITLES[normalizedActiveConfigSection]
-      ? normalizedActiveConfigSection
       : "";
     const usageExpanded = typeof stored.usageExpanded === "boolean"
       ? stored.usageExpanded
@@ -9828,18 +7437,26 @@ Page({
         ? stored.monitorExpanded
         : this.data.monitorExpanded,
       usageExpanded,
+      faceBackupExpanded: typeof stored.faceBackupExpanded === "boolean"
+        ? stored.faceBackupExpanded
+        : Boolean(this.data.faceBackupExpanded),
+      analysisBackupExpanded: typeof stored.analysisBackupExpanded === "boolean"
+        ? stored.analysisBackupExpanded
+        : Boolean(this.data.analysisBackupExpanded),
+      imageBackupExpanded: typeof stored.imageBackupExpanded === "boolean"
+        ? stored.imageBackupExpanded
+        : Boolean(this.data.imageBackupExpanded),
+      videoBackupExpanded: typeof stored.videoBackupExpanded === "boolean"
+        ? stored.videoBackupExpanded
+        : Boolean(this.data.videoBackupExpanded),
       monitorSections,
       usageSections,
       autoFaceFailureSections,
       deploymentSections,
-      providerFilterValue: storedProviderFilterValue,
       activeConfigSection: storedActiveConfigSection,
       activeConfigTitle: storedActiveConfigSection
         ? CONFIG_SECTION_TITLES[storedActiveConfigSection]
-        : "",
-      tencentPipelineWizardStep: 1
-    }, () => {
-      if (legacyTencentImagePanel) this.persistMonitorLayout();
+        : ""
     });
   },
 
@@ -9879,14 +7496,17 @@ Page({
   persistMonitorLayout() {
     try {
       wx.setStorageSync(MONITOR_LAYOUT_STORAGE_KEY, {
-        version: 8,
+        version: 7,
         monitorExpanded: Boolean(this.data.monitorExpanded),
         usageExpanded: Boolean(this.data.usageExpanded),
+        faceBackupExpanded: Boolean(this.data.faceBackupExpanded),
+        analysisBackupExpanded: Boolean(this.data.analysisBackupExpanded),
+        imageBackupExpanded: Boolean(this.data.imageBackupExpanded),
+        videoBackupExpanded: Boolean(this.data.videoBackupExpanded),
         monitorSections: Object.assign({}, this.data.monitorSections),
         usageSections: Object.assign({}, this.data.usageSections),
         autoFaceFailureSections: Object.assign({}, this.data.autoFaceFailureSections),
         deploymentSections: Object.assign({}, this.data.deploymentSections),
-        providerFilterValue: String(this.data.providerFilterValue || "all"),
         activeConfigSection: CONFIG_SECTION_TITLES[this.data.activeConfigSection]
           ? this.data.activeConfigSection
           : ""
@@ -9991,80 +7611,19 @@ Page({
 
   async saveConfig() {
     if (this.data.saving) return;
-    if (this.data.activeConfigSection === "image") {
-      const wizardError = this.validateImageWizardStep(1)
-        || (this.data.form.imageBackup && this.data.form.imageBackup.enabled
-          ? this.validateImageWizardStep(2)
-          : "")
-        || this.validateImageWizardStep(4);
-      if (wizardError) {
-        this.setData({ message: wizardError });
-        wx.showToast({ title: wizardError, icon: "none" });
-        return;
-      }
-    }
-    if (this.data.activeConfigSection === "video") {
-      const wizardError = this.validateVideoWizardStep(1)
-        || (this.data.form.videoBackup && this.data.form.videoBackup.enabled
-          ? this.validateVideoWizardStep(2)
-          : "")
-        || this.validateVideoWizardStep(3);
-      if (wizardError) {
-        this.setData({ message: wizardError });
-        wx.showToast({ title: wizardError, icon: "none" });
-        return;
-      }
-    }
-    const visionBackupError = this.validateVisionBackupSection("faceBackup")
-      || this.validateVisionBackupSection("analysisBackup");
-    if (visionBackupError) {
-      this.setData({ message: visionBackupError });
-      wx.showToast({ title: visionBackupError, icon: "none" });
-      return;
-    }
-    if (this.data.activeConfigSection === "tencentFaceFusion") {
-      const stepOneError = this.validateTencentWizardStep(1);
-      const stepTwoError = this.data.form.imageBackup && this.data.form.imageBackup.enabled
-        ? this.validateTencentWizardStep(2)
-        : "";
-      const stepThreeError = this.validateTencentWizardStep(3);
-      const wizardError = stepOneError || stepTwoError || stepThreeError;
-      if (wizardError) {
-        const tencentFaceFusionFieldErrors = validateTencentFaceFusionForm(this.data.form);
-        this.setData({
-          message: wizardError,
-          tencentFaceFusionFieldErrors,
-          tencentPipelineWizardStep: stepOneError
-            ? 1
-            : stepTwoError
-              ? 2
-              : 3
-        });
-        wx.showToast({ title: wizardError, icon: "none" });
-        return;
-      }
-    }
-    const providerLabelRows = buildAdminProviderLabelRows(this.data.form);
-    const providerLabelErrors = validateAdminProviderLabelRows(providerLabelRows);
-    const invalidProviderIds = Object.keys(providerLabelErrors);
-    if (invalidProviderIds.length) {
-      const firstProviderId = invalidProviderIds[0];
-      const message = providerLabelErrors[firstProviderId];
+    const pointFieldErrors = validateAdminPointFields(this.data.form.points);
+    const invalidPointKeys = Object.keys(pointFieldErrors);
+    if (invalidPointKeys.length) {
+      const firstKey = invalidPointKeys[0];
       this.setData({
-        providerLabelRows: buildAdminProviderLabelRows(this.data.form, providerLabelErrors),
-        providerLabelErrors,
-        activeConfigSection: "providers",
-        activeConfigTitle: CONFIG_SECTION_TITLES.providers,
-        message,
-        providerErrorCode: ADMIN_PROVIDER_LABEL_REQUIRED
-      }, () => {
-        if (typeof wx.pageScrollTo === "function") {
-          wx.pageScrollTo({ selector: configEditorSelector("providers"), duration: 220 });
-        }
+        pointFieldErrors,
+        activeConfigSection: "points",
+        activeConfigTitle: CONFIG_SECTION_TITLES.points,
+        message: `积分配置有 ${invalidPointKeys.length} 项需要修改。`
       });
       wx.showModal({
-        title: "服务商中文名称未填写",
-        content: message,
+        title: "积分填写有误",
+        content: pointFieldErrors[firstKey],
         showCancel: false
       });
       return;
@@ -10086,81 +7645,71 @@ Page({
       });
       return;
     }
-    const tencentFaceFusionFieldErrors = validateTencentFaceFusionForm(this.data.form);
-    const invalidTencentFields = Object.keys(tencentFaceFusionFieldErrors);
-    if (invalidTencentFields.length) {
-      this.setData({
-        tencentFaceFusionFieldErrors,
-        activeConfigSection: "tencentFaceFusion",
-        activeConfigTitle: CONFIG_SECTION_TITLES.tencentFaceFusion,
-        tencentPipelineWizardStep: 3,
-        message: "腾讯融合参数有误，请先修正标红字段。"
-      });
-      wx.showModal({
-        title: "腾讯融合参数有误",
-        content: tencentFaceFusionFieldErrors[invalidTencentFields[0]],
-        showCancel: false
-      });
-      return;
-    }
-    const tencentFaceFusionBeforeSave = this.data.form.tencentFaceFusion
-      || emptyTencentFaceFusionForm();
     this.setData({ saving: true, message: "" });
     try {
-      const savedImageApiKeys = adminImageApiKeysAfterSave(
+      const dirtySections = inferAdminConfigDirtySections(
+        this._adminConfigBaselineForm,
         this.data.form,
-        this._imageApiKeyBaseline
+        this._adminConfigDirtySections
       );
-      const result = await cloud.saveAdminConfig(
-        adminConfigSavePayload(
-          this.data.form,
-          this._imageApiKeyBaseline,
-          this.data.configVersion,
-          this.data.activeProviders,
-          this.data.activeBackups
-        )
-      );
+      const baseline = this._imageApiKeyBaseline;
+      const originalForm = cloneAdminConfigValue(this.data.form);
+      let saveForm = originalForm;
+      let expectedVersion = this.data.configVersion;
+      let result = null;
+      let conflictRetried = false;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+          result = await cloud.saveAdminConfig(
+            adminConfigSavePayload(saveForm, baseline, expectedVersion, dirtySections)
+          );
+          break;
+        } catch (error) {
+          if (attempt > 0 || !isAdminConfigConflict(error)) throw error;
+          const latest = await cloud.getAdminConfig({ retryLimit: 0 });
+          if (!latest || latest.ok === false || !latest.effective) throw error;
+          saveForm = mergeAdminConfigForms(
+            formFromConfig(latest),
+            originalForm,
+            dirtySections
+          );
+          expectedVersion = Number(latest.version) || expectedVersion;
+          conflictRetried = true;
+        }
+      }
+      if (!result) throw new Error("管理员配置保存失败，请稍后重试。");
+      const savedImageApiKeys = adminImageApiKeysAfterSave(saveForm, baseline);
       const effective = result.effective || null;
-      const form = formWithTencentFaceFusionSecrets(
-        formWithAdminImageApiKeys(
-          formFromConfig(result),
-          savedImageApiKeys
-        ),
-        tencentFaceFusionBeforeSave
+      const form = formWithAdminImageApiKeys(
+        formFromConfig(result),
+        savedImageApiKeys
       );
       const providerUi = buildAdminProviderUiState(
         form.providerRegistry,
         form.activeProviders,
-        form.activeBackups,
         form
       );
       this._imageApiKeyBaseline = savedImageApiKeys;
-      const patch = Object.assign({}, providerUi, {
+      const patch = Object.assign({
         form,
         costFieldErrors: {},
-        tencentFaceFusionFieldErrors: {},
+        pointFieldErrors: {},
         effective,
         configVersion: Number(result.version) || this.data.configVersion,
         saving: false,
-        message: `配置保存成功，第 ${result.version || 0} 版；当前配置已生效，正在自动检查四套模型和生图三档清晰度...`
-      }, buildQualityPickerState(form), buildAdminProviderProfilePickerState(form),
-      buildAdminProviderManagementState(
-        form,
-        this.data.modelProbes,
-        this.data.providerFilterValue,
-        {}
-      ));
+        message: conflictRetried
+          ? `配置保存成功，第 ${result.version || 0} 版；当前配置已生效，检测到旧版本后已自动合并；自动探测只是保存后的附加检查，正在测试四套模型和生图三档清晰度...`
+          : `配置保存成功，第 ${result.version || 0} 版；当前配置已生效；自动探测只是保存后的附加检查，正在测试四套模型和生图三档清晰度...`
+      }, providerUi, buildQualityPickerState(form));
       Object.assign(patch, this.buildAdminDerivedPatch(patch, this.data.moduleStates));
-      this.setData(patch, () => {
-        if (this.data.compactModelMode) {
-          this.refreshCompactModelState(this.data.form, this.data.compactActiveSection);
-        }
-      });
+      this._adminConfigDirtySections = new Set();
+      this._adminConfigBaselineForm = cloneAdminConfigValue(form);
+      this.setData(patch);
       diagnosticLog.info("admin", "config-saved", "管理员配置保存完成", {
         version: result.version || 0
       });
       wx.showToast({ title: "配置保存成功", icon: "success", duration: 1600 });
-      // 自动探测只是保存后的附加检查，失败时不能把已经成功保存的配置判成保存失败。
+      // 自动探测是保存后的附加检查，失败时不能把已经成功保存的配置判成失败。
       void this.runModelProbe("");
     } catch (error) {
       this.setData({ saving: false });
@@ -10227,9 +7776,7 @@ Page({
           autoFaceProbe,
           autoFaceProbeHistory,
           this.data.autoFaceFailureStats,
-          this.data.userStats,
-          this.data.moduleStates,
-          this.data.tencentFaceFusionStatus
+          this.data.userStats
         ),
         monitorExpanded: true,
         checking: false,
@@ -10278,10 +7825,22 @@ Page({
       : modelConfigKey === "videoBackup"
         ? "备用视频"
         : typeLabel;
+    const selectedConfig = this.data.form && this.data.form[modelConfigKey]
+      ? this.data.form[modelConfigKey]
+      : {};
+    const selectedProviderRef = String(
+      selectedConfig.providerKey || selectedConfig.provider || ""
+    ).trim();
+    const selectedProviderRecord = getAdminProviderRecord(
+      this.data.providerRegistry,
+      selectedProviderRef
+    ) || findAdminProviderRecordByRef(
+      this.data.providerRegistry,
+      selectedProviderRef
+    );
     const providerId = normalizeAdminProviderInput(
-      this.data.form
-      && this.data.form[modelConfigKey]
-      && this.data.form[modelConfigKey].provider
+      selectedProviderRecord && selectedProviderRecord.id
+        || selectedProviderRef
     );
     if (!providerId) {
       this.setData({
@@ -10309,7 +7868,7 @@ Page({
       );
       const target = result && Array.isArray(result.results)
         ? result.results[0]
-        : result;
+        : null;
       const ok = Boolean(target && target.status === "ok" && target.ready);
       const message = ok
         ? target && target.message
@@ -10478,17 +8037,11 @@ Page({
       type,
       this.data.modelPickerTarget
     );
-    const nextForm = ADMIN_PROVIDER_PICKER_SECTIONS.includes(configKey)
-      ? updateAdminProviderProfileForm(
-          this.data.form,
-          configKey,
-          { model: value }
-        )
-      : Object.assign({}, this.data.form, {
-          [configKey]: Object.assign({}, this.data.form[configKey], {
-            model: value
-          })
-        });
+    const nextForm = Object.assign({}, this.data.form, {
+      [configKey]: Object.assign({}, this.data.form[configKey], {
+        model: value
+      })
+    });
     const profile = this.data.modelCapabilityProfiles
       && this.data.modelCapabilityProfiles[configKey]
       && this.data.modelCapabilityProfiles[configKey][value]
@@ -10497,8 +8050,8 @@ Page({
     if (configKey === type) {
       capabilityPayload[type] = profile;
     }
-    const patch = Object.assign({
-      form: nextForm,
+    const patch = {
+      [`form.${configKey}.model`]: value,
       modelPickerOpen: false,
       modelPickerType: "",
       modelPickerTarget: "",
@@ -10506,24 +8059,11 @@ Page({
       modelPickerSearch: "",
       modelPickerAllOptions: [],
       modelPickerOptions: [],
-      message: `已选择${
-        configKey === "imageBackup"
-          ? "备用生图"
-          : configKey === "videoBackup"
-            ? "备用视频"
-            : usageTypeLabel(type)
-      }模型：${value}；点击“保存全部配置”后才会生效。`
-    }, buildAdminProviderProfilePickerState(nextForm),
-    buildAdminProviderManagementState(
-      nextForm,
-      this.data.modelProbes,
-      this.data.providerFilterValue,
-      this.data.providerLabelErrors
-    ));
-    Object.assign(
-      patch,
-      this.buildAdminDerivedPatch({ form: nextForm }, this.data.moduleStates)
-    );
+      message: `已选择${configKey === "imageBackup" ? "备用生图" : usageTypeLabel(type)}模型：${value}；点击“保存全部配置”后才会生效。`
+    };
+    if (configKey === type) {
+      patch[`currentConfigModels.${type}`] = displayModelName(value);
+    }
     this.setData(Object.assign(
       patch,
       buildQualityPickerState(nextForm, capabilityPayload)
@@ -10589,15 +8129,10 @@ Page({
       const pickerPatch = Object.keys(capabilityPayload).length
         ? buildQualityPickerState(this.data.form, capabilityPayload)
         : {};
-      const providerManagementPatch = buildAdminProviderManagementState(
-        this.data.form,
-        modelProbes,
-        this.data.providerFilterValue,
-        this.data.providerLabelErrors
-      );
       this.setData(Object.assign({
         modelProbing: false,
         modelProbingType: "",
+        modelProbes,
         modelCapabilityProfiles,
         imageQualityProbe: imageProbe && imageProbe.qualityProbe
           ? imageProbe.qualityProbe
@@ -10614,9 +8149,7 @@ Page({
           : modelProbes.readyCount === modelProbes.total
             ? `模型接口探测完成：${modelProbes.readyCount}/${modelProbes.total} 套正常。${qualitySummary}`
             : `模型接口探测完成：${modelProbes.readyCount}/${modelProbes.total} 套正常，失败项请按下方修复建议处理。${qualitySummary}`
-      }, providerManagementPatch,
-      buildAdminProviderProfilePickerState(this.data.form),
-      pickerPatch));
+      }, pickerPatch));
       wx.showToast({
         title: modelType && target
           ? `${target.typeLabel}${target.statusText}`
@@ -10632,17 +8165,13 @@ Page({
       const modelProbes = modelType && formatted.results.length
         ? mergeSingleModelProbe(this.data.modelProbes, formatted, modelType)
         : this.data.modelProbes;
-      this.setData(Object.assign({
+      this.setData({
         modelProbing: false,
         modelProbingType: "",
+        modelProbes,
         monitorExpanded: true,
         message: `${typeLabel}接口探测失败，请查看结果说明。`
-      }, buildAdminProviderManagementState(
-        this.data.form,
-        modelProbes,
-        this.data.providerFilterValue,
-        this.data.providerLabelErrors
-      )));
+      });
       diagnosticLog.error(
         "admin",
         "model-probe-failed",
@@ -10654,9 +8183,7 @@ Page({
   },
 
   backToWorkbench() {
-    this.confirmDiscardProviderDraft(() => {
-      wx.reLaunch({ url: "/pages/workbench/workbench" });
-    });
+    wx.reLaunch({ url: "/pages/workbench/workbench" });
   },
 
   showError(title, error) {

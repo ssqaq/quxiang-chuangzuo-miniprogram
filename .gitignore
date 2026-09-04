@@ -4,6 +4,14 @@ project.private.config.json
 # Node依赖
 **/node_modules/
 
+# 版本化浏览器预览的本地构建产物
+tools/user-center-preview/.next/
+tools/user-center-preview/.vinext/
+tools/user-center-preview/.wrangler/
+tools/user-center-preview/dist/
+tools/user-center-preview/next-env.d.ts
+tools/user-center-preview/*.tsbuildinfo
+
 # 环境变量和密钥
 .env
 .env.*

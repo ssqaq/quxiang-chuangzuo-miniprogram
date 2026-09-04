@@ -1,7 +1,7 @@
 "use strict";
 
 const cloud = require("wx-server-sdk");
-const payment = require("aips-payment-core");
+const payment = require("./vendor/payment-core");
 
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 const db = cloud.database();

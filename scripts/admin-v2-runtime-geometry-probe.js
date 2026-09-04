@@ -21,8 +21,27 @@ const REQUIRED_SELECTORS = {
   dashboard: [".phone-screen", ".appbar", ".app-content"],
   operations: [".phone-screen", ".appbar", ".app-content"],
   config: [".phone-screen", ".appbar", ".app-content", ".advanced-grid", ".save-wrap"],
-  provider: [".phone-screen", ".provider-layout", ".app-content", ".field-label"],
+  provider: [
+    ".phone-screen",
+    ".provider-layout",
+    ".app-content",
+    ".field-label",
+    ".provider-card",
+    ".directory",
+    ".provider-list",
+    ".editor",
+    ".editor-note",
+    ".provider-actions",
+    "#endpointInput",
+    "#keyInput",
+  ],
 };
+const PROVIDER_BLANK_SPACE_LIMITS = Object.freeze({
+  noteToActions: 16,
+  actionsToCardBottom: 16,
+  listToDirectoryBottom: 16,
+  columnHeightDelta: 2,
+});
 
 function readJson(filePath) {
   const resolved = path.resolve(filePath);
@@ -42,6 +61,91 @@ function checkRect(rect, viewport) {
   if (left === null || right === null) return { pass: false, reason: "缺少横向边界" };
   if (left < -1 || right > viewport.width + 1) return { pass: false, reason: `横向越界 left=${left}, right=${right}` };
   return { pass: true, reason: "" };
+}
+
+function checkProviderBlankSpace(elementMap) {
+  const rect = selector => elementMap.get(selector) && elementMap.get(selector).rect;
+  const definitions = {
+    noteToActions: {
+      selectors: [".editor-note", ".provider-actions"],
+      calculate: () => rect(".provider-actions").top - rect(".editor-note").bottom,
+      fields: [[".editor-note", "bottom"], [".provider-actions", "top"]],
+    },
+    actionsToCardBottom: {
+      selectors: [".provider-card", ".provider-actions"],
+      calculate: () => rect(".provider-card").bottom - rect(".provider-actions").bottom,
+      fields: [[".provider-card", "bottom"], [".provider-actions", "bottom"]],
+    },
+    listToDirectoryBottom: {
+      selectors: [".directory", ".provider-list"],
+      calculate: () => rect(".directory").bottom - rect(".provider-list").bottom,
+      fields: [[".directory", "bottom"], [".provider-list", "bottom"]],
+    },
+    columnHeightDelta: {
+      selectors: [".directory", ".editor"],
+      calculate: () => Math.abs(rect(".directory").height - rect(".editor").height),
+      fields: [[".directory", "height"], [".editor", "height"]],
+    },
+  };
+  const metrics = {};
+  const errors = [];
+  Object.entries(definitions).forEach(([name, definition]) => {
+    const missingSelector = definition.selectors.find(selector => !rect(selector));
+    const invalidField = definition.fields.find(([selector, field]) => number(rect(selector) && rect(selector)[field]) === null);
+    if (missingSelector || invalidField) {
+      metrics[name] = null;
+      errors.push(`${name} 缺少有效尺寸${missingSelector ? `（${missingSelector} 未采集）` : ""}`);
+      return;
+    }
+    const value = definition.calculate();
+    metrics[name] = value;
+    const limit = PROVIDER_BLANK_SPACE_LIMITS[name];
+    if (value < 0) errors.push(`${name}=${value}px，元素发生重叠`);
+    else if (value > limit) errors.push(`${name}=${value}px，超过 ${limit}px`);
+  });
+  return { pass: errors.length === 0, metrics, limits: PROVIDER_BLANK_SPACE_LIMITS, errors };
+}
+
+function checkProviderInputAlignment(elementMap) {
+  const endpoint = elementMap.get("#endpointInput");
+  const key = elementMap.get("#keyInput");
+  const errors = [];
+  const endpointRect = endpoint && endpoint.rect;
+  const keyRect = key && key.rect;
+  if (!endpointRect || !keyRect || number(endpointRect.left) === null || number(keyRect.left) === null) {
+    errors.push("端点和 API Key 缺少有效左边界");
+    return { pass: false, leftDelta: null, textAlign: null, errors };
+  }
+  const leftDelta = Math.abs(endpointRect.left - keyRect.left);
+  if (leftDelta > 1) errors.push(`端点与 API Key 左边界差 ${leftDelta}px，必须一致`);
+  const textAlign = {
+    endpoint: endpointRect.computed && endpointRect.computed.textAlign || null,
+    key: keyRect.computed && keyRect.computed.textAlign || null,
+  };
+  ["endpoint", "key"].forEach(name => {
+    const value = textAlign[name];
+    if (value !== "left" && value !== "start") errors.push(`${name === "endpoint" ? "端点" : "API Key"} text-align=${value || "缺失"}，必须左对齐`);
+  });
+  return { pass: errors.length === 0, leftDelta, textAlign, errors };
+}
+
+function checkProviderDirectoryScroll(elementMap) {
+  const list = elementMap.get(".provider-list");
+  const rect = list && list.rect;
+  const scroll = list && list.scroll;
+  const errors = [];
+  if (!rect || !scroll) return { pass: false, metrics: null, errors: ["供应商目录缺少滚动边界快照"] };
+  const values = [scroll.scrollHeight, scroll.clientHeight, scroll.topScrollTop, scroll.bottomScrollTop,
+    scroll.topFirstRowTop, scroll.bottomLastRowBottom];
+  if (values.some(value => number(value) === null)) return { pass: false, metrics: null, errors: ["供应商目录滚动边界快照不完整"] };
+  const maxScrollTop = Math.max(0, scroll.scrollHeight - scroll.clientHeight);
+  const metrics = { scrollHeight: scroll.scrollHeight, clientHeight: scroll.clientHeight, maxScrollTop, topScrollTop: scroll.topScrollTop, bottomScrollTop: scroll.bottomScrollTop };
+  if (scroll.scrollHeight <= scroll.clientHeight) errors.push("供应商目录内容没有形成可滚动范围");
+  if (Math.abs(scroll.topScrollTop) > 1) errors.push(`目录首端 scrollTop=${scroll.topScrollTop}，应为 0`);
+  if (Math.abs(scroll.bottomScrollTop - maxScrollTop) > 1) errors.push(`目录末端 scrollTop=${scroll.bottomScrollTop}，应为 ${maxScrollTop}`);
+  if (Math.abs(scroll.topFirstRowTop - rect.top) > 1) errors.push("目录首端没有从第一行开始");
+  if (Math.abs(scroll.bottomLastRowBottom - rect.bottom) > 1) errors.push("目录末端没有对齐最后一行");
+  return { pass: errors.length === 0, metrics, errors };
 }
 
 function run(options = {}) {
@@ -74,7 +178,13 @@ function run(options = {}) {
       else if (!check.pass) pageErrors.push(`${selector}：${check.reason}`);
       return { selector, present: Boolean(element), ...check };
     });
-    return { name, viewport, elements: elementResults, errors: pageErrors, pass: pageErrors.length === 0 };
+    const blankSpace = name === "provider" ? checkProviderBlankSpace(elementMap) : null;
+    const inputAlignment = name === "provider" ? checkProviderInputAlignment(elementMap) : null;
+    const directoryScroll = name === "provider" ? checkProviderDirectoryScroll(elementMap) : null;
+    if (blankSpace) pageErrors.push(...blankSpace.errors);
+    if (inputAlignment) pageErrors.push(...inputAlignment.errors);
+    if (directoryScroll) pageErrors.push(...directoryScroll.errors);
+    return { name, viewport, elements: elementResults, blankSpace, inputAlignment, directoryScroll, errors: pageErrors, pass: pageErrors.length === 0 };
   });
   results.forEach(page => page.errors.forEach(error => errors.push(`${page.name}：${error}`)));
   const report = {
@@ -125,6 +235,6 @@ function main(argv = process.argv.slice(2)) {
   }
 }
 
-module.exports = { ROOT, DEFAULT_INPUT, DEFAULT_OUTPUT, EXPECTED_FIXTURE_ID, EXPECTED_FONT_PROFILE, EXPECTED_VIEWPORT, PAGE_NAMES, REQUIRED_SELECTORS, readJson, checkRect, run, parseArgs, main };
+module.exports = { ROOT, DEFAULT_INPUT, DEFAULT_OUTPUT, EXPECTED_FIXTURE_ID, EXPECTED_FONT_PROFILE, EXPECTED_VIEWPORT, PAGE_NAMES, REQUIRED_SELECTORS, PROVIDER_BLANK_SPACE_LIMITS, readJson, checkRect, checkProviderBlankSpace, checkProviderInputAlignment, checkProviderDirectoryScroll, run, parseArgs, main };
 
 if (require.main === module) process.exitCode = main();

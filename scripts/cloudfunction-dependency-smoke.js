@@ -82,6 +82,103 @@ function errorCodes(result) {
   return result.errors.map((item) => item.code);
 }
 
+const PAYMENT_FUNCTION_NAMES = [
+  "payment-api",
+  "payment-notify",
+  "payment-reconcile",
+];
+
+function createPaymentManifestFixture() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "payment-deps-"));
+  const manifestPath = path.join(root, "scripts", "payment-cloudfunctions.json");
+  const runtimeRequire = "./vendor/payment-core";
+  const coreRoot = path.join(root, "cloudfunctions", "payment-core");
+  writeJson(path.join(coreRoot, "package.json"), {
+    name: "aips-payment-core",
+    version: "1.0.0",
+    main: "index.js",
+  });
+  writeFile(path.join(coreRoot, "index.js"), "module.exports = { ok: true };\n");
+
+  const functions = PAYMENT_FUNCTION_NAMES.map((name) => {
+    const relativeRoot = `cloudfunctions/${name}`;
+    const functionRoot = path.join(root, "cloudfunctions", name);
+    const packageName = `aips-${name}`;
+    const packageJson = {
+      name: packageName,
+      version: "1.0.0",
+      main: "index.js",
+      dependencies: {},
+    };
+    writeJson(path.join(functionRoot, "package.json"), packageJson);
+    writeJson(path.join(functionRoot, "package-lock.json"), {
+      name: packageName,
+      version: "1.0.0",
+      lockfileVersion: 3,
+      packages: {
+        "": packageJson,
+        "vendor/payment-core": {
+          name: "aips-payment-core",
+          version: "1.0.0",
+          extraneous: true,
+        },
+      },
+    });
+    writeFile(
+      path.join(functionRoot, "index.js"),
+      `module.exports = require(${JSON.stringify(runtimeRequire)});\n`
+    );
+    writeJson(path.join(functionRoot, "vendor", "payment-core", "package.json"), {
+      name: "aips-payment-core",
+      version: "1.0.0",
+      main: "index.js",
+    });
+    writeFile(
+      path.join(functionRoot, "vendor", "payment-core", "index.js"),
+      "module.exports = { ok: true };\n"
+    );
+    return {
+      name,
+      packageName,
+      root: relativeRoot,
+      entry: `${relativeRoot}/index.js`,
+      packageJson: `${relativeRoot}/package.json`,
+      packageLock: `${relativeRoot}/package-lock.json`,
+      vendoredCoreRoot: `${relativeRoot}/vendor/payment-core`,
+    };
+  });
+  const manifest = {
+    schemaVersion: 1,
+    sharedCore: {
+      name: "aips-payment-core",
+      root: "cloudfunctions/payment-core",
+      packageJson: "cloudfunctions/payment-core/package.json",
+      lockRequired: false,
+      runtimeRequire,
+    },
+    functions,
+  };
+  writeJson(manifestPath, manifest);
+  return {
+    root,
+    manifest,
+    manifestPath,
+    functionRoot(name) {
+      return path.join(root, "cloudfunctions", name);
+    },
+  };
+}
+
+function assertManifestError(result, code, subject) {
+  assert.strictEqual(result.healthy, false, `${code} 负例不应通过`);
+  assert.ok(
+    result.errors.some((item) => (
+      item.code === code && (subject === undefined || item.subject === subject)
+    )),
+    JSON.stringify(result.errors)
+  );
+}
+
 const parsed = findRequireCalls(`
   // require("./comment")
   const a = require("./a");
@@ -228,6 +325,82 @@ try {
   assert.ok(errorCodes(result).includes("DYNAMIC_REQUIRE_UNSUPPORTED"));
 } finally {
   fs.rmSync(dynamicRequire.root, { recursive: true, force: true });
+}
+
+const paymentManifest = createPaymentManifestFixture();
+try {
+  const baseline = runManifestDependencyCheck(paymentManifest.manifestPath);
+  assert.strictEqual(baseline.healthy, true, JSON.stringify(baseline.errors));
+  assert.ok(
+    PAYMENT_FUNCTION_NAMES.every((name) => (
+      !fs.existsSync(path.join(paymentManifest.functionRoot(name), "node_modules"))
+    )),
+    "支付依赖 smoke 不得依赖 payment node_modules"
+  );
+
+  const invalidRuntimeManifest = JSON.parse(JSON.stringify(paymentManifest.manifest));
+  invalidRuntimeManifest.sharedCore.runtimeRequire = "aips-payment-core";
+  writeJson(paymentManifest.manifestPath, invalidRuntimeManifest);
+  assertManifestError(
+    runManifestDependencyCheck(paymentManifest.manifestPath),
+    "PAYMENT_CORE_RUNTIME_REQUIRE_INVALID",
+    "scripts/payment-cloudfunctions.json"
+  );
+  writeJson(paymentManifest.manifestPath, paymentManifest.manifest);
+
+  for (const name of PAYMENT_FUNCTION_NAMES) {
+    const functionRoot = paymentManifest.functionRoot(name);
+    const entryPath = path.join(functionRoot, "index.js");
+    const validEntry = fs.readFileSync(entryPath, "utf8");
+    writeFile(entryPath, 'module.exports = require("aips-payment-core");\n');
+    const missingRuntimeRequire = runManifestDependencyCheck(paymentManifest.manifestPath);
+    assertManifestError(
+      missingRuntimeRequire,
+      "PAYMENT_CORE_RUNTIME_REQUIRE_MISSING",
+      name
+    );
+    assertManifestError(
+      missingRuntimeRequire,
+      "PAYMENT_CORE_PACKAGE_REQUIRE_FORBIDDEN",
+      name
+    );
+    writeFile(entryPath, validEntry);
+
+    const packagePath = path.join(functionRoot, "package.json");
+    const packageJson = JSON.parse(fs.readFileSync(packagePath, "utf8"));
+    packageJson.dependencies["aips-payment-core"] = "file:vendor/payment-core";
+    writeJson(packagePath, packageJson);
+    assertManifestError(
+      runManifestDependencyCheck(paymentManifest.manifestPath),
+      "PAYMENT_CORE_PACKAGE_DEPENDENCY_FORBIDDEN",
+      name
+    );
+    delete packageJson.dependencies["aips-payment-core"];
+    writeJson(packagePath, packageJson);
+
+    const lockPath = path.join(functionRoot, "package-lock.json");
+    const packageLock = JSON.parse(fs.readFileSync(lockPath, "utf8"));
+    packageLock.packages[""].dependencies["aips-payment-core"] =
+      "file:vendor/payment-core";
+    packageLock.packages["node_modules/aips-payment-core"] = {
+      resolved: "vendor/payment-core",
+      link: true,
+    };
+    writeJson(lockPath, packageLock);
+    assertManifestError(
+      runManifestDependencyCheck(paymentManifest.manifestPath),
+      "PAYMENT_CORE_LOCK_LINK_FORBIDDEN",
+      name
+    );
+    delete packageLock.packages[""].dependencies["aips-payment-core"];
+    delete packageLock.packages["node_modules/aips-payment-core"];
+    writeJson(lockPath, packageLock);
+  }
+
+  const restored = runManifestDependencyCheck(paymentManifest.manifestPath);
+  assert.strictEqual(restored.healthy, true, JSON.stringify(restored.errors));
+} finally {
+  fs.rmSync(paymentManifest.root, { recursive: true, force: true });
 }
 
 const realRoot = path.resolve(__dirname, "..", "cloudfunctions", "api");

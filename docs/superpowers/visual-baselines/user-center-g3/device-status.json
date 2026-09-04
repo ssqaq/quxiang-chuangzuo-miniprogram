@@ -1,0 +1,14 @@
+{
+  "checkedAt": "2026-09-04T03:26:53.303Z",
+  "contract": "G3",
+  "android": {
+    "adbPath": "D:\\ADB\\platform-tools\\adb.exe",
+    "connectedDevices": [],
+    "ready": false
+  },
+  "ios": {
+    "ready": false,
+    "reason": "当前 Windows 工作站未连接可供微信开发者工具使用的 iOS 真机。"
+  },
+  "releaseGate": "real-devices-required"
+}

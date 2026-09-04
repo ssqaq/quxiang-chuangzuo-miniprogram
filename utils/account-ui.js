@@ -104,9 +104,60 @@ function safeNumber(value, fallback = 0) {
   return Number.isFinite(number) ? number : fallback;
 }
 
+function expandScientificNotation(value) {
+  const match = String(value).match(/^([+-]?)(\d+)(?:\.(\d*))?[eE]([+-]?\d+)$/);
+  if (!match) return String(value);
+  const exponent = Number(match[4]);
+  if (!Number.isSafeInteger(exponent) || Math.abs(exponent) > 10000) return null;
+  const digits = `${match[2]}${match[3] || ""}`;
+  const point = match[2].length + exponent;
+  if (point <= 0) return `${match[1]}0.${"0".repeat(-point)}${digits}`;
+  if (point >= digits.length) return `${match[1]}${digits}${"0".repeat(point - digits.length)}`;
+  return `${match[1]}${digits.slice(0, point)}.${digits.slice(point)}`;
+}
+
+function normalizeDecimalText(value, maxFractionDigits = 1) {
+  let text;
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) return null;
+    text = String(value);
+  } else if (typeof value === "string") {
+    text = value.trim();
+  } else {
+    return null;
+  }
+  if (!text) return null;
+  if (/e/i.test(text)) text = expandScientificNotation(text);
+  if (!text || !/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(text)) return null;
+
+  const negative = text[0] === "-";
+  const unsigned = text[0] === "+" || text[0] === "-" ? text.slice(1) : text;
+  const split = unsigned.split(".");
+  const whole = (split[0] || "0").replace(/^0+(?=\d)/, "") || "0";
+  const fraction = (split[1] || "").slice(0, maxFractionDigits).replace(/0+$/, "");
+  const isZero = whole === "0" && !fraction;
+  return `${negative && !isZero ? "-" : ""}${whole}${fraction ? `.${fraction}` : ""}`;
+}
+
+function formatPoints(value, options = {}) {
+  const maxFractionDigits = Number.isInteger(options.maxFractionDigits)
+    ? Math.max(0, options.maxFractionDigits)
+    : 1;
+  const normalized = normalizeDecimalText(value, maxFractionDigits);
+  if (normalized === null) {
+    return options.fallback === undefined ? "--" : String(options.fallback);
+  }
+  const negative = normalized[0] === "-";
+  const unsigned = negative ? normalized.slice(1) : normalized;
+  const split = unsigned.split(".");
+  const groupedWhole = split[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const magnitude = `${groupedWhole}${split[1] ? `.${split[1]}` : ""}`;
+  if (negative) return `-${magnitude}`;
+  return options.signed && magnitude !== "0" ? `+${magnitude}` : magnitude;
+}
+
 function formatInteger(value) {
-  const number = Math.max(0, Math.round(safeNumber(value)));
-  return String(number).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return formatPoints(value, { fallback: "0" });
 }
 
 function formatMoney(amountFen) {
@@ -161,21 +212,22 @@ function normalizeAccount(source = {}) {
   );
   return {
     pointsBalance: Math.max(0, safeNumber(account.pointsBalance)),
-    pointsBalanceText: formatInteger(account.pointsBalance),
+    pointsBalanceText: formatPoints(account.pointsBalance, { fallback: "0" }),
     totalPurchasedPoints,
-    totalPurchasedPointsText: formatInteger(totalPurchasedPoints),
+    totalPurchasedPointsText: formatPoints(totalPurchasedPoints, { fallback: "0" }),
     totalReversedPurchasedPoints: Math.max(0, safeNumber(account.totalReversedPurchasedPoints))
   };
 }
 
-function recordKind(type, amount) {
-  const value = String(type || "").toLowerCase();
-  if (value.includes("recharge") || value.includes("purchase")) return "recharge";
-  if (value.includes("refund") || value.includes("reverse")) return "refund";
-  if (value.includes("checkin") || value.includes("check-in")) return "checkin";
-  if (value.includes("free") || safeNumber(amount) === 0) return "free";
-  if (value.includes("spend") || value.includes("consume") || safeNumber(amount) < 0) return "spend";
-  return safeNumber(amount) > 0 ? "income" : "free";
+function recordKind(type) {
+  const value = String(type || "").trim().toLowerCase();
+  if (value === "recharge") return "recharge";
+  if (value === "spend" || value === "consume") return "spend";
+  if (value === "refund" || value === "payment-reversal") return "refund";
+  if (value === "checkin" || value === "check-in") return "checkin";
+  if (value === "daily-free" || value === "promo-free") return "free";
+  if (value === "purchase") return "legacy-income";
+  return "unknown";
 }
 
 function recordMeta(kind) {
@@ -184,10 +236,11 @@ function recordMeta(kind) {
     spend: { icon: "消", label: "积分消费", tone: "spend" },
     refund: { icon: "退", label: "积分退回", tone: "refund" },
     checkin: { icon: "签", label: "签到奖励", tone: "checkin" },
-    income: { icon: "得", label: "积分收入", tone: "income" },
-    free: { icon: "免", label: "免费次数", tone: "free" }
+    "legacy-income": { icon: "得", label: "历史积分收入", tone: "income" },
+    free: { icon: "免", label: "免费次数", tone: "free" },
+    unknown: { icon: "变", label: "积分变动", tone: "neutral" }
   };
-  return map[kind] || map.free;
+  return map[kind] || map.unknown;
 }
 
 function normalizeRecord(item = {}, index = 0) {
@@ -196,7 +249,7 @@ function normalizeRecord(item = {}, index = 0) {
       : item.delta !== undefined ? item.delta
         : item.points
   );
-  const kind = recordKind(item.type || item.category, amount);
+  const kind = recordKind(item.type || item.kind || item.category);
   const meta = recordMeta(kind);
   const id = item.id || item._id || item.requestId || item.orderNo || `account-record-${index}`;
   return {
@@ -210,12 +263,10 @@ function normalizeRecord(item = {}, index = 0) {
     amount,
     amountText: kind === "free" && amount === 0
       ? "免费"
-      : amount > 0
-        ? `+${formatInteger(amount)}`
-        : String(Math.round(amount)),
+      : formatPoints(amount, { signed: true, fallback: "0" }),
     balanceAfterText: item.balanceAfter === undefined || item.balanceAfter === null
       ? ""
-      : `余额 ${formatInteger(item.balanceAfter)}`
+      : `余额 ${formatPoints(item.balanceAfter, { fallback: "0" })}`
   };
 }
 
@@ -245,7 +296,11 @@ function normalizeProducts(products) {
       safeNumber(item && item.amountFen) === fixed.amountFen
       && safeNumber(item && (item.grantPoints !== undefined ? item.grantPoints : item.points)) === fixed.grantPoints
     ));
-    return matched ? Object.assign({}, fixed) : null;
+    return matched
+      ? Object.assign({}, fixed, {
+        grantPointsText: formatPoints(fixed.grantPoints, { fallback: "0" })
+      })
+      : null;
   }).filter(Boolean);
 }
 
@@ -266,6 +321,8 @@ module.exports = {
   RECHARGE_PACKAGES,
   ACCOUNT_SERVICE_NOT_READY_MESSAGE,
   safeNumber,
+  normalizeDecimalText,
+  formatPoints,
   formatInteger,
   formatMoney,
   formatDateTime,

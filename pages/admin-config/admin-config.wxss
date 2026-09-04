@@ -588,6 +588,17 @@ page {
   font-size: 22rpx;
 }
 
+.api-key-value {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  word-break: normal;
+  overflow-wrap: normal;
+  text-overflow: ellipsis;
+}
+
 .field-value.multiline {
   overflow: visible;
   overflow-wrap: anywhere;

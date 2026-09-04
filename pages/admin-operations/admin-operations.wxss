@@ -9,11 +9,6 @@ page { background:#f4f8fe; color:#10294b; font-family:"Microsoft YaHei","PingFan
 .demo-knob { width:26rpx; height:26rpx; border-radius:50%; background:#fff; box-shadow:0 2rpx 6rpx rgba(16,41,75,.18); transform:translateX(0); transition:transform .16s ease; }
 .demo-toggle.on .demo-knob { transform:translateX(24rpx); }
 
-/* 用量页按浏览器评审稿保留纵向可读空间，数字较长时仍不横向溢出。 */
-.operations-page .overview-card { min-height:290rpx; box-sizing:border-box; padding:27rpx; }
-.operations-page .summary-item { min-height:118rpx; box-sizing:border-box; }
-.operations-page .detail-card { min-height:112rpx; box-sizing:border-box; }
-.operations-page .detail-toggle { min-height:65rpx; }
 .appbar-title { flex:1; min-width:0; overflow:hidden; color:#10294b; font-size:42rpx; line-height:38rpx; font-weight:900; text-overflow:ellipsis; white-space:nowrap; }
 .appbar-link { flex:0 0 auto; color:#2f73ee; font-size:24rpx; line-height:38rpx; font-weight:900; white-space:nowrap; }
 .appbar-link text { margin-left:4rpx; font-size:30rpx; }

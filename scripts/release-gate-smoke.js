@@ -158,6 +158,8 @@ function testStaticContracts() {
   assert.ok(entry.includes("$effectivePreview"), "发布默认行为必须计算自动开发者工具同步状态");
   assert.ok(entry.includes("--release-context"), "正式打包必须使用 release context");
   assert.ok(entry.includes('"scripts/release-lock-smoke.js"'), "发布工具快照必须包含锁 smoke");
+  assert.ok(entry.includes('"scripts/release-lock-health-smoke.js"'), "发布工具快照必须包含锁健康 smoke");
+  assert.ok(entry.includes('"scripts/user-center-version-smoke.js"'), "发布工具快照必须包含用户中心版本 smoke");
   assert.ok(entry.includes('"scripts/version-concurrency-smoke.js"'), "发布工具快照必须包含版本并发 smoke");
   assert.ok(entry.includes('"scripts/resume-release-smoke.js"'), "发布工具快照必须包含恢复 smoke");
   assert.ok(entry.includes('"scripts/cloud-deploy-safety-smoke.js"'), "发布工具快照必须包含 Cloud 快照 smoke");
@@ -171,6 +173,8 @@ function testStaticContracts() {
   assert.ok(entry.includes('"scripts/admin-v2-same-device-baseline.js"'), "发布工具快照必须包含同设备基线脚本");
   assert.ok(entry.includes('"scripts/preview-source-budget.js"'), "发布工具快照必须包含预览源码预算脚本");
   assert.ok(entry.includes("Invoke-GatePreviewSourceBudget"), "发布闸门必须执行预览源码预算");
+  assert.ok(entry.includes("Invoke-GateRuntimeGeometryContract"), "发布闸门必须执行 390x844 运行时几何合同");
+  assert.ok(entry.includes("provider.blankSpace.pass"), "发布闸门必须拒绝供应商页空白高度回退");
   assert.ok(gate.includes("二维码真实解码失败"), "验收报告必须执行真实二维码解码");
   assert.ok(entry.includes('"scripts/rollback-release.ps1"'), "发布工具快照必须包含回滚入口");
   assert.ok(entry.includes('"scripts/release-maintenance.ps1"'), "发布工具快照必须包含 reservation 维护");

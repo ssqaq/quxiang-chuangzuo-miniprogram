@@ -9,32 +9,6 @@ page { background:#f4f8fe; color:#10294b; font-family:"Microsoft YaHei","PingFan
 .demo-knob { width:26rpx; height:26rpx; border-radius:50%; background:#fff; box-shadow:0 2rpx 6rpx rgba(16,41,75,.18); transform:translateX(0); transition:transform .16s ease; }
 .demo-toggle.on .demo-knob { transform:translateX(24rpx); }
 
-/* 浏览器评审稿的首屏节奏：只放大内容，不改变已修好的横向边界。 */
-.dashboard-page .hero-card { min-height:425rpx; padding:46rpx 28rpx 28rpx; border-radius:24rpx; box-sizing:border-box; display:flex; flex-direction:column; }
-.dashboard-page .hero-kicker { font-size:22rpx; }
-.dashboard-page .hero-title { margin:14rpx 0 22rpx; font-size:44rpx; }
-.dashboard-page .hero-note { font-size:21rpx; }
-.dashboard-page .hero-dot { width:20rpx; height:20rpx; margin-top:12rpx; }
-.dashboard-page .hero-meta { margin-top:24rpx; padding:18rpx 20rpx; gap:12rpx; font-size:22rpx; }
-.dashboard-page .hero-actions { margin-top:auto; gap:10rpx; }
-.dashboard-page .hero-actions button { height:72rpx; min-height:72rpx; font-size:20rpx; }
-.dashboard-page .management-strip { min-height:108rpx; padding:18rpx 20rpx; grid-template-columns:68rpx minmax(0,1fr) auto; gap:18rpx; }
-.dashboard-page .management-icon { width:68rpx; height:68rpx; font-size:28rpx; }
-.dashboard-page .management-title { font-size:29rpx; }
-.dashboard-page .management-subtitle { font-size:16rpx; }
-.dashboard-page .management-arrow { font-size:40rpx; }
-.dashboard-page .section { margin-top:28rpx; }
-.dashboard-page .section-head { margin-bottom:6rpx; }
-.dashboard-page .section-title { font-size:30rpx; }
-.dashboard-page .section-hint { font-size:19rpx; }
-.dashboard-page .section-note { margin-bottom:6rpx; font-size:20rpx; line-height:1.2; }
-.dashboard-page .shared-card { min-height:112rpx; padding:22rpx; grid-template-columns:minmax(0,1fr) 190rpx; gap:16rpx; }
-.dashboard-page .shared-title { font-size:30rpx; }
-.dashboard-page .shared-subtitle { font-size:20rpx; }
-.dashboard-page .shared-action { height:72rpx; font-size:22rpx; }
-.dashboard-page .metric { min-height:132rpx; }
-.dashboard-page .metric-label { font-size:22rpx; }
-.dashboard-page .metric-detail { font-size:18rpx; }
 .appbar-title { color:#10294b; font-size:42rpx; font-weight:900; line-height:1; }
 .appbar-link { color:#2f73ee; font-size:25rpx; font-weight:900; line-height:1; }
 .appbar-link text { margin-left:4rpx; font-size:32rpx; }

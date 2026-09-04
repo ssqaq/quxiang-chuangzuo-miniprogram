@@ -18,8 +18,7 @@
     "pages/admin-dashboard/admin-dashboard",
     "pages/admin-provider/admin-provider",
     "pages/admin-config/admin-config",
-    "pages/admin-operations/admin-operations",
-    "pages/admin/admin"
+    "pages/admin-operations/admin-operations"
   ],
   "window": {
     "navigationBarTitleText": "圈像创作",

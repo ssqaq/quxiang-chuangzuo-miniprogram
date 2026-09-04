@@ -21,6 +21,10 @@ assert.strictEqual(fixtures.isEnabled({ demo: "true" }), true, "demo=true 应打
 assert.strictEqual(fixtures.isEnabled({ demo: "0" }), false, "demo=0 应关闭演示模式");
 assert.strictEqual(fixtures.isEnabled({ demo: "false" }), false, "demo=false 应关闭演示模式");
 assert.strictEqual(fixtures.isEnabled({ demo: "unknown" }), false, "未知开关值应保持默认关闭");
+const savedWx = global.wx;
+global.wx = { getDeviceInfo() { return { platform: "devtools" }; } };
+assert.strictEqual(fixtures.isDevToolsRuntime(), true, "开发者工具运行时必须可识别，供刷新失败回退演示数据");
+global.wx = savedWx;
 assert.strictEqual(fixtures.isControlVisible({}), false, "默认不应显示演示控件以保持定稿顶栏");
 assert.strictEqual(fixtures.isControlVisible({ demoControl: "1" }), true, "demoControl=1 应显示演示控件");
 assert.strictEqual(fixtures.isControlVisible({ demoControl: "0" }), false, "demoControl=0 应隐藏演示控件");

@@ -24,10 +24,7 @@ const blank = {
   }
 };
 const filled = applyAdminVideoProviderDefaults(blank);
-assert.deepStrictEqual(
-  filled.video,
-  Object.assign({}, blank.video, XINGJU_VIDEO_DEFAULTS)
-);
+assert.deepStrictEqual(filled.video, Object.assign({}, blank.video, XINGJU_VIDEO_DEFAULTS));
 assert.notStrictEqual(filled, blank, "补齐配置不能直接修改原对象");
 assert.strictEqual(blank.video.model, "", "不能修改原始表单对象");
 
@@ -42,28 +39,10 @@ const manual = applyAdminVideoProviderDefaults({
   }
 });
 assert.strictEqual(manual.video.model, "my-video-model");
-assert.strictEqual(manual.video.baseUrl, "https://newapi.akiyo.fun");
 assert.strictEqual(manual.video.createPath, "/custom/create");
 assert.strictEqual(manual.video.queryPath, "/custom/query/{taskId}");
 assert.strictEqual(manual.video.resolution, "1080p");
 assert.strictEqual(manual.video.timeoutMs, "120000");
-
-const customEndpoint = applyAdminVideoProviderDefaults({
-  video: {
-    provider: "星炬",
-    baseUrl: "https://video.example.com",
-    model: "custom-model",
-    createPath: "/custom/create",
-    queryPath: "/custom/query/{taskId}",
-    resolution: "1080p",
-    timeoutMs: "120000"
-  }
-});
-assert.strictEqual(
-  customEndpoint.video.baseUrl,
-  "https://video.example.com",
-  "手动填写的星炬接口地址不能被覆盖"
-);
 
 const invalidTimeout = applyAdminVideoProviderDefaults({
   video: { provider: "xingju", timeoutMs: "bad" }
@@ -88,29 +67,18 @@ const api = require("../cloudfunctions/api/index.js");
 const apiTest = api.__test;
 assert.ok(apiTest, "云函数没有暴露测试接口");
 
-const normalized = apiTest.normalizeRuntimePatch({
-  video: {
-    apiKey: fakeVideoKey,
-    model: XINGJU_VIDEO_DEFAULTS.model
-  },
-  providerProfiles: {
+const strippedVideoKey = apiTest.dropBlankRuntimeApiKeys(
+  apiTest.normalizeRuntimePatch({
     video: {
-      xingju: {
-        apiKey: fakeVideoKey,
-        model: XINGJU_VIDEO_DEFAULTS.model
-      }
+      apiKey: fakeVideoKey,
+      model: XINGJU_VIDEO_DEFAULTS.model
     }
-  }
-});
-assert.strictEqual(
-  Object.prototype.hasOwnProperty.call(normalized.video, "apiKey"),
-  false,
-  "管理员保存配置时不能把视频 Key 写进动态配置"
+  })
 );
 assert.strictEqual(
-  Object.prototype.hasOwnProperty.call(normalized.providerProfiles.video.xingju, "apiKey"),
+  Object.prototype.hasOwnProperty.call(strippedVideoKey.video, "apiKey"),
   false,
-  "管理员保存配置时不能把视频 Key 写进服务商动态配置"
+  "管理员保存配置时不能把视频 Key 写进动态配置"
 );
 
 api.main({

@@ -1,0 +1,1024 @@
+{
+  "schemaVersion": 1,
+  "contract": "G4",
+  "source": {
+    "root": "tools/user-center-preview",
+    "mode": "versioned-package",
+    "selector": "[data-g1-root]",
+    "baseline": "G1"
+  },
+  "widths": [
+    320,
+    338,
+    375,
+    414
+  ],
+  "captures": {
+    "user-center": {
+      "320": {
+        "viewport": {
+          "width": 320,
+          "height": 654,
+          "dpr": 1
+        },
+        "browserViewport": {
+          "width": 1440,
+          "height": 1000,
+          "dpr": 1
+        },
+        "screenshot": "user-center-320.png",
+        "screenshotSha256": "53a93caca85e736f1730960cede2c005279969912c2c54d9360cf894568a9e5b",
+        "geometry": {
+          "root": {
+            "x": 883.031,
+            "y": 200.75,
+            "width": 320,
+            "height": 654
+          },
+          "page": {
+            "clientWidth": 1440,
+            "scrollWidth": 1440
+          },
+          "rootScroll": {
+            "clientWidth": 320,
+            "scrollWidth": 320
+          },
+          "boxes": {
+            "profile": {
+              "x": 12,
+              "y": 18,
+              "width": 296,
+              "height": 71,
+              "right": 308,
+              "bottom": 89
+            },
+            "balance": {
+              "x": 12,
+              "y": 98,
+              "width": 296,
+              "height": 166.25,
+              "right": 308,
+              "bottom": 264.25
+            },
+            "quick": {
+              "x": 12,
+              "y": 273.25,
+              "width": 296,
+              "height": 56,
+              "right": 308,
+              "bottom": 329.25
+            },
+            "records": {
+              "x": 12,
+              "y": 338.25,
+              "width": 296,
+              "height": 192.5,
+              "right": 308,
+              "bottom": 530.75
+            },
+            "recharge": null,
+            "packages": null,
+            "channel": null,
+            "pay": null,
+            "tabs": null,
+            "tabHit": null,
+            "cta": {
+              "x": 29,
+              "y": 218.25,
+              "width": 76,
+              "height": 29,
+              "right": 105,
+              "bottom": 247.25
+            }
+          },
+          "text": "微信用户完善头像与昵称当前积分128.5积分图片与视频创作统一使用积分立即充值 积分充值固定套餐收支记录充值与消费最近记录全部 充330 积分套餐2026-09-01 14:26+330消图片创作2026-09-01 13:08-10退视频生成失败退回2026-08-31 21:42+10未完善资料也能充值，身份仍使用微信 OpenID",
+          "background": "rgb(245, 247, 251)"
+        },
+        "assertions": {
+          "horizontalOverflow": false,
+          "rootInsideViewport": true,
+          "requiredPresent": true,
+          "textPresent": true,
+          "ctaVisible": true,
+          "hasFiveFilters": true
+        }
+      },
+      "338": {
+        "viewport": {
+          "width": 338,
+          "height": 654,
+          "dpr": 1
+        },
+        "browserViewport": {
+          "width": 1440,
+          "height": 1000,
+          "dpr": 1
+        },
+        "screenshot": "user-center-338.png",
+        "screenshotSha256": "6cad13e63701cbc6b53ed53e1f02a6bd80b20abe9cde3bab6c567303dbf4cb1b",
+        "geometry": {
+          "root": {
+            "x": 874.031,
+            "y": 200.75,
+            "width": 338,
+            "height": 654
+          },
+          "page": {
+            "clientWidth": 1440,
+            "scrollWidth": 1440
+          },
+          "rootScroll": {
+            "clientWidth": 338,
+            "scrollWidth": 338
+          },
+          "boxes": {
+            "profile": {
+              "x": 12,
+              "y": 18,
+              "width": 314,
+              "height": 71,
+              "right": 326,
+              "bottom": 89
+            },
+            "balance": {
+              "x": 12,
+              "y": 98,
+              "width": 314,
+              "height": 166.25,
+              "right": 326,
+              "bottom": 264.25
+            },
+            "quick": {
+              "x": 12,
+              "y": 273.25,
+              "width": 314,
+              "height": 56,
+              "right": 326,
+              "bottom": 329.25
+            },
+            "records": {
+              "x": 12,
+              "y": 338.25,
+              "width": 314,
+              "height": 192.5,
+              "right": 326,
+              "bottom": 530.75
+            },
+            "recharge": null,
+            "packages": null,
+            "channel": null,
+            "pay": null,
+            "tabs": null,
+            "tabHit": null,
+            "cta": {
+              "x": 29,
+              "y": 218.25,
+              "width": 76,
+              "height": 29,
+              "right": 105,
+              "bottom": 247.25
+            }
+          },
+          "text": "微信用户完善头像与昵称当前积分128.5积分图片与视频创作统一使用积分立即充值 积分充值固定套餐收支记录充值与消费最近记录全部 充330 积分套餐2026-09-01 14:26+330消图片创作2026-09-01 13:08-10退视频生成失败退回2026-08-31 21:42+10未完善资料也能充值，身份仍使用微信 OpenID",
+          "background": "rgb(245, 247, 251)"
+        },
+        "assertions": {
+          "horizontalOverflow": false,
+          "rootInsideViewport": true,
+          "requiredPresent": true,
+          "textPresent": true,
+          "ctaVisible": true,
+          "hasFiveFilters": true
+        }
+      },
+      "375": {
+        "viewport": {
+          "width": 375,
+          "height": 654,
+          "dpr": 1
+        },
+        "browserViewport": {
+          "width": 1440,
+          "height": 1000,
+          "dpr": 1
+        },
+        "screenshot": "user-center-375.png",
+        "screenshotSha256": "d5c742cddf903a00fb40c08f2660b8a0c68768a64fdeefe2f396ef207b15de31",
+        "geometry": {
+          "root": {
+            "x": 855.531,
+            "y": 200.75,
+            "width": 375,
+            "height": 654
+          },
+          "page": {
+            "clientWidth": 1440,
+            "scrollWidth": 1440
+          },
+          "rootScroll": {
+            "clientWidth": 375,
+            "scrollWidth": 375
+          },
+          "boxes": {
+            "profile": {
+              "x": 12,
+              "y": 18,
+              "width": 351,
+              "height": 71,
+              "right": 363,
+              "bottom": 89
+            },
+            "balance": {
+              "x": 12,
+              "y": 98,
+              "width": 351,
+              "height": 166.25,
+              "right": 363,
+              "bottom": 264.25
+            },
+            "quick": {
+              "x": 12,
+              "y": 273.25,
+              "width": 351,
+              "height": 56,
+              "right": 363,
+              "bottom": 329.25
+            },
+            "records": {
+              "x": 12,
+              "y": 338.25,
+              "width": 351,
+              "height": 192.5,
+              "right": 363,
+              "bottom": 530.75
+            },
+            "recharge": null,
+            "packages": null,
+            "channel": null,
+            "pay": null,
+            "tabs": null,
+            "tabHit": null,
+            "cta": {
+              "x": 29,
+              "y": 218.25,
+              "width": 76,
+              "height": 29,
+              "right": 105,
+              "bottom": 247.25
+            }
+          },
+          "text": "微信用户完善头像与昵称当前积分128.5积分图片与视频创作统一使用积分立即充值 积分充值固定套餐收支记录充值与消费最近记录全部 充330 积分套餐2026-09-01 14:26+330消图片创作2026-09-01 13:08-10退视频生成失败退回2026-08-31 21:42+10未完善资料也能充值，身份仍使用微信 OpenID",
+          "background": "rgb(245, 247, 251)"
+        },
+        "assertions": {
+          "horizontalOverflow": false,
+          "rootInsideViewport": true,
+          "requiredPresent": true,
+          "textPresent": true,
+          "ctaVisible": true,
+          "hasFiveFilters": true
+        }
+      },
+      "414": {
+        "viewport": {
+          "width": 414,
+          "height": 654,
+          "dpr": 1
+        },
+        "browserViewport": {
+          "width": 1440,
+          "height": 1000,
+          "dpr": 1
+        },
+        "screenshot": "user-center-414.png",
+        "screenshotSha256": "a76649a6470bd7ce70eae3b3cd72d947a0831696ab703f0f3536a172f5ef0a6a",
+        "geometry": {
+          "root": {
+            "x": 836.031,
+            "y": 200.75,
+            "width": 414,
+            "height": 654
+          },
+          "page": {
+            "clientWidth": 1440,
+            "scrollWidth": 1440
+          },
+          "rootScroll": {
+            "clientWidth": 414,
+            "scrollWidth": 414
+          },
+          "boxes": {
+            "profile": {
+              "x": 12,
+              "y": 18,
+              "width": 390,
+              "height": 71,
+              "right": 402,
+              "bottom": 89
+            },
+            "balance": {
+              "x": 12,
+              "y": 98,
+              "width": 390,
+              "height": 166.25,
+              "right": 402,
+              "bottom": 264.25
+            },
+            "quick": {
+              "x": 12,
+              "y": 273.25,
+              "width": 390,
+              "height": 56,
+              "right": 402,
+              "bottom": 329.25
+            },
+            "records": {
+              "x": 12,
+              "y": 338.25,
+              "width": 390,
+              "height": 192.5,
+              "right": 402,
+              "bottom": 530.75
+            },
+            "recharge": null,
+            "packages": null,
+            "channel": null,
+            "pay": null,
+            "tabs": null,
+            "tabHit": null,
+            "cta": {
+              "x": 29,
+              "y": 218.25,
+              "width": 76,
+              "height": 29,
+              "right": 105,
+              "bottom": 247.25
+            }
+          },
+          "text": "微信用户完善头像与昵称当前积分128.5积分图片与视频创作统一使用积分立即充值 积分充值固定套餐收支记录充值与消费最近记录全部 充330 积分套餐2026-09-01 14:26+330消图片创作2026-09-01 13:08-10退视频生成失败退回2026-08-31 21:42+10未完善资料也能充值，身份仍使用微信 OpenID",
+          "background": "rgb(245, 247, 251)"
+        },
+        "assertions": {
+          "horizontalOverflow": false,
+          "rootInsideViewport": true,
+          "requiredPresent": true,
+          "textPresent": true,
+          "ctaVisible": true,
+          "hasFiveFilters": true
+        }
+      }
+    },
+    "recharge": {
+      "320": {
+        "viewport": {
+          "width": 320,
+          "height": 654,
+          "dpr": 1
+        },
+        "browserViewport": {
+          "width": 1440,
+          "height": 1000,
+          "dpr": 1
+        },
+        "screenshot": "recharge-320.png",
+        "screenshotSha256": "43ec769ef93c92a7e4b2c7b9e628446d58e467ecc5032f327c320add61545efc",
+        "geometry": {
+          "root": {
+            "x": 883.031,
+            "y": 200.75,
+            "width": 320,
+            "height": 654
+          },
+          "page": {
+            "clientWidth": 1440,
+            "scrollWidth": 1440
+          },
+          "rootScroll": {
+            "clientWidth": 320,
+            "scrollWidth": 320
+          },
+          "boxes": {
+            "profile": null,
+            "balance": null,
+            "quick": null,
+            "records": null,
+            "recharge": {
+              "x": 12,
+              "y": 16,
+              "width": 296,
+              "height": 49.5,
+              "right": 308,
+              "bottom": 65.5
+            },
+            "packages": {
+              "x": 12,
+              "y": 105,
+              "width": 296,
+              "height": 101,
+              "right": 308,
+              "bottom": 206
+            },
+            "channel": {
+              "x": 12,
+              "y": 245.5,
+              "width": 296,
+              "height": 51,
+              "right": 308,
+              "bottom": 296.5
+            },
+            "pay": {
+              "x": 12,
+              "y": 312.5,
+              "width": 296,
+              "height": 38.5,
+              "right": 308,
+              "bottom": 351
+            },
+            "tabs": null,
+            "tabHit": null,
+            "cta": {
+              "x": 12,
+              "y": 312.5,
+              "width": 296,
+              "height": 38.5,
+              "right": 308,
+              "bottom": 351
+            }
+          },
+          "text": "本次预计到账+330 积分选择充值套餐100积分¥9.9轻量体验推荐330积分¥29.9多送 30688积分¥59.9多送 88支付方式 仅支持微信支付微微信支付当前可用确认支付 ¥29.9支付完成后由服务端确认到账，不由前端直接加积分",
+          "background": "rgb(245, 247, 251)"
+        },
+        "assertions": {
+          "horizontalOverflow": false,
+          "rootInsideViewport": true,
+          "requiredPresent": true,
+          "textPresent": true,
+          "ctaVisible": true,
+          "hasFiveFilters": true
+        }
+      },
+      "338": {
+        "viewport": {
+          "width": 338,
+          "height": 654,
+          "dpr": 1
+        },
+        "browserViewport": {
+          "width": 1440,
+          "height": 1000,
+          "dpr": 1
+        },
+        "screenshot": "recharge-338.png",
+        "screenshotSha256": "7cf5a5b9e52991fe391c2b2c5f40d3f53975cd4005de4bd290c8cac41eb4ed52",
+        "geometry": {
+          "root": {
+            "x": 874.031,
+            "y": 200.75,
+            "width": 338,
+            "height": 654
+          },
+          "page": {
+            "clientWidth": 1440,
+            "scrollWidth": 1440
+          },
+          "rootScroll": {
+            "clientWidth": 338,
+            "scrollWidth": 338
+          },
+          "boxes": {
+            "profile": null,
+            "balance": null,
+            "quick": null,
+            "records": null,
+            "recharge": {
+              "x": 12,
+              "y": 16,
+              "width": 314,
+              "height": 49.5,
+              "right": 326,
+              "bottom": 65.5
+            },
+            "packages": {
+              "x": 12,
+              "y": 105,
+              "width": 314,
+              "height": 101,
+              "right": 326,
+              "bottom": 206
+            },
+            "channel": {
+              "x": 12,
+              "y": 245.5,
+              "width": 314,
+              "height": 51,
+              "right": 326,
+              "bottom": 296.5
+            },
+            "pay": {
+              "x": 12,
+              "y": 312.5,
+              "width": 314,
+              "height": 38.5,
+              "right": 326,
+              "bottom": 351
+            },
+            "tabs": null,
+            "tabHit": null,
+            "cta": {
+              "x": 12,
+              "y": 312.5,
+              "width": 314,
+              "height": 38.5,
+              "right": 326,
+              "bottom": 351
+            }
+          },
+          "text": "本次预计到账+330 积分选择充值套餐100积分¥9.9轻量体验推荐330积分¥29.9多送 30688积分¥59.9多送 88支付方式 仅支持微信支付微微信支付当前可用确认支付 ¥29.9支付完成后由服务端确认到账，不由前端直接加积分",
+          "background": "rgb(245, 247, 251)"
+        },
+        "assertions": {
+          "horizontalOverflow": false,
+          "rootInsideViewport": true,
+          "requiredPresent": true,
+          "textPresent": true,
+          "ctaVisible": true,
+          "hasFiveFilters": true
+        }
+      },
+      "375": {
+        "viewport": {
+          "width": 375,
+          "height": 654,
+          "dpr": 1
+        },
+        "browserViewport": {
+          "width": 1440,
+          "height": 1000,
+          "dpr": 1
+        },
+        "screenshot": "recharge-375.png",
+        "screenshotSha256": "5c3e72dbb6c3bf27c78d2b9cb5563d7e3bec35de5576bf1dde37c16d57bab43e",
+        "geometry": {
+          "root": {
+            "x": 855.531,
+            "y": 200.75,
+            "width": 375,
+            "height": 654
+          },
+          "page": {
+            "clientWidth": 1440,
+            "scrollWidth": 1440
+          },
+          "rootScroll": {
+            "clientWidth": 375,
+            "scrollWidth": 375
+          },
+          "boxes": {
+            "profile": null,
+            "balance": null,
+            "quick": null,
+            "records": null,
+            "recharge": {
+              "x": 12,
+              "y": 16,
+              "width": 351,
+              "height": 49.5,
+              "right": 363,
+              "bottom": 65.5
+            },
+            "packages": {
+              "x": 12,
+              "y": 105,
+              "width": 351,
+              "height": 101,
+              "right": 363,
+              "bottom": 206
+            },
+            "channel": {
+              "x": 12,
+              "y": 245.5,
+              "width": 351,
+              "height": 51,
+              "right": 363,
+              "bottom": 296.5
+            },
+            "pay": {
+              "x": 12,
+              "y": 312.5,
+              "width": 351,
+              "height": 38.5,
+              "right": 363,
+              "bottom": 351
+            },
+            "tabs": null,
+            "tabHit": null,
+            "cta": {
+              "x": 12,
+              "y": 312.5,
+              "width": 351,
+              "height": 38.5,
+              "right": 363,
+              "bottom": 351
+            }
+          },
+          "text": "本次预计到账+330 积分选择充值套餐100积分¥9.9轻量体验推荐330积分¥29.9多送 30688积分¥59.9多送 88支付方式 仅支持微信支付微微信支付当前可用确认支付 ¥29.9支付完成后由服务端确认到账，不由前端直接加积分",
+          "background": "rgb(245, 247, 251)"
+        },
+        "assertions": {
+          "horizontalOverflow": false,
+          "rootInsideViewport": true,
+          "requiredPresent": true,
+          "textPresent": true,
+          "ctaVisible": true,
+          "hasFiveFilters": true
+        }
+      },
+      "414": {
+        "viewport": {
+          "width": 414,
+          "height": 654,
+          "dpr": 1
+        },
+        "browserViewport": {
+          "width": 1440,
+          "height": 1000,
+          "dpr": 1
+        },
+        "screenshot": "recharge-414.png",
+        "screenshotSha256": "4af6b61d8a7203529f65c76ce65a0a71c543d29c19e4334ae4cf5036e0612525",
+        "geometry": {
+          "root": {
+            "x": 836.031,
+            "y": 200.75,
+            "width": 414,
+            "height": 654
+          },
+          "page": {
+            "clientWidth": 1440,
+            "scrollWidth": 1440
+          },
+          "rootScroll": {
+            "clientWidth": 414,
+            "scrollWidth": 414
+          },
+          "boxes": {
+            "profile": null,
+            "balance": null,
+            "quick": null,
+            "records": null,
+            "recharge": {
+              "x": 12,
+              "y": 16,
+              "width": 390,
+              "height": 49.5,
+              "right": 402,
+              "bottom": 65.5
+            },
+            "packages": {
+              "x": 12,
+              "y": 105,
+              "width": 390,
+              "height": 101,
+              "right": 402,
+              "bottom": 206
+            },
+            "channel": {
+              "x": 12,
+              "y": 245.5,
+              "width": 390,
+              "height": 51,
+              "right": 402,
+              "bottom": 296.5
+            },
+            "pay": {
+              "x": 12,
+              "y": 312.5,
+              "width": 390,
+              "height": 38.5,
+              "right": 402,
+              "bottom": 351
+            },
+            "tabs": null,
+            "tabHit": null,
+            "cta": {
+              "x": 12,
+              "y": 312.5,
+              "width": 390,
+              "height": 38.5,
+              "right": 402,
+              "bottom": 351
+            }
+          },
+          "text": "本次预计到账+330 积分选择充值套餐100积分¥9.9轻量体验推荐330积分¥29.9多送 30688积分¥59.9多送 88支付方式 仅支持微信支付微微信支付当前可用确认支付 ¥29.9支付完成后由服务端确认到账，不由前端直接加积分",
+          "background": "rgb(245, 247, 251)"
+        },
+        "assertions": {
+          "horizontalOverflow": false,
+          "rootInsideViewport": true,
+          "requiredPresent": true,
+          "textPresent": true,
+          "ctaVisible": true,
+          "hasFiveFilters": true
+        }
+      }
+    },
+    "records": {
+      "320": {
+        "viewport": {
+          "width": 320,
+          "height": 654,
+          "dpr": 1
+        },
+        "browserViewport": {
+          "width": 1440,
+          "height": 1000,
+          "dpr": 1
+        },
+        "screenshot": "records-320.png",
+        "screenshotSha256": "1d7f8caed9a758555ef7bb492dbe303093dd371946f8d15bfc6c9ae611a6a121",
+        "geometry": {
+          "root": {
+            "x": 883.031,
+            "y": 200.75,
+            "width": 320,
+            "height": 654
+          },
+          "page": {
+            "clientWidth": 1440,
+            "scrollWidth": 1440
+          },
+          "rootScroll": {
+            "clientWidth": 320,
+            "scrollWidth": 320
+          },
+          "boxes": {
+            "profile": null,
+            "balance": null,
+            "quick": null,
+            "records": {
+              "x": 12,
+              "y": 161,
+              "width": 296,
+              "height": 266,
+              "right": 308,
+              "bottom": 427
+            },
+            "recharge": null,
+            "packages": null,
+            "channel": null,
+            "pay": null,
+            "tabs": {
+              "x": 12,
+              "y": 121,
+              "width": 296,
+              "height": 32,
+              "right": 308,
+              "bottom": 153
+            },
+            "tabHit": {
+              "x": 16,
+              "y": 125,
+              "width": 57.594,
+              "height": 24,
+              "right": 73.594,
+              "bottom": 149
+            },
+            "cta": null
+          },
+          "text": "当前积分128.5累计充值 330 积分全部充值消费奖励退款充330 积分套餐2026-09-01 14:26 · 余额 128.5+330消图片创作2026-09-01 13:08 · 余额 118.5-10退视频生成失败退回2026-08-31 21:42 · 余额 128.5+10奖每日签到2026-08-31 09:15 · 余额 118.5+0.5变积分变动2026-08-30 08:00 · 余额 118.6+0.1仅展示已由服务端确认的流水",
+          "background": "rgb(245, 247, 251)"
+        },
+        "assertions": {
+          "horizontalOverflow": false,
+          "rootInsideViewport": true,
+          "requiredPresent": true,
+          "textPresent": true,
+          "ctaVisible": true,
+          "hasFiveFilters": true
+        }
+      },
+      "338": {
+        "viewport": {
+          "width": 338,
+          "height": 654,
+          "dpr": 1
+        },
+        "browserViewport": {
+          "width": 1440,
+          "height": 1000,
+          "dpr": 1
+        },
+        "screenshot": "records-338.png",
+        "screenshotSha256": "1684fd4e1dac8f073f72c85285891a58b1a507f274db05a81c3e1bf38af0da0d",
+        "geometry": {
+          "root": {
+            "x": 874.031,
+            "y": 200.75,
+            "width": 338,
+            "height": 654
+          },
+          "page": {
+            "clientWidth": 1440,
+            "scrollWidth": 1440
+          },
+          "rootScroll": {
+            "clientWidth": 338,
+            "scrollWidth": 338
+          },
+          "boxes": {
+            "profile": null,
+            "balance": null,
+            "quick": null,
+            "records": {
+              "x": 12,
+              "y": 161,
+              "width": 314,
+              "height": 266,
+              "right": 326,
+              "bottom": 427
+            },
+            "recharge": null,
+            "packages": null,
+            "channel": null,
+            "pay": null,
+            "tabs": {
+              "x": 12,
+              "y": 121,
+              "width": 314,
+              "height": 32,
+              "right": 326,
+              "bottom": 153
+            },
+            "tabHit": {
+              "x": 16,
+              "y": 125,
+              "width": 61.188,
+              "height": 24,
+              "right": 77.188,
+              "bottom": 149
+            },
+            "cta": null
+          },
+          "text": "当前积分128.5累计充值 330 积分全部充值消费奖励退款充330 积分套餐2026-09-01 14:26 · 余额 128.5+330消图片创作2026-09-01 13:08 · 余额 118.5-10退视频生成失败退回2026-08-31 21:42 · 余额 128.5+10奖每日签到2026-08-31 09:15 · 余额 118.5+0.5变积分变动2026-08-30 08:00 · 余额 118.6+0.1仅展示已由服务端确认的流水",
+          "background": "rgb(245, 247, 251)"
+        },
+        "assertions": {
+          "horizontalOverflow": false,
+          "rootInsideViewport": true,
+          "requiredPresent": true,
+          "textPresent": true,
+          "ctaVisible": true,
+          "hasFiveFilters": true
+        }
+      },
+      "375": {
+        "viewport": {
+          "width": 375,
+          "height": 654,
+          "dpr": 1
+        },
+        "browserViewport": {
+          "width": 1440,
+          "height": 1000,
+          "dpr": 1
+        },
+        "screenshot": "records-375.png",
+        "screenshotSha256": "09294631d7cba6046da9a540530eab0fd3e10b94f7367b812f03d97a820b7827",
+        "geometry": {
+          "root": {
+            "x": 855.531,
+            "y": 200.75,
+            "width": 375,
+            "height": 654
+          },
+          "page": {
+            "clientWidth": 1440,
+            "scrollWidth": 1440
+          },
+          "rootScroll": {
+            "clientWidth": 375,
+            "scrollWidth": 375
+          },
+          "boxes": {
+            "profile": null,
+            "balance": null,
+            "quick": null,
+            "records": {
+              "x": 12,
+              "y": 161,
+              "width": 351,
+              "height": 266,
+              "right": 363,
+              "bottom": 427
+            },
+            "recharge": null,
+            "packages": null,
+            "channel": null,
+            "pay": null,
+            "tabs": {
+              "x": 12,
+              "y": 121,
+              "width": 351,
+              "height": 32,
+              "right": 363,
+              "bottom": 153
+            },
+            "tabHit": {
+              "x": 16,
+              "y": 125,
+              "width": 68.594,
+              "height": 24,
+              "right": 84.594,
+              "bottom": 149
+            },
+            "cta": null
+          },
+          "text": "当前积分128.5累计充值 330 积分全部充值消费奖励退款充330 积分套餐2026-09-01 14:26 · 余额 128.5+330消图片创作2026-09-01 13:08 · 余额 118.5-10退视频生成失败退回2026-08-31 21:42 · 余额 128.5+10奖每日签到2026-08-31 09:15 · 余额 118.5+0.5变积分变动2026-08-30 08:00 · 余额 118.6+0.1仅展示已由服务端确认的流水",
+          "background": "rgb(245, 247, 251)"
+        },
+        "assertions": {
+          "horizontalOverflow": false,
+          "rootInsideViewport": true,
+          "requiredPresent": true,
+          "textPresent": true,
+          "ctaVisible": true,
+          "hasFiveFilters": true
+        }
+      },
+      "414": {
+        "viewport": {
+          "width": 414,
+          "height": 654,
+          "dpr": 1
+        },
+        "browserViewport": {
+          "width": 1440,
+          "height": 1000,
+          "dpr": 1
+        },
+        "screenshot": "records-414.png",
+        "screenshotSha256": "ee74f1569f75144026aeb96a691cc9e5d2b69095f184c325c8e78680796955b7",
+        "geometry": {
+          "root": {
+            "x": 836.031,
+            "y": 200.75,
+            "width": 414,
+            "height": 654
+          },
+          "page": {
+            "clientWidth": 1440,
+            "scrollWidth": 1440
+          },
+          "rootScroll": {
+            "clientWidth": 414,
+            "scrollWidth": 414
+          },
+          "boxes": {
+            "profile": null,
+            "balance": null,
+            "quick": null,
+            "records": {
+              "x": 12,
+              "y": 161,
+              "width": 390,
+              "height": 266,
+              "right": 402,
+              "bottom": 427
+            },
+            "recharge": null,
+            "packages": null,
+            "channel": null,
+            "pay": null,
+            "tabs": {
+              "x": 12,
+              "y": 121,
+              "width": 390,
+              "height": 32,
+              "right": 402,
+              "bottom": 153
+            },
+            "tabHit": {
+              "x": 16,
+              "y": 125,
+              "width": 76.391,
+              "height": 24,
+              "right": 92.391,
+              "bottom": 149
+            },
+            "cta": null
+          },
+          "text": "当前积分128.5累计充值 330 积分全部充值消费奖励退款充330 积分套餐2026-09-01 14:26 · 余额 128.5+330消图片创作2026-09-01 13:08 · 余额 118.5-10退视频生成失败退回2026-08-31 21:42 · 余额 128.5+10奖每日签到2026-08-31 09:15 · 余额 118.5+0.5变积分变动2026-08-30 08:00 · 余额 118.6+0.1仅展示已由服务端确认的流水",
+          "background": "rgb(245, 247, 251)"
+        },
+        "assertions": {
+          "horizontalOverflow": false,
+          "rootInsideViewport": true,
+          "requiredPresent": true,
+          "textPresent": true,
+          "ctaVisible": true,
+          "hasFiveFilters": true
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,147 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "admin-v2-reference-20260901-v1",
+  "renderer": "wechat-devtools-skill-cli",
+  "captureStatus": "captured",
+  "state": "collapsed-default-v1",
+  "viewport": {
+    "width": 390,
+    "height": 844,
+    "contractWidth": 390,
+    "contractHeight": 844
+  },
+  "dpr": 1,
+  "scroll": {
+    "x": 0,
+    "y": 0
+  },
+  "fontProfile": "admin-reference-font-v1",
+  "captureContract": {
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "dpr": 1,
+    "scroll": {
+      "x": 0,
+      "y": 0
+    },
+    "fixtureId": "admin-v2-reference-20260901-v1"
+  },
+  "runtime": {
+    "model": "iPhone 12/13 (Pro)",
+    "windowWidth": 390,
+    "windowHeight": 844,
+    "screenWidth": 390,
+    "screenHeight": 844,
+    "pixelRatio": 3,
+    "sdkVersion": "3.16.2"
+  },
+  "captures": [
+    {
+      "stateId": "collapsed-default-v1",
+      "name": "dashboard",
+      "route": "/pages/admin-dashboard/admin-dashboard?demo=1&fixture=admin-v2-reference-20260901-v1&visualState=collapsed-default-v1",
+      "output": "D:\\aips小程序\\wechat-miniapp-admin-config-right-20260831\\visual-evidence\\captured-v0.57.133-390\\dashboard-390x844.png",
+      "fixtureId": "admin-v2-reference-20260901-v1",
+      "runtime": {
+        "model": "iPhone 12/13 (Pro)",
+        "windowWidth": 390,
+        "windowHeight": 844,
+        "screenWidth": 390,
+        "screenHeight": 844,
+        "pixelRatio": 3,
+        "sdkVersion": "3.16.2"
+      },
+      "image": {
+        "width": 390,
+        "height": 844
+      },
+      "cliDimensions": {
+        "width": 390,
+        "height": 844
+      },
+      "bytes": 83643,
+      "sha256": "2ea24e4304dfb8d6278d5ec342d4bd019ac15738c735f35ad25b87f72edc7b6f"
+    },
+    {
+      "stateId": "collapsed-default-v1",
+      "name": "operations",
+      "route": "/pages/admin-operations/admin-operations?view=usage&demo=1&fixture=admin-v2-reference-20260901-v1&visualState=collapsed-default-v1",
+      "output": "D:\\aips小程序\\wechat-miniapp-admin-config-right-20260831\\visual-evidence\\captured-v0.57.133-390\\operations-390x844.png",
+      "fixtureId": "admin-v2-reference-20260901-v1",
+      "runtime": {
+        "model": "iPhone 12/13 (Pro)",
+        "windowWidth": 390,
+        "windowHeight": 844,
+        "screenWidth": 390,
+        "screenHeight": 844,
+        "pixelRatio": 3,
+        "sdkVersion": "3.16.2"
+      },
+      "image": {
+        "width": 390,
+        "height": 844
+      },
+      "cliDimensions": {
+        "width": 390,
+        "height": 844
+      },
+      "bytes": 59464,
+      "sha256": "bfaf8695e067b43c8c8cf2171d6d3d85e308c9755cdc2d179ca77496e833be31"
+    },
+    {
+      "stateId": "collapsed-default-v1",
+      "name": "config",
+      "route": "/pages/admin-config/admin-config?demo=1&fixture=admin-v2-reference-20260901-v1&visualState=collapsed-default-v1",
+      "output": "D:\\aips小程序\\wechat-miniapp-admin-config-right-20260831\\visual-evidence\\captured-v0.57.133-390\\config-390x844.png",
+      "fixtureId": "admin-v2-reference-20260901-v1",
+      "runtime": {
+        "model": "iPhone 12/13 (Pro)",
+        "windowWidth": 390,
+        "windowHeight": 844,
+        "screenWidth": 390,
+        "screenHeight": 844,
+        "pixelRatio": 3,
+        "sdkVersion": "3.16.2"
+      },
+      "image": {
+        "width": 390,
+        "height": 844
+      },
+      "cliDimensions": {
+        "width": 390,
+        "height": 844
+      },
+      "bytes": 48044,
+      "sha256": "be2e0158f778aa534e620971ac99f7c8aef1aae2510a2fbca3e553c530eb90e5"
+    },
+    {
+      "stateId": "collapsed-default-v1",
+      "name": "provider",
+      "route": "/pages/admin-provider/admin-provider?demo=1&fixture=admin-v2-reference-20260901-v1&visualState=collapsed-default-v1",
+      "output": "D:\\aips小程序\\wechat-miniapp-admin-config-right-20260831\\visual-evidence\\captured-v0.57.133-390\\provider-390x844.png",
+      "fixtureId": "admin-v2-reference-20260901-v1",
+      "runtime": {
+        "model": "iPhone 12/13 (Pro)",
+        "windowWidth": 390,
+        "windowHeight": 844,
+        "screenWidth": 390,
+        "screenHeight": 844,
+        "pixelRatio": 3,
+        "sdkVersion": "3.16.2"
+      },
+      "image": {
+        "width": 390,
+        "height": 844
+      },
+      "cliDimensions": {
+        "width": 390,
+        "height": 844
+      },
+      "bytes": 92327,
+      "sha256": "b9e58f95ff6c1c8dce02599efb0c42c20e45cfd3d92668f3ecad7fdaf4347625"
+    }
+  ],
+  "capturedAt": "2026-09-02T16:52:12.507Z"
+}

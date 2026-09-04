@@ -173,6 +173,12 @@ function findRequireCalls(source) {
 }
 
 function resolveModule(specifier, parentDirectory) {
+  // Node's `paths` option is intended for package lookup.  For relative
+  // requires (for example `require("..")`) resolve from the importing file's
+  // directory first so CI and local Node versions share identical semantics.
+  if (specifier.startsWith(".") || path.isAbsolute(specifier)) {
+    return require.resolve(path.resolve(parentDirectory, specifier));
+  }
   return require.resolve(specifier, { paths: [parentDirectory] });
 }
 
@@ -405,6 +411,14 @@ function runManifestDependencyCheck(manifestInput) {
       message: "payment-core package name 与清单不一致。",
     });
   }
+  const runtimeRequire = String(core.runtimeRequire || "");
+  if (runtimeRequire !== "./vendor/payment-core") {
+    errors.push({
+      code: "PAYMENT_CORE_RUNTIME_REQUIRE_INVALID",
+      subject: "scripts/payment-cloudfunctions.json",
+      message: "payment-core runtimeRequire 必须为 ./vendor/payment-core。",
+    });
+  }
 
   for (const item of manifest.functions) {
     const functionRoot = path.resolve(projectRoot, String(item.root || ""));
@@ -416,6 +430,10 @@ function runManifestDependencyCheck(manifestInput) {
     const packageJson = result.healthy || fs.existsSync(path.join(functionRoot, "package.json"))
       ? readJson(path.join(functionRoot, "package.json"), `${item.root}/package.json`, errors)
       : null;
+    const packageLockPath = path.resolve(projectRoot, String(item.packageLock || ""));
+    const packageLock = fs.existsSync(packageLockPath)
+      ? readJson(packageLockPath, `${item.root}/package-lock.json`, errors)
+      : null;
     if (packageJson && packageJson.name !== item.packageName) {
       errors.push({
         code: "PAYMENT_PACKAGE_NAME_MISMATCH",
@@ -423,16 +441,64 @@ function runManifestDependencyCheck(manifestInput) {
         message: `支付云函数 package name 与清单不一致：${item.name}。`,
       });
     }
+    const packageDependencies = (packageJson && packageJson.dependencies) || {};
+    if (Object.prototype.hasOwnProperty.call(packageDependencies, core.name)) {
+      errors.push({
+        code: "PAYMENT_CORE_PACKAGE_DEPENDENCY_FORBIDDEN",
+        subject: String(item.name || item.root),
+        message: `${item.name} 不得通过 npm file 依赖加载 payment-core。`,
+      });
+    }
+    const lockPackages = (packageLock && packageLock.packages) || {};
+    const lockRootDependencies = (lockPackages[""] && lockPackages[""].dependencies) || {};
     if (
-      packageJson
-      && (!packageJson.dependencies
-        || packageJson.dependencies[core.name] !== "file:vendor/payment-core")
+      Object.prototype.hasOwnProperty.call(lockRootDependencies, core.name)
+      || Object.prototype.hasOwnProperty.call(lockPackages, `node_modules/${core.name}`)
     ) {
       errors.push({
-        code: "PAYMENT_CORE_DEPENDENCY_MISSING",
+        code: "PAYMENT_CORE_LOCK_LINK_FORBIDDEN",
         subject: String(item.name || item.root),
-        message: `${item.name} 必须通过 file:vendor/payment-core 打包共享核心。`,
+        message: `${item.name} package-lock 不得保留 payment-core npm 链接。`,
       });
+    }
+    const vendorLock = lockPackages["vendor/payment-core"];
+    if (
+      packageJson
+      && (!vendorLock
+        || vendorLock.name !== core.name
+        || vendorLock.version !== packageJson.version
+        || vendorLock.extraneous !== true)
+    ) {
+      errors.push({
+        code: "PAYMENT_CORE_VENDOR_LOCK_INVALID",
+        subject: String(item.name || item.root),
+        message: `${item.name} package-lock 的 vendored core 版本或标记无效。`,
+      });
+    }
+    const entryPath = path.resolve(projectRoot, String(item.entry || ""));
+    if (!isInside(functionRoot, entryPath) || !fs.existsSync(entryPath)) {
+      errors.push({
+        code: "PAYMENT_ENTRY_MISSING",
+        subject: String(item.name || item.root),
+        message: `${item.name} 支付云函数入口不存在。`,
+      });
+    } else {
+      const entryCalls = findRequireCalls(fs.readFileSync(entryPath, "utf8")).staticCalls;
+      const entrySpecifiers = entryCalls.map((call) => call.specifier);
+      if (runtimeRequire && !entrySpecifiers.includes(runtimeRequire)) {
+        errors.push({
+          code: "PAYMENT_CORE_RUNTIME_REQUIRE_MISSING",
+          subject: String(item.name || item.root),
+          message: `${item.name} 必须从 ${runtimeRequire} 直接加载 payment-core。`,
+        });
+      }
+      if (entrySpecifiers.includes(core.name)) {
+        errors.push({
+          code: "PAYMENT_CORE_PACKAGE_REQUIRE_FORBIDDEN",
+          subject: String(item.name || item.root),
+          message: `${item.name} 不得通过包名加载 payment-core。`,
+        });
+      }
     }
   }
   for (const result of targets) errors.push(...result.errors);

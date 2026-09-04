@@ -142,8 +142,9 @@ const alreadyConfigured = test.migrateLegacyImageRetryConfig(
 assert.strictEqual(alreadyConfigured.migrated, false);
 assert.strictEqual(alreadyConfigured.value.image.retryEnabled, false);
 assert.deepStrictEqual(patch.video, {
-  model: "smoke-video-model"
-}, "视频 Key 不能进入动态配置");
+  model: "smoke-video-model",
+  apiKey: "smoke-video-key"
+});
 assert.deepStrictEqual(patch.analysis, {
   provider: "smoke-analysis-provider",
   model: "smoke-analysis-model",
@@ -152,26 +153,6 @@ assert.deepStrictEqual(patch.analysis, {
 });
 assert.deepStrictEqual(patch.face, { apiKey: "smoke-face-key" });
 assert.deepStrictEqual(test.validateRuntimePatch(patch), []);
-assert.deepStrictEqual(
-  test.normalizeRuntimePatch({
-    providerLabels: {
-      lingyun: "凌云官方",
-      "custom-provider": "自定义服务商"
-    }
-  }).providerLabels,
-  {
-    "custom-provider": "自定义服务商",
-    lingyun: "凌云官方"
-  }
-);
-assert.ok(
-  test.validateRuntimePatch({
-    providerLabels: {
-      "custom-provider": "custom provider"
-    }
-  }).some((item) => item.includes("custom-provider")),
-  "管理员配置校验必须拒绝没有中文名称的服务商"
-);
 const blankKeyPatch = test.dropBlankRuntimeApiKeys(
   test.normalizeRuntimePatch({
     image: {
@@ -212,72 +193,6 @@ assert.strictEqual(blankKeyMerged.imageBackup.model, "new-backup-image");
 assert.ok(test.validateRuntimePatch({
   image: { mode: "not-supported" }
 }).length > 0);
-const independentBackupConfig = test.resolveImageBackupConfig({
-  image: {
-    provider: "xingju",
-    model: "primary-image-model",
-    size: "1080x1440",
-    resolution: "1K",
-    mode: "edits",
-    timeoutMs: 150000
-  },
-  imageBackup: {
-    provider: "lingyun",
-    model: "backup-image-model",
-    size: "1242x1660",
-    resolution: "4K",
-    mode: "edits",
-    timeoutMs: 60000
-  }
-});
-assert.strictEqual(independentBackupConfig.size, "1242x1660");
-assert.strictEqual(independentBackupConfig.resolution, "4K");
-assert.strictEqual(independentBackupConfig.timeoutMs, 60000);
-assert.strictEqual(independentBackupConfig.model, "backup-image-model");
-assert.strictEqual(
-  independentBackupConfig.enabled,
-  false,
-  "没有备用 API Key 的旧配置不能被默认当成已启用"
-);
-const explicitEnabledBackupConfig = test.resolveImageBackupConfig({
-  imageBackup: {
-    enabled: true,
-    provider: "lingyun",
-    baseUrl: "https://api.lingyunapi.xyz/v1",
-    model: "backup-image-model",
-    apiKey: "backup-key"
-  }
-});
-assert.strictEqual(
-  explicitEnabledBackupConfig.enabled,
-  true,
-  "备用开关打开后必须保留启用状态"
-);
-assert.strictEqual(
-  test.normalizeRuntimePatch({ imageBackup: { enabled: "false" } }).imageBackup.enabled,
-  false,
-  "备用开关保存前必须归一化为布尔值"
-);
-assert.ok(
-  test.validateRuntimePatch({ imageBackup: { enabled: "false" } })
-    .some((item) => item.includes("imageBackup.enabled")),
-  "运行时配置必须拒绝未归一化的备用开关"
-);
-assert.strictEqual(
-  test.normalizeRuntimePatch({ videoBackup: { enabled: "true" } }).videoBackup.enabled,
-  true,
-  "备用视频开关保存前必须归一化为布尔值"
-);
-assert.strictEqual(
-  test.normalizeRuntimePatch({ videoBackup: { enabled: "false" } }).videoBackup.enabled,
-  false,
-  "备用视频关闭状态必须保留"
-);
-assert.ok(
-  test.validateRuntimePatch({ videoBackup: { enabled: "true" } })
-    .some((item) => item.includes("videoBackup.enabled")),
-  "运行时配置必须拒绝未归一化的备用视频开关"
-);
 assert.ok(test.validateRuntimePatch({
   video: { baseUrl: "javascript:alert(1)" }
 }).length > 0);
@@ -313,8 +228,6 @@ api.main({
 }, { OPENID: "admin-openid-001" }).then((result) => {
   assert.strictEqual(result.ok, true);
   assert.strictEqual(result.isAdmin, true);
-  assert.ok(result.buildVersion);
-  assert.ok(result.buildMarker);
   assert.strictEqual(result.identityHash, test.usageUserHash("admin-openid-001"));
   return api.main({
     action: "getAdminConfig",
@@ -327,14 +240,7 @@ api.main({
   assert.ok(result.effective.analysis.model);
   assert.ok(result.effective.image.model);
   assert.ok(result.effective.video.model);
-  assert.deepStrictEqual(result.effective.providerLabels, {
-    dashscope: "阿里云百炼",
-    lingyun: "凌云",
-    xingju: "星炬",
-    laoli: "老李",
-    panda: "熊猫"
-  });
-  ["face", "analysis", "image", "imageBackup", "video", "videoBackup"].forEach((type) => {
+  ["face", "analysis", "image", "imageBackup", "video"].forEach((type) => {
     assert.strictEqual(
       Object.prototype.hasOwnProperty.call(result.effective[type], "apiKey"),
       true

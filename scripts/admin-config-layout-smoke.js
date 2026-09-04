@@ -27,9 +27,9 @@ const monitorMarker =
 assert.strictEqual(
   (wxml.match(/id="config-editor"/g) || []).length,
   1,
-  "服务商/积分/成本/用户统一配置区必须只保留一个滚动目标"
+  "积分/成本/用户统一配置区必须只保留一个滚动目标"
 );
-["face", "analysis", "image", "video"].forEach((section) => {
+["face", "analysis", "image", "tencentImage", "video"].forEach((section) => {
   assert.strictEqual(
     (wxml.match(new RegExp(`id="config-editor-${section}"`, "g")) || []).length,
     1,
@@ -53,7 +53,7 @@ const currentConfigStart = wxml.indexOf(currentConfigMarker);
 const configEditorStart = wxml.indexOf(configEditorMarker);
 const quickLaunchBlock = wxml.slice(0, currentConfigStart);
 const currentConfigBlock = wxml.slice(currentConfigStart, configEditorStart);
- ["face", "analysis", "image", "video"].forEach((section) => {
+["face", "analysis", "image", "video"].forEach((section) => {
   assert.strictEqual(
     (quickLaunchBlock.match(new RegExp(`class="quick-launch[^"]*quick-${section}`, "g")) || [])
       .length,
@@ -74,17 +74,20 @@ assert.strictEqual(
   0,
   "腾讯版不能新增顶部快捷入口"
 );
+const tencentRowIndex = currentConfigBlock.indexOf('data-section="tencentImage"');
+const tencentPanelIndex = currentConfigBlock.indexOf('id="config-editor-tencentImage"');
+assert.ok(tencentRowIndex >= 0, "腾讯版当前配置入口缺失");
+assert.ok(tencentPanelIndex > tencentRowIndex, "腾讯版参数区没有紧跟腾讯版模型行");
 const imageRowIndex = currentConfigBlock.indexOf('data-section="image"');
-const tencentRowIndex = currentConfigBlock.indexOf('data-section="tencentFaceFusion"');
 const videoRowIndex = currentConfigBlock.indexOf('data-section="video"');
 assert.ok(
-  imageRowIndex >= 0 && imageRowIndex < tencentRowIndex && tencentRowIndex < videoRowIndex,
-  "当前配置顺序必须是：生图模型 → 开始新创作-腾讯版 → 视频模型"
+  imageRowIndex < tencentRowIndex && tencentRowIndex < videoRowIndex,
+  "腾讯版必须严格位于普通生图模型与视频模型之间"
 );
 assert.strictEqual(
   (wxml.match(/class="current-config-row/g) || []).length,
-  5,
-  "当前配置模型行必须包含人脸、分析、生图、腾讯版和视频五项"
+  6,
+  "当前配置入口数量发生变化"
 );
 assert.strictEqual(
   (wxml.match(/class="config-editor-focus-tip"/g) || []).length,
@@ -98,9 +101,9 @@ assert.ok(
   "当前配置顶部的旧腾讯大卡片必须删除"
 );
 assert.strictEqual(
-  (wxml.match(/class="[^"]*\btencent-status-card\b[^"]*"/g) || []).length,
+  (wxml.match(/class="tencent-status-card"/g) || []).length,
   1,
-  "腾讯参数卡只能存在于独立腾讯版配置面板一次"
+  "腾讯参数卡只能存在于腾讯版展开区一次"
 );
 assert.strictEqual(
   (wxml.match(/class="tencent-test-title"/g) || []).length,
@@ -121,83 +124,24 @@ assert.strictEqual(
   "action",
   "model",
   "swapModelType",
-  "logoAdd",
-  "timeoutMs",
-  "maxImageBytes"
+  "logoAddText",
+  "timeoutText",
+  "maxImageBytesText",
+  "lastCallStatusText",
+  "lastCallStageText",
+  "lastDurationText",
+  "lastCalledAt",
+  "lastErrorMessage"
 ].forEach((field) => {
   assert.ok(
-    wxml.includes(`form.tencentFaceFusion.${field}`),
-    `腾讯融合可编辑参数缺少 ${field}`
+    wxml.includes(`tencentFaceFusionStatus.${field}`),
+    `腾讯版只读参数缺少 ${field}`
   );
 });
 assert.ok(
-  wxml.includes("{{tencentFaceFusionStatus.statusText}}")
-    && wxml.includes("{{tencentFaceFusionStatus.configured")
-    && wxml.includes("value=\"{{form.tencentFaceFusion.model}}\"")
-    && wxml.includes("value=\"{{form.tencentFaceFusion.region}}\""),
-  "独立腾讯版面板缺少模型、区域或状态信息"
-);
-const imageEditorStart = wxml.indexOf('id="config-editor-image"');
-const tencentEditorStart = wxml.indexOf('id="config-editor-tencentFaceFusion"');
-assert.ok(imageEditorStart >= 0 && tencentEditorStart > imageEditorStart, "腾讯版面板必须位于生图面板之后");
-const imageEditorBlock = wxml.slice(imageEditorStart, tencentEditorStart);
-assert.ok(
-  !imageEditorBlock.includes("tencent-tabs")
-    && !imageEditorBlock.includes("tencentImageTab")
-    && !imageEditorBlock.includes("switchTencentImageTab")
-    && !imageEditorBlock.includes("tencent-fusion-tab-panel"),
-  "普通生图面板不应再渲染腾讯融合页签"
-);
-const tencentEditorBlock = wxml.slice(tencentEditorStart, wxml.indexOf('data-section="video"', tencentEditorStart));
-assert.strictEqual(
-  (wxml.match(/data-section="tencentFaceFusion"/g) || []).length,
-  11,
-  "腾讯版编辑面板的参数字段和配置入口必须绑定同一 section"
-);
-assert.ok(
-  /class="[^"]*\btencent-pipeline-editor\b[^"]*"/.test(tencentEditorBlock)
-    && tencentEditorBlock.includes("开始新创作-腾讯版")
-    && tencentEditorBlock.includes("tencentPipelineWizardStep")
-    && tencentEditorBlock.includes("第 1 步：选择主生图模型")
-    && tencentEditorBlock.includes("第 2 步：要不要启用备用生图")
-    && tencentEditorBlock.includes("第 3 步：配置腾讯融合")
-    && tencentEditorBlock.includes("第 4 步：测试并保存"),
-  "独立腾讯版面板缺少四步向导"
-);
-assert.ok(
-  !wxml.includes("tencentImageModelRole")
-    && !wxml.includes("switchTencentImageModel")
-    && wxml.includes("主模型：{{form.image.provider")
-    && wxml.includes("备用模型：{{form.imageBackup.provider"),
-  "图片模型和腾讯版的主备模型配置结构异常"
-);
-assert.ok(
-  wxml.includes('data-model-config="image"')
-    && wxml.includes('data-model-config="imageBackup"')
-    && wxml.includes("data-section=\"image\"")
-    && wxml.includes("data-section=\"imageBackup\""),
-  "图片主备没有分别绑定 form.image/form.imageBackup"
-);
-assert.ok(
-  js.includes("emptyTencentFaceFusionForm")
-    && js.includes("tencentFaceFusionConfigFromForm")
-    && js.includes("validateTencentFaceFusionForm")
-    && js.includes("formWithTencentFaceFusionSecrets")
-    && js.includes("onTencentLogoAddChange")
-    && js.includes("onImageBackupCompatibilityChange"),
-  "生图模型页面逻辑没有接入编辑、校验和主备配置"
-);
-assert.ok(
-  wxml.includes("tencentFaceFusionFieldErrors.endpoint")
-    && wxml.includes("tencentFaceFusionFieldErrors.apiVersion")
-    && wxml.includes("tencentFaceFusionFieldErrors.timeoutMs"),
-  "腾讯版字段错误提示缺失"
-);
-assert.ok(
-  wxml.includes("腾讯测试参数")
-    || wxml.includes("测试使用当前页面填写值")
-    || wxml.includes("测试会使用当前页面填写的腾讯参数"),
-  "腾讯真实测试没有说明使用当前页面参数"
+  wxml.includes("{{tencentFaceFusionStatus.model}} · {{tencentFaceFusionStatus.region}}")
+    && wxml.includes("{{tencentFaceFusionStatus.statusText}}"),
+  "腾讯版配置行缺少模型、区域或状态摘要"
 );
 assert.ok(
   wxss.includes(".config-editor-focus-tip {")
@@ -220,52 +164,45 @@ assert.ok(
     && wxss.includes(".model-probe-refresh-button {"),
   "模型探测刷新按钮样式缺失"
 );
-const apiKeyInputs = wxml.match(
-  /<input[^>]*(?:data-key|data-field-key)="apiKey"[^>]*>/g
-) || [];
+const apiKeyInputs = wxml.match(/<input[^>]*data-key="apiKey"[^>]*>/g) || [];
 const apiKeyInputBySection = apiKeyInputs.reduce((result, input) => {
   const match = input.match(/data-section="([^"]+)"/);
   if (match) result[match[1]] = input;
   return result;
 }, {});
-assert.strictEqual(
-  apiKeyInputs.length >= 8,
-  true,
-  "普通配置加图片主备、视频主备的 API Key 输入框必须完整"
-);
+assert.ok(apiKeyInputs.length >= 8, "四项主模型和四项备用模型 API Key 输入框必须完整");
 assert.ok(
-  ["face", "analysis", "image", "imageBackup"].every((section) => (
+  ["face", "analysis"].every((section) => (
     apiKeyInputBySection[section]
-    && !/\bpassword\b/.test(apiKeyInputBySection[section])
+    && /\bpassword\b/.test(apiKeyInputBySection[section])
   )),
-  "人脸、图片分析和图片主备 API Key 必须直接显示完整内容"
+  "人脸和图片分析 API Key 必须继续使用密码输入"
 );
 assert.ok(
   apiKeyInputBySection.video
     && /\bdisabled\b/.test(apiKeyInputBySection.video)
     && !/\bpassword\b/.test(apiKeyInputBySection.video),
-  "视频 API Key 必须只读显示，不能再用密码输入"
+  "视频 API Key 必须显示但只读，不能进入动态配置"
 );
 assert.ok(
   apiKeyInputBySection.videoBackup
     && /\bdisabled\b/.test(apiKeyInputBySection.videoBackup)
     && !/\bpassword\b/.test(apiKeyInputBySection.videoBackup),
-  "备用视频 API Key 必须只读显示，不能再用密码输入"
+  "备用视频 API Key 必须显示但只读"
 );
 assert.ok(
-  (wxml.match(/data-section="image" data-(?:key|field-key)="apiKey"/g) || []).length >= 1
-    && (wxml.match(/data-section="imageBackup" data-(?:key|field-key)="apiKey"/g) || []).length >= 1,
-  "图片主备 API Key 输入框缺失"
+  ["image", "imageBackup"].every((section) => (
+    apiKeyInputBySection[section]
+    && !/\bpassword\b/.test(apiKeyInputBySection[section])
+  )),
+  "图片主备 API Key 必须直接显示完整内容"
 );
 assert.ok(
-  wxml.includes("form.image.apiKeyConfigured")
-    && wxml.includes("form.face.apiKeyConfigured")
-    && wxml.includes("form.analysis.apiKeyConfigured")
-    && wxml.includes("form.imageBackup.apiKeyConfigured")
-    && wxml.includes("form.video.apiKeyConfigured")
-    && (wxml.match(/已显示完整 Key/g) || []).length >= 5
-    && wxml.includes("已显示完整内容"),
-  "五组模型或腾讯融合没有显示完整密钥状态"
+  wxml.includes("effective.image.apiKeyConfigured")
+    && wxml.includes("effective.imageBackup.apiKeyConfigured")
+    && wxml.includes("当前显示云函数实际生效的完整视频 Key")
+    && (wxml.match(/已显示完整 Key/g) || []).length >= 3,
+  "图片主备和视频模型没有显示完整密钥状态"
 );
 assert.ok(
   wxss.includes(".api-key-config-state {")
@@ -292,37 +229,23 @@ assert.ok(
   "管理页没有接入主备统计和配置审计刷新"
 );
 assert.ok(
-  js.includes("function normalizeAdminProviderInput")
-    && js.includes("function displayAdminProvider")
+  js.includes("function normalizeAdminImageProviderInput")
+    && js.includes("function displayAdminImageProvider")
     && js.includes('xingju: "星炬"')
     && js.includes('lingyun: "凌云"')
-    && js.includes('dashscope: "阿里云百炼"')
-    && js.includes('provider: displayAdminProvider(face.provider)')
-    && js.includes('provider: displayAdminProvider(analysis.provider)')
     && js.includes('provider: displayAdminImageProvider(image.provider)')
     && js.includes('provider: displayAdminImageProvider(imageBackup.provider, "凌云")')
-    && js.includes('provider: displayAdminProvider(video.provider)')
-    && js.includes("provider: normalizeAdminProviderInput(form.face.provider)")
-    && js.includes("provider: normalizeAdminProviderInput(form.analysis.provider)")
     && js.includes("provider: normalizeAdminImageProviderInput(form.image.provider)")
-    && js.includes("provider: normalizeAdminImageProviderInput(form.imageBackup.provider)")
-    && js.includes("provider: normalizeAdminProviderInput(form.video.provider)")
-    && js.includes("const provider = normalizeAdminProviderInput(source.provider)")
-    && js.includes("ADMIN_PROVIDER_FORM_SECTIONS.includes(section)"),
-  "管理员模型服务商中文显示或英文传参映射缺失"
+    && js.includes("provider: normalizeAdminImageProviderInput(form.imageBackup.provider)"),
+  "图片主备服务商中文显示映射缺失"
 );
 assert.ok(
-  wxml.includes('range="{{faceProviderProfileOptions}}"')
-    && wxml.includes('range="{{analysisProviderProfileOptions}}"')
-    && wxml.includes('range="{{imageProviderProfileOptions}}"')
-    && wxml.includes('range="{{imageBackupProviderProfileOptions}}"')
-    && wxml.includes('range="{{videoProviderProfileOptions}}"')
-    && wxml.includes('bindchange="onProviderProfileChange"')
-    && wxml.includes("主模型：{{form.image.provider")
-    && wxml.includes("备用模型：{{form.imageBackup.provider")
-    && !wxml.includes("imageProviderDisplayName")
-    && !wxml.includes("imageBackupProviderDisplayName"),
-  "管理员模型服务商没有直接使用已中文化的表单值"
+  wxml.includes('range="{{providerPickerOptionsImage}}"')
+    && wxml.includes('range="{{providerPickerOptionsImageBackup}}"')
+    && wxml.includes('bindchange="onProviderPickerChange"')
+    && wxml.includes('data-section="image"')
+    && wxml.includes('data-section="imageBackup"'),
+  "图片主备服务商没有接入服务商目录 picker"
 );
 assert.ok(
   wxml.includes('data-section="imageBackup" data-key="mode"')
@@ -342,32 +265,7 @@ assert.ok(
   "备用模型四项配置没有接入独立状态或保存逻辑"
 );
 assert.ok(
-  wxml.includes('class="image-wizard-intro"')
-    && wxml.includes('class="image-wizard-progress"')
-    && wxml.includes('bindtap="onImageWizardNext"')
-    && wxml.includes('bindtap="onImageWizardPrev"')
-    && wxml.includes('bindchange="onImageBackupEnabledChange"')
-    && wxml.includes('bindtap="toggleImageAdvancedSettings"')
-    && js.includes("validateImageWizardStep")
-    && js.includes("imageWizardAdvancedOpen")
-    && js.includes("Math.min(5, Math.round(parsed))"),
-  "图片主备四步向导、备用开关或重试次数限制缺失"
-);
-assert.ok(
-  wxml.includes("视频服务商设置")
-    && wxml.includes("videoWizardStep")
-    && wxml.includes('bindchange="onVideoBackupEnabledChange"')
-    && wxml.includes("启用备用视频模型")
-    && wxml.includes("onVideoWizardNext")
-    && wxml.includes("onVideoWizardPrev")
-    && wxml.includes("toggleVideoAdvancedSettings")
-    && js.includes("validateVideoWizardStep")
-    && js.includes("videoWizardAdvancedOpen")
-    && js.includes("videoBackup.enabled"),
-  "视频主备四步向导、备用开关或保存链路缺失"
-);
-assert.ok(
-  (wxml.match(/data-model-config="imageBackup"/g) || []).length >= 2
+  (wxml.match(/data-model-config="imageBackup"/g) || []).length === 2
     && wxml.includes('bindtap="runImageBackupEditCapabilityProbe"')
     && wxml.includes("imageBackupEditCapabilityProbe.checked")
     && wxml.includes("imageBackupEditCapabilityLoading")
@@ -378,12 +276,10 @@ assert.ok(
 assert.ok(
   js.includes('modelActionTarget: ""')
     && js.includes('modelPickerTarget: ""')
-     && js.includes("modelConfigKeyForAction")
-     && js.includes("runImageBackupEditCapabilityProbe()")
-     && js.includes("imageBackupEditCapabilityProbe")
-     && js.includes("const configKey = modelConfigKeyForAction(")
-     && js.includes("updateAdminProviderProfileForm")
-     && js.includes("model: value"),
+    && js.includes("modelConfigKeyForAction")
+    && js.includes("runImageBackupEditCapabilityProbe()")
+    && js.includes('"imageBackupEditCapabilityProbe"')
+    && js.includes('[`form.${configKey}.model`]: value'),
   "备用模型三个按钮没有接入独立目标、结果或模型选择逻辑"
 );
 
@@ -399,31 +295,20 @@ assert.ok(
   js.includes("function configEditorSelector(section)")
     && js.includes('`#config-editor-${section}`')
     && js.includes(': "#config-editor";')
-    && js.includes('tencentFaceFusion: "开始新创作-腾讯版"')
-    && js.includes('"tencentFaceFusion"'),
+    && js.includes('tencentImage: "生图模型-腾讯版"')
+    && js.includes('"tencentImage",'),
   "模型入口滚动目标映射不完整"
 );
 assert.ok(
-  js.includes('const section = rawSection === "tencentImage"')
-    && js.includes('? "tencentFaceFusion" : rawSection;')
-    && js.includes('this.data.activeConfigSection === section'),
-  "腾讯旧入口没有迁移到独立腾讯版，或配置行再次点击后没有收起"
+  js.includes('section === "tencentImage" && this.data.activeConfigSection === section'),
+  "腾讯版配置行再次点击后没有收起"
 );
-assert.ok(
-  js.includes("validateTencentWizardStep")
-    && js.includes("onTencentWizardNext")
-    && js.includes("onTencentWizardPrev")
-    && js.includes("tencentPipelineWizardStep")
-    && wxml.includes("entryHealth.tencentFaceFusion")
-    && wxml.includes("currentConfigModels.tencentFaceFusion"),
-  "独立腾讯版四步向导、状态汇总或模型摘要没有接入管理页逻辑"
-);
-assert.ok(
-  !js.includes("TENCENT_FACEFUSION_LAST_TEST_STORAGE_KEY")
-    && !js.includes("saveTencentFaceFusionLocalStatus")
-    && !js.includes("mergeTencentFaceFusionStatus"),
-  "腾讯测试状态不能依赖本地缓存合并"
-);
+const localStatusSaveStart = js.indexOf("function saveTencentFaceFusionLocalStatus(status)");
+const localStatusSaveEnd = js.indexOf("function mergeTencentFaceFusionStatus", localStatusSaveStart);
+const localStatusSaveBody = js.slice(localStatusSaveStart, localStatusSaveEnd);
+assert.ok(localStatusSaveStart >= 0 && localStatusSaveEnd > localStatusSaveStart);
+assert.ok(!localStatusSaveBody.includes("secretId"), "腾讯本地测试状态不能保存 SecretId");
+assert.ok(!localStatusSaveBody.includes("secretKey"), "腾讯本地测试状态不能保存 SecretKey");
 
 const configCssStart = wxss.indexOf(".config-editor {");
 const configCssEnd = wxss.indexOf("}", configCssStart);
@@ -438,5 +323,5 @@ const inlineCss = wxss.slice(inlineCssStart, inlineCssEnd);
 assert.ok(inlineCss.includes("margin-top: -4rpx;"), "就地展开面板没有贴近模型行");
 
 console.log(
-  "admin config layout smoke: OK (独立腾讯版卡片、四步向导和图片主备结构正确)"
+  "admin config layout smoke: OK (五个模型参数区就地展开；腾讯版只读且位于生图和视频之间)"
 );

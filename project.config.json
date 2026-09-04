@@ -32,6 +32,10 @@
       },
       {
         "type": "folder",
+        "value": "pages/admin"
+      },
+      {
+        "type": "folder",
         "value": "scripts"
       },
       {
@@ -49,6 +53,18 @@
       {
         "type": "prefix",
         "value": ".tmp_"
+      },
+      {
+        "type": "prefix",
+        "value": "preview-"
+      },
+      {
+        "type": "prefix",
+        "value": "runner-"
+      },
+      {
+        "type": "prefix",
+        "value": ".release-include-"
       },
       {
         "type": "file",

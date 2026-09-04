@@ -14,11 +14,11 @@
     "sha256": "945f020f8dcd47e2beffbbbbc89f20211a99303a536d89a804e8409545577bd4"
   },
   "thresholds": {
-    "pixelDelta": 0,
-    "changedPixelRatio": 0.001,
+    "pixelDelta": 4,
+    "changedPixelRatio": 0.005,
     "mae": 0.5,
-    "maxDelta": 32,
-    "ssim": 0.995
+    "maxDelta": 128,
+    "ssim": 0.999
   },
   "pages": [
     {

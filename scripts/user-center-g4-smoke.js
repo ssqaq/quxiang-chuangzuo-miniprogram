@@ -12,7 +12,7 @@ const baselineHeight = 654;
 const baselinePadding = 12;
 const targetWidths = [320, 338, 375, 414];
 const expectedManifestSha256 = "2e7886052bb361c7577c74a6bd3bc77e9643a49e9162019ed4f7b739233427c9";
-const expectedG2ManifestSha256 = "4aaf5ad0f02a8f02d4c337d9b8193923f727db7398239e27fb3f775ce047bd34";
+const expectedG2ManifestSha256 = "6d306a679107cc7e680928eb14c777fecc0122c65b32f4a9eb85e95bdb23b883";
 const defaultManifestPath = path.join(
   root,
   "docs",

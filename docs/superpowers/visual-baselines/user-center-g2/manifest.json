@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "contract": "G2",
-  "capturedAt": "2026-09-04T11:22:13+08:00",
+  "capturedAt": "2026-09-04T06:08:47.604Z",
   "g1Manifest": {
     "path": "../user-center-g1-v2/manifest.json",
     "sha256": "2e7886052bb361c7577c74a6bd3bc77e9643a49e9162019ed4f7b739233427c9"
@@ -66,12 +66,12 @@
   },
   "sourceBinding": {
     "hashMode": "normalized-text-sha256",
-    "appVersion": "0.57.152",
-    "fingerprint": "96d55b5c107c16546ba6e3f4c3ab683789ece22f0592758f45338081d0267ce7",
+    "appVersion": "0.57.154",
+    "fingerprint": "7404a9c4e4a8942aca7d9eab9785ba523214ce5748061d1c66a4695fad95d677",
     "files": [
       {
         "path": "config.js",
-        "sha256": "c3ecfe308340459b5e4e8c210a0018a5932d7ea92e6c3dd70d7109cba1728794"
+        "sha256": "48e01751ac703319cf50275c8cc7a2a04bdf71e655060ae17a64e907a778e3e2"
       },
       {
         "path": "pages/user-center/user-center.js",
@@ -140,13 +140,13 @@
         "file": "raw-user-center.png",
         "width": 390,
         "height": 844,
-        "sha256": "B0E35AF5EFB14A3FB61D96D5AD7AEA67798BA5E4F3C1FA99E0DAB45860FFBD92"
+        "sha256": "830FE12E37A2F8DA4F0EF28B082CCFC2EB5D0D1C2F8E6FD6ED552C52CD604B78"
       },
       "businessRoot": {
         "file": "user-center-390.png",
         "width": 390,
         "height": 714,
-        "sha256": "FC627D4670F5A9A486B779FE24C97D6C0EEEC7DF2F4706A44D570C44B313D397"
+        "sha256": "E013A3B2BF5617001AB1999C1D2EDF7F6927056238BECC9D968CAEC178349BCB"
       },
       "geometry": {
         "root": [
@@ -223,13 +223,13 @@
         "file": "raw-recharge.png",
         "width": 390,
         "height": 844,
-        "sha256": "4B4876CB5999CDABC5C5BFC65365625B4203C1DB1200F38296CCC3C82DB5F6B9"
+        "sha256": "70EB193B1445B69DA8747592CA15041D02F17182E058C43C5FD32E3CEE266F40"
       },
       "businessRoot": {
         "file": "recharge-390.png",
         "width": 390,
         "height": 714,
-        "sha256": "A8400DCD4DA86D767894F46D881B6F87741ACC4538AE09678F35940E15F55F20"
+        "sha256": "253613AC9D54761997B60693990E387D2D977DB695D280B88A441877B4ACAC9F"
       },
       "geometry": {
         "root": [
@@ -288,13 +288,13 @@
         "file": "raw-records.png",
         "width": 390,
         "height": 844,
-        "sha256": "125C6D11005B7C3E528A852830A72053A6009B88EC675397640EEBD051C74961"
+        "sha256": "9029EEE8B9B84541CE8BEC1A7280DFEF53E30F1911D3A7AF891EA5FBC6454F6E"
       },
       "businessRoot": {
         "file": "records-390.png",
         "width": 390,
         "height": 714,
-        "sha256": "1A30709E49B2CB29CF810DA9512D5165B23B170F5553EDB82E7D513DF20E002B"
+        "sha256": "C6347776E1801348B3EF7AB7A5E7B16FD0B4AFA7579052314D3A6F3FAA1EE014"
       },
       "geometry": {
         "root": [

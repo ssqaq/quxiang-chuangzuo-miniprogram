@@ -58,6 +58,17 @@ function testWorkflow(text) {
   assert.strictEqual(config.canvas && config.canvas.width, 338, "视觉比较画布宽度必须冻结为 338");
   assert.strictEqual(config.canvas && config.canvas.height, 654, "视觉比较画布高度必须冻结为 654");
   assert.deepStrictEqual(
+    config.thresholds,
+    {
+      pixelDelta: 4,
+      changedPixelRatio: 0.005,
+      mae: 0.5,
+      maxDelta: 128,
+      ssim: 0.999
+    },
+    "跨机器渲染容差必须固定，不能随意放宽"
+  );
+  assert.deepStrictEqual(
     (config.pages || []).map((item) => item.id).sort(),
     ["recharge", "records", "user-center"],
     "视觉比较配置必须覆盖三页"

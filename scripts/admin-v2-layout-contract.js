@@ -60,13 +60,40 @@ const CONTRACTS = [
     name: "provider",
     wxml: "pages/admin-provider/admin-provider.wxml",
     wxss: "pages/admin-provider/admin-provider.wxss",
-    selectors: [".provider-page", ".appbar", ".provider-scroll", ".provider-layout", ".field-label"],
+    selectors: [".provider-page", ".appbar", ".provider-scroll", ".provider-card", ".provider-layout", ".editor-panel", ".editor-scroll", ".editor-actions", ".field-label"],
     checks: [
       ["page font-family", "page", "font-family", FONT_STACK],
       ["page overflow-x", ".provider-page", "overflow-x", "hidden"],
       ["scroll width", ".provider-scroll", "width", "100%"],
-      ["two-column layout", ".provider-layout", "grid-template-columns", "252rpx minmax(0,1fr)"],
+      ["provider card height", ".provider-card", "height", "100%"],
+      ["provider card overflow", ".provider-card", "overflow", "hidden"],
+      ["two-column layout", ".provider-layout", "grid-template-columns", "242rpx minmax(0,1fr)"],
       ["field label font-size", ".field-label", "font-size", "19rpx"],
+      ["editor layout flex", ".provider-layout", "flex", "1 1 auto"],
+      ["blank-space layout position", ".provider-layout", "position", "relative"],
+      ["blank-space directory position", ".directory-panel", "position", "absolute"],
+      ["blank-space directory top", ".directory-panel", "top", "0"],
+      ["blank-space directory bottom", ".directory-panel", "bottom", "0"],
+      ["blank-space directory left", ".directory-panel", "left", "0"],
+      ["blank-space directory overflow", ".directory-panel", "overflow", "hidden"],
+      ["blank-space directory min-height", ".directory-panel", "min-height", "0"],
+      ["blank-space editor min-height", ".editor-panel", "min-height", "0"],
+      ["editor panel overflow", ".editor-panel", "overflow", "hidden"],
+      ["blank-space editor column", ".editor-panel", "grid-column", "2"],
+      ["editor scroll height", ".editor-scroll", "height", "0"],
+      ["editor scroll flex", ".editor-scroll", "flex", "1 1 auto"],
+      ["editor scroll overflow", ".editor-scroll", "overflow-y", "scroll"],
+      ["blank-space list flex", ".provider-list", "flex", "1 1 auto"],
+      ["blank-space list height", ".provider-list", "height", "auto"],
+      ["blank-space list max-height", ".provider-list", "max-height", "none"],
+      ["blank-space actions margin-top", ".editor-actions", "margin-top", "16rpx"],
+      ["editor actions flex", ".editor-actions", "flex", "0 0 auto"],
+      ["editor actions columns", ".editor-actions", "grid-template-columns", "repeat(2,minmax(0,1fr))"],
+      ["editor actions padding", ".editor-actions", "padding", "16rpx 6rpx 0"],
+      ["endpoint input left padding", ".provider-page .endpoint-field input", "padding-left", "12rpx"],
+      ["key input left padding", ".provider-page .key-field input", "padding-left", "12rpx"],
+      ["endpoint input alignment", ".provider-page .endpoint-field input", "text-align", "left"],
+      ["key input alignment", ".provider-page .key-field input", "text-align", "left"],
     ],
   },
 ];
@@ -82,15 +109,19 @@ function read(relativePath, root = ROOT) {
 }
 
 function cssRules(source) {
-  return Array.from(source.matchAll(/([^{}]+)\{([^{}]*)\}/gm)).map(match => ({
+  const withoutComments = source.replace(/\/\*[\s\S]*?\*\//g, "");
+  return Array.from(withoutComments.matchAll(/([^{}]+)\{([^{}]*)\}/gm)).map(match => ({
     selectors: match[1].split(",").map(item => item.trim()),
     body: match[2],
   }));
 }
 
 function cssValue(source, selector, property) {
+  const selectorVariants = selector.startsWith(".provider-page .")
+    ? [selector, selector.replace(".provider-page ", "")]
+    : [selector];
   const escaped = property.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const rules = cssRules(source).filter(rule => rule.selectors.includes(selector));
+  const rules = cssRules(source).filter(rule => rule.selectors.some(item => selectorVariants.includes(item)));
   const matches = rules.flatMap(rule => Array.from(rule.body.matchAll(new RegExp(`(?:^|;)\\s*${escaped}\\s*:\\s*([^;]+)`, "gm"))));
   return matches.length ? matches[matches.length - 1][1].trim() : "";
 }

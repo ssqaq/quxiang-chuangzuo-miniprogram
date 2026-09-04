@@ -127,16 +127,19 @@ async function run(options = {}) {
   const reportFiles = [...archive.DEFAULT_REPORTS, ...optionalEvidence].map(relative => resolve(root, relative)).filter(filePath => fs.existsSync(filePath));
   if (captureStatus === "captured") reportFiles.push(path.join(sourceRoot, "capture-manifest.json"));
   reportFiles.push(reportPath);
-  const archiveResult = archive.run({ root, version, source: sourceRoot, outputRoot: options.archiveRoot || path.join("visual-evidence", "archive"), files: screenshots, reports: reportFiles, retention: options.retention === undefined ? archive.DEFAULT_RETENTION : options.retention });
+  const retentionDays = options.retentionDays === undefined
+    ? (options.retention === undefined ? archive.DEFAULT_RETENTION_DAYS : options.retention)
+    : options.retentionDays;
+  const archiveResult = archive.run({ root, version, source: sourceRoot, outputRoot: options.archiveRoot || path.join("visual-evidence", "archive"), files: screenshots, reports: reportFiles, retentionDays, protectVersions: [version] });
   const indexResult = indexer.run({ root, archiveRoot: options.archiveRoot || path.join("visual-evidence", "archive") });
-  report.archive = { manifestPath: archiveResult.manifestPath, prunedVersions: archiveResult.prunedVersions, keptVersions: archiveResult.keptVersions, indexJsonPath: indexResult.jsonPath, indexHtmlPath: indexResult.htmlPath };
+  report.archive = { manifestPath: archiveResult.manifestPath, retentionDays: archiveResult.retentionDays, cutoffAt: archiveResult.cutoffAt, prunedVersions: archiveResult.prunedVersions, keptVersions: archiveResult.keptVersions, skippedVersions: archiveResult.skippedVersions, indexJsonPath: indexResult.jsonPath, indexHtmlPath: indexResult.htmlPath };
   // 归档前的 report 是不可变输入；归档后只给调用方返回路径，不能回写，
   // 否则 archive-manifest 里的 SHA256 会立刻失真。
   return report;
 }
 
 function parseArgs(argv) {
-  const result = { root: ROOT, version: "local", allowExisting: false, retention: archive.DEFAULT_RETENTION };
+  const result = { root: ROOT, version: "local", allowExisting: false, retentionDays: archive.DEFAULT_RETENTION_DAYS };
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
     if (token === "--help") result.help = true;
@@ -150,7 +153,8 @@ function parseArgs(argv) {
     else if (token === "--cli") result.cli = argv[++index] || result.cli;
     else if (token === "--connect-port") result.connectPort = Number(argv[++index] || 0);
     else if (token === "--fixture-id") result.fixtureId = argv[++index] || result.fixtureId;
-    else if (token === "--retain") result.retention = Number(argv[++index] || result.retention);
+    else if (token === "--retain-days") result.retentionDays = Number(argv[++index] || result.retentionDays);
+    else if (token === "--retain") result.retentionDays = Number(argv[++index] || result.retentionDays);
     else if (token === "--capture") result.capture = true;
     else if (token === "--cli-capture") result.cliCapture = true;
     else if (token === "--allow-existing") result.allowExisting = true;
@@ -162,7 +166,7 @@ function parseArgs(argv) {
 
 function main(argv = process.argv.slice(2)) {
   const options = parseArgs(argv);
-  if (options.help) { console.log("用法：node scripts/admin-v2-post-release-visual-check.js --version <版本> [--capture] [--allow-existing] [--retain <数量>]"); return 0; }
+  if (options.help) { console.log("用法：node scripts/admin-v2-post-release-visual-check.js --version <版本> [--capture] [--allow-existing] [--retain-days 3]"); return 0; }
   run(options).then(report => { process.stdout.write(`${JSON.stringify(report, null, 2)}\n`); process.exitCode = 0; }).catch(error => { console.error(`发布后视觉检查失败：${error.stack || error}`); process.exitCode = 1; });
   return undefined;
 }

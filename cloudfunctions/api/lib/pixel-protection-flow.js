@@ -29,7 +29,7 @@ function imageEditFlowDefinition(provider) {
   if (provider === "xingju" || provider === "星炬") {
     return {
       provider: provider === "星炬" ? "星炬" : "xingju",
-      model: "jw-wy-gpt-image-2"
+      model: "jw-gpt-image-2"
     };
   }
   if (provider === "lingyun" || provider === "凌云") {
@@ -182,15 +182,7 @@ function normalizeGeneratedDimensions(baselineImage, generatedImage, options = {
   const resized = sourceWidth !== targetWidth || sourceHeight !== targetHeight;
   const scaleW = sourceWidth / targetWidth;
   const scaleH = sourceHeight / targetHeight;
-  const aspectLeft = sourceWidth * targetHeight;
-  const aspectRight = sourceHeight * targetWidth;
-  const aspectDelta = Math.abs(aspectLeft - aspectRight);
-  const aspectMaximum = Math.max(aspectLeft, aspectRight);
-  const anisotropy = aspectDelta / aspectMaximum;
-  const anisotropyExceeded = (
-    aspectDelta * 1000
-    > aspectMaximum * (MAX_GENERATED_ANISOTROPY * 1000)
-  );
+  const anisotropy = Math.abs(scaleW - scaleH) / Math.max(scaleW, scaleH);
   const metadata = {
     resized,
     strategy: resized ? "isotropic-bilinear-to-baseline" : "none",
@@ -218,7 +210,7 @@ function normalizeGeneratedDimensions(baselineImage, generatedImage, options = {
       metadata
     );
   }
-  if (resized && anisotropyExceeded) {
+  if (resized && anisotropy > MAX_GENERATED_ANISOTROPY) {
     throw flowError(
       "图片模型结果宽高比偏差超过安全范围，已停止处理。",
       "PIXEL_IMAGE_ASPECT_MISMATCH",

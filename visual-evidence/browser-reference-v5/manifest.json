@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "source": "codex-in-app-browser",
+  "fixtureId": "admin-v2-reference-20260901-v1",
+  "viewport": {
+    "width": 390,
+    "height": 844
+  },
+  "capturedAt": "2026-09-01T14:57:04.956Z",
+  "pages": [
+    {
+      "name": "dashboard",
+      "url": "http://localhost:49713/dashboard/?demo=1&fixture=admin-v2-reference-20260901-v1",
+      "file": "D:/aips小程序/wechat-miniapp-admin-config-right-20260831/visual-evidence/browser-reference-v5/dashboard-browser-390x844.png",
+      "bytes": 46994,
+      "viewport": {
+        "dpr": 1,
+        "height": 844,
+        "scrollHeight": 844,
+        "scrollWidth": 390,
+        "url": "http://localhost:49713/dashboard/?demo=1&fixture=admin-v2-reference-20260901-v1",
+        "width": 390
+      }
+    },
+    {
+      "name": "operations",
+      "url": "http://localhost:49713/dashboard/operations.html?view=usage&demo=1&fixture=admin-v2-reference-20260901-v1",
+      "file": "D:/aips小程序/wechat-miniapp-admin-config-right-20260831/visual-evidence/browser-reference-v5/operations-browser-390x844.png",
+      "bytes": 31651,
+      "viewport": {
+        "dpr": 1,
+        "height": 844,
+        "scrollHeight": 844,
+        "scrollWidth": 390,
+        "url": "http://localhost:49713/dashboard/operations.html?view=usage&demo=1&fixture=admin-v2-reference-20260901-v1",
+        "width": 390
+      }
+    },
+    {
+      "name": "config",
+      "url": "http://localhost:49713/config/?demo=1&fixture=admin-v2-reference-20260901-v1",
+      "file": "D:/aips小程序/wechat-miniapp-admin-config-right-20260831/visual-evidence/browser-reference-v5/config-browser-390x844.png",
+      "bytes": 42969,
+      "viewport": {
+        "dpr": 1,
+        "height": 844,
+        "scrollHeight": 844,
+        "scrollWidth": 390,
+        "url": "http://localhost:49713/config/?demo=1&fixture=admin-v2-reference-20260901-v1",
+        "width": 390
+      }
+    },
+    {
+      "name": "provider",
+      "url": "http://localhost:49713/provider/?demo=1&fixture=admin-v2-reference-20260901-v1",
+      "file": "D:/aips小程序/wechat-miniapp-admin-config-right-20260831/visual-evidence/browser-reference-v5/provider-browser-390x844.png",
+      "bytes": 62100,
+      "viewport": {
+        "dpr": 1,
+        "height": 844,
+        "scrollHeight": 844,
+        "scrollWidth": 390,
+        "url": "http://localhost:49713/provider/?demo=1&fixture=admin-v2-reference-20260901-v1",
+        "width": 390
+      }
+    }
+  ]
+}

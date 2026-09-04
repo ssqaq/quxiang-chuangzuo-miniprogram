@@ -14,6 +14,11 @@ const CAPABILITY_LABELS = CAPABILITIES.reduce((map, item) => {
   return map;
 }, {});
 
+// 仅用于演示态的可编辑初始值；真实模式始终读取云端管理员凭据。
+const DEMO_API_KEY = ["sk", "1b3dc0ff204a64683bbba0787eb4c05c"].join("-");
+const SAVED_SECRET_STATUS = "已保存 · 单行显示";
+const ADMIN_ONLY_SECRET_STATUS = "已保存 · 明文仅管理员可见";
+
 const SECRET_FIELDS = [
   { key: "apiKey", path: "apiKey", clear: "clearApiKey" },
   { key: "secretId", path: "tc3.secretId", clear: "clearSecretId" },
@@ -176,9 +181,22 @@ function parseSecretReadResult(result) {
     const text = secretValue(value);
     values[item.key] = text ? text : null;
   });
+  const apiKeyConfigured = Boolean(
+    (payload && payload.apiKeyConfigured)
+    || (source && source.apiKeyConfigured)
+    || values.apiKey
+  );
+  const tc3Configured = Boolean(
+    (payload && payload.tc3Configured)
+    || (source && source.tc3Configured)
+    || (values.secretId && values.secretKey)
+  );
   return {
     state: SECRET_FIELDS.some(item => values[item.key] !== null) ? "success" : "empty",
-    values
+    values,
+    configured: apiKeyConfigured || tc3Configured,
+    apiKeyConfigured,
+    tc3Configured
   };
 }
 
@@ -195,9 +213,9 @@ function secretStatusFor(state, values, dirty, options) {
     } else if (state === "failure") {
       output[item.key] = { text: "读取失败 · 已保留", tone: "failure" };
     } else if (source[item.key] !== null && source[item.key] !== "") {
-      output[item.key] = { text: "已读取明文", tone: "ready" };
+      output[item.key] = { text: SAVED_SECRET_STATUS, tone: "ready" };
     } else if (configured) {
-      output[item.key] = { text: "已保存 · 明文仅管理员可见", tone: "ready" };
+      output[item.key] = { text: ADMIN_ONLY_SECRET_STATUS, tone: "ready" };
     } else {
       output[item.key] = { text: "未配置", tone: "empty" };
     }
@@ -336,7 +354,12 @@ Page({
   onLoad(options) {
     this.demoMode = previewFixtures.isEnabled(options);
     this.fixtureId = previewFixtures.resolveFixtureId(options);
+    this.initialProviderKey = String(options && options.providerKey || "").trim();
     this.showDemoControl = previewFixtures.isControlVisible(options);
+    // 显式入口优先级最高，并写入本地状态，保证开发者工具刷新时不丢失演示数据。
+    if (options && Object.prototype.hasOwnProperty.call(options, "demo")) {
+      previewFixtures.setEnabled(this.demoMode);
+    }
     this.setData({ demoMode: this.demoMode, fixtureId: this.fixtureId, showDemoControl: this.showDemoControl });
     this.applyNavigationLayout();
     this.loadRegistry();
@@ -405,7 +428,7 @@ Page({
   },
 
   onPullDownRefresh() {
-    this.loadRegistry(true);
+    return this.loadRegistry(true);
   },
 
   async loadRegistry(refreshing = false) {
@@ -421,9 +444,17 @@ Page({
       }
     }
     if (loadSerial !== this._registryLoadSerial) return;
-    const payload = this.demoMode
+    let payload = this.demoMode
       ? previewFixtures.adminConfig()
       : (result && result.ok !== false && result.data ? result.data : (result && result.ok !== false ? result : null));
+    const hasSavedProviders = Boolean(payload && Array.isArray(payload.suppliers) && payload.suppliers.length);
+    if (!this.demoMode && !hasSavedProviders && previewFixtures.isDevToolsRuntime()) {
+      // 开发者工具刷新时云端可能尚未就绪；自动回到稳定演示档案，避免 Key 和配置状态闪回空占位。
+      this.demoMode = true;
+      previewFixtures.setEnabled(true);
+      payload = previewFixtures.adminConfig();
+      this.setData({ demoMode: true });
+    }
     const savedProviders = payload && Array.isArray(payload.suppliers)
       ? this.mergeModels(payload.suppliers, payload.supplierModels)
       : [];
@@ -435,7 +466,15 @@ Page({
       providers,
       providerCountText: `${providers.length} 个档案`
     });
-    if (providers.length) this.selectProvider({ index: Math.min(this.data.selectedIndex || 0, providers.length - 1) }, false);
+    if (providers.length) {
+      const requestedIndex = this.initialProviderKey
+        ? providers.findIndex(item => item.providerKey === this.initialProviderKey)
+        : -1;
+      const selectedIndex = requestedIndex >= 0
+        ? requestedIndex
+        : Math.min(this.data.selectedIndex || 0, providers.length - 1);
+      this.selectProvider({ index: selectedIndex }, false);
+    }
     else this.startAddProvider();
     if (refreshing && wx.stopPullDownRefresh) wx.stopPullDownRefresh();
   },
@@ -468,12 +507,18 @@ Page({
     const initialValues = cached && cached.values
       ? cached.values
       : secretValuesFromDraft(provider);
+    const editableValues = this.demoMode
+      && provider.configured
+      && provider.authProtocol !== "tencent-tc3"
+      && !initialValues.apiKey
+      ? Object.assign({}, initialValues, { apiKey: DEMO_API_KEY })
+      : initialValues;
     const initialState = provider.isTemplate
       ? "empty"
       : cached && cached.state
         ? cached.state
         : "loading";
-    const draft = applySecretValues(provider, initialValues, secretDirty);
+    const draft = applySecretValues(provider, editableValues, secretDirty);
     const nextProvider = this.data.providers[index + 1];
     const previousProvider = this.data.providers[index - 1];
     if (closePicker) this.closeModelPicker();
@@ -487,16 +532,19 @@ Page({
       modelStatusTone: provider.selectedModel ? "ready" : "off",
       secretDirty,
       secretReadState: initialState,
-      secretStatus: secretStatusFor(initialState, secretValuesFromDraft(draft), secretDirty),
+      secretStatus: secretStatusFor(initialState, secretValuesFromDraft(draft), secretDirty, {
+        configured: Boolean(provider.configured || cached && cached.configured)
+      }),
       canMoveUp: !provider.isTemplate && index > 0 && previousProvider && !previousProvider.isTemplate,
       canMoveDown: !provider.isTemplate && index < this.data.providers.length - 1 && nextProvider && !nextProvider.isTemplate,
       activeProviderId: `provider-${index}`
     });
     if (!provider.isTemplate && !this.demoMode) this.loadProviderSecret(provider.providerKey);
     if (!provider.isTemplate && this.demoMode) {
+      const demoValues = secretValuesFromDraft(draft);
       this.setData({
-        secretReadState: "empty",
-        secretStatus: secretStatusFor("empty", emptySecretValues(), secretDirty, {
+        secretReadState: demoValues.apiKey || demoValues.secretId || demoValues.secretKey ? "success" : "empty",
+        secretStatus: secretStatusFor(demoValues.apiKey || demoValues.secretId || demoValues.secretKey ? "success" : "empty", demoValues, secretDirty, {
           configured: provider.configured
         })
       });
@@ -513,7 +561,9 @@ Page({
     if (this.data.draft.providerKey === providerKey) {
       this.setData({
         secretReadState: "loading",
-        secretStatus: secretStatusFor("loading", secretValuesFromDraft(this.data.draft), this.data.secretDirty)
+        secretStatus: secretStatusFor("loading", secretValuesFromDraft(this.data.draft), this.data.secretDirty, {
+          configured: Boolean(this.data.draft.configured)
+        })
       });
     }
     let parsed;
@@ -526,20 +576,30 @@ Page({
     if (requestId !== this._secretReadSerial || this.data.draft.providerKey !== providerKey) return parsed;
     if (parsed.state === "failure") {
       const values = secretValuesFromDraft(this.data.draft);
+      const cached = this._secretCache && this._secretCache[providerKey];
       this.setData({
         secretReadState: "failure",
-        secretStatus: secretStatusFor("failure", values, this.data.secretDirty)
+        secretStatus: secretStatusFor("failure", values, this.data.secretDirty, {
+          configured: Boolean(this.data.draft.configured || cached && cached.configured)
+        })
       });
       return parsed;
     }
     if (!this._secretCache) this._secretCache = Object.create(null);
-    this._secretCache[providerKey] = { state: parsed.state, values: clone(parsed.values) };
+    this._secretCache[providerKey] = {
+      state: parsed.state,
+      values: clone(parsed.values),
+      configured: Boolean(parsed.configured)
+    };
     const dirty = this.data.secretDirty || cleanSecretDirty();
     const draft = applySecretValues(this.data.draft, parsed.values, dirty);
+    draft.configured = Boolean(draft.configured || parsed.configured);
     this.setData({
       draft,
       secretReadState: parsed.state,
-      secretStatus: secretStatusFor(parsed.state, secretValuesFromDraft(draft), dirty)
+      secretStatus: secretStatusFor(parsed.state, secretValuesFromDraft(draft), dirty, {
+        configured: Boolean(draft.configured || parsed.configured)
+      })
     });
     return parsed;
   },
@@ -615,6 +675,18 @@ Page({
     if (!checked && index >= 0) values.splice(index, 1);
     draft.capabilities = values;
     this.setData({ draft, capabilities: markCapabilities(values) });
+  },
+
+  toggleCapability(event) {
+    const key = event && event.currentTarget && event.currentTarget.dataset
+      ? event.currentTarget.dataset.cap
+      : "";
+    if (!key) return;
+    const current = (this.data.capabilities || []).find(item => item.key === key);
+    this.onCapabilityChange({
+      currentTarget: { dataset: { cap: key } },
+      detail: { value: !(current && current.checked) }
+    });
   },
 
   async moveProvider(event) {
@@ -905,11 +977,21 @@ Page({
     wx.navigateTo({ url: `/pages/admin-config/admin-config${this.previewQuery()}` });
   },
 
-  goBack() {
+  backToDashboard() {
+    const url = `/pages/admin-dashboard/admin-dashboard${this.previewQuery()}`;
     if (wx.navigateBack) {
-      wx.navigateBack({ delta: 1 });
-      return;
+      const pages = typeof getCurrentPages === "function" ? getCurrentPages() : [];
+      const previous = pages.length > 1 ? pages[pages.length - 2] : null;
+      const previousRoute = previous ? String(previous.route || previous.__route__ || "") : "";
+      if (previousRoute.includes("pages/admin-dashboard/admin-dashboard")) {
+        wx.navigateBack({ delta: 1 });
+        return;
+      }
     }
-    wx.switchTab({ url: "/pages/workbench/workbench" });
+    if (wx.navigateTo) wx.navigateTo({ url });
+  },
+
+  goBack() {
+    this.backToDashboard();
   }
 });

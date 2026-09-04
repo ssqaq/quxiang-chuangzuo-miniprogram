@@ -63,14 +63,6 @@ const DEFAULT_CAPABILITY = Object.freeze({
     resolution: "720p", aspectRatio: "", timeoutMs: 90000
   }
 });
-/* 旧版配置经常只保存 provider，不把模型/地址展开到每个能力里。
- * 对已知内置服务商，这些能力本来就有云端预设；迁移时必须保持启用，
- * 让管理页切换预设时能继续补齐默认参数。自定义服务商仍按实际字段判断。 */
-const LEGACY_BUILTIN_ENABLED_SLOTS = Object.freeze({
-  dashscope: Object.freeze(["face", "analysis"]),
-  xingju: Object.freeze(["image", "video"]),
-  lingyun: Object.freeze(["image", "imageBackup"])
-});
 
 function isObject(value) {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
@@ -236,19 +228,6 @@ function legacyRegistry(result = {}) {
   });
   Object.keys(labels).forEach((key) => { if (!ids.includes(key)) ids.push(key); });
   const providers = {};
-  const legacyCapabilityEnabled = (providerId, slot, section) => {
-    if (isObject(section) && Object.prototype.hasOwnProperty.call(section, "enabled")) {
-      return Boolean(section.enabled);
-    }
-    const normalizedId = String(providerId || "").trim().toLowerCase();
-    if (
-      LEGACY_BUILTIN_ENABLED_SLOTS[normalizedId]
-      && LEGACY_BUILTIN_ENABLED_SLOTS[normalizedId].includes(slot)
-    ) {
-      return true;
-    }
-    return Boolean(section && (section.model || section.baseUrl));
-  };
   ids.forEach((id, index) => {
     const key = `legacy-${id}`;
     const overrides = {};
@@ -258,9 +237,7 @@ function legacyRegistry(result = {}) {
         ? effective[slot]
         : isObject(profiles[slot]) && isObject(profiles[slot][id]) ? profiles[slot][id] : {};
       overrides[slot] = clone(section);
-      capabilities[slot] = Object.assign({}, section, {
-        enabled: legacyCapabilityEnabled(id, slot, section)
-      });
+      capabilities[slot] = Object.assign({}, section, { enabled: Boolean(section.model || section.baseUrl) });
     });
     providers[key] = normalizeRecord({
       providerKey: key,

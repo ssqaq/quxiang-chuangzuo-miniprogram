@@ -1,5 +1,5 @@
-const API_BUILD_VERSION = "0.57.125";
-const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V057125";
+const API_BUILD_VERSION = "0.57.157";
+const API_BUILD_MARKER = "API_BUILD_TAG_AUTO_VERSION_V057157";
 const DEFAULT_IMAGE_MODE = "edits";
 // 图片和视频默认成本只在云函数入口维护；管理员页读取云端有效配置，
 // 避免前后端各写一份价格。入口保持单文件可启动，兼容 CloudBase 部署。
@@ -70,6 +70,7 @@ const generationQueueMonitor = require("./lib/generation-queue-monitor");
 const generationOperationRetention = require(
   "./lib/generation-operation-retention"
 );
+const paymentMonitor = require("./lib/payment-monitor");
 const {
   createGenerationExecutionKernel
 } = require("./lib/generation-execution-kernel");
@@ -1239,26 +1240,6 @@ const PAYMENT_MONITOR_COLLECTION = "payment_monitor_status";
 const PAYMENT_MONITOR_DOCUMENT_ID = "global";
 const PAYMENT_MONITOR_STALE_MS = 5 * 60 * 1000;
 const IMAGE_RETRY_PREFERENCE_VERSION = 1;
-const DEFAULT_ADMIN_PROVIDER_LABELS = Object.freeze({
-  dashscope: "阿里云百炼",
-  lingyun: "凌云",
-  xingju: "星炬",
-  laoli: "老李",
-  panda: "熊猫"
-});
-const FORBIDDEN_ADMIN_PROVIDER_LABEL_KEYS = new Set([
-  "__proto__",
-  "prototype",
-  "constructor"
-]);
-const ADMIN_PROVIDER_CONFIG_SECTIONS = Object.freeze([
-  "face",
-  "analysis",
-  "image",
-  "imageBackup",
-  "video",
-  "videoBackup"
-]);
 const ADMIN_CONFIG_AUDIT_LOG_COLLECTION = "admin_config_audit_logs";
 const ADMIN_CONFIG_AUDIT_MAX_READ = 200;
 // 服务商目录是管理员配置的唯一规范来源。旧版五个顶层 section、
@@ -1271,8 +1252,7 @@ const PROVIDER_CAPABILITY_SLOTS = Object.freeze([
   "imageBackup",
   "video"
 ]);
-// 备用视觉/视频模型不改变既有五槽位目录契约；它们通过独立的
-// activeBackups 引用同一份服务商档案，避免旧迁移和目录遍历被破坏。
+// 备用视觉/视频不占用原有目录槽位，单独保存配置，便于旧版数据平滑升级。
 const PROVIDER_BACKUP_SLOTS = Object.freeze([
   "faceBackup",
   "analysisBackup",
@@ -1431,6 +1411,15 @@ const POINTS_RESET_LEDGER_BATCH_SIZE = 100;
 const USER_QUOTA_COLLECTION = "user_quotas";
 const GENERATION_OPERATION_COLLECTION = "generation_operations";
 const POINTS_TIME_ZONE = "Asia/Shanghai";
+const POINTS_DECIMAL_PATTERN = /^(?:0|[1-9]\d*)(?:\.\d{1,4})?$/;
+const POINTS_FIELD_RULES = Object.freeze({
+  dailyFreeLimit: Object.freeze({ minimum: 0, maximum: 100, integer: true }),
+  imageCost: Object.freeze({ minimum: 0, maximum: 100000, integer: false }),
+  videoCost: Object.freeze({ minimum: 0, maximum: 100000, integer: false }),
+  checkinPoints: Object.freeze({ minimum: 0, maximum: 100000, integer: false }),
+  streakBonus: Object.freeze({ minimum: 0, maximum: 100000, integer: false }),
+  streakDays: Object.freeze({ minimum: 1, maximum: 30, integer: true })
+});
 const GENERATION_OPERATION_STALE_MS = 10 * 60 * 1000;
 const GENERATION_QUEUE_BATCH_SIZE = 1;
 const GENERATION_QUEUE_STALE_MS = 5 * 60 * 1000;
@@ -1470,12 +1459,12 @@ const REQUIRED_DATABASE_COLLECTIONS = Object.freeze([
   MODEL_USAGE_EVENT_COLLECTION,
   IMAGE_PROVIDER_ATTEMPT_EVENT_COLLECTION,
   PHOTO_TO_VIDEO_TEMP_ASSET_COLLECTION,
-  WATERMARK_TRANSFER_TEMP_COLLECTION,
-  POINTS_LEDGER_COLLECTION,
   "payment_events",
-  PAYMENT_MONITOR_COLLECTION,
+  "payment_monitor_status",
   "payment_orders",
   "recharge_config",
+  WATERMARK_TRANSFER_TEMP_COLLECTION,
+  POINTS_LEDGER_COLLECTION,
   PUBLISH_EXPORT_JOB_COLLECTION,
   REPAIR_CHAIN_COLLECTION,
   POINTS_ACCOUNT_COLLECTION,
@@ -1589,92 +1578,60 @@ function resolveAnalysisConfig(overrides = {}) {
   };
 }
 
-function providerBackupSource(overrides, section) {
-  if (overrides && overrides[section] && typeof overrides[section] === "object") {
-    return overrides[section];
-  }
-  return overrides && typeof overrides === "object" ? overrides : {};
-}
-
-function resolveVisionBackupConfig(overrides = {}, runtime, baseSlot = "face") {
+function resolveVisionBackupConfig(overrides = {}, baseSlot = "face") {
   const section = baseSlot === "analysis" ? "analysisBackup" : "faceBackup";
-  const source = providerBackupSource(overrides, section);
-  const runtimeActive = runtime && runtime.activeBackups
-    && runtime.activeBackups[section];
-  const sourceWithRuntimeActive = (
-    !hasOwn(source, "provider")
-    && !hasOwn(source, "providerKey")
-    && runtimeActive
-  )
-    ? Object.assign({}, source, { providerKey: runtimeActive })
-    : source;
-  const inherited = typeof providerSlotConfigFromRuntime === "function"
-    ? providerSlotConfigFromRuntime(
-      runtime,
-      sourceWithRuntimeActive.providerKey || sourceWithRuntimeActive.provider,
-      baseSlot
-    )
-    : {};
+  const source = overrides && overrides[section] && typeof overrides[section] === "object"
+    ? overrides[section]
+    : (overrides && typeof overrides === "object" ? overrides : {});
+  const primary = baseSlot === "analysis"
+    ? resolveAnalysisConfig(overrides && overrides.analysis || {})
+    : resolveFaceConfig(overrides && overrides.face || {});
   const envPrefix = baseSlot === "analysis" ? "ANALYSIS" : "FACE";
   const provider = overrideString(
-    sourceWithRuntimeActive,
+    source,
     "provider",
-    inherited.provider || firstEnv([`AI_${envPrefix}_BACKUP_PROVIDER`, "AI_VISION_BACKUP_PROVIDER"])
+    firstEnv([`AI_${envPrefix}_BACKUP_PROVIDER`, "AI_VISION_BACKUP_PROVIDER"], "")
   );
   const providerKey = normalizeProviderKey(
-    overrideString(sourceWithRuntimeActive, "providerKey", inherited.providerKey || providerBuiltinKey(provider) || providerStableKey(provider)),
-    inherited.providerKey || providerBuiltinKey(provider) || providerStableKey(provider)
+    overrideString(
+      source,
+      "providerKey",
+      providerBuiltinKey(provider) || providerStableKey(provider)
+    ),
+    providerBuiltinKey(provider) || providerStableKey(provider)
   );
-  // 目录中的自定义档案不能因为没有自身 Key 就偷偷继承全局视觉备用
-  // 环境变量；否则选中一个半成品档案时会误把另一套凭据发给它。
-  // 无法解析到 canonical 档案时仍保留旧版直配配置的环境变量兼容。
-  const runtimeRegistry = runtime && isProviderObject(runtime.providerRegistry)
-    ? normalizeProviderRegistry(runtime.providerRegistry, { includeDefaults: true })
-    : null;
-  const selectedRecord = runtimeRegistry && providerKey
-    ? runtimeRegistry.providers[providerRecordKeyFor(providerKey, runtimeRegistry)]
-    : null;
-  const customDirectoryRecord = Boolean(
-    selectedRecord
-    && !selectedRecord.builtIn
-    && !providerBuiltinKey(selectedRecord.providerKey || selectedRecord.id)
-  );
-  const backupEnvApiKey = customDirectoryRecord
-    ? ""
-    : firstEnv([`AI_${envPrefix}_BACKUP_API_KEY`, "AI_VISION_BACKUP_API_KEY"]);
   const baseUrl = overrideString(
-    sourceWithRuntimeActive,
+    source,
     "baseUrl",
-    inherited.baseUrl || firstEnv([`AI_${envPrefix}_BACKUP_BASE_URL`, "AI_VISION_BACKUP_BASE_URL"])
+    firstEnv([`AI_${envPrefix}_BACKUP_BASE_URL`, "AI_VISION_BACKUP_BASE_URL"], "")
   );
   const endpointValue = overrideString(
-    sourceWithRuntimeActive,
+    source,
     "endpoint",
-    inherited.endpoint || firstEnv([`AI_${envPrefix}_BACKUP_ENDPOINT`, "AI_VISION_BACKUP_ENDPOINT"])
+    firstEnv([`AI_${envPrefix}_BACKUP_ENDPOINT`, "AI_VISION_BACKUP_ENDPOINT"], "")
   );
-  const apiKey = normalizeApiKey(
-    overrideString(
-      sourceWithRuntimeActive,
-      "apiKey",
-      inherited.apiKey || backupEnvApiKey
-    )
-  );
+  const apiKey = normalizeApiKey(overrideString(
+    source,
+    "apiKey",
+    firstEnv([`AI_${envPrefix}_BACKUP_API_KEY`, "AI_VISION_BACKUP_API_KEY"], "")
+  ));
   const model = overrideString(
-    sourceWithRuntimeActive,
+    source,
     "model",
-    inherited.model || env(`AI_${envPrefix}_BACKUP_MODEL`, env("AI_VISION_BACKUP_MODEL", ""))
+    firstEnv([`AI_${envPrefix}_BACKUP_MODEL`, "AI_VISION_BACKUP_MODEL"], "")
   );
   const timeoutMs = clampNumber(
-    hasOwn(sourceWithRuntimeActive, "timeoutMs")
-      ? sourceWithRuntimeActive.timeoutMs
-      : inherited.timeoutMs || firstEnv([`AI_${envPrefix}_BACKUP_TIMEOUT_MS`, "AI_VISION_BACKUP_TIMEOUT_MS"], "25000"),
-    25000,
+    hasOwn(source, "timeoutMs") ? source.timeoutMs : firstEnv(
+      [`AI_${envPrefix}_BACKUP_TIMEOUT_MS`, "AI_VISION_BACKUP_TIMEOUT_MS"],
+      String(primary.timeoutMs || 25000)
+    ),
+    primary.timeoutMs || 25000,
     5000,
     60000
   );
-  const enabled = hasOwn(sourceWithRuntimeActive, "enabled")
-    ? overrideBoolean(sourceWithRuntimeActive, "enabled", false)
-    : Boolean(provider && model && (baseUrl || endpointValue) && apiKey);
+  const enabled = hasOwn(source, "enabled")
+    ? overrideBoolean(source, "enabled", false)
+    : Boolean(provider && (baseUrl || endpointValue) && apiKey && model);
   return {
     enabled,
     provider,
@@ -1685,17 +1642,17 @@ function resolveVisionBackupConfig(overrides = {}, runtime, baseSlot = "face") {
     model,
     faceModel: baseSlot === "face" ? model : undefined,
     timeoutMs,
-    maxImageBytes: inherited.maxImageBytes || resolveVisionConfig().maxImageBytes,
+    maxImageBytes: primary.maxImageBytes,
     configured: Boolean(enabled && provider && (baseUrl || endpointValue) && apiKey && model)
   };
 }
 
-function resolveFaceBackupConfig(overrides = {}, runtime) {
-  return resolveVisionBackupConfig(overrides, runtime, "face");
+function resolveFaceBackupConfig(overrides = {}) {
+  return resolveVisionBackupConfig(overrides, "face");
 }
 
-function resolveAnalysisBackupConfig(overrides = {}, runtime) {
-  return resolveVisionBackupConfig(overrides, runtime, "analysis");
+function resolveAnalysisBackupConfig(overrides = {}) {
+  return resolveVisionBackupConfig(overrides, "analysis");
 }
 
 function normalizeConfigGroup(value, fallback = "standard") {
@@ -1779,7 +1736,7 @@ function visionConfigCandidatesForAction(action, configs = {}, group = "standard
   const groupName = normalizeConfigGroup(group, "standard");
   const capability = v2GroupCapabilityForAction(action);
   const v2Group = v2GroupConfigs(configs, groupName);
-  // V2 已启用时必须严格使用指定组的绑定；没有就返回空列表，不能串到旧配置或其他组。
+  // V2 的非标准组必须严格使用本组绑定；没有就返回空列表，不能串到标准组。
   const useV2Group = Boolean(v2Group && capability && groupName !== "shared");
   const primary = useV2Group
     ? (v2GroupSection(configs, groupName, capability, "primary") || {})
@@ -1787,10 +1744,10 @@ function visionConfigCandidatesForAction(action, configs = {}, group = "standard
   const backup = useV2Group
     ? (v2GroupSection(configs, groupName, capability, "backup") || {})
     : action === "detectFaceCircle"
-      ? (configs.faceBackup || resolveFaceBackupConfig({}, configs.runtime))
+      ? (configs.faceBackup || resolveFaceBackupConfig(configs))
       : action === "analyzeWebPoses"
-        ? (configs.styleAnalysisBackup || configs.analysisBackup || resolveAnalysisBackupConfig({}, configs.runtime))
-        : (configs.analysisBackup || resolveAnalysisBackupConfig({}, configs.runtime));
+        ? (configs.styleAnalysisBackup || configs.analysisBackup || resolveAnalysisBackupConfig(configs))
+        : (configs.analysisBackup || resolveAnalysisBackupConfig(configs));
   const candidates = [];
   if (primary && primary.apiKey && (primary.endpoint || primary.baseUrl) && primary.model) {
     candidates.push(primary);
@@ -1809,6 +1766,7 @@ function visionConfigCandidatesForAction(action, configs = {}, group = "standard
 function isVisionFallbackError(error) {
   if (!error) return false;
   const status = Number(error.status || error.statusCode || error.httpStatus) || 0;
+  // 认证/限流/上游故障通常只代表当前服务商不可用，允许切到备用模型。
   if (status === 401 || status === 403 || DEFAULT_RETRY_STATUSES.has(status)) return true;
   if (error.retryable !== undefined) return Boolean(error.retryable);
   return DEFAULT_RETRY_STATUSES.has(status)
@@ -1895,6 +1853,50 @@ function clampNumber(value, fallback, minimum, maximum) {
   const number = Number(value);
   if (!Number.isFinite(number)) return fallback;
   return Math.max(minimum, Math.min(maximum, number));
+}
+
+function roundPointValue(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return 0;
+  return Math.round(number * 10000) / 10000;
+}
+
+function pointNumberValidationError(value, key, field = `points.${key}`) {
+  const rule = POINTS_FIELD_RULES[key];
+  if (!rule) return "";
+  const valueType = typeof value;
+  const text = valueType === "string" ? value.trim() : String(value);
+  if (
+    value === null
+    || value === undefined
+    || (valueType !== "number" && valueType !== "string")
+    || !text
+    || (valueType === "string" && !POINTS_DECIMAL_PATTERN.test(text))
+  ) {
+    return rule.integer
+      ? `${field} 必须是整数`
+      : `${field} 必须是非负数字，最多 4 位小数`;
+  }
+  const number = Number(value);
+  if (
+    !Number.isFinite(number)
+    || Math.abs(roundPointValue(number) - number) > 1e-10
+  ) {
+    return `${field} 必须是非负数字，最多 4 位小数`;
+  }
+  if (rule.integer && !Number.isInteger(number)) {
+    return `${field} 必须是 ${rule.minimum}～${rule.maximum} 的整数`;
+  }
+  if (number < rule.minimum || number > rule.maximum) {
+    return `${field} 必须在 ${rule.minimum}～${rule.maximum} 之间`;
+  }
+  return "";
+}
+
+function normalizePointNumber(value, fallback, key) {
+  return pointNumberValidationError(value, key)
+    ? fallback
+    : roundPointValue(value);
 }
 
 function overrideString(overrides, key, fallback) {
@@ -2031,7 +2033,7 @@ function resolveImageConfig(overrides = {}) {
     model: overrideString(
       image,
       "model",
-      firstEnv(["AI_IMAGE_PRIMARY_MODEL"], "jw-wy-gpt-image-2")
+      firstEnv(["AI_IMAGE_PRIMARY_MODEL"], "jw-gpt-image-2")
     ),
     size,
     resolution,
@@ -2082,11 +2084,15 @@ function resolveImageBackupConfig(overrides = {}) {
       "lingyun"
     )
   );
+  const providerKey = normalizeProviderKey(
+    overrideString(image, "providerKey", providerBuiltinKey(provider) || providerStableKey(provider)),
+    providerBuiltinKey(provider) || providerStableKey(provider)
+  );
   const baseUrl = overrideString(image, "baseUrl", firstEnv(
     ["AI_IMAGE_BACKUP_BASE_URL", "AI_IMAGE_BASE_URL", "AI_BASE_URL"],
     "https://api.lingyunapi.xyz/v1"
   ));
-  const endpoint = overrideString(image, "endpoint", firstEnv([
+  const endpointValue = overrideString(image, "endpoint", firstEnv([
     "AI_IMAGE_BACKUP_ENDPOINT",
     "AI_IMAGE_EDIT_ENDPOINT",
     "AI_IMAGE_ENDPOINT"
@@ -2101,20 +2107,13 @@ function resolveImageBackupConfig(overrides = {}) {
   );
   const enabled = hasOwn(image, "enabled")
     ? overrideBoolean(image, "enabled", false)
-    : Boolean(apiKey && provider && model && (baseUrl || endpoint));
+    : Boolean(apiKey && (baseUrl || endpointValue) && model);
   return {
     enabled,
     provider,
-    providerKey: normalizeProviderKey(
-      overrideString(
-        image,
-        "providerKey",
-        providerBuiltinKey(provider) || providerStableKey(provider || "lingyun")
-      ),
-      providerBuiltinKey(provider) || providerStableKey(provider || "lingyun")
-    ),
+    providerKey,
     baseUrl,
-    endpoint,
+    endpoint: endpointValue,
     apiKey,
     model,
     size,
@@ -2132,97 +2131,42 @@ function resolveImageBackupConfig(overrides = {}) {
     ),
     maxRetries: 0,
     retryEnabled: false,
-    retryPreferenceVersion: IMAGE_RETRY_PREFERENCE_VERSION
+    retryPreferenceVersion: IMAGE_RETRY_PREFERENCE_VERSION,
+    configured: Boolean(enabled && apiKey && (baseUrl || endpointValue) && model)
   };
 }
 
-function resolveTencentFaceFusionConfig(overrides = {}) {
-  const source = overrides && overrides.tencentFaceFusion
-    ? overrides.tencentFaceFusion
-    : overrides;
-  const swapModelType = clampNumber(
-    hasOwn(source, "swapModelType")
-      ? source.swapModelType
-      : env("TENCENT_FACEFUSION_SWAP_MODEL_TYPE", "4"),
-    4,
-    1,
-    9
-  );
+function resolveTencentFaceFusionConfig() {
+  const swapModelType = Number(env("TENCENT_FACEFUSION_SWAP_MODEL_TYPE", "4"));
   return {
-    secretId: overrideString(
-      source,
-      "secretId",
-      firstEnv(["TENCENT_FACEFUSION_SECRET_ID"])
-    ),
-    secretKey: overrideString(
-      source,
-      "secretKey",
-      firstEnv(["TENCENT_FACEFUSION_SECRET_KEY"])
-    ),
-    region: overrideString(
-      source,
-      "region",
-      env("TENCENT_FACEFUSION_REGION", "ap-guangzhou")
-    ),
-    swapModelType: Math.round(swapModelType),
-    logoAdd: overrideBoolean(
-      source,
-      "logoAdd",
-      boolEnv("TENCENT_FACEFUSION_LOGO_ADD", false)
-    ),
+    secretId: firstEnv(["TENCENT_FACEFUSION_SECRET_ID"]),
+    secretKey: firstEnv(["TENCENT_FACEFUSION_SECRET_KEY"]),
+    region: env("TENCENT_FACEFUSION_REGION", "ap-guangzhou"),
+    swapModelType: Number.isFinite(swapModelType)
+      ? Math.max(1, Math.min(9, Math.round(swapModelType)))
+      : 4,
+    logoAdd: boolEnv("TENCENT_FACEFUSION_LOGO_ADD", false),
     timeoutMs: clampNumber(
-      hasOwn(source, "timeoutMs")
-        ? source.timeoutMs
-        : env("TENCENT_FACEFUSION_TIMEOUT_MS", "75000"),
+      env("TENCENT_FACEFUSION_TIMEOUT_MS", "75000"),
       75000,
       5000,
       120000
     ),
-    maxImageBytes: clampNumber(
-      hasOwn(source, "maxImageBytes")
-        ? source.maxImageBytes
-        : env(
-          "TENCENT_FACEFUSION_MAX_IMAGE_BYTES",
-          String(5 * 1024 * 1024)
-        ),
-      5 * 1024 * 1024,
+    maxImageBytes: Math.max(
       256 * 1024,
-      8 * 1024 * 1024
-    ),
-    endpoint: overrideString(
-      source,
-      "endpoint",
-      env(
-        "TENCENT_FACEFUSION_ENDPOINT",
-        "https://facefusion.tencentcloudapi.com"
+      Math.min(
+        8 * 1024 * 1024,
+        Number(env("TENCENT_FACEFUSION_MAX_IMAGE_BYTES", String(5 * 1024 * 1024)))
+          || 5 * 1024 * 1024
       )
     ),
-    apiVersion: overrideString(
-      source,
-      "apiVersion",
-      env("TENCENT_FACEFUSION_API_VERSION", "2022-09-27")
-    ),
-    action: overrideString(
-      source,
-      "action",
-      env("TENCENT_FACEFUSION_ACTION", "FuseFaceUltra")
-    ),
-    model: overrideString(
-      source,
-      "model",
-      env("TENCENT_FACEFUSION_MODEL", "FuseFaceUltra")
-    ),
+    endpoint: "https://facefusion.tencentcloudapi.com",
+    apiVersion: "2022-09-27",
+    action: "FuseFaceUltra",
+    model: "FuseFaceUltra",
     configured: Boolean(
-      overrideString(
-        source,
-        "secretId",
-        firstEnv(["TENCENT_FACEFUSION_SECRET_ID"])
-      )
-      && overrideString(
-        source,
-        "secretKey",
-        firstEnv(["TENCENT_FACEFUSION_SECRET_KEY"])
-      )
+      firstEnv(["TENCENT_FACEFUSION_SECRET_ID"])
+      && firstEnv(["TENCENT_FACEFUSION_SECRET_KEY"])
     )
   };
 }
@@ -2274,155 +2218,107 @@ function resolveVideoConfig(overrides = {}) {
 }
 
 function resolveVideoBackupConfig(overrides = {}) {
-  const video = overrides && overrides.videoBackup
+  const video = overrides && overrides.videoBackup && typeof overrides.videoBackup === "object"
     ? overrides.videoBackup
-    : overrides;
+    : (overrides && typeof overrides === "object" ? overrides : {});
   const provider = overrideString(
     video,
     "provider",
-    firstEnv(["AI_VIDEO_BACKUP_PROVIDER"])
+    firstEnv(["AI_VIDEO_BACKUP_PROVIDER"], "")
   );
-  const baseUrl = overrideString(
+  const providerKey = normalizeProviderKey(
+    overrideString(video, "providerKey", providerBuiltinKey(provider) || providerStableKey(provider)),
+    providerBuiltinKey(provider) || providerStableKey(provider)
+  );
+  const baseUrl = overrideString(video, "baseUrl", firstEnv(["AI_VIDEO_BACKUP_BASE_URL"], ""));
+  const endpointValue = overrideString(video, "endpoint", firstEnv(["AI_VIDEO_BACKUP_ENDPOINT"], ""));
+  const queryEndpoint = overrideString(video, "queryEndpoint", firstEnv(["AI_VIDEO_BACKUP_QUERY_ENDPOINT"], ""));
+  const apiKey = normalizeApiKey(overrideString(
     video,
-    "baseUrl",
-    firstEnv(["AI_VIDEO_BACKUP_BASE_URL"])
+    "apiKey",
+    firstEnv(["AI_VIDEO_BACKUP_API_KEY", "AI_VIDEO_BACKUP_KEY"], "")
+  ));
+  const model = overrideString(video, "model", firstEnv(["AI_VIDEO_BACKUP_MODEL"], ""));
+  const createPath = overrideString(video, "createPath", env("AI_VIDEO_BACKUP_CREATE_PATH", "/v1/videos/generations"));
+  const queryPath = overrideString(video, "queryPath", env("AI_VIDEO_BACKUP_QUERY_PATH", "/v1/videos/{taskId}"));
+  const resolution = normalizeVideoResolution(
+    overrideString(video, "resolution", env("AI_VIDEO_BACKUP_RESOLUTION", "720p")),
+    "720p"
   );
-  const endpointValue = overrideString(
-    video,
-    "endpoint",
-    env("AI_VIDEO_BACKUP_ENDPOINT")
-  );
-  const apiKey = normalizeApiKey(
-    overrideString(
-      video,
-      "apiKey",
-      firstEnv(["AI_VIDEO_BACKUP_API_KEY"])
+  const aspectRatio = overrideString(video, "aspectRatio", env("AI_VIDEO_BACKUP_ASPECT_RATIO", ""));
+  const timeoutMs = Math.max(
+    10000,
+    Math.min(
+      15 * 60 * 1000,
+      Number(hasOwn(video, "timeoutMs") ? video.timeoutMs : env("AI_VIDEO_BACKUP_TIMEOUT_MS", "90000")) || 90000
     )
-  );
-  const model = overrideString(
-    video,
-    "model",
-    env("AI_VIDEO_BACKUP_MODEL", "")
   );
   const enabled = hasOwn(video, "enabled")
     ? overrideBoolean(video, "enabled", false)
-    : Boolean(provider || firstEnv(["AI_VIDEO_BACKUP_PROVIDER"]));
+    : Boolean(provider && (baseUrl || endpointValue) && apiKey && model);
   return {
     enabled,
     provider,
-    // 备用视频同样属于目录档案引用；保留稳定 providerKey，避免外部
-    // ID 改名后管理页和执行内核只能靠字符串猜测当前档案。
-    providerKey: normalizeProviderKey(
-      overrideString(
-        video,
-        "providerKey",
-        providerBuiltinKey(provider) || providerStableKey(provider)
-      ),
-      providerBuiltinKey(provider) || providerStableKey(provider)
-    ),
+    providerKey,
     baseUrl,
     endpoint: endpointValue,
-    queryEndpoint: overrideString(
-      video,
-      "queryEndpoint",
-      env("AI_VIDEO_BACKUP_QUERY_ENDPOINT")
-    ),
+    queryEndpoint,
     apiKey,
     model,
-    createPath: overrideString(
-      video,
-      "createPath",
-      env("AI_VIDEO_BACKUP_CREATE_PATH", "/v1/videos/generations")
-    ),
-    queryPath: overrideString(
-      video,
-      "queryPath",
-      env("AI_VIDEO_BACKUP_QUERY_PATH", "/v1/videos/{taskId}")
-    ),
-    resolution: normalizeVideoResolution(
-      overrideString(video, "resolution", env("AI_VIDEO_BACKUP_RESOLUTION", "720p")),
-      "720p"
-    ),
-    aspectRatio: overrideString(
-      video,
-      "aspectRatio",
-      env("AI_VIDEO_BACKUP_ASPECT_RATIO", "")
-    ),
-    prompt: env(
-      "AI_VIDEO_PROMPT",
-      "让照片中的人物自然轻微运动，保持人物身份、脸部、发型、服装和背景不变，镜头稳定，动作连贯，不要新增人物，不要变形。"
-    ),
-    timeoutMs: Math.max(
-      10000,
-      Math.min(
-        15 * 60 * 1000,
-        Number(
-          video && Object.prototype.hasOwnProperty.call(video, "timeoutMs")
-            ? video.timeoutMs
-            : env("AI_VIDEO_BACKUP_TIMEOUT_MS", "90000")
-        ) || 90000
-      )
-    ),
-    configured: Boolean(
-      enabled
-      && provider
-      && (baseUrl || endpointValue)
-      && apiKey
-      && model
-    )
+    createPath,
+    queryPath,
+    resolution,
+    aspectRatio,
+    prompt: env("AI_VIDEO_BACKUP_PROMPT", ""),
+    timeoutMs,
+    configured: Boolean(enabled && provider && (baseUrl || endpointValue) && apiKey && model)
   };
 }
 
 function resolvePointsConfig(overrides = {}) {
   const points = overrides && overrides.points ? overrides.points : overrides;
   return {
-    dailyFreeLimit: clampNumber(
+    dailyFreeLimit: normalizePointNumber(
       points && Object.prototype.hasOwnProperty.call(points, "dailyFreeLimit")
         ? points.dailyFreeLimit
         : env("DAILY_FREE_LIMIT", "3"),
       3,
-      0,
-      100
+      "dailyFreeLimit"
     ),
-    imageCost: clampNumber(
+    imageCost: normalizePointNumber(
       points && Object.prototype.hasOwnProperty.call(points, "imageCost")
         ? points.imageCost
         : env("POINTS_IMAGE_COST", "10"),
       10,
-      0,
-      100000
+      "imageCost"
     ),
-    videoCost: clampNumber(
+    videoCost: normalizePointNumber(
       points && Object.prototype.hasOwnProperty.call(points, "videoCost")
         ? points.videoCost
         : env("POINTS_VIDEO_COST", "10"),
       10,
-      0,
-      100000
+      "videoCost"
     ),
-    checkinPoints: clampNumber(
+    checkinPoints: normalizePointNumber(
       points && Object.prototype.hasOwnProperty.call(points, "checkinPoints")
         ? points.checkinPoints
         : env("POINTS_CHECKIN_POINTS", "5"),
       5,
-      0,
-      100000
+      "checkinPoints"
     ),
-    streakBonus: clampNumber(
+    streakBonus: normalizePointNumber(
       points && Object.prototype.hasOwnProperty.call(points, "streakBonus")
         ? points.streakBonus
         : env("POINTS_STREAK_BONUS", "20"),
       20,
-      0,
-      100000
+      "streakBonus"
     ),
-    streakDays: clampNumber(
+    streakDays: normalizePointNumber(
       points && Object.prototype.hasOwnProperty.call(points, "streakDays")
         ? points.streakDays
         : env("POINTS_STREAK_DAYS", "7"),
       7,
-      1,
-      30
+      "streakDays"
     ),
     promoStartDate: overrideString(
       points,
@@ -6786,379 +6682,8 @@ function hasOwn(object, key) {
   return Boolean(object && Object.prototype.hasOwnProperty.call(object, key));
 }
 
-function canonicalAdminProviderId(value) {
-  const raw = String(value === undefined || value === null ? "" : value).trim();
-  if (!raw) return "";
-  const lower = raw.toLowerCase();
-  return hasOwn(DEFAULT_ADMIN_PROVIDER_LABELS, lower) ? lower : raw;
-}
-
-function sortAdminProviderLabels(value) {
-  const source = value && typeof value === "object" ? value : {};
-  return Object.keys(source)
-    .sort((left, right) => left.localeCompare(right, undefined, {
-      sensitivity: "base"
-    }))
-    .reduce((output, key) => Object.assign(output, {
-      [key]: source[key]
-    }), {});
-}
-
-function normalizeAdminProviderLabels(input, options = {}) {
-  const output = Object.create(null);
-  if (options.includeDefaults) {
-    Object.keys(DEFAULT_ADMIN_PROVIDER_LABELS).forEach((key) => {
-      output[key] = DEFAULT_ADMIN_PROVIDER_LABELS[key];
-    });
-  }
-  if (!input || typeof input !== "object" || Array.isArray(input)) {
-    return sortAdminProviderLabels(output);
-  }
-  Object.getOwnPropertyNames(input).forEach((rawKey) => {
-    const key = canonicalAdminProviderId(rawKey);
-    const forbiddenKey = String(key || "").toLowerCase();
-    const label = String(input[rawKey] === undefined || input[rawKey] === null
-      ? ""
-      : input[rawKey]).trim();
-    if (
-      !key
-      || key.length > 120
-      || FORBIDDEN_ADMIN_PROVIDER_LABEL_KEYS.has(forbiddenKey)
-      || !label
-      || label.length > 20
-    ) {
-      return;
-    }
-    output[key] = label;
-  });
-  return sortAdminProviderLabels(output);
-}
-
-function mergeAdminProviderLabels(current, patch) {
-  return sortAdminProviderLabels(Object.assign(
-    {},
-    normalizeAdminProviderLabels(current),
-    normalizeAdminProviderLabels(patch)
-  ));
-}
-
-// 主视频和备用视频共用同一套服务商档案，备用项额外保存显式开关。
-const ADMIN_PROVIDER_PROFILE_SECTIONS = Object.freeze([
-  "face",
-  "analysis",
-  "image",
-  "imageBackup",
-  "video"
-]);
-const ADMIN_PROVIDER_PROFILE_KEYS = Object.freeze({
-  face: Object.freeze([
-    "provider",
-    "baseUrl",
-    "endpoint",
-    "apiKey",
-    "model",
-    "timeoutMs"
-  ]),
-  analysis: Object.freeze([
-    "provider",
-    "baseUrl",
-    "endpoint",
-    "apiKey",
-    "model",
-    "timeoutMs"
-  ]),
-  image: Object.freeze([
-    "provider",
-    "baseUrl",
-    "endpoint",
-    "apiKey",
-    "model",
-    "mode",
-    "size",
-    "resolution",
-    "compatibilityMode",
-    "timeoutMs",
-    "maxRetries",
-    "retryEnabled",
-    "retryPreferenceVersion"
-  ]),
-  imageBackup: Object.freeze([
-    "enabled",
-    "provider",
-    "baseUrl",
-    "endpoint",
-    "apiKey",
-    "model",
-    "mode",
-    "size",
-    "resolution",
-    "compatibilityMode",
-    "timeoutMs",
-    "maxRetries",
-    "retryEnabled",
-    "retryPreferenceVersion"
-  ]),
-  video: Object.freeze([
-    "enabled",
-    "provider",
-    "baseUrl",
-    "endpoint",
-    "queryEndpoint",
-    "model",
-    "createPath",
-    "queryPath",
-    "resolution",
-    "aspectRatio",
-    "timeoutMs"
-  ]),
-});
-
-function isAdminProviderObject(value) {
-  return Boolean(value && typeof value === "object" && !Array.isArray(value));
-}
-
-function normalizeAdminProviderId(value) {
-  const raw = String(value === undefined || value === null ? "" : value).trim();
-  if (!raw) return "";
-  const canonical = canonicalAdminProviderId(raw);
-  if (hasOwn(DEFAULT_ADMIN_PROVIDER_LABELS, canonical)) return canonical;
-  const builtInFromLabel = Object.keys(DEFAULT_ADMIN_PROVIDER_LABELS).find(
-    (providerId) => DEFAULT_ADMIN_PROVIDER_LABELS[providerId] === raw
-  );
-  return builtInFromLabel || canonical;
-}
-
-function isDangerousAdminProviderId(value) {
-  return FORBIDDEN_ADMIN_PROVIDER_LABEL_KEYS.has(
-    String(value === undefined || value === null ? "" : value).trim().toLowerCase()
-  );
-}
-
-function sortAdminProviderObject(value) {
-  const source = isAdminProviderObject(value) ? value : {};
-  return Object.keys(source)
-    .sort((left, right) => left.localeCompare(right, "zh-CN", {
-      numeric: true,
-      sensitivity: "base"
-    }))
-    .reduce((result, key) => {
-      result[key] = source[key];
-      return result;
-    }, {});
-}
-
-function normalizeAdminProviderProfileValue(section, value, providerId) {
-  const source = isAdminProviderObject(value) ? value : {};
-  const normalizedProviderId = normalizeAdminProviderId(
-    providerId || source.provider
-  );
-  const result = {};
-  (ADMIN_PROVIDER_PROFILE_KEYS[section] || []).forEach((key) => {
-    if (!hasOwn(source, key)) return;
-    if (key === "provider") return;
-    if (key === "apiKey") {
-      result.apiKey = normalizeApiKey(source.apiKey);
-      return;
-    }
-    if (key === "compatibilityMode" || key === "retryEnabled" || key === "enabled") {
-      result[key] = overrideBoolean(source, key, false);
-      return;
-    }
-    result[key] = source[key];
-  });
-  if (normalizedProviderId) result.provider = normalizedProviderId;
-  return result;
-}
-
-function normalizeAdminProviderProfiles(value) {
-  const source = isAdminProviderObject(value) ? value : {};
-  const result = {};
-  ADMIN_PROVIDER_PROFILE_SECTIONS.forEach((section) => {
-    const rawSection = isAdminProviderObject(source[section])
-      ? source[section]
-      : {};
-    const profiles = {};
-    Object.keys(rawSection).forEach((rawProviderId) => {
-      const providerId = normalizeAdminProviderId(rawProviderId);
-      if (!providerId || isDangerousAdminProviderId(providerId)) return;
-      const rawProfile = rawSection[rawProviderId];
-      if (!isAdminProviderObject(rawProfile)) return;
-      profiles[providerId] = normalizeAdminProviderProfileValue(
-        section,
-        rawProfile,
-        providerId
-      );
-    });
-    result[section] = sortAdminProviderObject(profiles);
-  });
-  return result;
-}
-
-function mergeAdminProviderProfiles(current, patch) {
-  const existing = normalizeAdminProviderProfiles(current);
-  const submitted = normalizeAdminProviderProfiles(patch);
-  const result = {};
-  ADMIN_PROVIDER_PROFILE_SECTIONS.forEach((section) => {
-    const profiles = {};
-    const providerIds = new Set([
-      ...Object.keys(existing[section] || {}),
-      ...Object.keys(submitted[section] || {})
-    ]);
-    Array.from(providerIds).forEach((providerId) => {
-      const submittedProfile = Object.assign(
-        {},
-        submitted[section] && submitted[section][providerId] || {}
-      );
-      if (hasOwn(submittedProfile, "apiKey") && !normalizeApiKey(submittedProfile.apiKey)) {
-        delete submittedProfile.apiKey;
-      }
-      profiles[providerId] = Object.assign(
-        {},
-        existing[section] && existing[section][providerId] || {},
-        submittedProfile,
-        { provider: providerId }
-      );
-    });
-    result[section] = sortAdminProviderObject(profiles);
-  });
-  return result;
-}
-
-function syncAdminTopLevelProviderProfiles(config, baseProfiles) {
-  const source = isAdminProviderObject(config) ? config : {};
-  const profiles = mergeAdminProviderProfiles(
-    baseProfiles || source.providerProfiles,
-    {}
-  );
-  ADMIN_PROVIDER_CONFIG_SECTIONS.forEach((section) => {
-    const topLevel = isAdminProviderObject(source[section]) ? source[section] : {};
-    const providerId = normalizeAdminProviderId(topLevel.provider);
-    if (!providerId || isDangerousAdminProviderId(providerId)) return;
-    const profileSection = section === "videoBackup" ? "video" : section;
-    if (
-      section === "videoBackup"
-      && normalizeAdminProviderId(source.video && source.video.provider) === providerId
-    ) {
-      return;
-    }
-    profiles[profileSection][providerId] = Object.assign(
-      {},
-      profiles[profileSection][providerId] || {},
-      normalizeAdminProviderProfileValue(profileSection, topLevel, providerId),
-      { provider: providerId }
-    );
-    profiles[profileSection] = sortAdminProviderObject(profiles[profileSection]);
-  });
-  return profiles;
-}
-
-function configuredAdminProviderIds(config) {
-  const source = isAdminProviderObject(config) ? config : {};
-  const result = new Set();
-  ADMIN_PROVIDER_CONFIG_SECTIONS.forEach((section) => {
-    const providerId = normalizeAdminProviderId(
-      source[section] && source[section].provider
-    );
-    if (providerId && !isDangerousAdminProviderId(providerId)) result.add(providerId);
-  });
-  const profiles = normalizeAdminProviderProfiles(source.providerProfiles);
-  ADMIN_PROVIDER_PROFILE_SECTIONS.forEach((section) => {
-    Object.keys(profiles[section] || {}).forEach((providerId) => result.add(providerId));
-  });
-  return Array.from(result).sort((left, right) => left.localeCompare(right, "zh-CN", {
-    numeric: true,
-    sensitivity: "base"
-  }));
-}
-
-function adminProviderLabelFor(labels, providerId) {
-  const source = labels && typeof labels === "object" ? labels : {};
-  const id = canonicalAdminProviderId(providerId);
-  if (!id) return "";
-  if (hasOwn(source, id)) return String(source[id] || "").trim();
-  const matchedKey = Object.keys(source).find((key) => (
-    String(key).toLowerCase() === id.toLowerCase()
-  ));
-  return matchedKey ? String(source[matchedKey] || "").trim() : "";
-}
-
-function validateAdminProviderLabels(labels, config) {
-  const errors = [];
-  if (
-    labels !== undefined
-    && (
-      !labels
-      || typeof labels !== "object"
-      || Array.isArray(labels)
-    )
-  ) {
-    return ["providerLabels 必须是对象"];
-  }
-  const raw = labels && typeof labels === "object" ? labels : {};
-  Object.getOwnPropertyNames(raw).forEach((rawKey) => {
-    const key = canonicalAdminProviderId(rawKey);
-    const forbiddenKey = String(key || "").toLowerCase();
-    const label = String(raw[rawKey] === undefined || raw[rawKey] === null
-      ? ""
-      : raw[rawKey]).trim();
-    if (
-      !key
-      || key.length > 120
-      || FORBIDDEN_ADMIN_PROVIDER_LABEL_KEYS.has(forbiddenKey)
-    ) {
-      errors.push(`服务商标识 ${String(rawKey || "未填写").slice(0, 120)} 不合法`);
-      return;
-    }
-    if (!label || label.length > 20 || !/[\u3400-\u9fff]/.test(label)) {
-      errors.push(`服务商 ${key} 还没有合格的中文名称`);
-    }
-  });
-  const normalized = normalizeAdminProviderLabels(raw, { includeDefaults: true });
-  configuredAdminProviderIds(config).forEach((providerId) => {
-    const label = adminProviderLabelFor(normalized, providerId);
-    if (!label || !/[\u3400-\u9fff]/.test(label)) {
-      errors.push(`服务商 ${providerId} 还没有中文名称，请先填写`);
-    }
-  });
-  return Array.from(new Set(errors));
-}
-
-function mergeAdminRuntimeProviderSection(
-  section,
-  existingSection,
-  patchSection,
-  profiles,
-  profileSection = section
-) {
-  const existingValue = isAdminProviderObject(existingSection) ? existingSection : {};
-  const submittedValue = isAdminProviderObject(patchSection) ? patchSection : {};
-  if (!Object.keys(submittedValue).length) return Object.assign({}, existingValue);
-  const existingProviderId = normalizeAdminProviderId(existingValue.provider);
-  const providerId = hasOwn(submittedValue, "provider")
-    ? normalizeAdminProviderId(submittedValue.provider)
-    : existingProviderId;
-  const storedProfile = providerId
-    && profiles[profileSection]
-    && profiles[profileSection][providerId]
-    ? profiles[profileSection][providerId]
-    : {};
-  const sameExistingProvider = providerId === existingProviderId
-    ? existingValue
-    : {};
-  return Object.assign(
-    {},
-    sameExistingProvider,
-    storedProfile,
-    submittedValue,
-    providerId ? { provider: providerId } : {}
-  );
-}
-
 function normalizeLegacyRuntimePatch(input = {}) {
   const source = input && typeof input === "object" ? input : {};
-  const providerLabels = hasOwn(source, "providerLabels")
-    ? normalizeAdminProviderLabels(source.providerLabels)
-    : {};
   const faceSource = source.face && typeof source.face === "object" ? source.face : {};
   const faceBackupSource = source.faceBackup && typeof source.faceBackup === "object"
     ? source.faceBackup
@@ -7172,10 +6697,6 @@ function normalizeLegacyRuntimePatch(input = {}) {
   const imageSource = source.image && typeof source.image === "object" ? source.image : {};
   const imageBackupSource = source.imageBackup && typeof source.imageBackup === "object"
     ? source.imageBackup
-    : {};
-  const tencentFaceFusionSource = source.tencentFaceFusion
-    && typeof source.tencentFaceFusion === "object"
-    ? source.tencentFaceFusion
     : {};
   const videoSource = source.video && typeof source.video === "object" ? source.video : {};
   const videoBackupSource = source.videoBackup && typeof source.videoBackup === "object"
@@ -7213,7 +6734,6 @@ function normalizeLegacyRuntimePatch(input = {}) {
     "timeoutMs"
   ];
   const imageKeys = [
-    "enabled",
     "provider",
     "providerKey",
     "baseUrl",
@@ -7229,25 +6749,13 @@ function normalizeLegacyRuntimePatch(input = {}) {
     "retryEnabled",
     "retryPreferenceVersion"
   ];
-  const tencentFaceFusionKeys = [
-    "secretId",
-    "secretKey",
-    "region",
-    "endpoint",
-    "apiVersion",
-    "action",
-    "model",
-    "swapModelType",
-    "logoAdd",
-    "timeoutMs",
-    "maxImageBytes"
-  ];
   const videoKeys = [
     "provider",
     "providerKey",
     "baseUrl",
     "endpoint",
     "queryEndpoint",
+    "apiKey",
     "model",
     "createPath",
     "queryPath",
@@ -7291,7 +6799,6 @@ function normalizeLegacyRuntimePatch(input = {}) {
   const analysisBackup = {};
   const image = {};
   const imageBackup = {};
-  const tencentFaceFusion = {};
   const video = {};
   const videoBackup = {};
   const points = {};
@@ -7336,7 +6843,7 @@ function normalizeLegacyRuntimePatch(input = {}) {
     if (hasOwn(imageSource, key)) {
       image[key] = key === "apiKey"
         ? normalizeApiKey(imageSource[key])
-        : key === "compatibilityMode" || key === "enabled"
+        : key === "compatibilityMode"
           ? overrideBoolean(imageSource, key, false)
         : imageSource[key];
     }
@@ -7345,38 +6852,9 @@ function normalizeLegacyRuntimePatch(input = {}) {
     if (hasOwn(imageBackupSource, key)) {
       imageBackup[key] = key === "apiKey"
         ? normalizeApiKey(imageBackupSource[key])
-        : key === "compatibilityMode" || key === "enabled"
+        : key === "compatibilityMode"
           ? overrideBoolean(imageBackupSource, key, false)
-        : imageBackupSource[key];
-    }
-  });
-  tencentFaceFusionKeys.forEach((key) => {
-    if (!hasOwn(tencentFaceFusionSource, key)) return;
-    if (
-      [
-        "secretId",
-        "secretKey",
-        "region",
-        "endpoint",
-        "apiVersion",
-        "action",
-        "model"
-      ].includes(key)
-    ) {
-      tencentFaceFusion[key] = String(
-        tencentFaceFusionSource[key] === undefined
-          || tencentFaceFusionSource[key] === null
-          ? ""
-          : tencentFaceFusionSource[key]
-      ).trim();
-    } else if (key === "logoAdd") {
-      tencentFaceFusion[key] = overrideBoolean(
-        tencentFaceFusionSource,
-        key,
-        false
-      );
-    } else {
-      tencentFaceFusion[key] = tencentFaceFusionSource[key];
+          : imageBackupSource[key];
     }
   });
   videoKeys.forEach((key) => {
@@ -7386,15 +6864,13 @@ function normalizeLegacyRuntimePatch(input = {}) {
         : videoSource[key];
     }
   });
-  if (hasOwn(videoBackupSource, "enabled")) {
-    videoBackup.enabled = overrideBoolean(videoBackupSource, "enabled", false);
-  }
-  videoKeys.forEach((key) => {
-    if (hasOwn(videoBackupSource, key)) {
-      videoBackup[key] = key === "apiKey"
-        ? normalizeApiKey(videoBackupSource[key])
+  videoKeys.concat(["enabled"]).forEach((key) => {
+    if (!hasOwn(videoBackupSource, key)) return;
+    videoBackup[key] = key === "apiKey"
+      ? normalizeApiKey(videoBackupSource[key])
+      : key === "enabled"
+        ? overrideBoolean(videoBackupSource, key, false)
         : videoBackupSource[key];
-    }
   });
   pointsKeys.forEach((key) => {
     if (hasOwn(pointsSource, key)) points[key] = pointsSource[key];
@@ -7462,37 +6938,19 @@ function normalizeLegacyRuntimePatch(input = {}) {
   if (Object.keys(analysisPricing).length) costs.analysis = analysisPricing;
   if (Object.keys(imagePricing).length) costs.image = imagePricing;
   if (Object.keys(videoPricing).length) costs.video = videoPricing;
-  const result = {
+  return {
     face: faceConfig,
     faceBackup,
     analysis,
     analysisBackup,
     image,
     imageBackup,
-    tencentFaceFusion,
     video,
     videoBackup,
     points,
     costs,
     generationQueue
   };
-  if (hasOwn(source, "activeBackups")) {
-    result.activeBackups = normalizeActiveBackups(
-      source.activeBackups,
-      normalizeProviderRegistry(source.providerRegistry, { includeDefaults: true })
-    );
-  }
-  if (hasOwn(source, "providerLabels")) {
-    result.providerLabels = isAdminProviderObject(source.providerLabels)
-      ? normalizeAdminProviderLabels(source.providerLabels)
-      : source.providerLabels;
-  }
-  if (hasOwn(source, "providerProfiles")) {
-    result.providerProfiles = isAdminProviderObject(source.providerProfiles)
-      ? normalizeAdminProviderProfiles(source.providerProfiles)
-      : source.providerProfiles;
-  }
-  return result;
 }
 
 function isProviderObject(value) {
@@ -7579,6 +7037,37 @@ function providerDefaultName(id) {
   return providerText(id, 20) || "未命名服务商";
 }
 
+const DEFAULT_ADMIN_PROVIDER_LABELS = Object.freeze({
+  dashscope: "阿里云百炼",
+  xingju: "星炬",
+  lingyun: "凌云"
+});
+const FORBIDDEN_ADMIN_PROVIDER_LABEL_KEYS = new Set([
+  "__proto__",
+  "prototype",
+  "constructor"
+]);
+const ADMIN_PROVIDER_CONFIG_SECTIONS = Object.freeze([
+  "face",
+  "analysis",
+  "image",
+  "imageBackup",
+  "video",
+  "videoBackup"
+]);
+
+function normalizeAdminProviderId(value) {
+  const raw = providerText(value, 120);
+  if (!raw) return "";
+  return providerBuiltinKey(raw) || raw;
+}
+
+function isDangerousAdminProviderId(value) {
+  return FORBIDDEN_ADMIN_PROVIDER_LABEL_KEYS.has(
+    providerText(value, 120).toLowerCase()
+  );
+}
+
 function normalizeAdminProviderLabels(value, options = {}) {
   const result = {};
   if (options.includeDefaults === true) Object.assign(result, DEFAULT_ADMIN_PROVIDER_LABELS);
@@ -7605,16 +7094,7 @@ function mergeAdminProviderLabels(current, patch) {
 }
 
 function normalizeAdminProviderProfileValue(section, value, providerId) {
-  const normalized = normalizeProviderOverride(
-    section,
-    value,
-    normalizeProviderId(providerId || value && value.provider)
-  );
-  // 视频 Key 继续只由 video 顶层/环境变量和专用 secrets 接口管理；
-  // 兼容 profile 不能把历史顶层明文复制到可展示配置里。目录档案
-  // (providerRegistry) 仍保留自己的能力 Key，不受此旧投影限制。
-  if (section === "video") delete normalized.apiKey;
-  return normalized;
+  return normalizeProviderOverride(section, value, normalizeProviderId(providerId || value && value.provider));
 }
 
 function normalizeAdminProviderProfiles(value) {
@@ -7629,6 +7109,28 @@ function normalizeAdminProviderProfiles(value) {
       if (!id || FORBIDDEN_ADMIN_PROVIDER_LABEL_KEYS.has(id.toLowerCase())) return;
       result[slot][id] = normalizeAdminProviderProfileValue(slot, rows[rawId], id);
     });
+  });
+  return result;
+}
+
+function redactAdminProviderProfiles(value, defaultsValue = {}) {
+  const profiles = normalizeAdminProviderProfiles(value);
+  const defaults = normalizeAdminProviderProfiles(defaultsValue);
+  const result = {};
+  PROVIDER_CAPABILITY_SLOTS.forEach((section) => {
+    const rows = {};
+    Object.keys(profiles[section] || {}).sort().forEach((providerId) => {
+      const profile = Object.assign({}, profiles[section][providerId]);
+      const defaultProfile = defaults[section] && defaults[section][providerId] || {};
+      profile.apiKeyConfigured = Boolean(
+        normalizeApiKey(profile.apiKey)
+        || normalizeApiKey(defaultProfile.apiKey)
+        || profile.apiKeyConfigured
+      );
+      profile.apiKey = "";
+      rows[providerId] = profile;
+    });
+    result[section] = rows;
   });
   return result;
 }
@@ -7653,28 +7155,9 @@ function mergeAdminProviderProfiles(current, patch) {
 function syncAdminTopLevelProviderProfiles(config, baseProfiles) {
   const source = isProviderObject(config) ? config : {};
   const result = mergeAdminProviderProfiles(baseProfiles || source.providerProfiles, {});
-  // canonical 目录内部使用稳定 providerKey，兼容 profile/标签仍应使用
-  // 可编辑的外部 id。旧实现直接把 providerKey 写进 profile，导致保存
-  // 仅 activeProviders 的 patch 时校验器误认为 UUID 是新的服务商且要求
-  // 中文名称。先建立 key -> id 映射，只有无法解析时才回退原值。
-  const registry = source.providerRegistry
-    ? normalizeProviderRegistry(source.providerRegistry, { includeDefaults: true })
-    : null;
-  const externalProviderId = (section) => {
-    if (!isAdminProviderObject(section)) return "";
-    const explicitId = normalizeProviderId(section.provider);
-    if (explicitId) return explicitId;
-    const reference = section.providerKey;
-    if (registry && reference) {
-      const key = providerRecordKeyFor(reference, registry);
-      const record = registry.providers[key];
-      if (record && record.id) return normalizeProviderId(record.id);
-    }
-    return normalizeProviderId(reference);
-  };
   PROVIDER_CAPABILITY_SLOTS.forEach((slot) => {
     const section = isProviderObject(source[slot]) ? source[slot] : {};
-    const id = externalProviderId(section);
+    const id = normalizeProviderId(section.providerKey || section.provider);
     if (!id) return;
     result[slot][id] = Object.assign({}, result[slot][id] || {}, normalizeAdminProviderProfileValue(slot, section, id), { provider: id });
   });
@@ -7683,31 +7166,14 @@ function syncAdminTopLevelProviderProfiles(config, baseProfiles) {
 
 function configuredAdminProviderIds(config) {
   const source = isProviderObject(config) ? config : {};
-  const registry = source.providerRegistry
-    ? normalizeProviderRegistry(source.providerRegistry, { includeDefaults: true })
-    : null;
-  const externalProviderId = (reference) => {
-    const raw = providerText(reference, 160);
-    if (!raw) return "";
-    if (registry) {
-      const key = providerRecordKeyFor(raw, registry);
-      const record = registry.providers[key];
-      if (record && record.id) return normalizeProviderId(record.id);
-    }
-    return normalizeProviderId(raw);
-  };
   const ids = new Set();
   PROVIDER_CAPABILITY_SLOTS.forEach((slot) => {
     const section = source[slot];
-    const id = externalProviderId(
-      section && (section.provider || section.providerKey)
-    );
+    const id = normalizeProviderId(section && (section.providerKey || section.provider));
     if (id) ids.add(id);
   });
   const profiles = normalizeAdminProviderProfiles(source.providerProfiles);
-  PROVIDER_CAPABILITY_SLOTS.forEach((slot) => Object.keys(profiles[slot] || {}).forEach((id) => {
-    ids.add(externalProviderId(id));
-  }));
+  PROVIDER_CAPABILITY_SLOTS.forEach((slot) => Object.keys(profiles[slot] || {}).forEach((id) => ids.add(id)));
   return Array.from(ids).sort();
 }
 
@@ -7715,55 +7181,15 @@ function validateAdminProviderLabels(labels, config) {
   const errors = [];
   if (labels !== undefined && !isProviderObject(labels)) return ["providerLabels 必须是对象"];
   const normalized = normalizeAdminProviderLabels(labels, { includeDefaults: true });
-  const sourceConfig = isProviderObject(config) ? config : {};
-  const registry = sourceConfig.providerRegistry
-    ? normalizeProviderRegistry(sourceConfig.providerRegistry, { includeDefaults: true })
-    : null;
   Object.keys(isProviderObject(labels) ? labels : {}).forEach((rawKey) => {
-    const rawKeyText = providerText(rawKey, 240);
-    const key = rawKeyText.slice(0, 120).toLowerCase();
+    const key = providerText(rawKey, 120).toLowerCase();
     const label = providerText(labels[rawKey], 80);
-    const record = registry && key
-      ? registry.providers[providerRecordKeyFor(rawKey, registry)]
-      : null;
-    // normalizeRuntimePatch 的兼容投影会为迁移占位档案生成外部 ID
-    // 截断名（例如 smoke-analysis-provi），这不是管理员新填的标签；
-    // 受保护/迁移档案允许暂时保留该值，避免普通旧配置保存被拦截。
-    if (
-      record
-      && (record.protected || record.migrated)
-      && key
-      && !FORBIDDEN_ADMIN_PROVIDER_LABEL_KEYS.has(key)
-      && label
-      && label.length <= 20
-    ) return;
-    if (rawKeyText.length > 120) {
-      errors.push(`服务商标识 ${rawKeyText.slice(0, 120)} 不合法`);
-      return;
-    }
-    if (FORBIDDEN_ADMIN_PROVIDER_LABEL_KEYS.has(key)) {
-      errors.push(`服务商标识 ${rawKeyText} 不允许使用`);
-      return;
-    }
     if (!key || FORBIDDEN_ADMIN_PROVIDER_LABEL_KEYS.has(key) || key.length > 120 || !label || label.length > 20 || !/[\u3400-\u9fff]/.test(label)) {
       errors.push(`服务商 ${rawKey || "未填写"} 还没有合格的中文名称`);
     }
   });
   configuredAdminProviderIds(config).forEach((id) => {
     const label = normalized[id];
-    // 旧顶层/providerProfiles 迁移出的受保护占位档案可能只有外部 ID，
-    // 没有中文展示名；它们用于兼容历史配置，不应阻断普通 partial save。
-    // 新建 canonical 档案（非 protected/migrated）仍必须提供合格名称。
-    if (registry) {
-      const key = providerRecordKeyFor(id, registry);
-      const record = registry.providers[key];
-      if (
-        record
-        && (record.protected || record.migrated)
-        && label
-        && label.length <= 20
-      ) return;
-    }
     if (!label || !/[\u3400-\u9fff]/.test(label)) errors.push(`服务商 ${id} 还没有中文名称，请先填写`);
   });
   return Array.from(new Set(errors));
@@ -8030,10 +7456,7 @@ function mergeProviderRecord(current, patch) {
     const before = existing.overrides && existing.overrides[slot] || {};
     const after = submitted.overrides && submitted.overrides[slot] || {};
     if (Object.keys(before).length || Object.keys(after).length) {
-      // 局部 patch 省略 overrideEnabled 时沿用旧开关；若旧档案已经关闭
-      // 覆盖，也要清理历史残留的独立地址/Key，不能让它们继续落到投影。
-      const overrideDisabled = after.overrideEnabled === false
-        || (after.overrideEnabled === undefined && before.overrideEnabled === false);
+      const overrideDisabled = after.overrideEnabled === false;
       result.overrides[slot] = overrideDisabled
         ? Object.assign({}, before, after, {
           provider: result.id,
@@ -8075,7 +7498,7 @@ function providerRegistryProviders(value) {
   if (!isProviderObject(value)) return {};
   const result = {};
   Object.keys(value).forEach((key) => {
-    if (["version", "updatedAt", "updatedBy", "providerRegistry", "activeProviders", "activeBackups"].includes(key)) return;
+    if (["version", "updatedAt", "updatedBy", "providerRegistry", "activeProviders"].includes(key)) return;
     if (!isProviderObject(value[key])) return;
     result[key] = value[key];
   });
@@ -8141,44 +7564,6 @@ function providerRecordKeyFor(value, registry) {
   return matched || text;
 }
 
-function providerSlotConfigFromRuntime(runtime, reference, slot) {
-  const source = isProviderObject(runtime) ? runtime : {};
-  const registry = normalizeProviderRegistry(source.providerRegistry, { includeDefaults: true });
-  const key = providerRecordKeyFor(reference, registry);
-  const record = key && registry.providers[key];
-  if (!record) return {};
-  const override = record.overrides && record.overrides[slot] || {};
-  const ownConnection = override.overrideEnabled !== false;
-  const apiKey = ownConnection && override.clearApiKey
-    ? ""
-    : normalizeApiKey((ownConnection && override.apiKey) || record.apiKey)
-      || providerEnvironmentApiKey(record, slot);
-  const result = Object.assign({}, override, {
-    provider: record.id,
-    providerKey: key,
-    baseUrl: (ownConnection && override.baseUrl) || record.baseUrl || "",
-    endpoint: override.endpoint || "",
-    apiKey,
-    model: override.model || "",
-    timeoutMs: override.timeoutMs || 0
-  });
-  if (slot === "face") result.faceModel = result.model;
-  return result;
-}
-
-function normalizeActiveBackups(value, registry, options = {}) {
-  const source = value && value.activeBackups ? value.activeBackups : value;
-  const result = {};
-  PROVIDER_BACKUP_SLOTS.forEach((slot) => {
-    if (!source || !hasOwn(source, slot)) {
-      if (options.includeEmpty !== false) result[slot] = "";
-      return;
-    }
-    result[slot] = providerRecordKeyFor(source[slot], registry);
-  });
-  return result;
-}
-
 function normalizeActiveProviders(value, registry, options = {}) {
   const source = value && value.activeProviders ? value.activeProviders : value;
   const result = {};
@@ -8196,31 +7581,14 @@ function providerHasCapability(record, slot) {
   const value = record && record.overrides && record.overrides[slot];
   if (!isProviderObject(value) || value.enabled === false) return false;
   const ownConnection = !(value.overrideEnabled === false);
-  const meaningfulKeys = new Set([
-    "baseUrl",
-    "endpoint",
-    "queryEndpoint",
-    "apiKey",
-    "model",
-    "faceModel",
-    "createPath",
-    "queryPath",
-    "resolution",
-    "aspectRatio",
-    "mode",
-    "size",
-    "timeoutMs",
-    "maxRetries",
-    "prompt"
-  ]);
-  return Object.keys(value).some((key) => {
-    if (!meaningfulKeys.has(key)) return false;
-    if (!ownConnection && ["baseUrl", "apiKey"].includes(key)) return false;
-    const item = value[key];
-    return item !== undefined
-      && item !== null
-      && (typeof item !== "string" || item.trim() !== "");
-  });
+  return Object.keys(value).some((key) => ![
+    "provider",
+    "providerKey",
+    "enabled",
+    "clearApiKey",
+    "apiKeyConfigured",
+    "overrideEnabled"
+  ].includes(key) && (ownConnection || !["baseUrl", "apiKey"].includes(key)));
 }
 
 function providerEnvironmentApiKey(record, slot) {
@@ -8303,12 +7671,6 @@ function buildLegacyProjectionFromProviderRegistry(runtime = {}) {
   const source = isProviderObject(runtime) ? providerClone(runtime) : {};
   const registry = normalizeProviderRegistry(source.providerRegistry, { includeDefaults: true });
   const active = normalizeActiveProviders(source.activeProviders, registry);
-  const hasActiveBackups = hasOwn(source, "activeBackups");
-  const activeBackups = normalizeActiveBackups(
-    source.activeBackups,
-    registry,
-    { includeEmpty: false }
-  );
   const providers = registry.providers;
   const labels = normalizeAdminProviderLabels(source.providerLabels, { includeDefaults: true });
   const profiles = normalizeAdminProviderProfiles(source.providerProfiles);
@@ -8347,96 +7709,8 @@ function buildLegacyProjectionFromProviderRegistry(runtime = {}) {
       baseUrl: (ownConnection && override.baseUrl) || record.baseUrl || inherited.baseUrl || "",
       apiKey: effectiveApiKey
     });
-    // 兼容顶层配置不保存空 Key；保留“无此字段”语义，避免空值被
-    // 误当成从旧主配置继承了凭据。存在真实 Key 时仍照常投影。
-    // 显式 clearApiKey 仍保留空字段，交给解析器阻断环境/旧值继承。
-    if (!effectiveApiKey && !override.clearApiKey && !record.clearApiKey) {
-      delete section.apiKey;
-    }
-    // 仅切换到一个尚未配置能力的历史/新档案时，不要凭空写入一堆空
-    // 字段；旧 mergeRuntimeConfig 约定这类 partial 结果的字段为 undefined，
-    // 也便于后续编辑器判断“尚未配置”而不是“显式清空”。
-    if (!providerHasCapability(record, slot)) {
-      [
-        "baseUrl", "endpoint", "queryEndpoint", "apiKey", "model", "faceModel",
-        "createPath", "queryPath", "resolution", "aspectRatio", "mode", "size"
-      ].forEach((field) => {
-        if (!section[field]) delete section[field];
-      });
-    }
     source[slot] = section;
   });
-  if (hasActiveBackups) {
-    PROVIDER_BACKUP_SLOTS.forEach((slot) => {
-      const key = activeBackups[slot];
-      const baseSlot = PROVIDER_BACKUP_BASE_SLOTS[slot];
-      const record = key && providers[key];
-      const previous = isProviderObject(source[slot]) ? source[slot] : {};
-      if (!record) {
-        source[slot] = Object.assign({}, previous, {
-          enabled: false,
-          provider: "",
-          providerKey: "",
-          baseUrl: "",
-          endpoint: "",
-          queryEndpoint: "",
-          apiKey: "",
-          model: ""
-        });
-        return;
-      }
-      const inherited = providerSlotConfigFromRuntime(source, key, baseSlot);
-      const override = record.overrides && record.overrides[baseSlot] || {};
-      const ownConnection = override.overrideEnabled !== false;
-      // providerSlotConfigFromRuntime 会为主槽位补环境变量 Key。备用槽位
-      // 不能把主环境 Key 误投影过来，否则 AI_*_BACKUP_API_KEY 永远不会
-      // 生效；只有目录中明确保存的档案 Key 才应优先于备用环境变量。
-      const explicitRecordApiKey = ownConnection && !override.clearApiKey
-        ? normalizeApiKey(override.apiKey || record.apiKey)
-        : "";
-      const previousKey = providerRecordKeyFor(
-        previous.providerKey || previous.provider,
-        registry
-      );
-      const sameProviderPrevious = previousKey && previousKey === key ? previous : {};
-      const projectedBackup = Object.assign({}, inherited, sameProviderPrevious, {
-        provider: record.id,
-        providerKey: key
-      });
-      if (!providerText(sameProviderPrevious.baseUrl, 500)) {
-        projectedBackup.baseUrl = inherited.baseUrl || record.baseUrl || "";
-      }
-      if (!hasOwn(sameProviderPrevious, "apiKey")) {
-        projectedBackup.apiKey = explicitRecordApiKey || "";
-      }
-      if (!providerText(sameProviderPrevious.model, 240)) projectedBackup.model = inherited.model || "";
-      // activeBackups 只保存档案引用，备用开关仍由顶层 section 保存。
-      // 切换到新档案时若没有显式开关，只有完整能力才允许默认启用；
-      // 明确关闭的草稿必须跨投影/重载保持关闭。
-      const explicitlyDisabled = hasOwn(sameProviderPrevious, "enabled")
-        && overrideBoolean(sameProviderPrevious, "enabled", false) === false;
-      projectedBackup.enabled = explicitlyDisabled
-        ? false
-        : Boolean(providerConfigComplete(record, baseSlot));
-      source[slot] = projectedBackup;
-    });
-  } else if (hasOwn(source, "providerRegistry")) {
-    // canonical 目录没有备用引用时，旧顶层 section 不能继续伪装成
-    // 已启用的备用模型；清空连接字段并显式标记 disabled，避免重载后
-    // resolver 因残留 provider/model 自动启用。
-    PROVIDER_BACKUP_SLOTS.forEach((slot) => {
-      source[slot] = Object.assign({}, source[slot] || {}, {
-        enabled: false,
-        provider: "",
-        providerKey: "",
-        baseUrl: "",
-        endpoint: "",
-        queryEndpoint: "",
-        apiKey: "",
-        model: ""
-      });
-    });
-  }
   PROVIDER_CAPABILITY_SLOTS.forEach((slot) => {
     profiles[slot] = isProviderObject(profiles[slot]) ? profiles[slot] : {};
   });
@@ -8461,7 +7735,6 @@ function buildLegacyProjectionFromProviderRegistry(runtime = {}) {
   return Object.assign(source, {
     providerRegistry: registry,
     activeProviders: active,
-    ...(hasActiveBackups ? { activeBackups } : {}),
     providerLabels: normalizeAdminProviderLabels(labels, { includeDefaults: true }),
     providerProfiles: normalizeAdminProviderProfiles(profiles)
   });
@@ -8489,25 +7762,13 @@ function migrateLegacyProviderRegistry(runtime, rawConfig) {
     normalized.activeProviders || raw.activeProviders,
     registry
   );
-  let activeBackups = normalizeActiveBackups(
-    normalized.activeBackups || raw.activeBackups,
-    registry,
-    { includeEmpty: false }
-  );
   const providers = registry.providers;
-  // 迁移输入优先读取 rawConfig 中用户真正保存的 labels/profiles。一次
-  // 迁移后的兼容投影会自动补齐内置 labels；若反过来使用 normalized
-  // 的投影，就会把仅用于展示的 laoli/panda 等默认标签误建成空档案，
-  // 后续保存还会因“至少一项能力”校验失败。只有 raw 没有对应字段时，
-  // 才回退到 runtime 中的值（兼容直接传已归一化对象的调用方）。
-  const labelsSource = isProviderObject(raw && raw.providerLabels)
-    ? raw.providerLabels
-    : normalized.providerLabels;
-  const profilesSource = isProviderObject(raw && raw.providerProfiles)
-    ? raw.providerProfiles
-    : normalized.providerProfiles;
-  const labels = isProviderObject(labelsSource) ? labelsSource : {};
-  const profiles = isProviderObject(profilesSource) ? profilesSource : {};
+  const labels = isProviderObject(normalized.providerLabels || raw.providerLabels)
+    ? (normalized.providerLabels || raw.providerLabels)
+    : {};
+  const profiles = isProviderObject(normalized.providerProfiles || raw.providerProfiles)
+    ? (normalized.providerProfiles || raw.providerProfiles)
+    : {};
   // 旧顶层/providerLabels/providerProfiles 生成的记录要保留为受保护档案，
   // 避免管理员误删后导致历史配置无法回溯；canonical 目录中的自定义项不套用该标记。
   const markLegacyRecord = (record) => {
@@ -8550,32 +7811,15 @@ function migrateLegacyProviderRegistry(runtime, rawConfig) {
         const key = ensure(profile.providerKey || rawId, labels[rawId]);
         if (!key) return;
         const current = providers[key];
-        // 旧版 providerProfiles 是按能力分开的配置，每个能力可能有
-        // 不同的地址/Key。迁移到目录时不能把某一能力的连接信息提升成
-        // 公共字段，否则后面遍历其它能力会互相覆盖（例如视频误用
-        // imageBackup 的 Key）。公共字段只来自 canonical providerRegistry；
-        // 旧 profile 的连接信息统一留在当前能力的 overrides 中。
-        const profileRecordInput = Object.assign({}, profile, {
+        const profileRecord = normalizeProviderRecord(
+          Object.assign({}, profile, {
             providerKey: key,
             id: profile.id || profile.provider || rawId,
             name: labels[rawId] || profile.name
-        });
-        delete profileRecordInput.baseUrl;
-        delete profileRecordInput.url;
-        delete profileRecordInput.apiKey;
-        delete profileRecordInput.secret;
-        if (isProviderObject(profileRecordInput.common)) {
-          profileRecordInput.common = Object.assign({}, profileRecordInput.common);
-          delete profileRecordInput.common.baseUrl;
-          delete profileRecordInput.common.url;
-          delete profileRecordInput.common.apiKey;
-          delete profileRecordInput.common.secret;
-        }
-        const profileRecord = normalizeProviderRecord(
-          profileRecordInput,
-           key,
-           { includePreset: false }
-         );
+          }),
+          key,
+          { includePreset: false }
+        );
         if (profileRecord) providers[key] = mergeProviderRecord(current, profileRecord);
         if (providers[key] && !hasCanonical) markLegacyRecord(providers[key]);
         const profileOverride = normalizeProviderOverride(slot, profile, providers[key].id);
@@ -8585,16 +7829,9 @@ function migrateLegacyProviderRegistry(runtime, rawConfig) {
           profileOverride,
           { provider: providers[key].id }
         );
-        // profileOverride 已经保留当前能力自己的 baseUrl/apiKey；这里不再
-        // 写入 record.baseUrl/apiKey，避免后续能力继承到错误的连接信息。
-        providers[key].apiKeyConfigured = Boolean(
-          normalizeApiKey(providers[key].apiKey)
-          || Object.keys(providers[key].overrides || {}).some((overrideSlot) => (
-            providers[key].overrides[overrideSlot]
-            && providers[key].overrides[overrideSlot].overrideEnabled !== false
-            && normalizeApiKey(providers[key].overrides[overrideSlot].apiKey)
-          ))
-        );
+        if (profile.baseUrl && !providers[key].baseUrl) providers[key].baseUrl = providerText(profile.baseUrl, 500);
+        if (profile.apiKey && !providers[key].apiKey) providers[key].apiKey = normalizeApiKey(profile.apiKey);
+        providers[key].apiKeyConfigured = Boolean(normalizeApiKey(providers[key].apiKey));
       });
     });
     PROVIDER_CAPABILITY_SLOTS.forEach((slot) => {
@@ -8610,6 +7847,8 @@ function migrateLegacyProviderRegistry(runtime, rawConfig) {
       if (!key) return;
       const current = providers[key];
       const override = normalizeProviderOverride(slot, section, current.id);
+      const commonBaseUrl = providerText(section.baseUrl, 500);
+      const commonApiKey = normalizeApiKey(section.apiKey);
       if (!hasCanonical || !providerHasCapability(current, slot)) {
         current.overrides[slot] = Object.assign({}, current.overrides[slot] || {}, override, {
           provider: current.id
@@ -8619,56 +7858,13 @@ function migrateLegacyProviderRegistry(runtime, rawConfig) {
           provider: current.id
         });
       }
+      if (commonBaseUrl && (!hasCanonical || !current.baseUrl)) current.baseUrl = commonBaseUrl;
+      if (commonApiKey && (!hasCanonical || !current.apiKey)) current.apiKey = commonApiKey;
       if (!hasCanonical) markLegacyRecord(current);
-      current.apiKeyConfigured = Boolean(
-        normalizeApiKey(current.apiKey)
-        || Object.keys(current.overrides || {}).some((overrideSlot) => (
-          current.overrides[overrideSlot]
-          && current.overrides[overrideSlot].overrideEnabled !== false
-          && normalizeApiKey(current.overrides[overrideSlot].apiKey)
-        ))
-      );
+      current.apiKeyConfigured = Boolean(normalizeApiKey(current.apiKey));
       if (!hasCanonical || !active[slot]) active[slot] = key;
     });
-    PROVIDER_BACKUP_SLOTS.forEach((slot) => {
-      const baseSlot = PROVIDER_BACKUP_BASE_SLOTS[slot];
-      const section = isProviderObject(normalized[slot] || raw[slot])
-        ? (normalized[slot] || raw[slot])
-        : {};
-      const reference = section.providerKey || section.provider || "";
-      const hasProviderFields = [
-        "baseUrl", "endpoint", "apiKey", "model", "timeoutMs"
-      ].some((field) => providerText(section[field], 500));
-      if (!reference && !hasProviderFields) return;
-      const key = ensure(
-        reference || providerStableKey(`${slot}:${section.model || section.baseUrl || ""}`),
-        section.provider
-      );
-      if (!key) return;
-      const current = providers[key];
-      const override = normalizeProviderOverride(baseSlot, section, current.id);
-      current.overrides[baseSlot] = Object.assign(
-        {},
-        current.overrides[baseSlot] || {},
-        override,
-        { provider: current.id }
-      );
-      if (!hasCanonical) markLegacyRecord(current);
-      if (!activeBackups[slot]) activeBackups[slot] = key;
-    });
   }
-  // canonical 目录已经存在时，旧顶层备用配置仍需恢复到稳定的
-  // activeBackups 引用；配置对象本身由兼容投影保留，避免主/备模型混用。
-  PROVIDER_BACKUP_SLOTS.forEach((slot) => {
-    if (activeBackups[slot]) return;
-    const section = isProviderObject(normalized[slot] || raw[slot])
-      ? (normalized[slot] || raw[slot])
-      : {};
-    const reference = section.providerKey || section.provider || "";
-    if (!reference) return;
-    const key = providerRecordKeyFor(reference, registry);
-    if (key && hasOwn(providers, key)) activeBackups[slot] = key;
-  });
   // 旧配置没有 activeProviders 时，根据原有 provider 或稳定默认值补齐；视频没有可用项时保持空。
   PROVIDER_CAPABILITY_SLOTS.forEach((slot) => {
     if (active[slot]) {
@@ -8692,16 +7888,13 @@ function migrateLegacyProviderRegistry(runtime, rawConfig) {
   const value = buildLegacyProjectionFromProviderRegistry(Object.assign({}, normalized, {
     providerRegistry: registry,
     activeProviders: active,
-    ...(Object.keys(activeBackups).length ? { activeBackups } : {}),
     providerLabels: labels,
     providerProfiles: profiles
   }));
   const rawRegistry = raw && raw.providerRegistry;
   const rawActive = raw && raw.activeProviders;
-  const rawActiveBackups = raw && raw.activeBackups;
   const migrated = JSON.stringify(rawRegistry || null) !== JSON.stringify(value.providerRegistry)
     || JSON.stringify(rawActive || null) !== JSON.stringify(value.activeProviders)
-    || JSON.stringify(rawActiveBackups || null) !== JSON.stringify(value.activeBackups || null)
     || !hasOwn(raw, "providerRegistry")
     || !hasOwn(raw, "activeProviders");
   return { value, migrated };
@@ -8729,16 +7922,7 @@ function mergeProviderRegistry(current, patch) {
     normalizeActiveProviders(current && current.activeProviders, existing, { includeEmpty: false }),
     normalizeActiveProviders(patch && patch.activeProviders, existing, { includeEmpty: false })
   );
-  const activeBackups = Object.assign(
-    {},
-    normalizeActiveBackups(current && current.activeBackups, existing, { includeEmpty: false }),
-    normalizeActiveBackups(patch && patch.activeBackups, existing, { includeEmpty: false })
-  );
-  return {
-    providerRegistry: existing,
-    activeProviders: active,
-    activeBackups
-  };
+  return { providerRegistry: existing, activeProviders: active };
 }
 
 // 外部 ID 可编辑，但成本、展示标签和兼容 profile 仍可能以旧 ID 为键。
@@ -8774,52 +7958,6 @@ function migrateProviderExternalIdReferences(runtime, previousId, nextId) {
     PROVIDER_CAPABILITY_SLOTS.forEach((slot) => {
       if (isProviderObject(source.providerProfiles[slot])) renameMapKey(source.providerProfiles[slot]);
     });
-  }
-  return source;
-}
-
-// 删除档案时清理所有仍以外部 ID/历史别名/稳定 key 保存的兼容引用。
-// 目录投影会重建当前槽位，但旧 profile、标签和动态成本键不会自动消失，
-// 必须在同一事务里先清掉，避免删除后下一次迁移又把档案“复活”。
-function removeProviderExternalIdReferences(runtime, record, options = {}) {
-  const source = isProviderObject(runtime) ? providerClone(runtime) : {};
-  const target = isProviderObject(record) ? record : { id: record };
-  const references = [
-    target.providerKey,
-    target.id,
-    ...(Array.isArray(target.aliases) ? target.aliases : [])
-  ]
-    .map((value) => providerText(value, 160).toLowerCase())
-    .filter(Boolean);
-  const referenceSet = new Set(references);
-  if (!referenceSet.size) return source;
-  const matches = (rawKey, value) => {
-    const key = providerText(rawKey, 160).toLowerCase();
-    if (key && referenceSet.has(key)) return true;
-    if (!isProviderObject(value)) return false;
-    return [value.providerKey, value.provider, value.id]
-      .map((item) => providerText(item, 160).toLowerCase())
-      .some((item) => item && referenceSet.has(item));
-  };
-  const removeMatchingKeys = (map) => {
-    if (!isProviderObject(map)) return;
-    Object.keys(map).forEach((key) => {
-      if (matches(key, map[key])) delete map[key];
-    });
-  };
-  removeMatchingKeys(source.providerLabels);
-  if (isProviderObject(source.providerProfiles)) {
-    PROVIDER_CAPABILITY_SLOTS.forEach((slot) => {
-      removeMatchingKeys(source.providerProfiles[slot]);
-    });
-  }
-  const costs = isProviderObject(source.costs) ? source.costs : {};
-  const imageCosts = isProviderObject(costs.image) ? costs.image : {};
-  removeMatchingKeys(imageCosts.providers);
-  if (matches(imageCosts.primaryProvider, null)) {
-    const replacement = providerText(options.replacementImageProvider, 120);
-    if (replacement) imageCosts.primaryProvider = replacement;
-    else delete imageCosts.primaryProvider;
   }
   return source;
 }
@@ -8866,116 +8004,6 @@ function mergeActiveProviderOverrides(registryValue, activeValue, overridesValue
       });
     }
     registry.providers[key].overrides = merged;
-  });
-  return registry;
-}
-
-// 备用视觉/视频配置在兼容接口中仍以 faceBackup/analysisBackup/videoBackup
-// 顶层 section 传入，但目录里复用对应能力档案的 override。这里把备用
-// section 的模型、路径和连接参数写回被选中的档案，保证目录是唯一事实
-// 来源；备用开关 enabled 不写入主能力，避免关闭备用误伤同一档案的主模型。
-function mergeActiveBackupOverrides(registryValue, activeValue, sectionsValue) {
-  const registry = normalizeProviderRegistry(registryValue, { includeDefaults: true });
-  const active = normalizeActiveBackups(activeValue, registry, { includeEmpty: false });
-  const sections = isProviderObject(sectionsValue) ? sectionsValue : {};
-  PROVIDER_BACKUP_SLOTS.forEach((slot) => {
-    const key = active[slot];
-    const baseSlot = PROVIDER_BACKUP_BASE_SLOTS[slot];
-    const section = sections[slot];
-    const record = key && registry.providers[key];
-    if (!record || !isProviderObject(section)) return;
-    const existing = record.overrides && record.overrides[baseSlot] || {};
-    const incoming = normalizeProviderOverride(baseSlot, section, record.id);
-    // 备用 enabled 只属于备用引用，不应把档案的主能力一起禁用。
-    delete incoming.enabled;
-    const merged = Object.assign({}, existing, incoming, { provider: record.id });
-    if (
-      merged.overrideEnabled !== false
-      && !incoming.clearApiKey
-      && hasOwn(incoming, "apiKey")
-      && !normalizeApiKey(incoming.apiKey)
-      && normalizeApiKey(existing.apiKey)
-    ) {
-      merged.apiKey = existing.apiKey;
-    }
-    if (
-      merged.overrideEnabled !== false
-      && !providerText(incoming.baseUrl, 500)
-      && providerText(existing.baseUrl, 500)
-    ) {
-      merged.baseUrl = existing.baseUrl;
-    }
-    if (merged.overrideEnabled === false) {
-      ["baseUrl", "apiKey", "clearApiKey"].forEach((field) => delete merged[field]);
-    }
-    record.overrides = Object.assign({}, record.overrides || {}, {
-      [baseSlot]: merged
-    });
-  });
-  return registry;
-}
-
-// 兼容旧 providerProfiles/顶层 section 向 canonical 目录补齐档案。管理页
-// 仍有一批调用方只保存 profile（例如切换到一个历史 provider-b），这时
-// submittedDirectory 可能只有空 Key；若不把已保存 profile 的连接参数带入
-// 目录，随后 buildLegacyProjection 会把旧 Key 丢掉。只填充目录中缺失的
-// 档案/字段，不让兼容投影覆盖管理员已经明确清空的 canonical 值；视频
-// profile 本身不携带 Key，由环境变量或专用 secrets 接口负责。
-function mergeLegacyProviderProfilesIntoRegistry(registryValue, profilesValue) {
-  const registry = normalizeProviderRegistry(registryValue, { includeDefaults: true });
-  const profiles = normalizeAdminProviderProfiles(profilesValue);
-  PROVIDER_CAPABILITY_SLOTS.forEach((slot) => {
-    const rows = isProviderObject(profiles[slot]) ? profiles[slot] : {};
-    Object.keys(rows).forEach((rawId) => {
-      const profile = rows[rawId];
-      if (!isProviderObject(profile)) return;
-      const reference = profile.providerKey || profile.provider || rawId;
-      let key = providerRecordKeyFor(reference, registry);
-      if (!hasOwn(registry.providers, key)) {
-        const candidate = normalizeProviderRecord({
-          providerKey: isProviderUuidKey(reference) ? reference : key,
-          id: profile.provider || rawId,
-          name: providerDefaultName(profile.provider || rawId),
-          baseUrl: profile.baseUrl || "",
-          overrides: { [slot]: profile }
-        }, key, { includePreset: false });
-        if (!candidate) return;
-        candidate.protected = true;
-        candidate.migrated = true;
-        key = candidate.providerKey;
-        registry.providers[key] = candidate;
-      } else {
-        const existing = registry.providers[key];
-        const existingOverride = existing.overrides && existing.overrides[slot] || {};
-        const incomingOverride = normalizeProviderOverride(slot, profile, existing.id);
-        // canonical 档案/activeOverrides 是新事实来源；legacy profile 只
-        // 用来补齐缺失连接参数，不能把刚提交的模型（例如 bound-face）
-        // 又覆盖回旧投影。空值也不参与补齐，避免误清除已有配置。
-        const missingOverride = {};
-        Object.keys(incomingOverride).forEach((field) => {
-          if (field === "provider" || field === "providerKey") return;
-          if (field === "apiKey" && !normalizeApiKey(incomingOverride[field])) return;
-          if (!hasOwn(existingOverride, field)
-              || (field === "apiKey" && !normalizeApiKey(existingOverride[field]))) {
-            missingOverride[field] = incomingOverride[field];
-          }
-        });
-        registry.providers[key] = mergeProviderRecord(existing, {
-          providerKey: key,
-          id: existing.id || profile.provider || rawId,
-          name: existing.name || providerDefaultName(existing.id || rawId),
-          baseUrl: existing.baseUrl || profile.baseUrl || "",
-          overrides: Object.keys(missingOverride).length
-            ? { [slot]: missingOverride }
-            : {}
-        });
-        registry.providers[key].providerKey = key;
-      }
-      if (slot === "video" && registry.providers[key].overrides
-          && registry.providers[key].overrides[slot]) {
-        delete registry.providers[key].overrides[slot].apiKey;
-      }
-    });
   });
   return registry;
 }
@@ -9044,15 +8072,7 @@ function validateProviderRegistry(registryValue, activeValue, options = {}) {
         identities[identity] = key;
       }
     });
-    // 迁移自旧 labels/profile 的受保护占位档案可能暂时没有完整能力；
-    // 它们只用于兼容历史引用，不能按新建自定义档案的“至少一项能力”
-    // 规则拦截整个配置保存。新建/可删除自定义档案仍严格校验。
-    if (
-      !record.builtIn
-      && !record.protected
-      && !record.migrated
-      && !PROVIDER_CAPABILITY_SLOTS.some((slot) => providerHasCapability(record, slot))
-    ) {
+    if (!record.builtIn && !PROVIDER_CAPABILITY_SLOTS.some((slot) => providerHasCapability(record, slot))) {
       errors.push(`服务商 ${id || providerKey || key} 至少要配置一项能力`);
     }
     if (record.baseUrl && !isValidHttpUrl(record.baseUrl)) {
@@ -9103,13 +8123,6 @@ function normalizeRuntimePatch(input = {}) {
       { includeEmpty: false }
     );
   }
-  if (hasOwn(source, "activeBackups")) {
-    normalized.activeBackups = normalizeActiveBackups(
-      source.activeBackups,
-      normalized.providerRegistry || normalizeProviderRegistry({}, { includeDefaults: true }),
-      { includeEmpty: false }
-    );
-  }
   if (hasOwn(source, "activeOverrides") && isProviderObject(source.activeOverrides)) {
     normalized.activeOverrides = {};
     PROVIDER_CAPABILITY_SLOTS.forEach((slot) => {
@@ -9136,22 +8149,11 @@ function normalizeRuntimePatch(input = {}) {
     const section = source[slot];
     return isProviderObject(section)
       && (hasOwn(section, "provider") || hasOwn(section, "providerKey"));
-  }) || PROVIDER_BACKUP_SLOTS.some((slot) => {
-    const section = source[slot];
-    return isProviderObject(section)
-      && (hasOwn(section, "provider") || hasOwn(section, "providerKey"));
   });
   if (hasOwn(source, "providerRegistry") || hasProviderSelectionPatch) {
     const migrated = migrateLegacyProviderRegistry(normalized, source);
     normalized.providerRegistry = migrated.value.providerRegistry;
     normalized.activeProviders = migrated.value.activeProviders;
-    // 没有备用槽位的旧 partial patch 不要挂一个值为 undefined 的
-    // activeBackups 属性；否则旧校验会把它误判成“必须是对象”。
-    if (isProviderObject(migrated.value.activeBackups)) {
-      normalized.activeBackups = migrated.value.activeBackups;
-    } else {
-      delete normalized.activeBackups;
-    }
     normalized.providerLabels = migrated.value.providerLabels;
     normalized.providerProfiles = migrated.value.providerProfiles;
   }
@@ -9190,47 +8192,13 @@ function validateCostNumber(value, field) {
   return "";
 }
 
-function validateRuntimePatch(patch, options = {}) {
+function validateRuntimePatch(patch) {
   const errors = [];
-  if (patch && hasOwn(patch, "activeBackups") && !isProviderObject(patch.activeBackups)) {
-    errors.push("activeBackups 必须是对象");
-  }
   if (patch && hasOwn(patch, "providerRegistry")) {
     errors.push(...validateProviderRegistry(
       patch.providerRegistry,
       patch.activeProviders
     ));
-    if (hasOwn(patch, "activeBackups")) {
-      const backupRegistry = normalizeProviderRegistry(patch.providerRegistry, {
-        includeDefaults: true
-      });
-      const activeBackups = normalizeActiveBackups(
-        patch.activeBackups,
-        backupRegistry,
-        { includeEmpty: false }
-      );
-      Object.keys(activeBackups).forEach((slot) => {
-        const key = activeBackups[slot];
-        if (key && !hasOwn(backupRegistry.providers, key)) {
-          errors.push(`activeBackups.${slot} 指向不存在的服务商`);
-        }
-      });
-    }
-  }
-  if (
-    patch
-    && hasOwn(patch, "activeBackups")
-    && isProviderObject(patch.activeBackups)
-  ) {
-    PROVIDER_BACKUP_SLOTS.forEach((slot) => {
-      const value = patch.activeBackups[slot];
-      if (value === undefined || value === null || value === "") return;
-      const text = providerText(
-        isProviderObject(value) ? value.providerKey || value.id || value.provider : value,
-        160
-      );
-      if (!text) errors.push(`activeBackups.${slot} 引用不能为空`);
-    });
   }
   const face = patch.face || {};
   const faceBackup = patch.faceBackup || {};
@@ -9238,7 +8206,6 @@ function validateRuntimePatch(patch, options = {}) {
   const analysisBackup = patch.analysisBackup || {};
   const image = patch.image || {};
   const imageBackup = patch.imageBackup || {};
-  const tencentFaceFusion = patch.tencentFaceFusion || {};
   const video = patch.video || {};
   const videoBackup = patch.videoBackup || {};
   const points = patch.points || {};
@@ -9291,89 +8258,6 @@ function validateRuntimePatch(patch, options = {}) {
   ) {
     errors.push("imageBackup.mode 只能是 generations 或 edits");
   }
-  [
-    ["faceBackup.enabled", faceBackup.enabled],
-    ["analysisBackup.enabled", analysisBackup.enabled]
-  ].forEach(([field, value]) => {
-    if (value !== undefined && typeof value !== "boolean") {
-      errors.push(`${field} 必须是布尔值`);
-    }
-  });
-  [
-    ["faceBackup.timeoutMs", faceBackup.timeoutMs],
-    ["analysisBackup.timeoutMs", analysisBackup.timeoutMs]
-  ].forEach(([field, value]) => {
-    if (
-      value !== undefined
-      && (
-        !Number.isFinite(Number(value))
-        || Number(value) < 5000
-        || Number(value) > 60000
-      )
-    ) {
-      errors.push(`${field} 必须在 5000～60000 之间`);
-    }
-  });
-  if (
-    tencentFaceFusion.endpoint !== undefined
-    && (
-      !isValidHttpUrl(tencentFaceFusion.endpoint)
-      || !/^https:\/\//i.test(String(tencentFaceFusion.endpoint).trim())
-    )
-  ) {
-    errors.push("tencentFaceFusion.endpoint 必须是 HTTPS 地址");
-  }
-  if (
-    tencentFaceFusion.apiVersion !== undefined
-    && !/^\d{4}-\d{2}-\d{2}$/.test(String(tencentFaceFusion.apiVersion).trim())
-  ) {
-    errors.push("tencentFaceFusion.apiVersion 必须是 YYYY-MM-DD 格式");
-  }
-  [
-    ["tencentFaceFusion.secretId", tencentFaceFusion.secretId],
-    ["tencentFaceFusion.secretKey", tencentFaceFusion.secretKey],
-    ["tencentFaceFusion.region", tencentFaceFusion.region],
-    ["tencentFaceFusion.endpoint", tencentFaceFusion.endpoint],
-    ["tencentFaceFusion.apiVersion", tencentFaceFusion.apiVersion],
-    ["tencentFaceFusion.action", tencentFaceFusion.action],
-    ["tencentFaceFusion.model", tencentFaceFusion.model]
-  ].forEach(([field, value]) => {
-    if (value !== undefined && String(value).length > 256) {
-      errors.push(`${field} 长度不能超过 256`);
-    }
-  });
-  if (
-    tencentFaceFusion.swapModelType !== undefined
-    && (
-      !Number.isFinite(Number(tencentFaceFusion.swapModelType))
-      || Math.round(Number(tencentFaceFusion.swapModelType))
-        !== Number(tencentFaceFusion.swapModelType)
-      || Number(tencentFaceFusion.swapModelType) < 1
-      || Number(tencentFaceFusion.swapModelType) > 9
-    )
-  ) {
-    errors.push("tencentFaceFusion.swapModelType 必须是 1～9 的整数");
-  }
-  if (
-    tencentFaceFusion.timeoutMs !== undefined
-    && (
-      !Number.isFinite(Number(tencentFaceFusion.timeoutMs))
-      || Number(tencentFaceFusion.timeoutMs) < 5000
-      || Number(tencentFaceFusion.timeoutMs) > 120000
-    )
-  ) {
-    errors.push("tencentFaceFusion.timeoutMs 必须在 5000～120000 之间");
-  }
-  if (
-    tencentFaceFusion.maxImageBytes !== undefined
-    && (
-      !Number.isFinite(Number(tencentFaceFusion.maxImageBytes))
-      || Number(tencentFaceFusion.maxImageBytes) < 256 * 1024
-      || Number(tencentFaceFusion.maxImageBytes) > 8 * 1024 * 1024
-    )
-  ) {
-    errors.push("tencentFaceFusion.maxImageBytes 必须在 262144～8388608 之间");
-  }
   if (
     face.timeoutMs !== undefined
     && (!Number.isFinite(Number(face.timeoutMs))
@@ -9390,6 +8274,19 @@ function validateRuntimePatch(patch, options = {}) {
   ) {
     errors.push("analysis.timeoutMs 必须在 5000～60000 之间");
   }
+  [
+    ["faceBackup.timeoutMs", faceBackup.timeoutMs],
+    ["analysisBackup.timeoutMs", analysisBackup.timeoutMs]
+  ].forEach(([field, value]) => {
+    if (
+      value !== undefined
+      && (!Number.isFinite(Number(value))
+        || Number(value) < 5000
+        || Number(value) > 60000)
+    ) {
+      errors.push(`${field} 必须在 5000～60000 之间`);
+    }
+  });
   if (image.timeoutMs !== undefined && (!Number.isFinite(Number(image.timeoutMs)) || Number(image.timeoutMs) < 5000 || Number(image.timeoutMs) > 180000)) {
     errors.push("image.timeoutMs 必须在 5000～180000 之间");
   }
@@ -9419,39 +8316,8 @@ function validateRuntimePatch(patch, options = {}) {
   if (video.timeoutMs !== undefined && (!Number.isFinite(Number(video.timeoutMs)) || Number(video.timeoutMs) < 10000 || Number(video.timeoutMs) > 900000)) {
     errors.push("video.timeoutMs 必须在 10000～900000 之间");
   }
-  if (
-    videoBackup.timeoutMs !== undefined
-    && (
-      !Number.isFinite(Number(videoBackup.timeoutMs))
-      || Number(videoBackup.timeoutMs) < 10000
-      || Number(videoBackup.timeoutMs) > 900000
-    )
-  ) {
+  if (videoBackup.timeoutMs !== undefined && (!Number.isFinite(Number(videoBackup.timeoutMs)) || Number(videoBackup.timeoutMs) < 10000 || Number(videoBackup.timeoutMs) > 900000)) {
     errors.push("videoBackup.timeoutMs 必须在 10000～900000 之间");
-  }
-  if (
-    overrideBoolean(videoBackup, "enabled", false)
-    && normalizeAdminProviderId(video.provider)
-    && normalizeAdminProviderId(video.provider)
-      === normalizeAdminProviderId(videoBackup.provider)
-  ) {
-    errors.push("videoBackup.provider 不能和 video.provider 相同，请选择另一家备用服务商");
-  }
-  if (
-    overrideBoolean(faceBackup, "enabled", false)
-    && faceBackup.provider
-    && normalizeAdminProviderId(face.provider)
-      === normalizeAdminProviderId(faceBackup.provider)
-  ) {
-    errors.push("faceBackup.provider 不能和 face.provider 相同，请选择另一家备用服务商");
-  }
-  if (
-    overrideBoolean(analysisBackup, "enabled", false)
-    && analysisBackup.provider
-    && normalizeAdminProviderId(analysis.provider)
-      === normalizeAdminProviderId(analysisBackup.provider)
-  ) {
-    errors.push("analysisBackup.provider 不能和 analysis.provider 相同，请选择另一家备用服务商");
   }
   [
     ["face.provider", face.provider],
@@ -9481,6 +8347,15 @@ function validateRuntimePatch(patch, options = {}) {
   ].forEach(([field, value]) => {
     if (value !== undefined && String(value).length > 120) errors.push(`${field} 长度不能超过 120`);
   });
+  [
+    ["faceBackup.enabled", faceBackup.enabled],
+    ["analysisBackup.enabled", analysisBackup.enabled],
+    ["videoBackup.enabled", videoBackup.enabled]
+  ].forEach(([field, value]) => {
+    if (value !== undefined && typeof value !== "boolean") {
+      errors.push(`${field} 必须是布尔值`);
+    }
+  });
   if (
     image.resolution !== undefined
     && image.resolution !== ""
@@ -9495,32 +8370,17 @@ function validateRuntimePatch(patch, options = {}) {
   ) {
     errors.push("imageBackup.resolution 只能是 1K、2K 或 4K");
   }
-  if (
-    imageBackup.enabled !== undefined
-    && typeof imageBackup.enabled !== "boolean"
-  ) {
-    errors.push("imageBackup.enabled 必须是布尔值");
-  }
-  if (
-    videoBackup.enabled !== undefined
-    && typeof videoBackup.enabled !== "boolean"
-  ) {
-    errors.push("videoBackup.enabled 必须是布尔值");
-  }
   [
-    ["points.dailyFreeLimit", points.dailyFreeLimit, 0, 100],
-    ["points.imageCost", points.imageCost, 0, 100000],
-    ["points.videoCost", points.videoCost, 0, 100000],
-    ["points.checkinPoints", points.checkinPoints, 0, 100000],
-    ["points.streakBonus", points.streakBonus, 0, 100000],
-    ["points.streakDays", points.streakDays, 1, 30]
-  ].forEach(([field, value, minimum, maximum]) => {
-    if (
-      value !== undefined
-      && (!Number.isFinite(Number(value)) || Number(value) < minimum || Number(value) > maximum)
-    ) {
-      errors.push(`${field} 必须在 ${minimum}～${maximum} 之间`);
-    }
+    ["dailyFreeLimit", points.dailyFreeLimit],
+    ["imageCost", points.imageCost],
+    ["videoCost", points.videoCost],
+    ["checkinPoints", points.checkinPoints],
+    ["streakBonus", points.streakBonus],
+    ["streakDays", points.streakDays]
+  ].forEach(([key, value]) => {
+    if (value === undefined) return;
+    const error = pointNumberValidationError(value, key);
+    if (error) errors.push(error);
   });
   [
     ["points.promoStartDate", points.promoStartDate],
@@ -9645,111 +8505,13 @@ function validateRuntimePatch(patch, options = {}) {
       errors.push(`${field} 必须是 ${minimum}～${maximum} 的整数`);
     }
   });
-  if (options.skipProviderMetadata !== true) {
-    if (hasOwn(patch, "providerLabels")) {
-      errors.push(...validateAdminProviderLabels(patch.providerLabels, patch));
-    }
-    if (
-      hasOwn(patch, "providerProfiles")
-      && !isAdminProviderObject(patch.providerProfiles)
-    ) {
-      errors.push("providerProfiles 必须是对象");
-    } else if (hasOwn(patch, "providerProfiles")) {
-      const profiles = normalizeAdminProviderProfiles(patch.providerProfiles);
-      ADMIN_PROVIDER_PROFILE_SECTIONS.forEach((section) => {
-        Object.keys(profiles[section] || {}).forEach((providerId) => {
-          const profileErrors = validateRuntimePatch({
-            [section]: profiles[section][providerId]
-          }, {
-            skipProviderMetadata: true
-          });
-          profileErrors.forEach((message) => {
-            const sectionPrefix = `${section}.`;
-            errors.push(
-              message.startsWith(sectionPrefix)
-                ? `providerProfiles.${section}.${providerId}.${message.slice(sectionPrefix.length)}`
-                : `providerProfiles.${section}.${providerId}：${message}`
-            );
-          });
-        });
-      });
-    }
-  }
   return errors;
 }
 
 function mergeLegacyRuntimeConfig(current, patch) {
   const existing = current && typeof current === "object" ? current : {};
-  const submitted = patch && typeof patch === "object" ? patch : {};
-  const existingProfiles = syncAdminTopLevelProviderProfiles(
-    existing,
-    existing.providerProfiles
-  );
-  let providerProfiles = mergeAdminProviderProfiles(
-    existingProfiles,
-    submitted.providerProfiles
-  );
-  const faceConfig = mergeAdminRuntimeProviderSection(
-    "face",
-    existing.face,
-    submitted.face,
-    providerProfiles
-  );
-  const faceBackupConfig = mergeAdminRuntimeProviderSection(
-    "faceBackup",
-    existing.faceBackup,
-    submitted.faceBackup,
-    providerProfiles,
-    "face"
-  );
-  const analysisConfig = mergeAdminRuntimeProviderSection(
-    "analysis",
-    existing.analysis,
-    submitted.analysis,
-    providerProfiles
-  );
-  const analysisBackupConfig = mergeAdminRuntimeProviderSection(
-    "analysisBackup",
-    existing.analysisBackup,
-    submitted.analysisBackup,
-    providerProfiles,
-    "analysis"
-  );
-  const imageConfig = mergeAdminRuntimeProviderSection(
-    "image",
-    existing.image,
-    submitted.image,
-    providerProfiles
-  );
-  const imageBackupConfig = mergeAdminRuntimeProviderSection(
-    "imageBackup",
-    existing.imageBackup,
-    submitted.imageBackup,
-    providerProfiles
-  );
-  const videoConfig = mergeAdminRuntimeProviderSection(
-    "video",
-    existing.video,
-    submitted.video,
-    providerProfiles
-  );
-  const videoBackupConfig = mergeAdminRuntimeProviderSection(
-    "videoBackup",
-    existing.videoBackup,
-    submitted.videoBackup,
-    providerProfiles,
-    "video"
-  );
-  providerProfiles = syncAdminTopLevelProviderProfiles({
-    face: faceConfig,
-    analysis: analysisConfig,
-    image: imageConfig,
-    imageBackup: imageBackupConfig,
-    video: videoConfig,
-    videoBackup: videoBackupConfig
-  }, providerProfiles);
   const existingCosts = existing.costs || {};
-  const patchCosts = submitted.costs || {};
+  const patchCosts = patch.costs || {};
   const existingImageCosts = existingCosts.image || {};
   const patchImageCosts = patchCosts.image || {};
   const existingImageProviders = existingImageCosts.providers || {};
@@ -9773,31 +8535,25 @@ function mergeLegacyRuntimeConfig(current, patch) {
       }
     );
   });
-  const result = {
-    providerLabels: mergeAdminProviderLabels(
-      existing.providerLabels,
-      submitted.providerLabels
-    ),
-    providerProfiles,
-    face: faceConfig,
-    faceBackup: faceBackupConfig,
-    analysis: analysisConfig,
-    analysisBackup: analysisBackupConfig,
-    image: imageConfig,
-    imageBackup: imageBackupConfig,
-    tencentFaceFusion: Object.assign(
+  return {
+    face: Object.assign({}, existing.face || {}, patch.face || {}),
+    faceBackup: Object.assign({}, existing.faceBackup || {}, patch.faceBackup || {}),
+    analysis: Object.assign({}, existing.analysis || {}, patch.analysis || {}),
+    analysisBackup: Object.assign({}, existing.analysisBackup || {}, patch.analysisBackup || {}),
+    image: Object.assign({}, existing.image || {}, patch.image || {}),
+    imageBackup: Object.assign(
       {},
-      existing.tencentFaceFusion || {},
-      submitted.tencentFaceFusion || {}
+      existing.imageBackup || {},
+      patch.imageBackup || {}
     ),
-    video: videoConfig,
-    videoBackup: videoBackupConfig,
-    points: Object.assign({}, existing.points || {}, submitted.points || {}),
+    video: Object.assign({}, existing.video || {}, patch.video || {}),
+    videoBackup: Object.assign({}, existing.videoBackup || {}, patch.videoBackup || {}),
+    points: Object.assign({}, existing.points || {}, patch.points || {}),
     generationQueue: generationQueueMonitor.normalizeQueueSettings(
       Object.assign(
         {},
         existing.generationQueue || {},
-        submitted.generationQueue || {}
+        patch.generationQueue || {}
       )
     ),
     costs: Object.assign({}, existingCosts, patchCosts, {
@@ -9820,14 +8576,6 @@ function mergeLegacyRuntimeConfig(current, patch) {
       })
     })
   };
-  if (hasOwn(existing, "activeBackups") || hasOwn(submitted, "activeBackups")) {
-    result.activeBackups = Object.assign(
-      {},
-      normalizeActiveBackups(existing.activeBackups, undefined, { includeEmpty: false }),
-      normalizeActiveBackups(submitted.activeBackups, undefined, { includeEmpty: false })
-    );
-  }
-  return result;
 }
 
 function mergeRuntimeConfig(current, patch) {
@@ -9836,13 +8584,9 @@ function mergeRuntimeConfig(current, patch) {
   const legacy = mergeLegacyRuntimeConfig(existing, submitted);
   const hasDirectorySignal = (value) => {
     if (!isProviderObject(value)) return false;
-    if (
-      hasOwn(value, "providerRegistry")
-      || hasOwn(value, "activeProviders")
-      || hasOwn(value, "activeBackups")
-    ) return true;
+    if (hasOwn(value, "providerRegistry") || hasOwn(value, "activeProviders")) return true;
     if (hasOwn(value, "providerLabels") || hasOwn(value, "providerProfiles")) return true;
-    return PROVIDER_CAPABILITY_SLOTS.concat(PROVIDER_BACKUP_SLOTS).some((slot) => {
+    return PROVIDER_CAPABILITY_SLOTS.some((slot) => {
       const section = value[slot];
       return isProviderObject(section)
         && (hasOwn(section, "provider") || hasOwn(section, "providerKey"));
@@ -9858,28 +8602,22 @@ function mergeRuntimeConfig(current, patch) {
   const existingDirectory = existing.providerRegistry
     ? {
         providerRegistry: existing.providerRegistry,
-        activeProviders: existing.activeProviders,
-        activeBackups: existing.activeBackups
+        activeProviders: existing.activeProviders
       }
     : migrateLegacyProviderRegistry(existing, existing).value;
   const submittedDirectory = submittedHasDirectory && submitted.providerRegistry
     ? {
         providerRegistry: submitted.providerRegistry,
-        activeProviders: submitted.activeProviders,
-        activeBackups: submitted.activeBackups
+        activeProviders: submitted.activeProviders
       }
     : submittedHasDirectory
-      ? (hasOwn(submitted, "activeProviders") || hasOwn(submitted, "activeBackups"))
+      ? hasOwn(submitted, "activeProviders")
         // 管理页保存功能卡时只提交 activeProviders/activeOverrides，
         // 目录档案仍以事务中读取的 existingDirectory 为准；不能把未知的
         // 自定义 UUID 交给“旧 section 迁移”后又被默认服务商覆盖。
-        ? {
-            providerRegistry: {},
-            activeProviders: submitted.activeProviders,
-            activeBackups: submitted.activeBackups
-          }
+        ? { providerRegistry: {}, activeProviders: submitted.activeProviders }
         : migrateLegacyProviderRegistry(submitted, submitted).value
-      : { providerRegistry: {}, activeProviders: {}, activeBackups: {} };
+      : { providerRegistry: {}, activeProviders: {} };
   const registryMerge = mergeProviderRegistry(
     existingDirectory,
     submittedDirectory
@@ -9904,40 +8642,21 @@ function mergeRuntimeConfig(current, patch) {
     registryMerge.activeProviders,
     compatibilityActiveOverrides
   );
-  const registryWithBackupOverrides = mergeActiveBackupOverrides(
-    registryWithActiveOverrides,
-    registryMerge.activeBackups,
-    submitted
-  );
-  const registryWithLegacyProfiles = mergeLegacyProviderProfilesIntoRegistry(
-    registryWithBackupOverrides,
-    legacy.providerProfiles
-  );
   const activeFromLegacy = migrateLegacyProviderRegistry(
     Object.assign({}, legacy, {
-      providerRegistry: registryWithLegacyProfiles,
-      activeProviders: Object.assign({}, registryMerge.activeProviders),
-      ...(hasOwn(existing, "activeBackups") || hasOwn(submitted, "activeBackups")
-        ? { activeBackups: Object.assign({}, registryMerge.activeBackups || {}) }
-        : {})
+      providerRegistry: registryWithActiveOverrides,
+      activeProviders: Object.assign({}, registryMerge.activeProviders)
     }),
     Object.assign({}, existing, submitted)
   ).value;
   const result = Object.assign({}, legacy, activeFromLegacy, {
-      providerRegistry: registryWithLegacyProfiles,
-      activeProviders: Object.assign(
-        {},
-        activeFromLegacy.activeProviders || {},
-        registryMerge.activeProviders || {}
-      )
-  });
-  if (hasOwn(existing, "activeBackups") || hasOwn(submitted, "activeBackups")) {
-    result.activeBackups = Object.assign(
+    providerRegistry: registryWithActiveOverrides,
+    activeProviders: Object.assign(
       {},
-      activeFromLegacy.activeBackups || {},
-      registryMerge.activeBackups || {}
-    );
-  }
+      activeFromLegacy.activeProviders || {},
+      registryMerge.activeProviders || {}
+    )
+  });
   const projected = buildLegacyProjectionFromProviderRegistry(result);
   // 兼容旧 helper：仅提交 providerLabels 时不凭空增加内置标签；
   // canonical registry 本身仍保留内置记录，管理页读取时再显式补默认标签。
@@ -10324,14 +9043,6 @@ function migrateLegacyImageProviderConfig(runtime, rawConfig) {
   ) {
     legacyBackup.apiKey = legacyApiKey;
   }
-  if (!hasOwn(legacyBackup, "enabled")) {
-    legacyBackup.enabled = Boolean(
-      normalizeApiKey(legacyBackup.apiKey)
-      && legacyBackup.provider
-      && legacyBackup.model
-      && (legacyBackup.baseUrl || legacyBackup.endpoint)
-    );
-  }
   legacyBackup.timeoutMs = 150000;
   legacyBackup.maxRetries = 0;
   legacyBackup.retryEnabled = false;
@@ -10350,7 +9061,7 @@ function migrateLegacyImageProviderConfig(runtime, rawConfig) {
   });
   const primary = Object.assign({}, primaryDefaults, {
     provider: "xingju",
-    model: "jw-wy-gpt-image-2",
+    model: "jw-gpt-image-2",
     timeoutMs: 150000,
     maxRetries: 1,
     retryEnabled: true,
@@ -10423,28 +9134,6 @@ function guardAdminImageProviderConfig(current, merged, patch) {
   };
 }
 
-function redactAdminProviderProfiles(value, defaultsValue = {}) {
-  const profiles = normalizeAdminProviderProfiles(value);
-  const defaults = normalizeAdminProviderProfiles(defaultsValue);
-  const result = {};
-  ADMIN_PROVIDER_PROFILE_SECTIONS.forEach((section) => {
-    const rows = {};
-    Object.keys(profiles[section] || {}).forEach((providerId) => {
-      const profile = Object.assign({}, profiles[section][providerId]);
-      const defaultProfile = defaults[section] && defaults[section][providerId] || {};
-      const apiKeyConfigured = Boolean(
-        normalizeApiKey(profile.apiKey)
-        || normalizeApiKey(defaultProfile.apiKey)
-      );
-      profile.apiKey = "";
-      profile.apiKeyConfigured = apiKeyConfigured;
-      rows[providerId] = profile;
-    });
-    result[section] = sortAdminProviderObject(rows);
-  });
-  return result;
-}
-
 function redactConfig(config, defaults) {
   const face = config.face || {};
   const faceBackup = config.faceBackup || {};
@@ -10452,27 +9141,15 @@ function redactConfig(config, defaults) {
   const analysisBackup = config.analysisBackup || {};
   const image = config.image || {};
   const imageBackup = config.imageBackup || {};
-  const providerLabels = normalizeAdminProviderLabels(
-    config.providerLabels,
-    { includeDefaults: true }
-  );
-  const tencentFaceFusion = config.tencentFaceFusion || {};
   const video = config.video || {};
   const videoBackup = config.videoBackup || {};
   const points = config.points || {};
+  const normalizedPoints = resolvePointsConfig({ points });
   const costs = resolveCostConfig(config.costs || {}, {
     imageProvider: image.provider || defaults.image && defaults.image.provider
   });
   const generationQueue = generationQueueMonitor.normalizeQueueSettings(
     config.generationQueue
-  );
-  const providerProfiles = syncAdminTopLevelProviderProfiles(
-    config,
-    config.providerProfiles
-  );
-  const defaultProviderProfiles = syncAdminTopLevelProviderProfiles(
-    defaults,
-    defaults.providerProfiles
   );
   const redactedImageProviders = {};
   const imageProviderCosts = costs.image && costs.image.providers
@@ -10491,11 +9168,6 @@ function redactConfig(config, defaults) {
     }
   });
   return {
-    providerLabels,
-    providerProfiles: redactAdminProviderProfiles(
-      providerProfiles,
-      defaultProviderProfiles
-    ),
     face: {
       provider: face.provider || "",
       providerKey: face.providerKey || providerStableKey(face.provider),
@@ -10504,10 +9176,7 @@ function redactConfig(config, defaults) {
       apiKey: "",
       model: face.faceModel || face.model || "",
       timeoutMs: Number(face.timeoutMs || 0),
-      apiKeyConfigured: Boolean(
-        normalizeApiKey(face.apiKey)
-        || normalizeApiKey(defaults.face && defaults.face.apiKey)
-      )
+      apiKeyConfigured: Boolean(face.apiKey || defaults.face && defaults.face.apiKey)
     },
     faceBackup: {
       enabled: Boolean(faceBackup.enabled),
@@ -10520,8 +9189,8 @@ function redactConfig(config, defaults) {
       timeoutMs: Number(faceBackup.timeoutMs || 0),
       configured: Boolean(faceBackup.configured),
       apiKeyConfigured: Boolean(
-        normalizeApiKey(faceBackup.apiKey)
-        || normalizeApiKey(defaults.faceBackup && defaults.faceBackup.apiKey)
+        faceBackup.apiKey
+        || defaults.faceBackup && defaults.faceBackup.apiKey
       )
     },
     analysis: {
@@ -10532,10 +9201,7 @@ function redactConfig(config, defaults) {
       apiKey: "",
       model: analysis.model || "",
       timeoutMs: Number(analysis.timeoutMs || 0),
-      apiKeyConfigured: Boolean(
-        normalizeApiKey(analysis.apiKey)
-        || normalizeApiKey(defaults.analysis && defaults.analysis.apiKey)
-      )
+      apiKeyConfigured: Boolean(analysis.apiKey || defaults.analysis && defaults.analysis.apiKey)
     },
     analysisBackup: {
       enabled: Boolean(analysisBackup.enabled),
@@ -10548,8 +9214,8 @@ function redactConfig(config, defaults) {
       timeoutMs: Number(analysisBackup.timeoutMs || 0),
       configured: Boolean(analysisBackup.configured),
       apiKeyConfigured: Boolean(
-        normalizeApiKey(analysisBackup.apiKey)
-        || normalizeApiKey(defaults.analysisBackup && defaults.analysisBackup.apiKey)
+        analysisBackup.apiKey
+        || defaults.analysisBackup && defaults.analysisBackup.apiKey
       )
     },
     image: {
@@ -10570,10 +9236,7 @@ function redactConfig(config, defaults) {
       maxRetries: Number(image.maxRetries || 0),
       retryEnabled: Boolean(image.retryEnabled),
       retryPreferenceVersion: imageRetryPreferenceVersion(image),
-      apiKeyConfigured: Boolean(
-        normalizeApiKey(image.apiKey)
-        || normalizeApiKey(defaults.image && defaults.image.apiKey)
-      )
+      apiKeyConfigured: Boolean(image.apiKey || defaults.image && defaults.image.apiKey)
     },
     imageBackup: {
       enabled: Boolean(imageBackup.enabled),
@@ -10599,26 +9262,9 @@ function redactConfig(config, defaults) {
       retryEnabled: Boolean(imageBackup.retryEnabled),
       retryPreferenceVersion: imageRetryPreferenceVersion(imageBackup),
       apiKeyConfigured: Boolean(
-        normalizeApiKey(imageBackup.apiKey)
-        || normalizeApiKey(defaults.imageBackup && defaults.imageBackup.apiKey)
-      )
-    },
-    tencentFaceFusion: {
-      secretId: "",
-      secretKey: "",
-      region: tencentFaceFusion.region || "ap-guangzhou",
-      endpoint: tencentFaceFusion.endpoint
-        || "https://facefusion.tencentcloudapi.com",
-      apiVersion: tencentFaceFusion.apiVersion || "2022-09-27",
-      action: tencentFaceFusion.action || "FuseFaceUltra",
-      model: tencentFaceFusion.model || "FuseFaceUltra",
-      swapModelType: Number(tencentFaceFusion.swapModelType) || 4,
-      logoAdd: Boolean(tencentFaceFusion.logoAdd),
-      timeoutMs: Number(tencentFaceFusion.timeoutMs) || 75000,
-      maxImageBytes: Number(tencentFaceFusion.maxImageBytes) || 5 * 1024 * 1024,
-      configured: Boolean(
-        tencentFaceFusion.secretId
-        && tencentFaceFusion.secretKey
+        imageBackup.apiKey
+        || defaults.imageBackup
+        && defaults.imageBackup.apiKey
       )
     },
     video: {
@@ -10634,10 +9280,7 @@ function redactConfig(config, defaults) {
       resolution: video.resolution || "",
       aspectRatio: video.aspectRatio || "",
       timeoutMs: Number(video.timeoutMs || 0),
-      apiKeyConfigured: Boolean(
-        normalizeApiKey(video.apiKey)
-        || normalizeApiKey(defaults.video && defaults.video.apiKey)
-      )
+      apiKeyConfigured: Boolean(video.apiKey || defaults.video && defaults.video.apiKey)
     },
     videoBackup: {
       enabled: Boolean(videoBackup.enabled),
@@ -10655,20 +9298,20 @@ function redactConfig(config, defaults) {
       timeoutMs: Number(videoBackup.timeoutMs || 0),
       configured: Boolean(videoBackup.configured),
       apiKeyConfigured: Boolean(
-        normalizeApiKey(videoBackup.apiKey)
-        || normalizeApiKey(defaults.videoBackup && defaults.videoBackup.apiKey)
+        videoBackup.apiKey
+        || defaults.videoBackup && defaults.videoBackup.apiKey
       )
     },
     points: {
-      dailyFreeLimit: Number(points.dailyFreeLimit || 0),
-      imageCost: Number(points.imageCost || 0),
-      videoCost: Number(points.videoCost || 0),
-      checkinPoints: Number(points.checkinPoints || 0),
-      streakBonus: Number(points.streakBonus || 0),
-      streakDays: Number(points.streakDays || 0),
-      promoStartDate: points.promoStartDate || "",
-      promoEndDate: points.promoEndDate || "",
-      timeZone: points.timeZone || POINTS_TIME_ZONE
+      dailyFreeLimit: normalizedPoints.dailyFreeLimit,
+      imageCost: normalizedPoints.imageCost,
+      videoCost: normalizedPoints.videoCost,
+      checkinPoints: normalizedPoints.checkinPoints,
+      streakBonus: normalizedPoints.streakBonus,
+      streakDays: normalizedPoints.streakDays,
+      promoStartDate: normalizedPoints.promoStartDate,
+      promoEndDate: normalizedPoints.promoEndDate,
+      timeZone: normalizedPoints.timeZone
     },
     costs: {
       currency: costs.currency,
@@ -10801,35 +9444,6 @@ function migrateLegacyModelCostConfig(runtime, rawConfig) {
   };
 }
 
-function migrateLegacyAdminProviderProfiles(runtime, rawConfig) {
-  const normalized = runtime && typeof runtime === "object"
-    ? runtime
-    : normalizeRuntimePatch(rawConfig);
-  const providerLabels = normalizeAdminProviderLabels(
-    normalized && normalized.providerLabels,
-    { includeDefaults: true }
-  );
-  const providerProfiles = syncAdminTopLevelProviderProfiles(
-    normalized,
-    normalized && normalized.providerProfiles
-  );
-  const rawLabels = normalizeAdminProviderLabels(
-    rawConfig && rawConfig.providerLabels
-  );
-  const rawProfiles = normalizeAdminProviderProfiles(
-    rawConfig && rawConfig.providerProfiles
-  );
-  const migrated = JSON.stringify(providerLabels) !== JSON.stringify(rawLabels)
-    || JSON.stringify(providerProfiles) !== JSON.stringify(rawProfiles);
-  return {
-    value: Object.assign({}, normalized, {
-      providerLabels,
-      providerProfiles
-    }),
-    migrated
-  };
-}
-
 async function loadAdminRuntimeConfig(force = false, options = {}) {
   const allowMigrations = options.allowMigrations !== false;
   const useCache = options.cache !== false;
@@ -10864,12 +9478,8 @@ async function loadAdminRuntimeConfig(force = false, options = {}) {
       providerMigration.value,
       rawConfig
     );
-    const profileMigration = migrateLegacyAdminProviderProfiles(
-      costMigration.value,
-      rawConfig
-    );
     const registryMigration = migrateLegacyProviderRegistry(
-      profileMigration.value,
+      costMigration.value,
       rawConfig
     );
     let migrationApplied = false;
@@ -10885,7 +9495,6 @@ async function loadAdminRuntimeConfig(force = false, options = {}) {
         retryMigration.migrated
         || providerMigration.migrated
         || costMigration.migrated
-        || profileMigration.migrated
         || registryMigration.migrated
       )
       && allowMigrations
@@ -10900,41 +9509,67 @@ async function loadAdminRuntimeConfig(force = false, options = {}) {
           migrationData.image = costMigration.value.image;
         }
         if (costMigration.migrated) {
-          migrationData.costs = profileMigration.value.costs;
-        }
-        if (profileMigration.migrated) {
-          migrationData.providerLabels = profileMigration.value.providerLabels;
-          migrationData.providerProfiles = profileMigration.value.providerProfiles;
+          migrationData.costs = costMigration.value.costs;
         }
         if (registryMigration.migrated) {
           migrationData.providerRegistry = registryMigration.value.providerRegistry;
           migrationData.activeProviders = registryMigration.value.activeProviders;
           migrationData.providerLabels = registryMigration.value.providerLabels;
           migrationData.providerProfiles = registryMigration.value.providerProfiles;
-          migrationData.activeBackups = registryMigration.value.activeBackups;
-          ["face", "faceBackup", "analysis", "analysisBackup", "image", "imageBackup", "video", "videoBackup"].forEach((slot) => {
+          ["face", "analysis", "image", "imageBackup", "video"].forEach((slot) => {
             if (registryMigration.value[slot]) migrationData[slot] = registryMigration.value[slot];
           });
         }
-        migrationVersion += 1;
-        migrationUpdatedAt = new Date();
-        migrationUpdatedBy = "system:auto-correct";
+        const expectedMigrationVersion = migrationVersion;
+        const migrationOutcome = await db.runTransaction(async (transaction) => {
+          const ref = transaction
+            .collection(ADMIN_RUNTIME_CONFIG_COLLECTION)
+            .doc(ADMIN_RUNTIME_CONFIG_ID);
+          const current = await readDocument(ref);
+          const currentVersion = Number(current && current.version) || 0;
+          if (currentVersion !== expectedMigrationVersion) {
+            return {
+              applied: false,
+              currentVersion
+            };
+          }
+          const updatedAt = new Date();
+          const updatedBy = "system:auto-correct";
+          const nextVersion = currentVersion + 1;
+          const nextData = Object.assign({}, current || {}, migrationData, {
+            version: nextVersion,
+            updatedAt,
+            updatedBy
+          });
+          await ref.set({ data: stripDocumentId(nextData) });
+          return {
+            applied: true,
+            version: nextVersion,
+            updatedAt,
+            updatedBy,
+            data: nextData
+          };
+        }, 5);
+        if (!migrationOutcome || !migrationOutcome.applied) {
+          adminRuntimeCache = { value: null, expiresAt: 0 };
+          return loadAdminRuntimeConfig(true, {
+            cache: useCache,
+            allowMigrations: false
+          });
+        }
+        migrationVersion = migrationOutcome.version;
+        migrationUpdatedAt = migrationOutcome.updatedAt;
+        migrationUpdatedBy = migrationOutcome.updatedBy;
         migrationData.version = migrationVersion;
         migrationData.updatedAt = migrationUpdatedAt;
         migrationData.updatedBy = migrationUpdatedBy;
-        await db
-          .collection(ADMIN_RUNTIME_CONFIG_COLLECTION)
-          .doc(ADMIN_RUNTIME_CONFIG_ID)
-          .update({
-            data: migrationData
-          });
         migrationApplied = true;
         await writeAdminConfigAuditLog({
           source: "system-auto-correct",
           actorHash: "system",
           configVersion: migrationVersion,
           previous: rawConfig,
-          next: Object.assign({}, rawConfig, migrationData),
+          next: migrationOutcome.data,
           patch: migrationData
         });
         log("info", "admin.runtime-config.defaults-migrated", {
@@ -10942,7 +9577,6 @@ async function loadAdminRuntimeConfig(force = false, options = {}) {
           retryMigrated: retryMigration.migrated,
           imageProviderMigrated: providerMigration.migrated,
           modelCostsMigrated: costMigration.migrated,
-          providerProfilesMigrated: profileMigration.migrated,
           costConfigVersion: MODEL_COST_CONFIG_VERSION
           ,providerRegistryMigrated: registryMigration.migrated
         });
@@ -10956,7 +9590,7 @@ async function loadAdminRuntimeConfig(force = false, options = {}) {
     const value = rawConfig
       ? Object.assign(registryMigration.value, {
           generationQueue: generationQueueMonitor.normalizeQueueSettings(
-            profileMigration.value && profileMigration.value.generationQueue
+            costMigration.value && costMigration.value.generationQueue
           ),
           generationQueueAlertState: rawConfig.generationQueueAlertState
             && typeof rawConfig.generationQueueAlertState === "object"
@@ -11007,12 +9641,10 @@ async function resolveEffectiveConfigs(options = {}) {
   const legacyProjected = runtime
     ? buildLegacyProjectionFromProviderRegistry(runtime)
     : {
-        face: {},
+      face: {},
         faceBackup: {},
         analysis: {},
         analysisBackup: {},
-        styleAnalysis: {},
-        styleAnalysisBackup: {},
         image: {},
         imageBackup: {},
         video: {},
@@ -11031,10 +9663,10 @@ async function resolveEffectiveConfigs(options = {}) {
     : analysis;
   let imageBackup = resolveImageBackupConfig(projected.imageBackup);
   let video = resolveVideoConfig(projected.video);
-  let faceBackup = resolveFaceBackupConfig(projected.faceBackup, projected);
-  let analysisBackup = resolveAnalysisBackupConfig(projected.analysisBackup, projected);
+  let faceBackup = resolveFaceBackupConfig(projected.faceBackup);
+  let analysisBackup = resolveAnalysisBackupConfig(projected.analysisBackup);
   let styleAnalysisBackup = v2Projection.active
-    ? resolveAnalysisBackupConfig(projected.styleAnalysisBackup, projected)
+    ? resolveAnalysisBackupConfig(projected.styleAnalysisBackup)
     : analysisBackup;
   let videoBackup = resolveVideoBackupConfig(projected.videoBackup);
   if (v2Projection.active) {
@@ -11053,37 +9685,22 @@ async function resolveEffectiveConfigs(options = {}) {
     video = v2FinalizeResolvedConfig(projected.video, video, "video");
     videoBackup = v2FinalizeResolvedConfig(projected.videoBackup, videoBackup, "video");
   }
-  const effectiveRuntime = runtime
-    ? projected
-    : {
-        providerRegistry: normalizeProviderRegistry({}, { includeDefaults: true }),
-        activeProviders: normalizeActiveProviders(
-          {},
-          normalizeProviderRegistry({}, { includeDefaults: true })
-        ),
-        activeBackups: normalizeActiveBackups(
-          {},
-          normalizeProviderRegistry({}, { includeDefaults: true })
-        ),
-        providerLabels: normalizeAdminProviderLabels({}, { includeDefaults: true }),
-        providerProfiles: normalizeAdminProviderProfiles({}),
-        face: {},
-        faceBackup: {},
-        analysis: {},
-        analysisBackup: {},
-        styleAnalysis: {},
-        styleAnalysisBackup: {},
-        image: {},
-        imageBackup: {},
-        tencentFaceFusion: {},
-        video: {},
-        videoBackup: {},
-        points: {},
-        costs: {},
-        generationQueue: generationQueueMonitor.normalizeQueueSettings()
-      };
   return {
-    runtime: effectiveRuntime,
+    runtime: projected || {
+      providerRegistry: normalizeProviderRegistry({}, { includeDefaults: true }),
+      activeProviders: normalizeActiveProviders({}, normalizeProviderRegistry({}, { includeDefaults: true })),
+      face: {},
+      faceBackup: {},
+      analysis: {},
+      analysisBackup: {},
+      image: {},
+      imageBackup: {},
+      video: {},
+      videoBackup: {},
+      points: {},
+      costs: {},
+      generationQueue: generationQueueMonitor.normalizeQueueSettings()
+    },
     providerRegistry: normalizeProviderRegistry(
       projected.providerRegistry,
       { includeDefaults: true }
@@ -11092,17 +9709,8 @@ async function resolveEffectiveConfigs(options = {}) {
       projected.activeProviders,
       projected.providerRegistry
     ),
-    activeBackups: normalizeActiveBackups(
-      projected.activeBackups,
-      projected.providerRegistry
-    ),
-    providerLabels: normalizeAdminProviderLabels(
-      projected.providerLabels,
-      { includeDefaults: true }
-    ),
-    providerProfiles: normalizeAdminProviderProfiles(
-      projected.providerProfiles
-    ),
+    providerLabels: projected.providerLabels || {},
+    providerProfiles: projected.providerProfiles || {},
     face,
     faceBackup,
     analysis,
@@ -11111,9 +9719,6 @@ async function resolveEffectiveConfigs(options = {}) {
     styleAnalysisBackup,
     image,
     imageBackup,
-    tencentFaceFusion: resolveTencentFaceFusionConfig(
-      runtime && runtime.tencentFaceFusion
-    ),
     video,
     videoBackup,
     providerConfigV2: v2Projection.config ? v2PublicConfig(v2Projection.config) : null,
@@ -11135,7 +9740,6 @@ function adminConfigView(configs, runtime, metadata = {}) {
   const analysisBackupDefaults = resolveAnalysisBackupConfig();
   const imageDefaults = resolveImageConfig();
   const imageBackupDefaults = resolveImageBackupConfig();
-  const tencentFaceFusionDefaults = resolveTencentFaceFusionConfig();
   const videoDefaults = resolveVideoConfig();
   const videoBackupDefaults = resolveVideoBackupConfig();
   const pointDefaults = resolvePointsConfig();
@@ -11144,14 +9748,12 @@ function adminConfigView(configs, runtime, metadata = {}) {
   });
   const generationQueueDefaults = generationQueueMonitor.normalizeQueueSettings();
   const overrides = runtime || {
-    providerLabels: {},
     face: {},
     faceBackup: {},
     analysis: {},
     analysisBackup: {},
     image: {},
     imageBackup: {},
-    tencentFaceFusion: {},
     video: {},
     videoBackup: {},
     points: {},
@@ -11168,35 +9770,26 @@ function adminConfigView(configs, runtime, metadata = {}) {
       || runtime && runtime.activeProviders,
     providerRegistry
   );
-  const activeBackups = normalizeActiveBackups(
-    configs && configs.activeBackups
-      || runtime && runtime.activeBackups,
-    providerRegistry
-  );
   return {
     defaults: redactConfig({
-      providerLabels: DEFAULT_ADMIN_PROVIDER_LABELS,
       face: faceDefaults,
       faceBackup: faceBackupDefaults,
       analysis: analysisDefaults,
       analysisBackup: analysisBackupDefaults,
       image: imageDefaults,
       imageBackup: imageBackupDefaults,
-      tencentFaceFusion: tencentFaceFusionDefaults,
       video: videoDefaults,
       videoBackup: videoBackupDefaults,
       points: pointDefaults,
       costs: costDefaults,
       generationQueue: generationQueueDefaults
     }, {
-      providerLabels: DEFAULT_ADMIN_PROVIDER_LABELS,
       face: faceDefaults,
       faceBackup: faceBackupDefaults,
       analysis: analysisDefaults,
       analysisBackup: analysisBackupDefaults,
       image: imageDefaults,
       imageBackup: imageBackupDefaults,
-      tencentFaceFusion: tencentFaceFusionDefaults,
       video: videoDefaults,
       videoBackup: videoBackupDefaults,
       points: pointDefaults,
@@ -11204,43 +9797,36 @@ function adminConfigView(configs, runtime, metadata = {}) {
       generationQueue: generationQueueDefaults
     }),
     overrides: redactConfig(overrides, {
-      providerLabels: DEFAULT_ADMIN_PROVIDER_LABELS,
       face: faceDefaults,
       faceBackup: faceBackupDefaults,
       analysis: analysisDefaults,
       analysisBackup: analysisBackupDefaults,
       image: imageDefaults,
       imageBackup: imageBackupDefaults,
-      tencentFaceFusion: tencentFaceFusionDefaults,
       video: videoDefaults,
       videoBackup: videoBackupDefaults,
       points: pointDefaults,
       costs: costDefaults
     }),
     effective: redactConfig({
-      providerLabels: configs.providerLabels,
-      providerProfiles: overrides.providerProfiles,
       face: configs.face,
       faceBackup: configs.faceBackup,
       analysis: configs.analysis,
       analysisBackup: configs.analysisBackup,
       image: configs.image,
       imageBackup: configs.imageBackup,
-      tencentFaceFusion: configs.tencentFaceFusion,
       video: configs.video,
       videoBackup: configs.videoBackup,
       points: configs.points,
       costs: configs.costs,
       generationQueue: configs.generationQueue
     }, {
-      providerLabels: configs.providerLabels,
       face: configs.face,
       faceBackup: configs.faceBackup,
       analysis: configs.analysis,
       analysisBackup: configs.analysisBackup,
       image: configs.image,
       imageBackup: configs.imageBackup,
-      tencentFaceFusion: configs.tencentFaceFusion,
       video: configs.video,
       videoBackup: configs.videoBackup,
       points: configs.points,
@@ -11249,11 +9835,9 @@ function adminConfigView(configs, runtime, metadata = {}) {
     }),
     providerRegistry,
     activeProviders,
-    activeBackups,
     // effective 是兼容旧顶层配置；目录消费者优先使用 providerRegistry。
     effectiveProviderRegistry: providerRegistry,
     effectiveActiveProviders: activeProviders,
-    effectiveActiveBackups: activeBackups,
     updatedAt: metadata.updatedAt || "",
     version: Number(metadata.version || 0),
     admin: true
@@ -11268,8 +9852,6 @@ async function getAdminStatus(context) {
   });
   return jsonResponse(true, {
     isAdmin,
-    buildVersion: API_BUILD_VERSION,
-    buildMarker: API_BUILD_MARKER,
     // 不返回原始 OpenID，只返回可用于白名单匹配的不可逆识别码。
     identityHash: openid === "anonymous" ? "" : usageUserHash(openid)
   });
@@ -11357,8 +9939,8 @@ async function getAdminPaymentMonitor(context) {
 
 async function getAdminConfig(context) {
   if (!isAdminContext(context)) return adminForbidden();
-  const runtime = await loadAdminRuntimeConfig();
-  const configs = await resolveEffectiveConfigs();
+  const runtime = await loadAdminRuntimeConfig(false, { allowMigrations: false });
+  const configs = await resolveEffectiveConfigs({ allowMigrations: false });
   let metadata = runtime || {};
   if (process.env.WECHAT_MINIAPP_TEST !== "1") {
     try {
@@ -11376,40 +9958,13 @@ async function getAdminConfig(context) {
 
 async function getAdminImageApiKeys(context) {
   if (!isAdminContext(context)) return adminForbidden();
-  const configs = await resolveEffectiveConfigs();
-  const providerProfiles = syncAdminTopLevelProviderProfiles(
-    configs,
-    configs.runtime && configs.runtime.providerProfiles
-  );
-  const providerProfileKeys = {};
-  ADMIN_PROVIDER_PROFILE_SECTIONS.forEach((section) => {
-    const rows = {};
-    Object.keys(providerProfiles[section] || {}).forEach((providerId) => {
-      rows[providerId] = {
-        apiKey: normalizeApiKey(
-          providerProfiles[section][providerId]
-          && providerProfiles[section][providerId].apiKey
-        )
-      };
-    });
-    providerProfileKeys[section] = sortAdminProviderObject(rows);
-  });
+  const configs = await resolveEffectiveConfigs({ allowMigrations: false });
   return jsonResponse(true, {
     face: {
-      apiKey: String(configs.face && configs.face.apiKey || "")
-    },
-    faceBackup: {
-      apiKey: String(configs.faceBackup && configs.faceBackup.apiKey || "")
+      apiKey: ""
     },
     analysis: {
-      apiKey: String(configs.analysis && configs.analysis.apiKey || "")
-    },
-    analysisBackup: {
-      apiKey: String(
-        configs.analysisBackup
-        && configs.analysisBackup.apiKey
-        || ""
-      )
+      apiKey: ""
     },
     image: {
       apiKey: String(configs.image && configs.image.apiKey || "")
@@ -11422,16 +9977,8 @@ async function getAdminImageApiKeys(context) {
       )
     },
     video: {
-      apiKey: String(configs.video && configs.video.apiKey || "")
-    },
-    videoBackup: {
-      apiKey: String(
-        configs.videoBackup
-        && configs.videoBackup.apiKey
-        || ""
-      )
-    },
-    providerProfiles: providerProfileKeys
+      apiKey: ""
+    }
   });
 }
 
@@ -11489,7 +10036,6 @@ function providerMutationInput(event = {}) {
     || payload.delete === true
     || payload.remove === true;
   const activePatch = source.activeProviders || source.active || payload.activeProviders || payload.active;
-  const activeBackupPatch = source.activeBackups || payload.activeBackups;
   return {
     record,
     operation: deleting ? "delete" : "upsert",
@@ -11499,7 +10045,6 @@ function providerMutationInput(event = {}) {
         ? payload.expectedVersion
         : source.version,
     activeProviders: activePatch,
-    activeBackups: activeBackupPatch,
     activeSlot: source.activeSlot || source.slot || payload.activeSlot || payload.slot,
     setActive: source.setActive !== undefined ? source.setActive : payload.setActive
   };
@@ -11539,7 +10084,7 @@ function validateProviderMutationRecord(value = {}) {
 
 function providerVersionConflict(expected, actual) {
   return providerError(
-    `服务商配置版本冲突，请刷新后重试（期望 ${expected}，当前 ${actual}）。`,
+    `配置版本冲突，请刷新后重试（期望 ${expected}，当前 ${actual}）。`,
     "ADMIN_CONFIG_CONFLICT"
   );
 }
@@ -11551,14 +10096,8 @@ function providerRuntimeVersion(value) {
 
 function providerActiveFallback(slot, deletedKey, registry, active) {
   const providers = registry.providers;
-  // 备用槽位回退时 active[slot] 是仍在使用的主槽位档案；不能把
-  // 备用重新指向同一档案，否则 resolver 会去重，实际不会发生备用调用。
-  // 主槽位自身被删除时 active[slot] 通常等于 deletedKey，不额外排除。
-  const activeKey = active && providerText(active[slot], 160);
-  const excludedActiveKey = activeKey && activeKey !== deletedKey ? activeKey : "";
-  const isExcluded = (key) => key === deletedKey || key === excludedActiveKey;
   const fallbackKey = PROVIDER_ID_FALLBACKS[slot];
-  if (slot !== "video" && fallbackKey && !isExcluded(fallbackKey) && hasOwn(providers, fallbackKey)
+  if (slot !== "video" && fallbackKey && fallbackKey !== deletedKey && hasOwn(providers, fallbackKey)
       && providerConfigComplete(providers[fallbackKey], slot)) {
     return fallbackKey;
   }
@@ -11566,11 +10105,11 @@ function providerActiveFallback(slot, deletedKey, registry, active) {
     const envVideo = resolveVideoConfig();
     const envProvider = providerText(envVideo.provider, 120);
     const envKey = providerRecordKeyFor(envProvider, registry);
-    if (envVideo.configured && envKey && !isExcluded(envKey) && hasOwn(providers, envKey)
+    if (envVideo.configured && envKey && envKey !== deletedKey && hasOwn(providers, envKey)
         && providerConfigComplete(providers[envKey], slot)) {
       return envKey;
     }
-    if (envVideo.configured && envProvider && !isExcluded(envKey || envProvider)) {
+    if (envVideo.configured && envProvider && envKey !== deletedKey) {
       const envRecord = normalizeProviderRecord({
         providerKey: envKey || providerStableKey(envProvider),
         id: envProvider,
@@ -11591,7 +10130,7 @@ function providerActiveFallback(slot, deletedKey, registry, active) {
     }
   }
   const complete = Object.keys(providers).find((key) => (
-    !isExcluded(key)
+    key !== deletedKey
     && providerConfigComplete(providers[key], slot)
   ));
   return complete || "";
@@ -11613,17 +10152,15 @@ function providerAdminPayload(runtime, autoRebound = {}, metadata = {}) {
   const source = runtime && typeof runtime === "object" ? runtime : {};
   const registry = normalizeProviderRegistry(source.providerRegistry, { includeDefaults: true });
   const activeProviders = normalizeActiveProviders(source.activeProviders, registry);
-  const activeBackups = normalizeActiveBackups(source.activeBackups, registry);
   const projected = buildLegacyProjectionFromProviderRegistry(Object.assign({}, source, {
     providerRegistry: registry,
-    activeProviders,
-    activeBackups
+    activeProviders
   }));
   const configs = {
     face: resolveFaceConfig(projected.face),
-    faceBackup: resolveFaceBackupConfig(projected.faceBackup, projected),
+    faceBackup: resolveFaceBackupConfig(projected.faceBackup),
     analysis: resolveAnalysisConfig(projected.analysis),
-    analysisBackup: resolveAnalysisBackupConfig(projected.analysisBackup, projected),
+    analysisBackup: resolveAnalysisBackupConfig(projected.analysisBackup),
     image: resolveImageConfig(projected.image),
     imageBackup: resolveImageBackupConfig(projected.imageBackup),
     video: resolveVideoConfig(projected.video),
@@ -11636,7 +10173,6 @@ function providerAdminPayload(runtime, autoRebound = {}, metadata = {}) {
     Object.assign({}, configs, {
       providerRegistry: registry,
       activeProviders,
-      activeBackups,
       providerLabels: projected.providerLabels,
       providerProfiles: projected.providerProfiles
     }),
@@ -11645,25 +10181,20 @@ function providerAdminPayload(runtime, autoRebound = {}, metadata = {}) {
   );
   const reboundDetails = Array.isArray(autoRebound)
     ? autoRebound.reduce((output, item) => {
-       if (!isProviderObject(item)
-         || (!PROVIDER_CAPABILITY_SLOTS.includes(item.slot)
-           && !PROVIDER_BACKUP_SLOTS.includes(item.slot))) return output;
+      if (!isProviderObject(item) || !PROVIDER_CAPABILITY_SLOTS.includes(item.slot)) return output;
       output[item.slot] = item;
       return output;
     }, {})
     : (isProviderObject(autoRebound) ? autoRebound : {});
   const reboundLabels = {
     face: "人脸识别",
-    faceBackup: "人脸备用模型",
     analysis: "图片分析",
-    analysisBackup: "分析备用模型",
     image: "生图主模型",
     imageBackup: "生图备用模型",
     video: "视频"
   };
   const reboundList = Object.keys(reboundDetails)
-     .filter((slot) => PROVIDER_CAPABILITY_SLOTS.includes(slot)
-       || PROVIDER_BACKUP_SLOTS.includes(slot))
+    .filter((slot) => PROVIDER_CAPABILITY_SLOTS.includes(slot))
     .map((slot) => {
       const item = isProviderObject(reboundDetails[slot]) ? reboundDetails[slot] : {};
       const from = providerText(item.from, 128);
@@ -11684,40 +10215,14 @@ function providerAdminPayload(runtime, autoRebound = {}, metadata = {}) {
     const redacted = providerClone(registry.providers[selectedKey]);
     if (redacted.metadata) redacted.metadata = redactProviderMetadata(redacted.metadata);
     redacted.apiKey = "";
-    const selectedRecord = registry.providers[selectedKey];
-    const selectedOverrides = selectedRecord.overrides || {};
-    const selectedBuiltinRecord = Boolean(
-      selectedRecord.builtIn
-      || providerBuiltinKey(selectedRecord.providerKey || selectedRecord.id || selectedRecord.provider)
-    );
-    const selectedBackupOverrideHasKey = PROVIDER_BACKUP_SLOTS.some((slot) => {
-      const baseSlot = PROVIDER_BACKUP_BASE_SLOTS[slot];
-      const override = selectedOverrides[slot] || selectedOverrides[baseSlot];
-      return Boolean(
-        override
-        && override.overrideEnabled !== false
-        && normalizeApiKey(override.apiKey)
-      );
-    });
-    const selectedBackupEnvironmentHasKey = selectedBuiltinRecord
-      && PROVIDER_BACKUP_SLOTS.some((slot) => {
-        const envNames = slot === "faceBackup"
-          ? ["AI_FACE_BACKUP_API_KEY", "AI_VISION_BACKUP_API_KEY"]
-          : slot === "analysisBackup"
-            ? ["AI_ANALYSIS_BACKUP_API_KEY", "AI_VISION_BACKUP_API_KEY"]
-            : ["AI_VIDEO_BACKUP_API_KEY", "AI_VIDEO_API_KEY", "AI_VIDEO_KEY"];
-        return Boolean(normalizeApiKey(firstEnv(envNames)));
-      });
     redacted.apiKeyConfigured = Boolean(
-      normalizeApiKey(selectedRecord.apiKey)
-      || Object.keys(selectedOverrides).some((slot) => (
-        selectedOverrides[slot]
-        && selectedOverrides[slot].overrideEnabled !== false
-        && normalizeApiKey(selectedOverrides[slot].apiKey)
+      normalizeApiKey(registry.providers[selectedKey].apiKey)
+      || Object.keys(registry.providers[selectedKey].overrides || {}).some((slot) => (
+        registry.providers[selectedKey].overrides[slot]
+        && registry.providers[selectedKey].overrides[slot].overrideEnabled !== false
+        && normalizeApiKey(registry.providers[selectedKey].overrides[slot].apiKey)
       ))
-      || selectedBackupOverrideHasKey
-      || selectedBackupEnvironmentHasKey
-      || PROVIDER_CAPABILITY_SLOTS.some((slot) => providerEnvironmentApiKey(selectedRecord, slot))
+      || PROVIDER_CAPABILITY_SLOTS.some((slot) => providerEnvironmentApiKey(registry.providers[selectedKey], slot))
     );
     Object.keys(redacted.overrides || {}).forEach((slot) => {
       if (redacted.overrides[slot]) redacted.overrides[slot].apiKey = "";
@@ -11727,7 +10232,6 @@ function providerAdminPayload(runtime, autoRebound = {}, metadata = {}) {
   return {
     providerRegistry: redactProviderRegistry(registry),
     activeProviders,
-    activeBackups,
     effective: view.effective,
     version: providerRuntimeVersion(
       metadata.version !== undefined && metadata.version !== null
@@ -11739,8 +10243,7 @@ function providerAdminPayload(runtime, autoRebound = {}, metadata = {}) {
     autoRebound: reboundList,
     autoReboundDetails: reboundDetails,
     effectiveProviderRegistry: view.effectiveProviderRegistry,
-    effectiveActiveProviders: view.effectiveActiveProviders,
-    effectiveActiveBackups: view.effectiveActiveBackups
+    effectiveActiveProviders: view.effectiveActiveProviders
   };
 }
 
@@ -11764,40 +10267,10 @@ function providerSecretView(runtime, requested) {
           || providerEnvironmentApiKey(record, slot);
       slots[slot] = { apiKey, configured: Boolean(apiKey) };
     });
-    // 视觉/视频备用引用复用对应能力档案，但管理员密钥页需要显式
-    // 展示备用槽位，且优先读取专用备用环境变量，避免把主 Key 状态误报。
-    PROVIDER_BACKUP_SLOTS.forEach((slot) => {
-      const baseSlot = PROVIDER_BACKUP_BASE_SLOTS[slot];
-      const override = record.overrides && record.overrides[baseSlot] || {};
-      const ownConnection = override.overrideEnabled !== false;
-      const dedicatedEnvNames = slot === "faceBackup"
-        ? ["AI_FACE_BACKUP_API_KEY", "AI_VISION_BACKUP_API_KEY"]
-        : slot === "analysisBackup"
-          ? ["AI_ANALYSIS_BACKUP_API_KEY", "AI_VISION_BACKUP_API_KEY"]
-          : ["AI_VIDEO_BACKUP_API_KEY", "AI_VIDEO_API_KEY", "AI_VIDEO_KEY"];
-      const builtinRecord = Boolean(
-        record.builtIn
-        || providerBuiltinKey(record.providerKey || record.id || record.provider)
-      );
-      const apiKey = ownConnection && override.clearApiKey
-        ? ""
-        : normalizeApiKey((ownConnection && override.apiKey) || record.apiKey)
-          || (builtinRecord ? normalizeApiKey(firstEnv(dedicatedEnvNames)) : "")
-          || slots[baseSlot] && slots[baseSlot].apiKey
-          || "";
-      slots[slot] = { apiKey, configured: Boolean(apiKey), baseSlot };
-    });
     const preferredSlots = PROVIDER_CAPABILITY_SLOTS.filter((slot) => (
       providerHasCapability(record, slot)
     ));
-    const allSecretSlots = PROVIDER_CAPABILITY_SLOTS.concat(PROVIDER_BACKUP_SLOTS);
     const commonApiKey = normalizeApiKey(record.apiKey)
-      // 公共 Key 为空时，能力覆盖中的真实 Key 也要回显到管理员明文面板；
-      // backup 别名复用对应主槽位，但仍纳入遍历，避免只配备用能力时显示空。
-      || allSecretSlots
-        .map((slot) => slots[slot] && slots[slot].apiKey)
-        .map((value) => normalizeApiKey(value))
-        .find(Boolean)
       || preferredSlots
         .concat(PROVIDER_CAPABILITY_SLOTS.filter((slot) => !preferredSlots.includes(slot)))
         .map((slot) => providerEnvironmentApiKey(record, slot))
@@ -11858,11 +10331,9 @@ async function saveAdminProvider(event = {}, context) {
       }
       const registry = normalizeProviderRegistry(current.providerRegistry, { includeDefaults: true });
       let active = normalizeActiveProviders(current.activeProviders, registry);
-      let activeBackups = normalizeActiveBackups(current.activeBackups, registry);
       const autoRebound = {};
       let changedProviderKey = "";
       let renamedFromId = "";
-      let deletedProviderRecord = null;
       if (mutation.operation === "delete") {
         const targetKey = providerRecordKeyFor(
           rawRecord.providerKey || rawRecord.id || rawRecord.provider || event.providerKey || event.id,
@@ -11878,7 +10349,6 @@ async function saveAdminProvider(event = {}, context) {
         ) {
           throw providerError("内置服务商不能删除。", "PROVIDER_BUILTIN_PROTECTED");
         }
-        deletedProviderRecord = providerClone(target);
         changedProviderKey = targetKey;
         delete registry.providers[targetKey];
         PROVIDER_CAPABILITY_SLOTS.forEach((slot) => {
@@ -11886,13 +10356,6 @@ async function saveAdminProvider(event = {}, context) {
           const rebound = providerActiveFallback(slot, targetKey, registry, active);
           autoRebound[slot] = { from: targetKey, to: rebound };
           active[slot] = rebound;
-        });
-        PROVIDER_BACKUP_SLOTS.forEach((slot) => {
-          if (activeBackups[slot] !== targetKey) return;
-          const baseSlot = PROVIDER_BACKUP_BASE_SLOTS[slot];
-          const rebound = providerActiveFallback(baseSlot, targetKey, registry, active);
-          autoRebound[slot] = { from: targetKey, to: rebound };
-          activeBackups[slot] = rebound;
         });
       } else {
         let targetKey = providerRecordKeyFor(
@@ -11937,33 +10400,15 @@ async function saveAdminProvider(event = {}, context) {
           throw providerError("服务商至少要配置一项完整能力（地址、模型和 Key）。", "PROVIDER_CAPABILITY_REQUIRED");
         }
         if (mutation.activeProviders) active = applyProviderActivePatch(active, mutation.activeProviders, registry);
-        if (mutation.activeBackups) {
-          activeBackups = Object.assign(
-            {},
-            activeBackups,
-            normalizeActiveBackups(mutation.activeBackups, registry, { includeEmpty: false })
-          );
-        }
         if (mutation.activeSlot && mutation.setActive !== false) {
           const slot = String(mutation.activeSlot);
           if (PROVIDER_CAPABILITY_SLOTS.includes(slot)) active[slot] = targetKey;
         }
       }
-      let projectionInput = Object.assign({}, current, {
+      const projected = buildLegacyProjectionFromProviderRegistry(Object.assign({}, current, {
         providerRegistry: registry,
-        activeProviders: active,
-        activeBackups
-      });
-      if (deletedProviderRecord) {
-        const reboundImageKey = autoRebound.image && autoRebound.image.to;
-        const reboundImage = reboundImageKey && registry.providers[reboundImageKey];
-        projectionInput = removeProviderExternalIdReferences(
-          projectionInput,
-          deletedProviderRecord,
-          { replacementImageProvider: reboundImage && reboundImage.id }
-        );
-      }
-      const projected = buildLegacyProjectionFromProviderRegistry(projectionInput);
+        activeProviders: active
+      }));
       if (renamedFromId && changedProviderKey && registry.providers[changedProviderKey]) {
         const renamed = migrateProviderExternalIdReferences(
           projected,
@@ -11976,7 +10421,6 @@ async function saveAdminProvider(event = {}, context) {
       registry.version = nextVersion;
       projected.providerRegistry = registry;
       projected.activeProviders = active;
-      projected.activeBackups = activeBackups;
       projected.version = nextVersion;
       projected.updatedAt = new Date();
       projected.updatedBy = getOpenId(context);
@@ -12029,7 +10473,10 @@ async function saveAdminProvider(event = {}, context) {
 
 async function getAdminProviderSecrets(event = {}, context) {
   if (!isAdminContext(context)) return adminForbidden();
-  const runtime = await loadAdminRuntimeConfig(true, { cache: false });
+  const runtime = await loadAdminRuntimeConfig(true, {
+    cache: false,
+    allowMigrations: false
+  });
   const migrated = migrateLegacyProviderRegistry(runtime || {}, runtime || {});
   const registry = normalizeProviderRegistry(migrated.value && migrated.value.providerRegistry, { includeDefaults: true });
   const requested = event && (event.providerKey || event.id || event.provider);
@@ -12045,9 +10492,9 @@ async function getAdminProviderSecrets(event = {}, context) {
   const selected = firstKey ? secrets[firstKey] : null;
   const capabilities = {};
   if (selected) {
-      PROVIDER_CAPABILITY_SLOTS.concat(PROVIDER_BACKUP_SLOTS).forEach((slot) => {
-        const item = selected.slots && selected.slots[slot] || {};
-        capabilities[slot] = {
+    PROVIDER_CAPABILITY_SLOTS.forEach((slot) => {
+      const item = selected.slots && selected.slots[slot] || {};
+      capabilities[slot] = {
         apiKey: String(item.apiKey || ""),
         apiKeyConfigured: Boolean(item.configured)
       };
@@ -12069,6 +10516,14 @@ async function getAdminProviderSecrets(event = {}, context) {
   });
 }
 
+/*
+ * 管理配置 V2 API
+ *
+ * V2 是供应商、模型和功能绑定的唯一新写入口。旧版 action 保留给历史
+ * 页面使用，但它不会读取或回写 providerConfigV2 的内部数组。所有 V2
+ * 公开响应先经过 adminConfigV2.normalizeV2Config，密钥单独放在同一运行
+ * 时文档的 providerSecretsV2 字段中，永远不随目录响应返回。
+ */
 const ADMIN_PROVIDER_CONFIG_V2_FIELD = "providerConfigV2";
 const ADMIN_PROVIDER_SECRETS_V2_FIELD = "providerSecretsV2";
 
@@ -12391,9 +10846,8 @@ function v2SupplierInput(source) {
   return {};
 }
 
-function v2PersistedState(runtime, config, secrets, context, version, options) {
+function v2PersistedState(runtime, config, secrets, context, version) {
   const source = v2Object(runtime) ? runtime : {};
-  const opts = v2Object(options) ? options : {};
   const nextConfig = adminConfigV2.normalizeV2Config(config);
   nextConfig.schemaVersion = 2;
   nextConfig.version = Number(version) || v2RuntimeVersion(source);
@@ -12405,9 +10859,7 @@ function v2PersistedState(runtime, config, secrets, context, version, options) {
   });
   // 旧字段里的明文只在首次切换 V2 时迁移一次。V2 writer 已启用后，
   // 再次补种会让管理员刚清除的 Key 被旧 section 悄悄恢复。
-  const persistedSecrets = opts.secretsPrepared === true
-    ? v2ProviderSecrets({ [ADMIN_PROVIDER_SECRETS_V2_FIELD]: secrets })
-    : v2WriterActive(source)
+  const persistedSecrets = v2WriterActive(source)
     ? v2ProviderSecrets({ [ADMIN_PROVIDER_SECRETS_V2_FIELD]: secrets })
     : v2SeedLegacySecrets(source, nextConfig, secrets);
   const next = Object.assign({}, source, {
@@ -12447,10 +10899,9 @@ function v2RuntimeRequestEndpoint(baseUrl, requestPath) {
 function v2InheritedFunctionParameters(section = {}) {
   const output = {};
   [
-    "timeoutMs", "maxRetries", "retryEnabled", "retryPreferenceVersion",
-    "requestPath", "path", "mode", "size", "resolution",
-    "compatibilityMode", "createPath", "queryPath", "queryEndpoint",
-    "aspectRatio", "prompt", "maxImageBytes"
+    "timeoutMs", "requestPath", "path", "mode", "size", "resolution",
+    "compatibilityMode", "createPath", "queryPath", "aspectRatio", "prompt",
+    "maxImageBytes"
   ].forEach((key) => {
     if (section[key] !== undefined && section[key] !== "") output[key] = section[key];
   });
@@ -13001,6 +11452,105 @@ async function saveAdminProviderV2(event = {}, context) {
   return v2Response(outcome.config, outcome.runtime, { action, providerKey });
 }
 
+function v2AssertBindingRuntimeReady(config, binding, secrets) {
+  if (!binding || String(binding.status || "") !== "ready") return;
+  const supplier = (config.suppliers || []).find((item) => item.providerKey === binding.providerKey);
+  const model = (config.supplierModels || []).find((item) => (
+    item.providerKey === binding.providerKey
+    && item.modelId === binding.modelId
+    && item.confirmed
+  ));
+  const credential = secrets[binding.providerKey] || {};
+  const protocol = String(supplier && supplier.auth && supplier.auth.protocol || "openai");
+  const endpointReady = Boolean(model && (model.endpointRef || supplier && (supplier.endpoint || supplier.baseUrl)));
+  const credentialReady = protocol === "tencent-tc3"
+    ? Boolean(credential.secretId && credential.secretKey)
+    : Boolean(
+        credential.apiKey
+        || credential.accessToken
+        || credential.token
+        || supplier && supplier.auth && supplier.auth.credentialRef
+      );
+  if (!supplier || supplier.enabled === false || !model || !endpointReady || !credentialReady) {
+    const error = new Error("绑定必须引用已确认、已有端点和服务端凭证的供应商模型。");
+    error.code = "BINDING_NOT_READY";
+    throw error;
+  }
+}
+
+async function saveAdminSlotV2(event = {}, context) {
+  if (!isAdminContext(context)) return adminForbidden();
+  const source = v2Payload(event);
+  const expected = v2ExpectedVersion(source, {}, {});
+  if (expected === null) return fail("保存功能槽位必须携带当前配置版本。", "EXPECTED_VERSION_REQUIRED");
+  const mutation = {
+    slot: source.slot,
+    primaryPatch: v2Object(source.primaryPatch)
+      ? Object.assign({}, source.primaryPatch)
+      : v2Object(source.primary) ? Object.assign({}, source.primary) : undefined,
+    backupPatch: v2Object(source.backupPatch)
+      ? Object.assign({}, source.backupPatch)
+      : v2Object(source.backup) ? Object.assign({}, source.backup) : undefined,
+    advancedPatch: v2Object(source.advancedPatch)
+      ? Object.assign({}, source.advancedPatch)
+      : v2Object(source.advanced) ? Object.assign({}, source.advanced) : undefined
+  };
+  let outcome;
+  try {
+    outcome = await db.runTransaction(async (transaction) => {
+      const ref = transaction.collection(ADMIN_RUNTIME_CONFIG_COLLECTION).doc(ADMIN_RUNTIME_CONFIG_ID);
+      const current = (await readDocument(ref)) || {};
+      const config = v2ConfigFromRuntime(current);
+      const currentVersion = v2RuntimeVersion(current) || Number(config.version) || 1;
+      if (expected !== currentVersion) throw v2Conflict(expected, currentVersion);
+      const nextConfig = adminConfigV2.transitionSlot(config, mutation, {
+        expectedVersion: currentVersion,
+        confirmedBy: getOpenId(context) || "admin"
+      });
+      const seededSecrets = v2WriterActive(current)
+        ? v2ProviderSecrets(current)
+        : v2SeedLegacySecrets(current, nextConfig, v2ProviderSecrets(current));
+      ["primary", "backup"].forEach((role) => {
+        const binding = (nextConfig.bindings || []).find((item) => (
+          item.slot === adminConfigV2.canonicalSlot(mutation.slot) && item.role === role
+        ));
+        v2AssertBindingRuntimeReady(nextConfig, binding, seededSecrets);
+      });
+      const nextVersion = Number(nextConfig.version) || currentVersion + 1;
+      const persisted = v2PersistedState(current, nextConfig, seededSecrets, context, nextVersion, { secretsPrepared: true });
+      await ref.set({ data: stripDocumentId(persisted) });
+      return {
+        previous: current,
+        runtime: persisted,
+        config: persisted[ADMIN_PROVIDER_CONFIG_V2_FIELD],
+        version: nextVersion
+      };
+    }, 5);
+  } catch (error) {
+    const code = String(error && error.code || "");
+    if (["VERSION_CONFLICT", "BINDING_NOT_READY", "BINDING_CONFIRM_REQUIRED", "BINDING_STATUS_INVALID", "SLOT_PATCH_REQUIRED", "INVALID_SLOT"].includes(code)) {
+      return fail(error.message, code === "VERSION_CONFLICT" ? "ADMIN_CONFIG_CONFLICT" : code, {
+        versionConflict: code === "VERSION_CONFLICT",
+        currentVersion: error.currentVersion
+      });
+    }
+    throw error;
+  }
+  adminRuntimeCache = { value: outcome.runtime, expiresAt: Date.now() + ADMIN_RUNTIME_CACHE_TTL_MS };
+  await writeAdminConfigAuditLog({
+    source: "admin-slot-v2",
+    openid: getOpenId(context),
+    configVersion: outcome.version,
+    previous: outcome.previous || {},
+    next: outcome.runtime,
+    patch: adminConfigV2.sanitizeSecrets(mutation)
+  });
+  const canonical = adminConfigV2.canonicalSlot(mutation.slot);
+  const primary = (outcome.config.bindings || []).find((item) => item.slot === canonical && item.role === "primary") || null;
+  const backup = (outcome.config.bindings || []).find((item) => item.slot === canonical && item.role === "backup") || null;
+  return v2Response(outcome.config, outcome.runtime, { slot: canonical, primary, backup });
+}
+
 async function confirmAdminModelsV2(event = {}, context) {
   if (!isAdminContext(context)) return adminForbidden();
   const source = v2Payload(event);
@@ -13079,125 +11629,6 @@ async function confirmAdminModelsV2(event = {}, context) {
   });
 }
 
-function v2AssertBindingRuntimeReady(config, binding, secrets) {
-  if (!binding || String(binding.status || "") !== "ready") return;
-  const supplier = (config.suppliers || []).find((item) => item.providerKey === binding.providerKey);
-  const model = (config.supplierModels || []).find((item) => (
-    item.providerKey === binding.providerKey
-    && item.modelId === binding.modelId
-    && item.confirmed
-  ));
-  const credential = secrets[binding.providerKey] || {};
-  const protocol = String(supplier && supplier.auth && supplier.auth.protocol || "openai");
-  const endpointReady = Boolean(model && (model.endpointRef || supplier && (supplier.endpoint || supplier.baseUrl)));
-  const credentialReady = protocol === "tencent-tc3"
-    ? Boolean(credential.secretId && credential.secretKey)
-    : Boolean(
-        credential.apiKey
-        || credential.accessToken
-        || credential.token
-        || supplier && supplier.auth && supplier.auth.credentialRef
-      );
-  if (!supplier || supplier.enabled === false || !model || !endpointReady || !credentialReady) {
-    const error = new Error("绑定必须引用已确认、已有端点和服务端凭证的供应商模型。");
-    error.code = "BINDING_NOT_READY";
-    throw error;
-  }
-}
-
-async function saveAdminSlotV2(event = {}, context) {
-  if (!isAdminContext(context)) return adminForbidden();
-  const source = v2Payload(event);
-  const expected = v2ExpectedVersion(source, {}, {});
-  if (expected === null) {
-    return fail("保存功能槽位必须携带当前配置版本。", "EXPECTED_VERSION_REQUIRED");
-  }
-  const mutation = {
-    slot: source.slot,
-    primaryPatch: v2Object(source.primaryPatch)
-      ? Object.assign({}, source.primaryPatch)
-      : v2Object(source.primary) ? Object.assign({}, source.primary) : undefined,
-    backupPatch: v2Object(source.backupPatch)
-      ? Object.assign({}, source.backupPatch)
-      : v2Object(source.backup) ? Object.assign({}, source.backup) : undefined,
-    advancedPatch: v2Object(source.advancedPatch)
-      ? Object.assign({}, source.advancedPatch)
-      : v2Object(source.advanced) ? Object.assign({}, source.advanced) : undefined
-  };
-  let outcome;
-  try {
-    outcome = await db.runTransaction(async (transaction) => {
-      const ref = transaction.collection(ADMIN_RUNTIME_CONFIG_COLLECTION).doc(ADMIN_RUNTIME_CONFIG_ID);
-      const current = (await readDocument(ref)) || {};
-      const config = v2ConfigFromRuntime(current);
-      const currentVersion = v2RuntimeVersion(current) || Number(config.version) || 1;
-      if (expected !== currentVersion) throw v2Conflict(expected, currentVersion);
-      const nextConfig = adminConfigV2.transitionSlot(config, mutation, {
-        expectedVersion: currentVersion,
-        confirmedBy: getOpenId(context) || "admin"
-      });
-      const seededSecrets = v2WriterActive(current)
-        ? v2ProviderSecrets(current)
-        : v2SeedLegacySecrets(current, nextConfig, v2ProviderSecrets(current));
-      ["primary", "backup"].forEach((role) => {
-        const binding = (nextConfig.bindings || []).find((item) => (
-          item.slot === adminConfigV2.canonicalSlot(mutation.slot) && item.role === role
-        ));
-        v2AssertBindingRuntimeReady(nextConfig, binding, seededSecrets);
-      });
-      const nextVersion = Number(nextConfig.version) || currentVersion + 1;
-      const persisted = v2PersistedState(
-        current,
-        nextConfig,
-        seededSecrets,
-        context,
-        nextVersion,
-        { secretsPrepared: true }
-      );
-      await ref.set({ data: stripDocumentId(persisted) });
-      return {
-        previous: current,
-        runtime: persisted,
-        config: persisted[ADMIN_PROVIDER_CONFIG_V2_FIELD],
-        version: nextVersion
-      };
-    }, 5);
-  } catch (error) {
-    const code = String(error && error.code || "");
-    if ([
-      "VERSION_CONFLICT",
-      "BINDING_NOT_READY",
-      "BINDING_CONFIRM_REQUIRED",
-      "BINDING_STATUS_INVALID",
-      "SLOT_PATCH_REQUIRED",
-      "INVALID_SLOT"
-    ].includes(code)) {
-      return fail(error.message, code === "VERSION_CONFLICT" ? "ADMIN_CONFIG_CONFLICT" : code, {
-        versionConflict: code === "VERSION_CONFLICT",
-        currentVersion: error.currentVersion
-      });
-    }
-    throw error;
-  }
-  adminRuntimeCache = { value: outcome.runtime, expiresAt: Date.now() + ADMIN_RUNTIME_CACHE_TTL_MS };
-  await writeAdminConfigAuditLog({
-    source: "admin-slot-v2",
-    openid: getOpenId(context),
-    configVersion: outcome.version,
-    previous: outcome.previous || {},
-    next: outcome.runtime,
-    patch: adminConfigV2.sanitizeSecrets(mutation)
-  });
-  const canonical = adminConfigV2.canonicalSlot(mutation.slot);
-  const primary = (outcome.config.bindings || []).find((item) => item.slot === canonical && item.role === "primary") || null;
-  const backup = (outcome.config.bindings || []).find((item) => item.slot === canonical && item.role === "backup") || null;
-  return v2Response(outcome.config, outcome.runtime, {
-    slot: canonical,
-    primary,
-    backup
-  });
-}
-
 async function saveAdminBindingV2(event = {}, context) {
   if (!isAdminContext(context)) return adminForbidden();
   const source = v2Payload(event);
@@ -13213,10 +11644,33 @@ async function saveAdminBindingV2(event = {}, context) {
       const config = v2ConfigFromRuntime(current);
       const currentVersion = v2RuntimeVersion(current) || Number(config.version) || 1;
       if (expected !== null && expected !== currentVersion) throw v2Conflict(expected, currentVersion);
-      const seededSecrets = v2WriterActive(current)
-        ? v2ProviderSecrets(current)
-        : v2SeedLegacySecrets(current, config, v2ProviderSecrets(current));
-      v2AssertBindingRuntimeReady(config, binding, seededSecrets);
+      if (String(binding.status || "") === "ready") {
+        const supplier = (config.suppliers || []).find((item) => item.providerKey === binding.providerKey);
+        const model = (config.supplierModels || []).find((item) => (
+          item.providerKey === binding.providerKey
+          && item.modelId === binding.modelId
+          && item.confirmed
+        ));
+        const seededSecrets = v2WriterActive(current)
+          ? v2ProviderSecrets(current)
+          : v2SeedLegacySecrets(current, config, v2ProviderSecrets(current));
+        const credential = seededSecrets[binding.providerKey] || {};
+        const protocol = String(supplier && supplier.auth && supplier.auth.protocol || "openai");
+        const endpointReady = Boolean(model && (model.endpointRef || supplier && (supplier.endpoint || supplier.baseUrl)));
+        const credentialReady = protocol === "tencent-tc3"
+          ? Boolean(credential.secretId && credential.secretKey)
+          : Boolean(
+              credential.apiKey
+              || credential.accessToken
+              || credential.token
+              || supplier && supplier.auth && supplier.auth.credentialRef
+            );
+        if (!supplier || supplier.enabled === false || !model || !endpointReady || !credentialReady) {
+          const error = new Error("绑定必须引用已确认、已有端点和服务端凭证的供应商模型。");
+          error.code = "BINDING_NOT_READY";
+          throw error;
+        }
+      }
       const nextConfig = adminConfigV2.transitionBinding(config, binding, {
         expectedVersion: currentVersion,
         confirmedBy: getOpenId(context) || "admin"
@@ -13233,7 +11687,7 @@ async function saveAdminBindingV2(event = {}, context) {
     }, 5);
   } catch (error) {
     const code = String(error && error.code || "");
-    if (["VERSION_CONFLICT", "BINDING_NOT_READY", "BINDING_CONFIRM_REQUIRED", "CONFIRM_REQUIRED", "INVALID_SLOT"].includes(code)) {
+    if (["VERSION_CONFLICT", "BINDING_NOT_READY", "BINDING_CONFIRM_REQUIRED", "INVALID_SLOT"].includes(code)) {
       return fail(error.message, code === "VERSION_CONFLICT" ? "ADMIN_CONFIG_CONFLICT" : code, {
         versionConflict: code === "VERSION_CONFLICT",
         currentVersion: error.currentVersion
@@ -13280,7 +11734,6 @@ async function getAdminProviderSecretsV2(event = {}, context) {
     version: v2RuntimeVersion(runtime)
   });
 }
-
 
 function adminConfigAuditDisplay(value) {
   const row = normalizeAdminConfigAuditRow(value);
@@ -13895,36 +12348,7 @@ function dropBlankRuntimeApiKeys(patch = {}) {
       delete patch[section].apiKey;
     }
   });
-  if (patch.tencentFaceFusion && typeof patch.tencentFaceFusion === "object") {
-    ["secretId", "secretKey"].forEach((key) => {
-      if (
-        hasOwn(patch.tencentFaceFusion, key)
-        && !String(patch.tencentFaceFusion[key] || "").trim()
-      ) {
-        delete patch.tencentFaceFusion[key];
-      }
-    });
-  }
-  if (isAdminProviderObject(patch.providerProfiles)) {
-    ADMIN_PROVIDER_PROFILE_SECTIONS.forEach((section) => {
-      const profiles = patch.providerProfiles[section];
-      if (!isAdminProviderObject(profiles)) return;
-      Object.keys(profiles).forEach((providerId) => {
-        const profile = profiles[providerId];
-        if (
-          isAdminProviderObject(profile)
-          && hasOwn(profile, "apiKey")
-        ) {
-          if (
-            section === "video"
-            || !normalizeApiKey(profile.apiKey)
-          ) {
-            delete profile.apiKey;
-          }
-        }
-      });
-    });
-  }
+  // 视频 Key 只从云函数环境变量读取，管理员页可以查看但不落到动态配置。
   if (patch.video && hasOwn(patch.video, "apiKey")) {
     delete patch.video.apiKey;
   }
@@ -13939,22 +12363,11 @@ async function saveAdminConfig(event, context) {
   const requestConfig = event && event.config && typeof event.config === "object"
     ? event.config
     : {};
-  const rawConfig = requestConfig;
   const expectedVersionRaw = event && event.expectedVersion !== undefined
     ? event.expectedVersion
     : requestConfig.expectedVersion;
-  const rawProviderLabelErrors = hasOwn(rawConfig, "providerLabels")
-    ? validateAdminProviderLabels(rawConfig.providerLabels, {})
-    : [];
-  if (rawProviderLabelErrors.length) {
-    return fail(
-      rawProviderLabelErrors.join("；"),
-      "ADMIN_PROVIDER_LABEL_REQUIRED",
-      { fields: rawProviderLabelErrors }
-    );
-  }
   const patch = dropBlankRuntimeApiKeys(
-    normalizeRuntimePatch(rawConfig)
+    normalizeRuntimePatch(requestConfig)
   );
   if (hasOwn(patch.image, "retryEnabled")) {
     patch.image.retryPreferenceVersion = IMAGE_RETRY_PREFERENCE_VERSION;
@@ -13962,15 +12375,6 @@ async function saveAdminConfig(event, context) {
   if (hasOwn(patch.imageBackup, "retryEnabled")) {
     patch.imageBackup.retryPreferenceVersion = IMAGE_RETRY_PREFERENCE_VERSION;
   }
-  ["image", "imageBackup"].forEach((section) => {
-    const profiles = patch.providerProfiles && patch.providerProfiles[section];
-    if (!isAdminProviderObject(profiles)) return;
-    Object.keys(profiles).forEach((providerId) => {
-      if (hasOwn(profiles[providerId], "retryEnabled")) {
-        profiles[providerId].retryPreferenceVersion = IMAGE_RETRY_PREFERENCE_VERSION;
-      }
-    });
-  });
   const errors = validateRuntimePatch(patch);
   if (errors.length) return fail(errors.join("；"), "ADMIN_CONFIG_INVALID", { fields: errors });
   const expectedVersion = expectedVersionRaw === undefined
@@ -14002,44 +12406,10 @@ async function saveAdminConfig(event, context) {
       next = mergeRuntimeConfig(current, patch);
       providerGuard = guardAdminImageProviderConfig(current, next, patch);
       next = providerGuard.value;
-      next.providerLabels = normalizeAdminProviderLabels(
-        next.providerLabels,
-        { includeDefaults: true }
-      );
-      next.providerProfiles = syncAdminTopLevelProviderProfiles(
-        next,
-        next.providerProfiles
-      );
-      const providerLabelErrors = validateAdminProviderLabels(
-        next.providerLabels,
-        next
-      );
-      if (providerLabelErrors.length) {
-        const error = providerError(
-          providerLabelErrors.join("；"),
-          "ADMIN_PROVIDER_LABEL_REQUIRED"
-        );
-        error.fields = providerLabelErrors;
-        throw error;
-      }
-      const mergedErrors = validateRuntimePatch(next);
-      if (mergedErrors.length) {
-        const error = providerError(
-          mergedErrors.join("；"),
-          "ADMIN_CONFIG_INVALID"
-        );
-        error.fields = mergedErrors;
-        throw error;
-      }
-      const canonicalRegistry = normalizeProviderRegistry(
-        next.providerRegistry,
-        { includeDefaults: true }
-      );
       data = {
         _id: ADMIN_RUNTIME_CONFIG_ID,
-        providerRegistry: canonicalRegistry,
-        activeProviders: normalizeActiveProviders(next.activeProviders, canonicalRegistry),
-        activeBackups: normalizeActiveBackups(next.activeBackups, canonicalRegistry),
+        providerRegistry: normalizeProviderRegistry(next.providerRegistry, { includeDefaults: true }),
+        activeProviders: normalizeActiveProviders(next.activeProviders, next.providerRegistry),
         providerLabels: next.providerLabels || {},
         providerProfiles: next.providerProfiles || {},
         face: next.face,
@@ -14048,7 +12418,6 @@ async function saveAdminConfig(event, context) {
         analysisBackup: next.analysisBackup,
         image: next.image,
         imageBackup: next.imageBackup,
-        tencentFaceFusion: next.tencentFaceFusion,
         video: next.video,
         videoBackup: next.videoBackup,
         points: next.points,
@@ -14079,9 +12448,6 @@ async function saveAdminConfig(event, context) {
         currentVersion: error && error.currentVersion
       });
     }
-    if (["ADMIN_PROVIDER_LABEL_REQUIRED", "ADMIN_CONFIG_INVALID"].includes(String(error && error.code || ""))) {
-      return fail(error.message, error.code, { fields: error.fields || [] });
-    }
     if (String(error && error.code || "") === "V2_WRITER_REQUIRED") {
       return fail(error.message, "V2_WRITER_REQUIRED");
     }
@@ -14102,7 +12468,6 @@ async function saveAdminConfig(event, context) {
     value: {
       providerRegistry: data.providerRegistry,
       activeProviders: data.activeProviders,
-      activeBackups: data.activeBackups,
       providerLabels: data.providerLabels,
       providerProfiles: data.providerProfiles,
       face: next.face,
@@ -14111,7 +12476,6 @@ async function saveAdminConfig(event, context) {
       analysisBackup: next.analysisBackup,
       image: next.image,
       imageBackup: next.imageBackup,
-      tencentFaceFusion: next.tencentFaceFusion,
       video: next.video,
       videoBackup: next.videoBackup,
       points: next.points,
@@ -14130,16 +12494,14 @@ async function saveAdminConfig(event, context) {
     updatedBy: getOpenId(context),
     version: data.version,
     imageProviderAutoCorrected: providerGuard.corrected,
-    providerLabelFields: Object.keys(patch.providerLabels || {}),
     faceFields: Object.keys(patch.face),
+    faceBackupFields: Object.keys(patch.faceBackup),
     analysisFields: Object.keys(patch.analysis),
+    analysisBackupFields: Object.keys(patch.analysisBackup),
     imageFields: Object.keys(patch.image),
     imageBackupFields: Object.keys(patch.imageBackup),
-    tencentFaceFusionFields: Object.keys(patch.tencentFaceFusion),
     videoFields: Object.keys(patch.video),
-      videoBackupFields: Object.keys(patch.videoBackup),
-     faceBackupFields: Object.keys(patch.faceBackup),
-     analysisBackupFields: Object.keys(patch.analysisBackup),
+    videoBackupFields: Object.keys(patch.videoBackup),
     pointsFields: Object.keys(patch.points),
     costFields: Object.keys(patch.costs),
     generationQueueFields: Object.keys(patch.generationQueue)
@@ -14174,7 +12536,7 @@ async function checkDeployment(event, context) {
     cache: !readOnly
   });
   const runtime = configs.runtime;
-  const tencentFaceFusion = configs.tencentFaceFusion;
+  const tencentFaceFusion = resolveTencentFaceFusionConfig();
   let imageEditEndpoint = {
     url: "",
     source: "invalid",
@@ -14208,24 +12570,34 @@ async function checkDeployment(event, context) {
     && (configs.face.baseUrl || configs.face.endpoint)
     && configs.face.model
   );
+  const faceBackupReady = !configs.faceBackup.enabled || Boolean(
+    configs.faceBackup.apiKey
+    && (configs.faceBackup.baseUrl || configs.faceBackup.endpoint)
+    && configs.faceBackup.model
+  );
   const imageReady = Boolean(
     configs.image.apiKey &&
     (configs.image.baseUrl || configs.image.endpoint) &&
     configs.image.model
   );
   const imageBackupReady = Boolean(
-    configs.imageBackup.enabled
-    &&
     configs.imageBackup.apiKey
     && (configs.imageBackup.baseUrl || configs.imageBackup.endpoint)
     && configs.imageBackup.model
   );
+  const imageBackupConfigured = !configs.imageBackup.enabled || imageBackupReady;
   const analysisReady = Boolean(
     configs.analysis.apiKey
     && (configs.analysis.baseUrl || configs.analysis.endpoint)
     && configs.analysis.model
   );
+  const analysisBackupReady = !configs.analysisBackup.enabled || Boolean(
+    configs.analysisBackup.apiKey
+    && (configs.analysisBackup.baseUrl || configs.analysisBackup.endpoint)
+    && configs.analysisBackup.model
+  );
   const videoReady = Boolean(configs.video.configured);
+  const videoBackupReady = !configs.videoBackup.enabled || Boolean(configs.videoBackup.configured);
   const result = {
     buildVersion: API_BUILD_VERSION,
     buildMarker: API_BUILD_MARKER,
@@ -14236,11 +12608,25 @@ async function checkDeployment(event, context) {
       model: configs.face.model || "",
       apiKeyConfigured: Boolean(configs.face.apiKey)
     },
+    faceBackup: {
+      enabled: Boolean(configs.faceBackup.enabled),
+      ready: faceBackupReady,
+      provider: configs.faceBackup.provider || "",
+      model: configs.faceBackup.model || "",
+      apiKeyConfigured: Boolean(configs.faceBackup.apiKey)
+    },
     analysis: {
       ready: analysisReady,
       provider: configs.analysis.provider || "",
       model: configs.analysis.model || "",
       apiKeyConfigured: Boolean(configs.analysis.apiKey)
+    },
+    analysisBackup: {
+      enabled: Boolean(configs.analysisBackup.enabled),
+      ready: analysisBackupReady,
+      provider: configs.analysisBackup.provider || "",
+      model: configs.analysisBackup.model || "",
+      apiKeyConfigured: Boolean(configs.analysisBackup.apiKey)
     },
     image: {
       ready: imageReady,
@@ -14259,8 +12645,8 @@ async function checkDeployment(event, context) {
       apiKeyConfigured: Boolean(configs.image.apiKey)
     },
     imageBackup: {
+      ready: imageBackupConfigured,
       enabled: Boolean(configs.imageBackup.enabled),
-      ready: imageBackupReady,
       provider: configs.imageBackup.provider || "",
       model: configs.imageBackup.model || "",
       mode: configs.imageBackup.mode || DEFAULT_IMAGE_MODE,
@@ -14296,6 +12682,13 @@ async function checkDeployment(event, context) {
       model: configs.video.model || "",
       apiKeyConfigured: Boolean(configs.video.apiKey)
     },
+    videoBackup: {
+      enabled: Boolean(configs.videoBackup.enabled),
+      ready: videoBackupReady,
+      provider: configs.videoBackup.provider || "",
+      model: configs.videoBackup.model || "",
+      apiKeyConfigured: Boolean(configs.videoBackup.apiKey)
+    },
     runtimeConfigVersion: Number(runtime && runtime.version) || 0,
     runtimeConfigUpdatedAt: runtime && runtime.updatedAt
       ? new Date(runtime.updatedAt).toISOString()
@@ -14306,7 +12699,7 @@ async function checkDeployment(event, context) {
     ? false
     : await writeDeploymentLog(Object.assign({}, result, {
         requestId: event.requestId,
-        ok: faceReady || analysisReady || imageReady || imageBackupReady || videoReady,
+        ok: faceReady || analysisReady || imageReady || imageBackupConfigured || videoReady,
         checkedBy: getOpenId(context)
       }));
   return jsonResponse(true, Object.assign(result, {
@@ -14737,12 +13130,15 @@ function temporaryModelConfig(configs, type, input) {
   ).trim();
   const configTarget = (
     type === "image" && requestedTarget === "imageBackup"
-    || type === "video" && requestedTarget === "videoBackup"
-  ) ? requestedTarget : type;
+  ) || (
+    type === "video" && requestedTarget === "videoBackup"
+  )
+    ? requestedTarget
+    : type;
   const current = configs && configs[configTarget] ? configs[configTarget] : {};
   const patch = normalizeRuntimePatch({
-    [configTarget]: input && typeof input === "object" ? input : {}
-  })[configTarget] || {};
+    [type]: input && typeof input === "object" ? input : {}
+  })[type] || {};
   return Object.assign({}, current, patch, {
     // 空字符串表示沿用后台已有密钥，避免无意中把可用密钥覆盖掉。
     apiKey: String(patch.apiKey || "").trim() || current.apiKey || ""
@@ -14792,9 +13188,15 @@ function adminProviderConnectionConfig(section, profile) {
     return resolveImageBackupConfig({ imageBackup: value });
   }
   if (section === "videoBackup") {
-    return resolveVideoBackupConfig({ videoBackup: value });
+    const backup = Object.assign({}, value);
+    const envApiKey = firstEnv(["AI_VIDEO_BACKUP_API_KEY", "AI_VIDEO_BACKUP_KEY"], "");
+    if (envApiKey) backup.apiKey = envApiKey;
+    return resolveVideoBackupConfig({ videoBackup: backup });
   }
-  return resolveVideoConfig({ video: value });
+  const video = Object.assign({}, value);
+  const envApiKey = firstEnv(["AI_VIDEO_API_KEY", "AI_VIDEO_KEY"], "");
+  if (envApiKey) video.apiKey = envApiKey;
+  return resolveVideoConfig({ video });
 }
 
 function adminProviderConnectionErrorCode(status) {
@@ -14840,6 +13242,8 @@ async function testAdminProviderConnection(event, context) {
   const activeConfig = configs && configs[section] && typeof configs[section] === "object"
     ? configs[section]
     : {};
+  // 对外连接测试按服务商 ID 选择档案；providerKey 是目录内部 UUID，不能
+  // 与管理员传入的外部 ID 直接比较，否则会退回主视频配置。
   const activeProviderId = normalizeAdminProviderId(activeConfig.provider);
   const selectedProfile = activeProviderId === providerId
     ? Object.assign({}, profile || {}, activeConfig)
@@ -14848,10 +13252,7 @@ async function testAdminProviderConnection(event, context) {
     return fail(
       `没有找到“${providerId}”在${section}区域的已保存配置，请先保存后再测试。`,
       "ADMIN_PROVIDER_PROFILE_NOT_FOUND",
-      {
-        section,
-        providerId
-      }
+      { section, providerId }
     );
   }
 
@@ -15982,7 +14383,7 @@ async function analyzeWebPoses(event, context) {
     } catch (error) {
       if (error.status !== 400) throw error;
       // 部分 OpenAI-compatible 中转不接受 response_format 或 enable_thinking，降级后再发一次。
-      const fallbackPayload = sanitizeVisionRequestPayload(requestPayload, requestMeta);
+      const fallbackPayload = sanitizeVisionRequestPayload(requestPayload, candidate);
       delete fallbackPayload.enable_thinking;
       delete fallbackPayload.seed;
       return requestJson(url, fallbackPayload, candidate.apiKey, {}, requestMeta);
@@ -18095,7 +16496,7 @@ function decodePublishExport(buffer) {
       new Uint8ClampedArray(decoded.data),
       Number(decoded.width) || 1,
       Number(decoded.height) || 1,
-      1
+      5
     );
     if (oriented.width * oriented.height > PUBLISH_EXPORT_MAX_SOURCE_PIXELS) {
       throw publishExportError("原图像素过大，暂时无法云端处理。", "publish-export-source-too-large");
@@ -19373,16 +17774,16 @@ function pointsSummary(account, quota, points, dateKey) {
     : calculateNextStreak(value.lastCheckinDate, value.currentStreak, dateKey);
   const nextCheckinReward = checkedInToday
     ? 0
-    : (Number(points.checkinPoints) || 0)
+    : roundPointValue((Number(points.checkinPoints) || 0)
       + (nextStreak > 0 && nextStreak % Number(points.streakDays) === 0
         ? Number(points.streakBonus) || 0
-        : 0);
+        : 0));
   return {
-    pointsBalance: Math.max(0, Number(value.pointsBalance) || 0),
-    totalEarned: Math.max(0, Number(value.totalEarned) || 0),
-    totalSpent: Math.max(0, Number(value.totalSpent) || 0),
-    totalPurchasedPoints: Math.max(0, Number(value.totalPurchasedPoints) || 0),
-    totalReversedPurchasedPoints: Math.max(0, Number(value.totalReversedPurchasedPoints) || 0),
+    pointsBalance: Math.max(0, roundPointValue(value.pointsBalance)),
+    totalEarned: Math.max(0, roundPointValue(value.totalEarned)),
+    totalSpent: Math.max(0, roundPointValue(value.totalSpent)),
+    totalPurchasedPoints: Math.max(0, roundPointValue(value.totalPurchasedPoints)),
+    totalReversedPurchasedPoints: Math.max(0, roundPointValue(value.totalReversedPurchasedPoints)),
     currentStreak: Math.max(0, Number(value.currentStreak) || 0),
     lastCheckinDate: value.lastCheckinDate || "",
     checkedInToday,
@@ -19393,10 +17794,10 @@ function pointsSummary(account, quota, points, dateKey) {
     promoActive,
     promoStartDate: points.promoStartDate,
     promoEndDate: points.promoEndDate,
-    imageCost: Number(points.imageCost) || 0,
-    videoCost: Number(points.videoCost) || 0,
-    checkinPoints: Number(points.checkinPoints) || 0,
-    streakBonus: Number(points.streakBonus) || 0,
+    imageCost: roundPointValue(points.imageCost),
+    videoCost: roundPointValue(points.videoCost),
+    checkinPoints: roundPointValue(points.checkinPoints),
+    streakBonus: roundPointValue(points.streakBonus),
     streakDays: Number(points.streakDays) || 7,
     billingMode: promoActive
       ? "promo-free"
@@ -19428,7 +17829,9 @@ async function reserveUsage(openid, requestId, kind) {
       untracked: true
     };
   }
-  const cost = kind === "video" ? Number(points.videoCost) || 0 : Number(points.imageCost) || 0;
+  const cost = roundPointValue(
+    kind === "video" ? points.videoCost : points.imageCost
+  );
   return db.runTransaction(async (transaction) => {
     const operation = await findGenerationOperation(openid, requestId, transaction);
     if (operation) {
@@ -19506,7 +17909,7 @@ async function reserveUsage(openid, requestId, kind) {
       ) + 1;
       quota.data.used = quota.data.freeUsed;
     } else {
-      const balance = Math.max(0, Number(account && account.pointsBalance) || 0);
+      const balance = Math.max(0, roundPointValue(account && account.pointsBalance));
       if (balance < cost) {
         const error = new Error(`积分不足，本次需要 ${cost} 积分，请先签到。`);
         error.code = "points-insufficient";
@@ -19514,8 +17917,8 @@ async function reserveUsage(openid, requestId, kind) {
         error.pointsBalance = balance;
         throw error;
       }
-      account.pointsBalance = balance - cost;
-      account.totalSpent = (Number(account.totalSpent) || 0) + cost;
+      account.pointsBalance = roundPointValue(balance - cost);
+      account.totalSpent = roundPointValue((Number(account.totalSpent) || 0) + cost);
       account.updatedAt = new Date();
       await transaction
         .collection(POINTS_ACCOUNT_COLLECTION)
@@ -19538,7 +17941,7 @@ async function reserveUsage(openid, requestId, kind) {
       type: source === "points" ? "spend" : source,
       kind,
       amount: source === "points" ? -cost : 0,
-      balanceAfter: Math.max(0, Number(account && account.pointsBalance) || 0),
+      balanceAfter: Math.max(0, roundPointValue(account && account.pointsBalance)),
       dateKey,
       description: source === "promo-free"
         ? "活动期间免费使用"
@@ -19609,9 +18012,13 @@ async function refundUsage(openid, requestId, reason) {
     let amount = 0;
     if (original.type === "spend" && Number(original.amount) < 0) {
       account = account || defaultPointsAccount(openid);
-      amount = -Number(original.amount);
-      account.pointsBalance = (Number(account.pointsBalance) || 0) + amount;
-      account.totalSpent = Math.max(0, (Number(account.totalSpent) || 0) - amount);
+      amount = roundPointValue(-Number(original.amount));
+      account.pointsBalance = roundPointValue(
+        (Number(account.pointsBalance) || 0) + amount
+      );
+      account.totalSpent = Math.max(0, roundPointValue(
+        (Number(account.totalSpent) || 0) - amount
+      ));
       account.updatedAt = new Date();
       await transaction
         .collection(POINTS_ACCOUNT_COLLECTION)
@@ -19632,7 +18039,7 @@ async function refundUsage(openid, requestId, reason) {
       type: "refund",
       kind: original.kind || "",
       amount,
-      balanceAfter: Math.max(0, Number(account && account.pointsBalance) || 0),
+      balanceAfter: Math.max(0, roundPointValue(account && account.pointsBalance)),
       dateKey,
       description: reason || (
         amount > 0 ? "生成失败，积分已退回" : "生成失败，免费次数已退回"
@@ -19718,9 +18125,13 @@ async function checkIn(context) {
     const bonus = nextStreak > 0 && nextStreak % Number(points.streakDays) === 0
       ? Number(points.streakBonus) || 0
       : 0;
-    const earned = (Number(points.checkinPoints) || 0) + bonus;
-    account.pointsBalance = (Number(account.pointsBalance) || 0) + earned;
-    account.totalEarned = (Number(account.totalEarned) || 0) + earned;
+    const earned = roundPointValue((Number(points.checkinPoints) || 0) + bonus);
+    account.pointsBalance = roundPointValue(
+      (Number(account.pointsBalance) || 0) + earned
+    );
+    account.totalEarned = roundPointValue(
+      (Number(account.totalEarned) || 0) + earned
+    );
     account.currentStreak = nextStreak;
     account.lastCheckinDate = dateKey;
     account.boundAt = account.boundAt || new Date();
@@ -19987,7 +18398,6 @@ function tencentPipelineOperationResult(operation) {
 }
 
 async function getTencentFaceFusionPipelineStatus(event, context) {
-  if (!isAdminContext(context)) return adminForbidden();
   const openid = getOpenId(context);
   if (openid === "anonymous") return jsonResponse(true, { stage: "pending" });
   const requestId = String(event && event.requestId || "").trim();
@@ -20059,8 +18469,7 @@ async function getTencentFaceFusionPipelineStatus(event, context) {
 
 async function getTencentFaceFusionAdminStatus(context, dependencies = {}) {
   if (!isAdminContext(context)) return adminForbidden();
-  const effectiveConfigs = await resolveEffectiveConfigs({ force: true });
-  const config = effectiveConfigs.tencentFaceFusion;
+  const config = resolveTencentFaceFusionConfig();
   const statusDb = dependencies.db || db;
   let latest = null;
   try {
@@ -20112,14 +18521,7 @@ async function testTencentFaceFusion(event, context) {
   if (!templateFileID || !faceFileID) {
     return fail("请先上传模板图和参考脸。", "TENCENT_FACEFUSION_TEST_ASSET_MISSING");
   }
-  const effectiveConfigs = await resolveEffectiveConfigs({ force: true });
-  const config = resolveTencentFaceFusionConfig(
-    Object.assign(
-      {},
-      effectiveConfigs.tencentFaceFusion || {},
-      payload.tencentFaceFusion || {}
-    )
-  );
+  const config = resolveTencentFaceFusionConfig();
   if (!config.configured) {
     return fail(
       "腾讯人脸融合还没有配置，请先填写云函数环境变量。",
@@ -20251,7 +18653,6 @@ async function detectTencentPipelineFaces(mainFileID, requestId, context, config
 }
 
 async function tencentFaceFusionPipeline(event, context) {
-  if (!isAdminContext(context)) return adminForbidden();
   const payload = event && event.payload && typeof event.payload === "object"
     ? event.payload
     : {};
@@ -20284,15 +18685,9 @@ async function tencentFaceFusionPipeline(event, context) {
   const imageBackupConfig = Object.assign({}, v2Active ? v2TencentGroup.imageBackup : configs.imageBackup, {
     mode: "edits"
   });
-  const tencent = configs.tencentFaceFusion;
+  const tencent = resolveTencentFaceFusionConfig();
   pixelProtectionFlow.assertTencentFaceFusionFlow(tencent);
-  const imageBackupUsable = Boolean(
-    imageBackupConfig.enabled
-    && imageBackupConfig.apiKey
-    && (imageBackupConfig.baseUrl || imageBackupConfig.endpoint)
-    && imageBackupConfig.model
-  );
-  if (!retryTencentOnly && !imageConfig.apiKey && !imageBackupUsable) {
+  if (!retryTencentOnly && !imageConfig.apiKey && !imageBackupConfig.apiKey) {
     return fail(
       "图片主模型和备用模型都还没有配置密钥，暂时不能执行第一阶段。",
       "TENCENT_PIPELINE_IMAGE_PROVIDER_NOT_CONFIGURED"
@@ -21118,15 +19513,9 @@ async function executeImageGeneration(operation, context = {}) {
     () => crypto.randomBytes(4).toString("hex")
   );
   const mode = resolveGenerationMode(payload, imageConfig);
-  const imageBackupUsable = Boolean(
-    imageBackupConfig.enabled
-    && imageBackupConfig.apiKey
-    && (imageBackupConfig.baseUrl || imageBackupConfig.endpoint)
-    && imageBackupConfig.model
-  );
   if (
     mode === "edits"
-      ? !imageConfig.apiKey && !imageBackupUsable
+      ? !imageConfig.apiKey && !imageBackupConfig.apiKey
       : !imageConfig.apiKey
   ) {
     const error = new Error("云函数还没有配置图片服务密钥。");
@@ -23834,6 +22223,7 @@ exports.main = async (event = {}, context) => {
     else if (action === "getAdminPaymentMonitor") {
       result = await getAdminPaymentMonitor(context);
     }
+    else if (action === "getPaymentMonitor") result = await getAdminPaymentMonitor(context);
     else if (action === "getTencentFaceFusionAdminStatus") {
       result = await getTencentFaceFusionAdminStatus(context);
     }
@@ -23857,6 +22247,9 @@ exports.main = async (event = {}, context) => {
     else if (action === "saveAdminProviderV2") {
       result = await saveAdminProviderV2(requestEvent, context);
     }
+    else if (action === "saveAdminSlotV2") {
+      result = await saveAdminSlotV2(requestEvent, context);
+    }
     else if (action === "listAdminProviderModelsV2") {
       result = await listAdminProviderModelsV2(requestEvent, context);
     }
@@ -23868,9 +22261,6 @@ exports.main = async (event = {}, context) => {
     }
     else if (action === "saveAdminBindingV2") {
       result = await saveAdminBindingV2(requestEvent, context);
-    }
-    else if (action === "saveAdminSlotV2") {
-      result = await saveAdminSlotV2(requestEvent, context);
     }
     else if (action === "getAdminImageApiKeys") {
       result = await getAdminImageApiKeys(context);
@@ -23993,19 +22383,11 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     cleanupTencentFaceFusionIntermediateAssets,
     resolveVisionConfig,
     resolveFaceConfig,
-    resolveAnalysisConfig,
     resolveFaceBackupConfig,
+    resolveAnalysisConfig,
     resolveAnalysisBackupConfig,
-    normalizeConfigGroup,
-    configGroupFromPayload,
-    v2GroupSection,
-    v2GroupConfigs,
-    v2GroupCapabilityForAction,
-    visionConfigCandidatesForAction,
-    runVisionProviderFailover,
     normalizeApiKey,
     apiKeyHeaders,
-    mapActionErrorResult,
     isGeminiCompatibleVision,
     sanitizeVisionRequestPayload,
     resolveImageEditEndpoint,
@@ -24020,6 +22402,14 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     visionConfigForAction,
     resolveImageConfig,
     resolveImageBackupConfig,
+    resolveVideoBackupConfig,
+    normalizeConfigGroup,
+    configGroupFromPayload,
+    v2GroupSection,
+    v2GroupConfigs,
+    v2GroupCapabilityForAction,
+    visionConfigCandidatesForAction,
+    runVisionProviderFailover,
     resolveEffectiveConfigs,
     runImageEditProviderFailover,
     imageProviderFailover,
@@ -24033,6 +22423,9 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     normalizeWebPoseSuggestions,
     resolveVideoConfig,
     resolvePointsConfig,
+    roundPointValue,
+    pointNumberValidationError,
+    normalizePointNumber,
     resolveCostConfig,
     normalizeImageCostProvider,
     imageProviderPriceTable,
@@ -24057,15 +22450,6 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     normalizeVideoResolution,
     modelCapabilities,
     buildImageQualityProbe,
-    normalizeAdminProviderLabels,
-    mergeAdminProviderLabels,
-    validateAdminProviderLabels,
-    configuredAdminProviderIds,
-    normalizeAdminProviderProfiles,
-    mergeAdminProviderProfiles,
-    syncAdminTopLevelProviderProfiles,
-    redactAdminProviderProfiles,
-    migrateLegacyAdminProviderProfiles,
     normalizeRuntimePatch,
     normalizeLegacyRuntimePatch,
     providerStableKey,
@@ -24078,6 +22462,7 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     normalizeAdminProviderProfileValue,
     normalizeAdminProviderProfiles,
     mergeAdminProviderProfiles,
+    redactAdminProviderProfiles,
     syncAdminTopLevelProviderProfiles,
     configuredAdminProviderIds,
     normalizeProviderRecord,
@@ -24087,13 +22472,10 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     mergeProviderRegistry,
     mergeProviderDirectory,
     mergeActiveProviderOverrides,
-    mergeActiveBackupOverrides,
     normalizeActiveProviders,
-    normalizeActiveBackups,
     buildLegacyProjectionFromProviderRegistry,
     migrateLegacyProviderRegistry,
     migrateProviderExternalIdReferences,
-    removeProviderExternalIdReferences,
     redactProviderMetadata,
     redactProviderRegistry,
     providerRegistryList,
@@ -24231,7 +22613,6 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     buildAndroidMotionPhotoBuffer,
     buildAutoFaceProbe
     ,
-    processQueuedGenerationOperation,
     adminOpenIds,
     isAdminContext,
     usageUserHash,
@@ -24247,6 +22628,7 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     paymentMonitorDateMillis,
     paymentMonitorView,
     getAdminPaymentMonitor,
+    getPaymentMonitor: getAdminPaymentMonitor,
     getAdminConfig,
     getAdminImageApiKeys,
     normalizeUserGender,
@@ -24288,20 +22670,20 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     getAdminConfigV2,
     getAdminProviderSecretsV2,
     saveAdminProviderV2,
+    saveAdminSlotV2,
     listAdminProviderModelsV2,
     probeAdminProviderV2,
     confirmAdminModelsV2,
     saveAdminBindingV2,
-    saveAdminSlotV2,
+    v2AssertBindingRuntimeReady,
     adminConfigV2,
     v2ConfigFromRuntime,
     v2PublicConfig,
     v2ProviderSecrets,
+    v2MergeSecrets,
     v2WriterActive,
     v2MutationAction,
     v2SecretPatch,
-    v2MergeSecrets,
-    v2AssertBindingRuntimeReady,
     v2RuntimeRequestEndpoint,
     v2InheritedFunctionParameters,
     v2BindingRuntimeSection,
@@ -24311,6 +22693,10 @@ if (process.env.WECHAT_MINIAPP_TEST === "1") {
     checkRuntimeDependencies,
     checkRuntimeHealth,
     checkDeployment,
+    paymentMonitorDateMillis,
+    paymentMonitorView,
+    getAdminPaymentMonitor,
+    getPaymentMonitor: getAdminPaymentMonitor,
     modelProbeUrl,
     listedModelIds,
     probeOneModel,

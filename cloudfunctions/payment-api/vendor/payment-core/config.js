@@ -7,9 +7,9 @@ const { paymentError } = require("./errors");
 
 const DEFAULT_RECHARGE_CONFIG = Object.freeze({
   version: 1,
-  rechargeEnabled: false,
+  rechargeEnabled: true,
   channelConfig: Object.freeze({
-    wxpay: Object.freeze({ enabled: false }),
+    wxpay: Object.freeze({ enabled: true }),
     alipay: Object.freeze({ enabled: false })
   }),
   productConfig: Object.freeze({
@@ -18,7 +18,7 @@ const DEFAULT_RECHARGE_CONFIG = Object.freeze({
   gray: Object.freeze({
     strategy: "hash",
     allowOpenidHashes: Object.freeze([]),
-    rolloutPercent: 0
+    rolloutPercent: 100
   })
 });
 
@@ -49,14 +49,26 @@ function normalizeRechargeConfig(value) {
   const strategySpecified = Object.prototype.hasOwnProperty.call(gray, "strategy");
   const strategyValid = ["whitelist", "hash"].includes(requestedStrategy);
   const strategy = strategyValid ? requestedStrategy : strategySpecified ? "whitelist" : "hash";
+  const rechargeEnabledSpecified = Object.prototype.hasOwnProperty.call(source, "rechargeEnabled");
+  const wxpaySpecified = Object.prototype.hasOwnProperty.call(channelConfig, "wxpay");
+  const rolloutSpecified = Object.prototype.hasOwnProperty.call(gray, "rolloutPercent");
+  const requestedRolloutPercent = rolloutSpecified
+    ? Number(gray.rolloutPercent) || 0
+    : DEFAULT_RECHARGE_CONFIG.gray.rolloutPercent;
   const rolloutPercent = strategyValid || !strategySpecified
-    ? Math.max(0, Math.min(100, Number(gray.rolloutPercent) || 0))
+    ? Math.max(0, Math.min(100, requestedRolloutPercent))
     : 0;
   return {
     version: Math.max(1, Number(source.version) || DEFAULT_RECHARGE_CONFIG.version),
-    rechargeEnabled: source.rechargeEnabled === true,
+    rechargeEnabled: rechargeEnabledSpecified
+      ? source.rechargeEnabled === true
+      : DEFAULT_RECHARGE_CONFIG.rechargeEnabled,
     channelConfig: {
-      wxpay: { enabled: Boolean(channelConfig.wxpay && channelConfig.wxpay.enabled === true) },
+      wxpay: {
+        enabled: wxpaySpecified
+          ? Boolean(channelConfig.wxpay && channelConfig.wxpay.enabled === true)
+          : DEFAULT_RECHARGE_CONFIG.channelConfig.wxpay.enabled
+      },
       // 首版禁止支付宝 provider、入口和 launcher，即使误配也强制关闭。
       alipay: { enabled: false }
     },

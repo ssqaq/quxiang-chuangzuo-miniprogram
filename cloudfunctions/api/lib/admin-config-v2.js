@@ -344,14 +344,7 @@ function normalizeBinding(raw, context, options) {
   } else if (status === "ready" && (!model.confirmed || supplier.enabled === false)) {
     status = "needsReview";
   }
-  const output = {};
-  Object.keys(source).forEach((key) => {
-    if (!["slot", "capability", "feature", "role", "kind", "providerKey", "provider", "key", "internalKey", "id", "modelId", "model", "name", "status", "sourceHash", "confirmedAt", "confirmedBy", "confirmedByOpenid", "version", "fallbackUsed", "lastFailureAt", "metadata", "confirmed"].includes(key)) {
-      const item = sanitizeSecrets(source[key], key);
-      if (item !== undefined) output[key] = item;
-    }
-  });
-  return Object.assign(output, {
+  return {
     slot,
     role,
     providerKey,
@@ -364,7 +357,7 @@ function normalizeBinding(raw, context, options) {
     fallbackUsed: Boolean(source.fallbackUsed),
     lastFailureAt: source.lastFailureAt ? String(source.lastFailureAt) : null,
     metadata: sanitizeSecrets(isObject(source.metadata) ? source.metadata : {})
-  });
+  };
 }
 
 function normalizeCostAdapter(raw, keyHint) {
@@ -912,12 +905,8 @@ function transitionBinding(value, change, options) {
     suppliersByKey: Object.fromEntries(config.suppliers.map((item) => [item.providerKey, item])),
     modelsByKey: Object.fromEntries(config.supplierModels.map((item) => [modelKey(item.providerKey, item.modelId), item]))
   });
-  const nextProvider = Object.prototype.hasOwnProperty.call(request, "providerKey")
-    ? text(request.providerKey)
-    : providerKeyOf(request, previous && previous.providerKey);
-  const nextModel = Object.prototype.hasOwnProperty.call(request, "modelId")
-    ? text(request.modelId)
-    : modelIdOf(request, previous && previous.modelId);
+  const nextProvider = providerKeyOf(request, previous && previous.providerKey);
+  const nextModel = modelIdOf(request, previous && previous.modelId);
   const desired = canonicalStatus(request.status, previous && previous.status || "not-ready");
   const suppliers = Object.fromEntries(config.suppliers.map((item) => [item.providerKey, item]));
   const models = Object.fromEntries(config.supplierModels.map((item) => [modelKey(item.providerKey, item.modelId), item]));

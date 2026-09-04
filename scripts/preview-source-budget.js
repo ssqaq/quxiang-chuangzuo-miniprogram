@@ -3,10 +3,9 @@
 /**
  * 统计微信开发者工具预览时会打包的源码体积。
  *
- * 这里按 project.config.json 的 packOptions.ignore/include 规则做保守匹配，
- * 只在本地读取文件并做逐文件 gzip 估算，不上传任何内容。这样发布前
- * 可以先发现超过开发者工具预览上传上限的项目，而不是等二维码生成
- * 阶段才失败。
+ * 这里按 project.config.json 的 packOptions.ignore/include 规则统计裸源码，
+ * 口径对齐微信开发者工具预览包的源码大小提示。压缩估算只作为诊断字段，
+ * 不参与默认闸门，避免本地 gzip 结果和开发者工具的原始字节口径不一致。
  */
 
 const fs = require("fs");
@@ -18,7 +17,7 @@ const ROOT = path.resolve(__dirname, "..");
 // --max-bytes（例如 1_900_000）给上传链路预留协议开销。
 const DEFAULT_MAX_BYTES = 2 * 1024 * 1024;
 const DEFAULT_WARN_BYTES = Math.floor(1.8 * 1024 * 1024);
-const DEFAULT_METRIC = "compressed";
+const DEFAULT_METRIC = "raw";
 const COMPRESSION_LEVEL = 9;
 const DEFAULT_CONFIG_NAME = "project.config.json";
 const IMPLICIT_IGNORES = [
@@ -252,8 +251,7 @@ function calculateBudget(projectRoot, options = {}) {
     ? Math.max(0, Math.floor(Number(options.warnBytes)))
     : Math.min(DEFAULT_WARN_BYTES, maxBytes);
   const totalBytes = collected.files.reduce((total, item) => total + item.sizeBytes, 0);
-  // DevTools 上传的是压缩后的文件包，而不是工作树裸字节。按文件分别
-  // gzip，外加相对路径和条目头开销，得到稳定且偏保守的传输估算。
+  // 保留压缩估算用于定位大文件，但不把它当作预览源码预算的判定值。
   const estimatedTransferBytes = collected.files.reduce((total, item) => {
     const content = fs.readFileSync(item.absolutePath);
     return total + zlib.gzipSync(content, { level: COMPRESSION_LEVEL }).length
@@ -290,7 +288,7 @@ function calculateBudget(projectRoot, options = {}) {
     ignoredDirectoryCount: collected.ignoredDirectoryCount,
     budgetRemainingBytes: maxBytes - measuredBytes,
     usageRatio: maxBytes ? measuredBytes / maxBytes : null,
-    warning: measuredBytes > warnBytes || totalBytes > maxBytes,
+    warning: measuredBytes > warnBytes,
     errors: collected.errors,
     largestFiles,
     checkedAt: new Date().toISOString(),
@@ -330,7 +328,7 @@ function printUsage() {
     "  --config <文件>        project.config.json 路径",
     "  --max-bytes <字节>     硬上限（默认 2MiB；可传更保守值预留协议余量）",
     "  --warn-bytes <字节>    预警线（默认约 1.8MiB）",
-    "  --metric <raw|compressed> 预算口径（默认 compressed，另报告原始字节）",
+    "  --metric <raw|compressed> 预算口径（默认 raw；compressed 仅作诊断）",
     "  --json <文件>          同时写出结构化 JSON 报告",
   ].join("\n"));
 }

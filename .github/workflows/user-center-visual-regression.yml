@@ -1,0 +1,320 @@
+name: user-center-visual-regression
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/user-center-visual-regression.yml"
+      - "pages/user-center/**"
+      - "pages/recharge/**"
+      - "pages/account-records/**"
+      - "services/account.js"
+      - "utils/account-ui.js"
+      - "scripts/user-center-*.js"
+      - "scripts/check-devtools.ps1"
+      - "docs/superpowers/visual-baselines/**"
+      - "tools/user-center-preview/**"
+  workflow_dispatch:
+    inputs:
+      run_devtools:
+        description: "在带微信开发者工具的 Windows self-hosted runner 上采集 G2"
+        required: true
+        default: false
+        type: boolean
+      run_g3:
+        description: "在带真实 iOS/Android 设备的 runner 上执行 G3"
+        required: true
+        default: false
+        type: boolean
+      production_gate:
+        description: "执行生产发布资格审计（G3 未通过会失败）"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: user-center-visual-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: "22.13.0"
+  PREVIEW_ROOT: tools/user-center-preview
+  VISUAL_CONFIG: docs/superpowers/visual-baselines/user-center-regression.config.json
+
+jobs:
+  # Browser capture is deliberately hosted and deterministic.  It uses the
+  # versioned preview snapshot in this repository, never localhost state from
+  # a developer workstation.
+  browser-design-regression:
+    name: browser-design-regression
+    runs-on: windows-latest
+    timeout-minutes: 35
+    outputs:
+      result: ${{ steps.browser-result.outputs.result }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Visual workflow contract preflight
+        shell: pwsh
+        run: node scripts/user-center-visual-workflow-smoke.js
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: tools/user-center-preview/package-lock.json
+      - name: Install versioned preview dependencies
+        shell: pwsh
+        run: npm ci --prefix "$env:GITHUB_WORKSPACE\${{ env.PREVIEW_ROOT }}"
+      - name: Capture browser G4 screenshots
+        shell: pwsh
+        env:
+          USER_CENTER_PREVIEW_ROOT: ${{ github.workspace }}\${{ env.PREVIEW_ROOT }}
+          USER_CENTER_RESPONSIVE_OUTPUT: ${{ github.workspace }}\artifacts\user-center-visual\browser-candidate
+          PLAYWRIGHT_CORE: ${{ github.workspace }}\${{ env.PREVIEW_ROOT }}\node_modules\playwright-core
+          BROWSER_EXECUTABLE: C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe
+        run: node scripts/user-center-responsive-capture.js
+      - name: Build isolated comparison config
+        id: browser-config
+        shell: pwsh
+        env:
+          BASE_CONFIG: ${{ github.workspace }}\${{ env.VISUAL_CONFIG }}
+          CANDIDATE_ROOT: ${{ github.workspace }}\artifacts\user-center-visual\browser-candidate
+        run: |
+          $config = Get-Content -LiteralPath $env:BASE_CONFIG -Raw | ConvertFrom-Json
+          $baselineRoot = (Resolve-Path "$env:GITHUB_WORKSPACE\docs\superpowers\visual-baselines").Path
+          $candidateRoot = (Resolve-Path $env:CANDIDATE_ROOT).Path
+          $config.baselineManifest.path = (Join-Path $baselineRoot "user-center-g1-v2\manifest.json")
+          $candidateManifest = Join-Path $candidateRoot "manifest.json"
+          if (-not (Test-Path -LiteralPath $candidateManifest -PathType Leaf)) {
+            throw "浏览器截图缺少候选 manifest：$candidateManifest"
+          }
+          $config.candidateManifest.path = $candidateManifest
+          $config.candidateManifest.sha256 = (Get-FileHash -LiteralPath $candidateManifest -Algorithm SHA256).Hash.ToLowerInvariant()
+          $config.pages | ForEach-Object {
+            $_.baseline.path = Join-Path $baselineRoot ("user-center-g1-v2\{0}.png" -f $_.id)
+            $_.candidate.path = Join-Path $candidateRoot ("{0}-338.png" -f $_.id)
+          }
+          $ciConfig = Join-Path $env:RUNNER_TEMP "user-center-regression-browser.json"
+          $json = $config | ConvertTo-Json -Depth 20
+          [IO.File]::WriteAllText($ciConfig, "$json`n", [System.Text.UTF8Encoding]::new($false))
+          "path=$ciConfig" >> $env:GITHUB_OUTPUT
+      - name: Recompute browser pixel diff and heatmaps
+        shell: pwsh
+        env:
+          SHARP_MODULE: ${{ github.workspace }}\${{ env.PREVIEW_ROOT }}\node_modules\sharp
+        run: node scripts/user-center-visual-diff.js --config "${{ steps.browser-config.outputs.path }}" --output "$env:GITHUB_WORKSPACE\artifacts\user-center-visual\browser-report"
+      - name: Browser visual artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: user-center-browser-visual-${{ github.run_id }}
+          path: artifacts/user-center-visual
+          if-no-files-found: error
+      - name: Export browser result
+        id: browser-result
+        if: always()
+        shell: pwsh
+        env:
+          JOB_RESULT: ${{ job.status }}
+        run: |
+          "result=$env:JOB_RESULT" >> $env:GITHUB_OUTPUT
+
+  # This job is intentionally bound to a labelled self-hosted runner.  The
+  # runner must provision an audited capture script because DevTools screenshot
+  # APIs differ between IDE releases.  Missing tooling fails closed; it never
+  # falls back to a browser screenshot or a checked-in report.
+  devtools-regression:
+    name: devtools-regression
+    if: github.event_name == 'workflow_dispatch' && inputs.run_devtools == true
+    runs-on: [self-hosted, Windows, X64, wechat-devtools]
+    timeout-minutes: 45
+    outputs:
+      result: ${{ steps.devtools-result.outputs.result }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: tools/user-center-preview/package-lock.json
+      - name: Install visual comparison dependencies
+        shell: pwsh
+        run: npm ci --prefix "$env:GITHUB_WORKSPACE\${{ env.PREVIEW_ROOT }}"
+      - name: Verify fixed DevTools environment
+        shell: pwsh
+        run: |
+          . "$env:GITHUB_WORKSPACE\scripts\check-devtools.ps1" -ProjectPath "$env:GITHUB_WORKSPACE"
+          if ($env:WECHAT_DEVTOOLS_VERSION -ne "2.02.2608040") { throw "WECHAT_DEVTOOLS_VERSION 必须固定为 2.02.2608040" }
+          if ($env:WECHAT_BASE_LIBRARY -ne "3.16.2") { throw "WECHAT_BASE_LIBRARY 必须固定为 3.16.2" }
+      - name: Capture DevTools G2 screenshots
+        shell: pwsh
+        env:
+          OUTPUT_ROOT: ${{ github.workspace }}\artifacts\user-center-visual\devtools-candidate
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WECHAT_DEVTOOLS_CAPTURE_SCRIPT)) {
+            throw "缺少 runner 预置的 WECHAT_DEVTOOLS_CAPTURE_SCRIPT；禁止用浏览器截图冒充 G2。"
+          }
+          if (-not (Test-Path -LiteralPath $env:WECHAT_DEVTOOLS_CAPTURE_SCRIPT -PathType Leaf)) {
+            throw "WECHAT_DEVTOOLS_CAPTURE_SCRIPT 不存在：$env:WECHAT_DEVTOOLS_CAPTURE_SCRIPT"
+          }
+          New-Item -ItemType Directory -Force -Path $env:OUTPUT_ROOT | Out-Null
+          & pwsh -NoProfile -File $env:WECHAT_DEVTOOLS_CAPTURE_SCRIPT `
+            -ProjectPath "$env:GITHUB_WORKSPACE" `
+            -OutputDirectory $env:OUTPUT_ROOT `
+            -DevToolsVersion "2.02.2608040" `
+            -BaseLibrary "3.16.2"
+      - name: Build isolated DevTools comparison config
+        id: devtools-config
+        shell: pwsh
+        env:
+          BASE_CONFIG: ${{ github.workspace }}\${{ env.VISUAL_CONFIG }}
+          CANDIDATE_ROOT: ${{ github.workspace }}\artifacts\user-center-visual\devtools-candidate
+        run: |
+          $config = Get-Content -LiteralPath $env:BASE_CONFIG -Raw | ConvertFrom-Json
+          $baselineRoot = (Resolve-Path "$env:GITHUB_WORKSPACE\docs\superpowers\visual-baselines").Path
+          $candidateRoot = (Resolve-Path $env:CANDIDATE_ROOT).Path
+          $config.baselineManifest.path = (Join-Path $baselineRoot "user-center-g1-v2\manifest.json")
+          $candidateManifest = Join-Path $candidateRoot "manifest.json"
+          if (-not (Test-Path -LiteralPath $candidateManifest -PathType Leaf)) {
+            throw "DevTools 截图缺少候选 manifest：$candidateManifest"
+          }
+          $config.candidateManifest.path = $candidateManifest
+          $config.candidateManifest.sha256 = (Get-FileHash -LiteralPath $candidateManifest -Algorithm SHA256).Hash.ToLowerInvariant()
+          $config.pages | ForEach-Object {
+            $_.baseline.path = Join-Path $baselineRoot ("user-center-g1-v2\{0}.png" -f $_.id)
+            $_.candidate.path = Join-Path $candidateRoot ("{0}-338.png" -f $_.id)
+          }
+          $ciConfig = Join-Path $env:RUNNER_TEMP "user-center-regression-devtools.json"
+          $json = $config | ConvertTo-Json -Depth 20
+          [IO.File]::WriteAllText($ciConfig, "$json`n", [System.Text.UTF8Encoding]::new($false))
+          "path=$ciConfig" >> $env:GITHUB_OUTPUT
+      - name: Recompute DevTools pixel diff
+        shell: pwsh
+        env:
+          SHARP_MODULE: ${{ github.workspace }}\${{ env.PREVIEW_ROOT }}\node_modules\sharp
+        run: node scripts/user-center-visual-diff.js --config "${{ steps.devtools-config.outputs.path }}" --output "$env:GITHUB_WORKSPACE\artifacts\user-center-visual\devtools-report"
+      - name: DevTools visual artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: user-center-devtools-visual-${{ github.run_id }}
+          path: artifacts/user-center-visual/devtools-*
+          if-no-files-found: error
+      - name: Export DevTools result
+        id: devtools-result
+        if: always()
+        shell: pwsh
+        env:
+          JOB_RESULT: ${{ job.status }}
+        run: |
+          "result=$env:JOB_RESULT" >> $env:GITHUB_OUTPUT
+
+  # G3 is a physical-device gate.  A run with no attached devices is a valid
+  # pending evidence state, but it can never authorize production release.
+  g3-device-gate:
+    name: g3-device-gate
+    if: github.event_name == 'workflow_dispatch' && inputs.run_g3 == true
+    runs-on: [self-hosted, Windows, X64, wechat-g3-devices]
+    timeout-minutes: 30
+    outputs:
+      status: ${{ steps.g3-status.outputs.status }}
+      result: ${{ steps.g3-result.outputs.result }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Check physical-device evidence
+        shell: pwsh
+        run: node scripts/user-center-g3-check.js
+      - name: Export G3 status
+        id: g3-status
+        shell: pwsh
+        run: |
+          $statusFile = "$env:GITHUB_WORKSPACE\docs\superpowers\visual-baselines\user-center-g3\device-status.json"
+          if (-not (Test-Path -LiteralPath $statusFile)) { throw "G3 没有生成 device-status.json" }
+          $status = Get-Content -LiteralPath $statusFile -Raw | ConvertFrom-Json
+          if ($status.releaseGate -notin @("passed", "real-devices-required", "ios-device-required")) {
+            throw "未知 G3 状态：$($status.releaseGate)"
+          }
+          $normalized = if ($status.releaseGate -eq "passed") { "passed" } else { "pending" }
+          "status=$normalized" >> $env:GITHUB_OUTPUT
+      - name: G3 evidence artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: user-center-g3-${{ github.run_id }}
+          path: docs/superpowers/visual-baselines/user-center-g3/device-status.json
+          if-no-files-found: error
+      - name: Export G3 result
+        id: g3-result
+        if: always()
+        shell: pwsh
+        env:
+          JOB_RESULT: ${{ job.status }}
+        run: |
+          "result=$env:JOB_RESULT" >> $env:GITHUB_OUTPUT
+
+  # This is an audit-only job.  It never uploads, deploys, changes payment
+  # configuration, or edits production data.  It records candidate status and
+  # fails closed when someone explicitly asks for a production gate.
+  release-package-audit:
+    name: release-package-audit
+    if: always()
+    needs: [browser-design-regression, devtools-regression, g3-device-gate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Evaluate visual release eligibility
+        shell: bash
+        env:
+          PRODUCTION_GATE: ${{ (github.event_name == 'workflow_dispatch' && inputs.production_gate) && 'true' || 'false' }}
+          BROWSER_RESULT: ${{ needs.browser-design-regression.result }}
+          DEVTOOLS_RESULT: ${{ needs.devtools-regression.result }}
+          G3_RESULT: ${{ needs.g3-device-gate.result }}
+          G3_STATUS: ${{ needs.g3-device-gate.outputs.status }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/user-center-visual/release-audit
+          g3_status="${G3_STATUS:-pending}"
+          release_eligible=false
+          if [[ "$PRODUCTION_GATE" == "true" ]]; then
+            [[ "$BROWSER_RESULT" == "success" ]] || { echo "浏览器视觉回归未通过：$BROWSER_RESULT"; exit 1; }
+            [[ "$DEVTOOLS_RESULT" == "success" ]] || { echo "G2 DevTools 未通过或未运行：$DEVTOOLS_RESULT"; exit 1; }
+            [[ "$G3_RESULT" == "success" && "$g3_status" == "passed" ]] || { echo "G3 真机未通过，禁止生产发布：result=$G3_RESULT status=$g3_status"; exit 1; }
+            release_eligible=true
+          else
+            [[ "$BROWSER_RESULT" == "success" ]] || { echo "浏览器视觉回归未通过：$BROWSER_RESULT"; exit 1; }
+          fi
+          cat > artifacts/user-center-visual/release-audit/gate.json <<EOF
+          {
+            "schemaVersion": 1,
+            "contract": "user-center-visual-release-gate",
+            "releaseEligible": $release_eligible,
+            "g3Status": "$g3_status",
+            "browserResult": "$BROWSER_RESULT",
+            "devtoolsResult": "$DEVTOOLS_RESULT",
+            "g3Result": "$G3_RESULT",
+            "productionGateRequested": $PRODUCTION_GATE
+          }
+          EOF
+          cat artifacts/user-center-visual/release-audit/gate.json
+      - name: Release audit artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: user-center-release-audit-${{ github.run_id }}
+          path: artifacts/user-center-visual/release-audit
+          if-no-files-found: error

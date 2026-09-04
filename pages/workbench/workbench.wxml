@@ -54,7 +54,7 @@
       <view class="points-entry-copy">
         <view class="points-entry-topline">
           <view class="points-entry-title">{{pointsCopy.cardTitle}}</view>
-          <view class="points-entry-balance">{{points.pointsBalance}} {{pointsCopy.pointsUnit}}</view>
+          <view class="points-entry-balance">{{points.pointsBalanceText}} {{pointsCopy.pointsUnit}}</view>
         </view>
         <view class="points-entry-subtitle">
           {{pointsCopy.streakPrefix}} {{points.streakDays}} {{pointsCopy.streakSuffix}}
@@ -297,7 +297,7 @@
 
     <view class="workbench-footer">
       <view>局部创作，整体可控</view>
-      <view>版本 {{appVersion}} · {{cloudReady ? '云端已连接' : '本地预览模式'}}</view>
+      <view>已加载版本 {{appVersion}} · {{cloudReady ? '云端已连接' : '本地预览模式'}}</view>
     </view>
   </view>
 

@@ -124,11 +124,11 @@ function summarizeAsset(asset) {
 function buildCheckInToast(result = {}) {
   const copy = config.points.copy;
   const duplicate = Boolean(result.duplicate);
-  const earned = Number(result.earnedToday) || 0;
+  const earned = accountUi.safeNumber(result.earnedToday, 0);
   return {
     title: duplicate
       ? copy.checkInDuplicate
-      : `${copy.checkInSuccessPrefix}${earned}${copy.checkInSuccessSuffix}`,
+      : `${copy.checkInSuccessPrefix}${accountUi.formatPoints(earned, { fallback: "0" })}${copy.checkInSuccessSuffix}`,
     icon: duplicate ? "none" : "success"
   };
 }
@@ -157,10 +157,12 @@ Page({
     points: {
       accountBound: false,
       pointsBalance: 0,
+      pointsBalanceText: "0",
       currentStreak: 0,
       progress: 0,
       streakDays: config.points.streakDays,
       nextCheckinReward: config.points.checkinPoints,
+      nextCheckinRewardText: accountUi.formatPoints(config.points.checkinPoints, { fallback: "0" }),
       checkingIn: false,
       checkedInToday: false,
       freeRemaining: config.points.dailyFreeLimit,
@@ -499,6 +501,14 @@ Page({
     const progress = currentStreak > 0 && currentStreak % streakDays === 0
       ? streakDays
       : currentStreak % streakDays;
+    const pointsBalance = Math.max(0, accountUi.safeNumber(result.pointsBalance, 0));
+    const nextCheckinReward = Math.max(
+      0,
+      accountUi.safeNumber(
+        result.nextCheckinReward,
+        accountUi.safeNumber(result.checkinPoints, config.points.checkinPoints)
+      )
+    );
     return Object.assign({
       accountBound: false,
       pointsBalance: 0,
@@ -519,16 +529,13 @@ Page({
       ),
       billingMode: "daily-free"
     }, result, {
-      pointsBalance: Math.max(0, Number(result.pointsBalance) || 0),
+      pointsBalance,
+      pointsBalanceText: accountUi.formatPoints(pointsBalance, { fallback: "0" }),
       currentStreak,
       progress,
       progressPercent: Math.min(100, Math.max(0, progress / streakDays * 100)),
-      nextCheckinReward: Math.max(
-        0,
-        Number(result.nextCheckinReward)
-          || Number(result.checkinPoints)
-          || Number(config.points.checkinPoints)
-      ),
+      nextCheckinReward,
+      nextCheckinRewardText: accountUi.formatPoints(nextCheckinReward, { fallback: "0" }),
       streakDays,
       promoStartDate: result.promoStartDate || config.points.promoStartDate,
       promoEndDate: result.promoEndDate || config.points.promoEndDate,

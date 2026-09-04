@@ -2,30 +2,41 @@ const config = require("../../config");
 const cloud = require("../../services/cloud");
 const diagnosticLog = require("../../utils/diagnostic-log");
 const pointsUi = require("../../utils/points-ui");
+const accountUi = require("../../utils/account-ui");
+
+function finiteNumber(value, fallback = 0) {
+  if (value === null || value === undefined || value === "") return fallback;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function nonNegative(value, fallback = 0) {
+  return Math.max(0, finiteNumber(value, fallback));
+}
 
 function buildCheckInToast(result = {}) {
   const copy = config.points.copy;
   const duplicate = Boolean(result.duplicate);
-  const earned = Number(result.earnedToday) || 0;
+  const earned = finiteNumber(result.earnedToday, 0);
   return {
     title: duplicate
       ? copy.checkInDuplicate
-      : `${copy.checkInSuccessPrefix}${earned}${copy.checkInSuccessSuffix}`,
+      : `${copy.checkInSuccessPrefix}${accountUi.formatPoints(earned, { fallback: "0" })}${copy.checkInSuccessSuffix}`,
     icon: duplicate ? "none" : "success"
   };
 }
 
 function normalizePoints(result = {}) {
   const source = result && typeof result === "object" ? result : {};
-  const streak = Math.max(0, Number(source.currentStreak) || 0);
-  const streakDays = Number(source.streakDays) || config.points.streakDays;
+  const streak = nonNegative(source.currentStreak, 0);
+  const streakDays = finiteNumber(source.streakDays, config.points.streakDays);
   const freeLimit = Math.max(
     0,
-    Number(source.freeLimit) || config.points.dailyFreeLimit
+    finiteNumber(source.freeLimit, config.points.dailyFreeLimit)
   );
   const freeRemaining = Math.min(
     freeLimit,
-    Math.max(0, Number(source.freeRemaining) || 0)
+    nonNegative(source.freeRemaining, 0)
   );
   const freeUsed = Math.max(0, freeLimit - freeRemaining);
   const progress = streak > 0 && streak % streakDays === 0
@@ -34,11 +45,16 @@ function normalizePoints(result = {}) {
   return {
     accountBound: Boolean(source.accountBound),
     boundMessage: source.boundMessage || config.points.copy.defaultBoundMessage,
-    pointsBalance: Math.max(0, Number(source.pointsBalance) || 0),
-    totalEarned: Math.max(0, Number(source.totalEarned) || 0),
-    totalSpent: Math.max(0, Number(source.totalSpent) || 0),
-    imageCost: Math.max(0, Number(source.imageCost) || config.points.imageCost),
-    videoCost: Math.max(0, Number(source.videoCost) || config.points.videoCost),
+    pointsBalance: nonNegative(source.pointsBalance, 0),
+    pointsBalanceText: accountUi.formatPoints(nonNegative(source.pointsBalance, 0), { fallback: "0" }),
+    totalEarned: nonNegative(source.totalEarned, 0),
+    totalEarnedText: accountUi.formatPoints(nonNegative(source.totalEarned, 0), { fallback: "0" }),
+    totalSpent: nonNegative(source.totalSpent, 0),
+    totalSpentText: accountUi.formatPoints(nonNegative(source.totalSpent, 0), { fallback: "0" }),
+    imageCost: nonNegative(source.imageCost, config.points.imageCost),
+    imageCostText: accountUi.formatPoints(nonNegative(source.imageCost, config.points.imageCost), { fallback: "0" }),
+    videoCost: nonNegative(source.videoCost, config.points.videoCost),
+    videoCostText: accountUi.formatPoints(nonNegative(source.videoCost, config.points.videoCost), { fallback: "0" }),
     currentStreak: streak,
     checkedInToday: Boolean(source.checkedInToday),
     freeRemaining,
@@ -54,27 +70,43 @@ function normalizePoints(result = {}) {
       source.promoStartDate || config.points.promoStartDate,
       source.promoEndDate || config.points.promoEndDate
     ),
-    checkinPoints: Number(source.checkinPoints) || config.points.checkinPoints,
-    streakBonus: Number(source.streakBonus) || config.points.streakBonus,
+    checkinPoints: nonNegative(source.checkinPoints, config.points.checkinPoints),
+    checkinPointsText: accountUi.formatPoints(
+      nonNegative(source.checkinPoints, config.points.checkinPoints),
+      { fallback: "0" }
+    ),
+    streakBonus: nonNegative(source.streakBonus, config.points.streakBonus),
+    streakBonusText: accountUi.formatPoints(
+      nonNegative(source.streakBonus, config.points.streakBonus),
+      { fallback: "0" }
+    ),
     streakDays,
     progress,
     progressPercent: Math.min(100, Math.max(0, progress / streakDays * 100)),
     nextCheckinReward: Math.max(
       0,
-      Number(source.nextCheckinReward)
-        || Number(source.checkinPoints)
-        || Number(config.points.checkinPoints)
+      finiteNumber(
+        source.nextCheckinReward,
+        finiteNumber(source.checkinPoints, config.points.checkinPoints)
+      )
+    ),
+    nextCheckinRewardText: accountUi.formatPoints(
+      nonNegative(
+        source.nextCheckinReward,
+        finiteNumber(source.checkinPoints, config.points.checkinPoints)
+      ),
+      { fallback: "0" }
     ),
     billingMode: source.billingMode || "daily-free"
   };
 }
 
 function normalizeLedger(item = {}) {
-  const amount = Number(item.amount) || 0;
+  const amount = finiteNumber(item.amount, 0);
   return {
     id: item.id || item._id || `ledger-${Date.now()}`,
     amount,
-    amountText: amount > 0 ? `+${amount}` : String(amount),
+    amountText: accountUi.formatPoints(amount, { signed: true, fallback: "0" }),
     amountClass: amount > 0 ? "ledger-income" : amount < 0 ? "ledger-expense" : "ledger-free",
     description: item.description || config.points.copy.ledgerDefaultDescription,
     createdAt: item.createdAt
@@ -177,11 +209,13 @@ Page({
 
   animateDashboardNumbers(points = {}) {
     this.stopDashboardNumberAnimation();
+    this.setData({
+      animatedPointsBalance: accountUi.formatPoints(points.pointsBalance, { fallback: "0" }),
+      animatedTotalEarned: accountUi.formatPoints(points.totalEarned, { fallback: "0" })
+    });
     const targets = {
-      animatedPointsBalance: Math.max(0, Number(points.pointsBalance) || 0),
       animatedCurrentStreak: Math.max(0, Number(points.currentStreak) || 0),
-      animatedFreeRemaining: Math.max(0, Number(points.freeRemaining) || 0),
-      animatedTotalEarned: Math.max(0, Number(points.totalEarned) || 0)
+      animatedFreeRemaining: Math.max(0, Number(points.freeRemaining) || 0)
     };
     const keys = Object.keys(targets);
     const starts = keys.reduce((result, key) => {
@@ -332,7 +366,7 @@ Page({
       const result = await cloud.checkIn();
       const checkInMessage = result.duplicate
         ? config.points.copy.checkInDuplicate
-        : `${config.points.copy.checkInSuccessPrefix}${result.earnedToday || 0}${config.points.copy.checkInSuccessSuffix}`;
+        : `${config.points.copy.checkInSuccessPrefix}${accountUi.formatPoints(result.earnedToday, { fallback: "0" })}${config.points.copy.checkInSuccessSuffix}`;
       const points = normalizePoints(result);
       this.setData({
         checkingIn: false,

@@ -1,5 +1,7 @@
+const config = require("../../config");
 const accountService = require("../../services/account");
 const accountUi = require("../../utils/account-ui");
+const accountDemo = require("../../utils/account-demo");
 
 function settled(promise) {
   return promise.then(
@@ -22,6 +24,8 @@ function isAccountServiceNotDeployed(result) {
 
 Page({
   data: {
+    // 版本号来自当前包内配置，便于确认开发者工具实际加载的是哪个包。
+    loadedAppVersion: String(config.appVersion || "未知"),
     loading: true,
     profile: accountUi.normalizeProfile(),
     account: {
@@ -37,10 +41,31 @@ Page({
     rechargeVisible: false,
     rechargeDisabled: true,
     rechargeHint: "",
-    hasAnyError: false
+    hasAnyError: false,
+    visualDemoAvailable: false,
+    visualDemoEnabled: false,
+    visualDemoControlVisible: false
+  },
+
+  onLoad(options = {}) {
+    this.setDemoMode(options);
+  },
+
+  setDemoMode(options = {}) {
+    const mode = accountDemo.resolve(options);
+    this._demoMode = mode;
+    this._demoEnabled = mode.enabled;
+    this._accountClient = mode.enabled ? accountDemo.createAdapter() : accountService;
+    this.setData({
+      visualDemoAvailable: mode.available,
+      visualDemoEnabled: mode.enabled,
+      visualDemoControlVisible: mode.showControl
+    });
+    return mode;
   },
 
   onShow() {
+    if (!this._demoMode) this.setDemoMode({});
     this._pageVisible = true;
     this._navigating = false;
     this.loadUserCenter();
@@ -62,6 +87,7 @@ Page({
   },
 
   async loadUserCenter() {
+    const service = this._accountClient || accountService;
     const loadToken = (this._loadToken || 0) + 1;
     this._loadToken = loadToken;
     this.setData({
@@ -75,9 +101,9 @@ Page({
     });
 
     const [profileResult, overviewResult, configResult] = await Promise.all([
-      settled(accountService.getUserProfile({ retryLimit: 0, silent: true })),
-      settled(accountService.getAccountOverview()),
-      settled(accountService.getRechargeConfig())
+      settled(service.getUserProfile({ retryLimit: 0, silent: true })),
+      settled(service.getAccountOverview()),
+      settled(service.getRechargeConfig())
     ]);
     if (loadToken !== this._loadToken) return;
 
@@ -145,8 +171,8 @@ Page({
           : "";
     } else if (overviewResult.ok && isAccountServiceNotDeployed(configResult)) {
       // payment-api 尚未上线时，余额仍可由已上线的 api 积分链路提供；
-      // 只关闭充值入口，不要再把整张账户卡误报成“准备中”。
-      nextData.rechargeVisible = false;
+      // 保留充值入口，让用户知道功能位置；入口必须保持禁用，不能绕过服务端开关。
+      nextData.rechargeVisible = true;
       nextData.rechargeDisabled = true;
       nextData.rechargeHint = "充值服务暂未开放";
       nextData.rechargeConfigError = "";
@@ -203,14 +229,25 @@ Page({
       });
       return;
     }
-    this.navigate("/pages/recharge/recharge", "充值页打开失败");
+    this.navigate(
+      accountDemo.pageUrl("/pages/recharge/recharge", this._demoEnabled),
+      "充值页打开失败"
+    );
   },
 
   openAccountRecords() {
-    if (this.data.accountServicePreparing) {
-      wx.showToast({ title: "账户功能准备中", icon: "none" });
-      return;
-    }
-    this.navigate("/pages/account-records/account-records", "收支记录打开失败");
+    this.navigate(
+      accountDemo.pageUrl("/pages/account-records/account-records", this._demoEnabled),
+      "收支记录打开失败"
+    );
+  },
+
+  toggleVisualDemo(event) {
+    if (!this._demoMode || !this._demoMode.available) return;
+    const enabled = Boolean(event && event.detail && event.detail.value);
+    wx.redirectTo({
+      url: accountDemo.pageUrl("/pages/user-center/user-center", enabled),
+      fail: () => wx.showToast({ title: "演示模式切换失败", icon: "none" })
+    });
   }
 });

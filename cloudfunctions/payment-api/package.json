@@ -1,13 +1,12 @@
 {
   "name": "aips-payment-api",
-  "version": "0.57.125",
+  "version": "0.57.155",
   "private": true,
   "main": "index.js",
   "engines": {
     "node": ">=18"
   },
   "dependencies": {
-    "aips-payment-core": "file:vendor/payment-core",
     "wx-server-sdk": "4.0.2"
   }
 }

@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "admin-v2-reference-20260901-v1",
+  "fontProfile": "admin-reference-font-v1",
+  "state": "provider-tc3-v1",
+  "viewport": {
+    "width": 390,
+    "height": 844
+  },
+  "route": "/pages/admin-provider/admin-provider?providerKey=tencent&demo=1&fixture=admin-v2-reference-20260901-v1&visualState=provider-tc3-v1",
+  "screenshot": "visual-evidence/captured-provider-tc3-v0.57.133-390/provider-390x844.png",
+  "sha256": "4a2c8b27881cf4754df1332b20069292f78e8fb42ca4871d188d3d463b1b9b3a"
+}

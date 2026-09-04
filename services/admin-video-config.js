@@ -1,6 +1,4 @@
 const XINGJU_VIDEO_DEFAULTS = Object.freeze({
-  // 星炬视频接口的路径本身已经包含 /v1，所以地址只保留域名。
-  baseUrl: "https://newapi.akiyo.fun",
   model: "grok-imagine-video-1.5",
   createPath: "/v1/videos/generations",
   queryPath: "/v1/videos/{taskId}",
@@ -17,15 +15,14 @@ function isXingjuProvider(value) {
 
 function applyAdminVideoProviderDefaults(form, section = "video") {
   const source = form && typeof form === "object" ? form : {};
-  const normalizedSection = section === "videoBackup" ? "videoBackup" : "video";
-  const video = source[normalizedSection]
-    && typeof source[normalizedSection] === "object"
-    ? source[normalizedSection]
+  const targetSection = section === "videoBackup" ? "videoBackup" : "video";
+  const video = source[targetSection] && typeof source[targetSection] === "object"
+    ? source[targetSection]
     : {};
   if (!isXingjuProvider(video.provider)) return source;
 
   const nextVideo = Object.assign({}, video);
-  ["baseUrl", "model", "createPath", "queryPath", "resolution"].forEach((key) => {
+  ["model", "createPath", "queryPath", "resolution"].forEach((key) => {
     if (!String(nextVideo[key] || "").trim()) {
       nextVideo[key] = XINGJU_VIDEO_DEFAULTS[key];
     }
@@ -37,7 +34,7 @@ function applyAdminVideoProviderDefaults(form, section = "video") {
     nextVideo.timeoutMs = String(nextVideo.timeoutMs);
   }
   return Object.assign({}, source, {
-    [normalizedSection]: nextVideo
+    [targetSection]: nextVideo
   });
 }
 

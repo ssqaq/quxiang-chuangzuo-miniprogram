@@ -1077,6 +1077,7 @@ function New-ReleaseContext {
         [int]$ExpiresMinutes = 180,
         [string]$BaseHead = "",
         [string]$QueueTicketPath = "",
+        [string]$ReleaseWorktree = "",
         [string]$Phase = "prepared",
         [string]$LogPath = "",
         [string]$ReportPath = "",
@@ -1106,6 +1107,7 @@ function New-ReleaseContext {
     if (-not [string]::IsNullOrWhiteSpace($LogPath)) { $context.logPath = [IO.Path]::GetFullPath($LogPath) }
     if (-not [string]::IsNullOrWhiteSpace($ReportPath)) { $context.reportPath = [IO.Path]::GetFullPath($ReportPath) }
     if (-not [string]::IsNullOrWhiteSpace($BackupPath)) { $context.backupPath = [IO.Path]::GetFullPath($BackupPath) }
+    if (-not [string]::IsNullOrWhiteSpace($ReleaseWorktree)) { $context.releaseWorktree = [IO.Path]::GetFullPath($ReleaseWorktree) }
     Write-ReleaseGateJsonAtomic -Path $Path -Value $context
     return [pscustomobject]$context
 }
@@ -1617,6 +1619,54 @@ function Write-ReleaseAcceptanceReport {
         }
     }
     $checks.cloud = [ordered]@{ status = if (-not $cloudRequested) { "skipped" } elseif ($cloudPass) { "pass" } else { "fail" }; reason = $cloudReason; receipt = $cloudReceipt }
+
+    $paymentReceipt = if ($Context.PSObject.Properties["paymentDeployment"]) { $Context.paymentDeployment } else { $null }
+    $paymentRequested = [bool]$RequireCloud -or $null -ne $paymentReceipt
+    $paymentPass = $false; $paymentReason = "未要求支付生产部署"
+    if ($paymentRequested) {
+        $paymentReason = "支付生产部署回执缺失"
+        if ($null -ne $paymentReceipt) {
+            $expectedPackage = Get-ReleaseReceiptField $Context "packageSha256"
+            $expectedMain = Get-ReleaseReceiptField $Context "mainCommit"
+            $environment = Get-ReleaseReceiptField $paymentReceipt "environment"
+            $expectedEnvironment = ""
+            if ($Context.PSObject.Properties["cloudbaseEnvironment"] -and $null -ne $Context.cloudbaseEnvironment) {
+                $expectedEnvironment = Get-ReleaseReceiptField $Context.cloudbaseEnvironment "environmentId"
+            }
+            $credentialsProperty = $paymentReceipt.PSObject.Properties["credentialsConfigured"]
+            $missingKeysProperty = $paymentReceipt.PSObject.Properties["missingCredentialKeys"]
+            $credentialsValid = $null -ne $credentialsProperty -and $credentialsProperty.Value -is [bool]
+            $missingKeys = if ($null -ne $missingKeysProperty) { @($missingKeysProperty.Value) } else { @() }
+            $providerState = Get-ReleaseReceiptField $paymentReceipt "providerState"
+            $providerStateValid = $credentialsValid -and (
+                ($credentialsProperty.Value -and $providerState -eq "configured" -and $missingKeys.Count -eq 0) -or
+                (-not $credentialsProperty.Value -and $providerState -eq "fail-closed" -and $missingKeys.Count -gt 0)
+            )
+            $paymentPass = [int](Get-ReleaseReceiptField $paymentReceipt "schemaVersion") -eq 1 -and
+                (Get-ReleaseReceiptField $paymentReceipt "state") -eq "verified" -and
+                (Get-ReleaseReceiptField $paymentReceipt "status") -eq "verified" -and
+                -not [string]::IsNullOrWhiteSpace((Get-ReleaseReceiptField $paymentReceipt "verifiedAt")) -and
+                (Get-ReleaseReceiptField $paymentReceipt "operationId") -eq $operationId -and
+                (Get-ReleaseReceiptField $paymentReceipt "version") -eq [string]$Context.version -and
+                (Get-ReleaseReceiptField $paymentReceipt "releaseCommit") -eq [string]$Context.releaseCommit -and
+                (Get-ReleaseReceiptField $paymentReceipt "treeSha") -eq [string]$Context.treeSha -and
+                (Get-ReleaseReceiptField $paymentReceipt "sourceSha256") -eq [string]$Context.sourceSha256 -and
+                -not [string]::IsNullOrWhiteSpace($expectedPackage) -and
+                (Get-ReleaseReceiptField $paymentReceipt "packageSha256") -eq $expectedPackage -and
+                -not [string]::IsNullOrWhiteSpace($expectedMain) -and
+                [string]::Equals((Get-ReleaseReceiptField $paymentReceipt "mainCommit"), $expectedMain, [StringComparison]::OrdinalIgnoreCase) -and
+                -not [string]::IsNullOrWhiteSpace($environment) -and
+                ([string]::IsNullOrWhiteSpace($expectedEnvironment) -or [string]::Equals($environment, $expectedEnvironment, [StringComparison]::OrdinalIgnoreCase)) -and
+                (Get-ReleaseReceiptField $paymentReceipt "idempotencyKey") -eq "payment:$operationId`:$([string]$Context.releaseCommit):$([string]$Context.treeSha):$environment" -and
+                $providerStateValid -and
+                $null -ne $paymentReceipt.PSObject.Properties["functions"] -and
+                $null -ne $paymentReceipt.PSObject.Properties["route"] -and
+                $null -ne $paymentReceipt.PSObject.Properties["timer"] -and
+                $null -ne $paymentReceipt.PSObject.Properties["rechargeConfig"]
+            $paymentReason = if ($paymentPass) { "支付生产回执、环境和发布身份已验证" } else { "支付生产回执绑定字段不一致" }
+        }
+    }
+    $checks.payment = [ordered]@{ status = if (-not $paymentRequested) { "skipped" } elseif ($paymentPass) { "pass" } else { "fail" }; reason = $paymentReason; receipt = $paymentReceipt }
 
     $failed = @($checks.Values | Where-Object { $_.status -eq "fail" }).Count
     $pending = @($checks.Values | Where-Object { $_.status -eq "pending" }).Count

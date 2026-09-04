@@ -1,0 +1,107 @@
+{
+  "schemaVersion": 1,
+  "contract": "G4-SSIM",
+  "baselines": {
+    "user-center": "docs\\superpowers\\visual-baselines\\user-center-g1\\user-center.png",
+    "recharge": "docs\\superpowers\\visual-baselines\\user-center-g1\\recharge.png",
+    "records": "docs\\superpowers\\visual-baselines\\user-center-g1\\records.png"
+  },
+  "rows": [
+    {
+      "route": "user-center",
+      "width": 320,
+      "baseline": "338x654",
+      "capture": "321x654",
+      "ssim": "0.9083",
+      "threshold": 0.55
+    },
+    {
+      "route": "user-center",
+      "width": 338,
+      "baseline": "338x654",
+      "capture": "339x654",
+      "ssim": "0.9328",
+      "threshold": 0.75
+    },
+    {
+      "route": "user-center",
+      "width": 375,
+      "baseline": "338x654",
+      "capture": "376x654",
+      "ssim": "0.9085",
+      "threshold": 0.55
+    },
+    {
+      "route": "user-center",
+      "width": 414,
+      "baseline": "338x654",
+      "capture": "415x654",
+      "ssim": "0.8979",
+      "threshold": 0.55
+    },
+    {
+      "route": "recharge",
+      "width": 320,
+      "baseline": "338x654",
+      "capture": "321x654",
+      "ssim": "0.7944",
+      "threshold": 0.55
+    },
+    {
+      "route": "recharge",
+      "width": 338,
+      "baseline": "338x654",
+      "capture": "339x654",
+      "ssim": "0.8265",
+      "threshold": 0.75
+    },
+    {
+      "route": "recharge",
+      "width": 375,
+      "baseline": "338x654",
+      "capture": "376x654",
+      "ssim": "0.8084",
+      "threshold": 0.55
+    },
+    {
+      "route": "recharge",
+      "width": 414,
+      "baseline": "338x654",
+      "capture": "415x654",
+      "ssim": "0.7915",
+      "threshold": 0.55
+    },
+    {
+      "route": "records",
+      "width": 320,
+      "baseline": "338x654",
+      "capture": "321x654",
+      "ssim": "0.9003",
+      "threshold": 0.55
+    },
+    {
+      "route": "records",
+      "width": 338,
+      "baseline": "338x654",
+      "capture": "339x654",
+      "ssim": "0.9185",
+      "threshold": 0.75
+    },
+    {
+      "route": "records",
+      "width": 375,
+      "baseline": "338x654",
+      "capture": "376x654",
+      "ssim": "0.9030",
+      "threshold": 0.55
+    },
+    {
+      "route": "records",
+      "width": 414,
+      "baseline": "338x654",
+      "capture": "415x654",
+      "ssim": "0.8988",
+      "threshold": 0.55
+    }
+  ]
+}

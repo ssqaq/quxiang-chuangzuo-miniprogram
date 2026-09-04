@@ -78,11 +78,13 @@ test("商品金额和积分是固定常量", () => {
   assert.equal(payment.moneyToFen("9.999"), null);
 });
 
-test("充值和两个通道默认全关，支付宝误配也不能开", () => {
+test("生产充值和微信通道默认开启，支付宝误配仍不能开", () => {
   const defaults = payment.normalizeRechargeConfig(null);
-  assert.equal(defaults.rechargeEnabled, false);
-  assert.equal(defaults.channelConfig.wxpay.enabled, false);
+  assert.equal(defaults.rechargeEnabled, true);
+  assert.equal(defaults.channelConfig.wxpay.enabled, true);
   assert.equal(defaults.channelConfig.alipay.enabled, false);
+  assert.equal(defaults.gray.strategy, "hash");
+  assert.equal(defaults.gray.rolloutPercent, 100);
   const configured = payment.normalizeRechargeConfig({
     rechargeEnabled: true,
     channelConfig: { wxpay: { enabled: true }, alipay: { enabled: true } },

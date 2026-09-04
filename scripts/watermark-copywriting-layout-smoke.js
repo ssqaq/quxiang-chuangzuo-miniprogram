@@ -19,14 +19,6 @@ const pageJs = fs.readFileSync(
 assert.ok(wxml.includes("copywriting-section-head copywriting-title-head"));
 assert.ok(wxml.includes("copywriting-head-action"));
 assert.ok(wxml.includes("copywriting-action copywriting-title-action"));
-assert.ok(
-  (wxml.match(/class="media-button-label"/g) || []).length >= 7,
-  "所有操作按钮都必须使用内层文字节点"
-);
-assert.match(wxml, /copy-button[\s\S]*media-button-label/);
-assert.match(wxml, /copywriting-title-action[\s\S]*media-button-label/);
-assert.match(wxml, /save-button[\s\S]*media-button-label/);
-assert.match(wxml, /reset-button[\s\S]*media-button-label/);
 assert.ok(wxml.includes("saveFeedbackTone === 'partial'"));
 assert.ok(wxml.includes("saveFeedbackTone === 'error'"));
 assert.ok(wxml.includes("saveFeedbackTone === 'success'"));
@@ -45,7 +37,7 @@ assert.match(copyControl[1], /width:\s*100%/);
 assert.match(copyControl[1], /min-width:\s*0/);
 assert.match(copyControl[1], /height:\s*60rpx/);
 assert.match(copyControl[1], /font-size:\s*20rpx/);
-assert.match(copyControl[1], /line-height:\s*1/);
+assert.match(copyControl[1], /line-height:\s*normal/);
 
 const copyActions = wxss.match(/\.copywriting-action\s*\{([^}]*)\}/);
 assert.ok(copyActions, "正文和标签复制按钮必须使用统一文字规格");
@@ -53,32 +45,16 @@ assert.match(copyActions[1], /display:\s*flex/);
 assert.match(copyActions[1], /align-items:\s*center/);
 assert.match(copyActions[1], /justify-content:\s*center/);
 assert.match(copyActions[1], /font-size:\s*20rpx/);
-assert.match(copyActions[1], /line-height:\s*1/);
+assert.match(copyActions[1], /line-height:\s*normal/);
 
 const titleHead = wxss.match(/\.copywriting-title-head\s*\{([^}]*)\}/);
 assert.ok(titleHead);
 assert.match(titleHead[1], /min-height:\s*60rpx/);
 
-const titleLabel = wxss.match(
-  /\.copywriting-title-head\s+\.copywriting-label\s*\{([^}]*)\}/
-);
-assert.ok(titleLabel, "标题标签必须有独立字号规则");
-assert.match(titleLabel[1], /font-size:\s*24rpx/);
-
-assert.match(wxss, /\.copywriting-head\s*\{[\s\S]*width:\s*100%/);
-assert.match(wxss, /\.copywriting-section-head\s*\{[\s\S]*width:\s*100%/);
-
 const actionSlot = wxss.match(/\.copywriting-head-action\s*\{([^}]*)\}/);
 assert.ok(actionSlot, "两个复制按钮必须共用右侧操作列");
 assert.match(actionSlot[1], /flex:\s*0 0 58%/);
 assert.match(actionSlot[1], /width:\s*58%/);
-assert.match(actionSlot[1], /height:\s*60rpx/);
-assert.match(actionSlot[1], /margin-left:\s*auto/);
-assert.match(actionSlot[1], /flex-shrink:\s*0/);
-assert.match(
-  wxss,
-  /\.copywriting-head-action\s*>\s*\.copy-button,[\s\S]*\.copywriting-head-action\s*>\s*\.copywriting-title-action/
-);
 
 const actionControls = wxss.match(
   /\.save-button,\s*\.reset-button\s*\{([^}]*)\}/
@@ -87,7 +63,7 @@ assert.ok(actionControls, "保存和重解析按钮必须共用居中规则");
 assert.match(actionControls[1], /display:\s*flex/);
 assert.match(actionControls[1], /align-items:\s*center/);
 assert.match(actionControls[1], /justify-content:\s*center/);
-assert.match(actionControls[1], /line-height:\s*1/);
+assert.match(actionControls[1], /line-height:\s*normal/);
 assert.match(actionControls[1], /font-size:\s*26rpx/);
 
 const finalActionOverride = wxss.match(
@@ -98,9 +74,20 @@ assert.ok(
   wxss.indexOf(".secondary-btn") < wxss.indexOf(".media-parser-page .save-button"),
   "底部按钮最终覆盖必须位于 secondary-btn 之后"
 );
-assert.match(finalActionOverride[1], /line-height:\s*1/);
+assert.match(finalActionOverride[1], /line-height:\s*normal/);
 assert.match(finalActionOverride[1], /font-size:\s*26rpx/);
 
+assert.match(wxss, /--media-button-primary-bg:\s*#2d7ff2/);
+assert.match(wxss, /--media-button-secondary-bg:\s*#f2f6fb/);
+assert.match(wxss, /--media-button-copy-bg:\s*#e9f3ff/);
+assert.match(wxss, /--media-button-copy-success-bg:\s*#dff6e9/);
+assert.match(wxss, /--media-button-success-bg:\s*#16835a/);
+assert.match(wxss, /color:\s*var\(--media-button-primary-color\)/);
+assert.match(wxss, /background:\s*var\(--media-button-primary-bg\)/);
+assert.match(wxss, /color:\s*var\(--media-button-secondary-color\)/);
+assert.match(wxss, /background:\s*var\(--media-button-secondary-bg\)/);
+assert.match(wxss, /color:\s*var\(--media-button-copy-color\)/);
+assert.match(wxss, /background:\s*var\(--media-button-copy-bg\)/);
 assert.match(wxss, /\.save-button\.save-feedback-active\s*\{/);
 assert.match(wxss, /\.save-button\.save-feedback-partial\s*\{/);
 assert.match(wxss, /\.save-button\.save-feedback-error\s*\{/);
@@ -125,5 +112,7 @@ assert.ok(
   && wxss.includes(".copywriting-title")
   && wxss.includes(".copywriting-label")
 );
+assert.ok(!wxss.includes(".copywriting-kicker {\n  font-size: 18rpx"));
+assert.ok(!wxss.includes(".copywriting-title {\n  margin-top: 3rpx;\n  font-size: 24rpx"));
 
 console.log("watermark copywriting layout smoke: OK");

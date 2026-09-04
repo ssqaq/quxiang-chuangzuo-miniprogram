@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "status": "accepted",
+  "baselineVersion": "0.57.133",
+  "retentionDays": 3,
+  "requiredFiles": [
+    "visual-evidence/admin-v2-pixel-manifest-current.json",
+    "visual-evidence/admin-v2-pixel-manifest.json",
+    "visual-evidence/admin-v2-same-device-manifest.json",
+    "visual-evidence/admin-v2-state-matrix.json",
+    "visual-evidence/admin-v2-device-matrix.json",
+    "visual-evidence/provider-tc3-regression.json",
+    "scripts/admin-v2-pixel-baseline.js",
+    "scripts/admin-v2-visual-archive.js",
+    "scripts/admin-provider-contract-smoke.js",
+    "scripts/admin-provider-interaction-regression.js",
+    ".github/workflows/admin-visual-cleanup.yml"
+  ]
+}

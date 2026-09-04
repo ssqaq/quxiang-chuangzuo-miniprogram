@@ -30,23 +30,58 @@ async function runRechargeCase(options = {}) {
   let requestIdCount = 0;
   let paymentCalls = 0;
   let queryCalls = 0;
+  let configCalls = 0;
+  let pullDownStops = 0;
   let removed = false;
-  let stored = null;
+  let removeAttempts = 0;
+  let stored = options.initialStored
+    ? Object.assign({}, options.initialStored)
+    : null;
   let pageDefinition;
+  let activePage = null;
+  const createPayloads = [];
+  const toasts = [];
+  let queryStartedResolve;
+  const queryStarted = new Promise((resolve) => {
+    queryStartedResolve = resolve;
+  });
 
   const accountStub = {
+    async getRechargeConfig() {
+      configCalls += 1;
+      if (typeof options.configResult === "function") {
+        return options.configResult(configCalls);
+      }
+      return options.configResult || {
+        eligible: true,
+        channels: ["wxpay"],
+        products: accountUi.RECHARGE_PACKAGES.map((item) => Object.assign({}, item))
+      };
+    },
     createRequestId() {
       requestIdCount += 1;
       return `fixed-request-${requestIdCount}`;
     },
     async createRechargeOrder(payload) {
       requestIds.push(payload.requestId);
+      createPayloads.push(Object.assign({}, payload));
       return typeof options.createResult === "function"
         ? options.createResult(payload)
         : options.createResult;
     },
     async queryRechargeOrder(orderNo) {
       queryCalls += 1;
+      if (options.queryGate) {
+        options.queryGate.started = true;
+        queryStartedResolve();
+        if (typeof options.queryGate.onStart === "function") {
+          options.queryGate.onStart(activePage, orderNo);
+        }
+        await options.queryGate.promise;
+      }
+      if (typeof options.queryError === "function") {
+        throw options.queryError(orderNo, queryCalls);
+      }
       if (options.queryError) throw options.queryError;
       return typeof options.queryResult === "function"
         ? options.queryResult(orderNo, queryCalls)
@@ -56,6 +91,8 @@ async function runRechargeCase(options = {}) {
   const launcherStub = {
     async launchPayment() {
       paymentCalls += 1;
+      if (typeof options.launchError === "function") throw options.launchError(paymentCalls);
+      if (options.launchError) throw options.launchError;
       return { errMsg: "requestPayment:ok" };
     }
   };
@@ -64,13 +101,24 @@ async function runRechargeCase(options = {}) {
       return stored;
     },
     setStorageSync(key, value) {
+      if (options.storageError) throw options.storageError;
       stored = Object.assign({}, value);
     },
     removeStorageSync() {
+      removeAttempts += 1;
+      const removeError = typeof options.removeStorageError === "function"
+        ? options.removeStorageError(removeAttempts)
+        : options.removeStorageError;
+      if (removeError) throw removeError;
       removed = true;
       stored = null;
     },
-    showToast() {}
+    showToast(payload) {
+      toasts.push(payload);
+    },
+    stopPullDownRefresh() {
+      pullDownStops += 1;
+    }
   };
 
   try {
@@ -98,25 +146,60 @@ async function runRechargeCase(options = {}) {
       data: Object.assign({}, pageDefinition.data, {
         eligible: true,
         hasWxpay: true,
-        packages: [{ productId: "pkg_990", amountFen: 990, grantPoints: 100 }],
-        selectedProductId: "pkg_990"
+        packages: options.packages || [
+          { productId: "pkg_990", amountFen: 990, grantPoints: 100 }
+        ],
+        selectedProductId: options.selectedProductId || "pkg_990"
       }),
       setData(patch) {
         Object.assign(this.data, patch);
       }
     });
-    const submitCount = Math.max(1, Number(options.submitCount) || 1);
-    for (let index = 0; index < submitCount; index += 1) {
-      await page.submitPayment();
+    activePage = page;
+    page._pendingOrder = stored ? Object.assign({}, stored) : null;
+    if (typeof options.beforeAction === "function") await options.beforeAction(page);
+    if (options.action === "restore") {
+      const restorePromise = page.restorePendingOrder();
+      if (
+        options.unloadDuringRestore
+        || options.concurrentDuringRestore
+        || options.releaseQueryGate
+      ) {
+        await queryStarted;
+        if (options.unloadDuringRestore) page.onUnload();
+        const submitPromise = options.concurrentDuringRestore
+          ? page.submitPayment()
+          : Promise.resolve();
+        if (options.queryGate && typeof options.queryGate.release === "function") {
+          options.queryGate.release();
+        }
+        await Promise.all([restorePromise, submitPromise]);
+      } else {
+        await restorePromise;
+      }
+    } else if (options.action === "pullDown") {
+      await page.onPullDownRefresh();
+    } else if (options.concurrentSubmit) {
+      await Promise.all([page.submitPayment(), page.submitPayment()]);
+    } else {
+      const submitCount = Math.max(1, Number(options.submitCount) || 1);
+      for (let index = 0; index < submitCount; index += 1) {
+        await page.submitPayment();
+      }
     }
     return {
       data: page.data,
+      createPayloads,
       paymentCalls,
+      configCalls,
+      pullDownStops,
       queryCalls,
       removed,
+      removeAttempts,
       stored,
       requestIdCount,
-      requestIds
+      requestIds,
+      toasts
     };
   } finally {
     global.Page = oldPage;
@@ -139,6 +222,7 @@ async function runUserCenterCase(options = {}) {
   const oldWx = global.wx;
   let pageDefinition;
   const toasts = [];
+  const navigations = [];
   const calls = { profile: 0, overview: 0, config: 0 };
 
   const resolveOrThrow = async (value, error, fallback) => {
@@ -191,7 +275,9 @@ async function runUserCenterCase(options = {}) {
       showToast(payload) {
         toasts.push(payload);
       },
-      navigateTo() {}
+      navigateTo(payload) {
+        navigations.push(payload);
+      }
     };
     global.Page = (definition) => {
       pageDefinition = definition;
@@ -213,7 +299,7 @@ async function runUserCenterCase(options = {}) {
       await page.loadUserCenter();
       snapshots.push(Object.assign({}, page.data));
     }
-    return { data: page.data, page, snapshots, toasts };
+    return { data: page.data, page, snapshots, toasts, navigations };
   } finally {
     global.Page = oldPage;
     global.wx = oldWx;
@@ -265,7 +351,12 @@ async function main() {
   assert.strictEqual(preparingState.data.hasAnyError, false);
   assert.deepStrictEqual(
     preparingState.toasts.map((item) => item.title),
-    ["账户功能准备中", "账户功能准备中"]
+    ["账户功能准备中"]
+  );
+  assert.deepStrictEqual(
+    preparingState.navigations.map((item) => item.url),
+    ["/pages/account-records/account-records"],
+    "账户服务准备中也必须允许进入收支记录错误态"
   );
 
   const regularFailureState = await runUserCenterCase({
@@ -342,6 +433,21 @@ async function main() {
     accountUi.userErrorMessage(trustedServiceError, "充值服务暂不可用"),
     "当前账号暂未开放充值"
   );
+
+  const gateError = new Error("payment gate closed");
+  gateError.code = "PAYMENT_CHANNEL_DISABLED";
+  const gateRefresh = await runRechargeCase({
+    createResult() {
+      throw gateError;
+    },
+    configResult() {
+      return { eligible: false, channels: [], products: [], message: "充值暂未开放" };
+    }
+  });
+  assert.strictEqual(gateRefresh.paymentCalls, 0, "服务端关闸后不得拉起微信支付");
+  assert.strictEqual(gateRefresh.configCalls, 1, "服务端关闸后必须刷新一次权威配置");
+  assert.strictEqual(gateRefresh.data.eligible, false, "新配置必须隐藏充值 CTA");
+  assert.strictEqual(gateRefresh.data.hasWxpay, false, "新配置必须关闭微信通道");
 
   const accountSource = read("services/account.js");
   const userCenterSource = read("pages/user-center/user-center.js");
@@ -423,6 +529,302 @@ async function main() {
     paymentLauncher.launchPayment("unknown", validPayment),
     (error) => error && error.code === "UNSUPPORTED_PAYMENT_PROVIDER"
   );
+
+  const concurrentSubmit = await runRechargeCase({
+    concurrentSubmit: true,
+    createResult: {
+      order: { orderNo: "order-concurrent", status: "created", channel: "wxpay" }
+    }
+  });
+  assert.strictEqual(concurrentSubmit.createPayloads.length, 1, "并发双击只能创建一次订单");
+  assert.strictEqual(concurrentSubmit.requestIdCount, 1, "并发双击只能生成一个 requestId");
+  assert.strictEqual(concurrentSubmit.paymentCalls, 0);
+
+  const storageFailure = await runRechargeCase({
+    storageError: new Error("storage unavailable"),
+    createResult: {
+      order: { orderNo: "order-must-not-exist", status: "created", channel: "wxpay" }
+    }
+  });
+  assert.strictEqual(storageFailure.createPayloads.length, 0, "首次 pending 未落盘不得创建订单");
+  assert.strictEqual(storageFailure.data.paymentStatus, "failed");
+
+  const packageLockedWithoutOrderNo = await runRechargeCase({
+    initialStored: {
+      requestId: "fixed-existing-request",
+      productId: "pkg_990",
+      createdAt: 1788048000000
+    },
+    packages: [
+      { productId: "pkg_990", amountFen: 990, grantPoints: 100 },
+      { productId: "pkg_2990", amountFen: 2990, grantPoints: 330 }
+    ],
+    createResult: {
+      order: { orderNo: "order-package-lock", status: "created", channel: "wxpay" }
+    },
+    beforeAction(page) {
+      page.selectPackage({ currentTarget: { dataset: { productId: "pkg_2990" } } });
+    }
+  });
+  assert.strictEqual(packageLockedWithoutOrderNo.data.selectedProductId, "pkg_990");
+  assert.strictEqual(packageLockedWithoutOrderNo.createPayloads[0].productId, "pkg_990");
+  assert.strictEqual(packageLockedWithoutOrderNo.createPayloads[0].requestId, "fixed-existing-request");
+  assert.strictEqual(packageLockedWithoutOrderNo.toasts[0].title, "请先完成待确认订单");
+
+  let uncertainCreateCalls = 0;
+  const uncertainCreateResume = await runRechargeCase({
+    submitCount: 2,
+    createResult() {
+      uncertainCreateCalls += 1;
+      if (uncertainCreateCalls === 1) throw new Error("request:fail timeout");
+      return {
+        order: { orderNo: "order-created-after-timeout", status: "created", channel: "wxpay" }
+      };
+    }
+  });
+  assert.strictEqual(uncertainCreateResume.requestIdCount, 1);
+  assert.deepStrictEqual(
+    uncertainCreateResume.requestIds,
+    ["fixed-request-1", "fixed-request-1"],
+    "创建结果不确定时只能复用原 requestId"
+  );
+  assert.deepStrictEqual(
+    uncertainCreateResume.createPayloads.map((item) => item.productId),
+    ["pkg_990", "pkg_990"],
+    "创建结果不确定时不得更换原套餐"
+  );
+
+  const canceledError = new Error("payment canceled");
+  canceledError.code = "PAYMENT_CANCELED";
+  canceledError.canceled = true;
+  const canceledResume = await runRechargeCase({
+    submitCount: 2,
+    createResult: {
+      order: { orderNo: "order-canceled", status: "pending", channel: "wxpay" },
+      payment: validPayment
+    },
+    launchError: canceledError
+  });
+  assert.strictEqual(canceledResume.requestIdCount, 1);
+  assert.deepStrictEqual(
+    canceledResume.requestIds,
+    ["fixed-request-1", "fixed-request-1"],
+    "取消后继续只能复用原 requestId"
+  );
+  assert.strictEqual(canceledResume.removed, false);
+  assert.strictEqual(canceledResume.data.paymentStatus, "canceled");
+
+  const uncertainLaunchError = new Error("requestPayment:fail system error");
+  uncertainLaunchError.code = "PAYMENT_FAILED";
+  const uncertainPayment = await runRechargeCase({
+    createResult: {
+      order: { orderNo: "order-uncertain", status: "pending", channel: "wxpay" },
+      payment: validPayment
+    },
+    launchError: uncertainLaunchError,
+    queryResult: {
+      order: { orderNo: "order-uncertain", status: "pending" }
+    }
+  });
+  assert.strictEqual(uncertainPayment.paymentCalls, 1);
+  assert.strictEqual(uncertainPayment.queryCalls, 1, "非取消支付失败必须先查询原订单");
+  assert.strictEqual(uncertainPayment.data.paymentStatus, "confirming");
+  assert.strictEqual(uncertainPayment.removed, false);
+
+  const notFoundError = new Error("充值订单不存在。");
+  notFoundError.code = "PAYMENT_ORDER_NOT_FOUND";
+  const stalePending = await runRechargeCase({
+    action: "restore",
+    initialStored: {
+      requestId: "fixed-stale-request",
+      productId: "pkg_990",
+      orderNo: "PAY00000000000000000000000000000"
+    },
+    queryError: notFoundError
+  });
+  assert.strictEqual(stalePending.removed, true, "服务端明确 NOT_FOUND 才能清理旧 pending");
+  assert.strictEqual(stalePending.stored, null);
+
+  const restoreNetworkError = new Error("request:fail timeout");
+  restoreNetworkError.code = "ACCOUNT_NETWORK_ERROR";
+  const retainedPending = await runRechargeCase({
+    action: "restore",
+    initialStored: {
+      requestId: "fixed-retained-request",
+      productId: "pkg_990",
+      orderNo: "PAY11111111111111111111111111111"
+    },
+    queryError: restoreNetworkError
+  });
+  assert.strictEqual(retainedPending.removed, false, "网络失败不得清理 pending");
+  assert.strictEqual(retainedPending.stored.requestId, "fixed-retained-request");
+
+  const malformedPending = await runRechargeCase({
+    action: "restore",
+    initialStored: { orderNo: "order-malformed-pending", productId: "pkg_990" }
+  });
+  assert.strictEqual(malformedPending.removed, true, "缺少 requestId 的坏 pending 必须清理");
+  assert.strictEqual(malformedPending.stored, null);
+  assert.strictEqual(malformedPending.toasts[0].title, "待确认订单信息已失效");
+
+  for (const [label, invalidPending] of [
+    ["缺少 productId", { requestId: "fixed-missing-product", orderNo: "order-missing-product" }],
+    ["未知 productId", {
+      requestId: "fixed-unknown-product",
+      productId: "pkg_unknown",
+      orderNo: "order-unknown-product"
+    }]
+  ]) {
+    const invalidResult = await runRechargeCase({
+      action: "restore",
+      initialStored: invalidPending
+    });
+    assert.strictEqual(invalidResult.removed, true, `${label} 的坏 pending 必须安全清理`);
+    assert.strictEqual(invalidResult.stored, null);
+    assert.strictEqual(invalidResult.toasts[0].title, "待确认订单信息已失效");
+  }
+
+  const replacedGate = {};
+  replacedGate.promise = new Promise((resolve) => {
+    replacedGate.release = resolve;
+  });
+  replacedGate.onStart = (page) => {
+    const replacement = {
+      requestId: "fixed-replacement-request",
+      productId: "pkg_990",
+      orderNo: "order-replacement"
+    };
+    page._pendingOrder = Object.assign({}, replacement);
+    global.wx.setStorageSync("account_pending_recharge_order_v1", replacement);
+  };
+  const replacedPending = await runRechargeCase({
+    action: "restore",
+    releaseQueryGate: true,
+    queryGate: replacedGate,
+    initialStored: {
+      requestId: "fixed-old-request",
+      productId: "pkg_990",
+      orderNo: "order-old-query"
+    },
+    queryResult: {
+      order: { orderNo: "order-old-query", status: "fulfilled", grantPoints: 100 },
+      account: { pointsBalance: 100 }
+    }
+  });
+  assert.strictEqual(replacedPending.removed, false, "旧查询不得清理后来写入的新 pending");
+  assert.strictEqual(replacedPending.stored.requestId, "fixed-replacement-request");
+  assert.strictEqual(replacedPending.stored.orderNo, "order-replacement");
+  assert.notStrictEqual(replacedPending.data.paymentStatus, "success");
+
+  const pullDownRestore = await runRechargeCase({
+    action: "pullDown",
+    initialStored: {
+      requestId: "fixed-pull-down-request",
+      productId: "pkg_990",
+      orderNo: "order-pull-down"
+    },
+    queryResult: {
+      order: { orderNo: "order-pull-down", status: "pending" }
+    }
+  });
+  assert.strictEqual(pullDownRestore.queryCalls, 1, "下拉刷新必须同时恢复待确认订单");
+  assert.strictEqual(pullDownRestore.pullDownStops, 1, "配置和订单恢复完成后才能结束下拉刷新");
+  assert.strictEqual(pullDownRestore.data.paymentStatus, "confirming");
+
+  const restoreGate = {};
+  restoreGate.promise = new Promise((resolve) => {
+    restoreGate.release = resolve;
+  });
+  const restoreLocked = await runRechargeCase({
+    action: "restore",
+    concurrentDuringRestore: true,
+    queryGate: restoreGate,
+    initialStored: {
+      requestId: "fixed-restore-request",
+      productId: "pkg_990",
+      orderNo: "order-restore-lock"
+    },
+    queryResult: {
+      order: { orderNo: "order-restore-lock", status: "pending" }
+    }
+  });
+  assert.strictEqual(restoreLocked.createPayloads.length, 0, "恢复查询期间不得并发创建新订单");
+  assert.strictEqual(restoreLocked.queryCalls, 1);
+  assert.strictEqual(restoreLocked.data.paymentStatus, "confirming");
+
+  const unloadGate = {};
+  unloadGate.promise = new Promise((resolve) => {
+    unloadGate.release = resolve;
+  });
+  const delayedUnload = await runRechargeCase({
+    action: "restore",
+    unloadDuringRestore: true,
+    queryGate: unloadGate,
+    initialStored: {
+      requestId: "fixed-delayed-request",
+      productId: "pkg_990",
+      orderNo: "order-delayed-unload"
+    },
+    queryResult: {
+      order: { orderNo: "order-delayed-unload", status: "fulfilled", grantPoints: 100 },
+      account: { pointsBalance: 100 }
+    }
+  });
+  assert.strictEqual(delayedUnload.removed, false, "卸载后的旧查询不得清理 pending");
+  assert.strictEqual(delayedUnload.stored.requestId, "fixed-delayed-request");
+  assert.notStrictEqual(delayedUnload.data.paymentStatus, "success");
+
+  const removeFailure = await runRechargeCase({
+    removeStorageError: new Error("remove failed"),
+    createResult: {
+      order: { orderNo: "order-remove-failure", status: "fulfilled", channel: "wxpay" },
+      payment: validPayment
+    },
+    queryResult: {
+      order: { orderNo: "order-remove-failure", status: "fulfilled", grantPoints: 100 },
+      account: { pointsBalance: 100 }
+    }
+  });
+  assert.strictEqual(removeFailure.removed, false, "删除失败不能伪装成已清理");
+  assert.ok(removeFailure.stored && removeFailure.stored.orderNo === "order-remove-failure");
+  assert.strictEqual(removeFailure.data.paymentStatus, "confirming");
+  assert.ok(/清理/.test(removeFailure.data.statusMessage));
+
+  const codeOnlyCanceled = await runRechargeCase({
+    createResult: {
+      order: { orderNo: "order-code-only-cancel", status: "pending", channel: "wxpay" },
+      payment: validPayment
+    },
+    launchError: Object.assign(new Error("cancelled"), { code: "PAYMENT_CANCELED" })
+  });
+  assert.strictEqual(codeOnlyCanceled.data.paymentStatus, "canceled", "仅 code=PAYMENT_CANCELED 也要识别取消");
+  assert.strictEqual(codeOnlyCanceled.removed, false);
+
+  const errorCodeOnlyCanceled = await runRechargeCase({
+    createResult: {
+      order: { orderNo: "order-error-code-cancel", status: "pending", channel: "wxpay" },
+      payment: validPayment
+    },
+    launchError: Object.assign(new Error("cancelled"), { errorCode: "PAYMENT_CANCELED" })
+  });
+  assert.strictEqual(errorCodeOnlyCanceled.data.paymentStatus, "canceled", "仅 errorCode=PAYMENT_CANCELED 也要识别取消");
+
+  let terminalCreateCalls = 0;
+  const terminalThenNew = await runRechargeCase({
+    submitCount: 2,
+    createResult() {
+      terminalCreateCalls += 1;
+      return terminalCreateCalls === 1
+        ? { order: { orderNo: "order-terminal-first", status: "closed", channel: "wxpay" } }
+        : { order: { orderNo: "order-new-after-terminal", status: "created", channel: "wxpay" } };
+    }
+  });
+  assert.deepStrictEqual(
+    terminalThenNew.requestIds,
+    ["fixed-request-1", "fixed-request-2"],
+    "终态清理成功后下一笔必须生成新 requestId"
+  );
+  assert.strictEqual(terminalThenNew.removed, true);
 
   const fulfilledResume = await runRechargeCase({
     createResult: {
@@ -523,6 +925,28 @@ async function main() {
     "重复确认只能使用原 requestId"
   );
 
+  let conflictAttempts = 0;
+  const idempotencyConflict = await runRechargeCase({
+    submitCount: 2,
+    createResult() {
+      conflictAttempts += 1;
+      if (conflictAttempts === 1) {
+        const error = new Error("request conflict");
+        error.code = "IDEMPOTENCY_CONFLICT";
+        throw error;
+      }
+      return {
+        order: { orderNo: "order-after-conflict", status: "closed", channel: "wxpay" }
+      };
+    }
+  });
+  assert.deepStrictEqual(
+    idempotencyConflict.requestIds,
+    ["fixed-request-1", "fixed-request-2"],
+    "明确幂等冲突后下一次支付必须生成新 requestId"
+  );
+  assert.strictEqual(idempotencyConflict.paymentCalls, 0, "幂等冲突不得拉起微信支付");
+
   const pendingLaunch = await runRechargeCase({
     createResult: {
       order: { orderNo: "order-pending", status: "pending", channel: "wxpay" },
@@ -557,16 +981,13 @@ async function main() {
   const userCenterWxml = read("pages/user-center/user-center.wxml");
   assertIncludes(userCenterWxml, "账户功能准备中", "账户服务未部署态提示");
   assertIncludes(userCenterWxml, "图片与视频创作统一使用积分", "浏览器原稿余额说明");
-  assertIncludes(userCenterWxml, 'class="balance-recharge"', "浏览器原稿卡内充值入口");
-  assertIncludes(userCenterWxml, 'class="quick-grid"', "浏览器原稿双入口");
+  assertIncludes(userCenterWxml, 'class="balance-recharge-hit', "浏览器原稿卡内充值入口");
+  assertIncludes(userCenterWxml, 'class="quick-grid ', "浏览器原稿双入口");
   assertIncludes(userCenterWxml, 'class="account-panel"', "浏览器原稿最近记录面板");
   assert.strictEqual(userCenterWxml.includes("编辑"), false, "用户中心界面不得出现编辑功能");
   const userCenterWxss = read("pages/user-center/user-center.wxss");
-  assert.strictEqual(
-    /background(?:-color)?\s*:\s*#(?:fff|ffffff)\b/i.test(userCenterWxss),
-    false,
-    "用户中心不得使用纯白色背景"
-  );
+  assert.ok(/page\s*\{[^}]*background:\s*#f5f7fb/.test(userCenterWxss), "用户中心必须使用 G1 页面底色");
+  assert.ok(/\.balance-recharge-hit\s*\{[^}]*height:\s*44px/.test(userCenterWxss), "余额充值触控层必须为 44px");
 
   const accountServiceSource = read("services/account.js");
   const createStart = accountServiceSource.indexOf("createRechargeOrder(options");

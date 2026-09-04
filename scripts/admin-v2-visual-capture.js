@@ -11,7 +11,8 @@ const STATE_TARGETS = Object.freeze({
   "collapsed-default-v1": Object.freeze(["dashboard", "operations", "config", "provider"]),
   "expanded-v1": Object.freeze(["config"]),
   "backup-disabled-v1": Object.freeze(["config"]),
-  "video-mode-v1": Object.freeze(["config"])
+  "video-mode-v1": Object.freeze(["config"]),
+  "provider-tc3-v1": Object.freeze(["provider"])
 });
 const STATE_IDS = Object.freeze(Object.keys(STATE_TARGETS));
 const PAGE_TARGETS = Object.freeze([
@@ -77,6 +78,9 @@ function routeFor(target, options, stateId) {
     : "";
   if (target.name === "operations") return `/pages/admin-operations/admin-operations?view=usage${common ? `&${common}` : ""}`;
   if (target.name === "config") return `/pages/admin-config/admin-config?${common || "group=standard&tab=face"}`;
+  if (target.name === "provider" && stateId === "provider-tc3-v1") {
+    return `/pages/admin-provider/admin-provider?providerKey=tencent${common ? `&${common}` : ""}`;
+  }
   return `/${target.pathPart}${common ? `?${common}` : ""}`;
 }
 

@@ -32,8 +32,11 @@ CONTEXT_SCHEMA_VERSION = 2
 SUPPORTED_CONTEXT_SCHEMA_VERSIONS = {1, 2}
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$", re.IGNORECASE)
 COMMIT_PATTERN = re.compile(r"^[0-9a-f]{7,64}$", re.IGNORECASE)
+OPERATION_PATTERN = re.compile(r"^op-[A-Za-z0-9][A-Za-z0-9._-]{5,120}$")
 ARTIFACT_PATTERN = re.compile(r"^wechat-miniapp-release-v(?P<version>[^/\\]+)-(?P<commit>[^/\\]+)\.zip$")
+POLICY_FILENAME = "wechat-miniapp-release-policy.json"
 PAYMENT_MANIFEST_RELATIVE = Path("scripts/payment-cloudfunctions.json")
+VISUAL_EVIDENCE_MANIFEST_RELATIVE = Path("visual-evidence/admin-v2-release-evidence-manifest.json")
 PAYMENT_FUNCTION_TIMEOUTS = {
     "payment-api": 15,
     "payment-notify": 15,
@@ -43,6 +46,51 @@ PAYMENT_FUNCTION_CLIENT_INVOCATION = {
     "payment-api": True,
     "payment-notify": False,
     "payment-reconcile": False,
+}
+PAYMENT_FUNCTION_RUNTIME_SWITCHES = {
+    "payment-api": {"orderCreationEnabled": True},
+    "payment-notify": {"callbackProcessingEnabled": True},
+    "payment-reconcile": {"reconciliationEnabled": True},
+}
+PAYMENT_FUNCTION_HTTP_ROUTES = {
+    "payment-api": {
+        "declared": False,
+        "enabled": False,
+        "requiresExplicitProductionAuthorization": True,
+    },
+    "payment-notify": {
+        "declared": True,
+        "enabled": True,
+        "requiresExplicitProductionAuthorization": True,
+        "path": "/payment/xingju/notify",
+        "enableAuth": False,
+        "qpsTotal": 100,
+        "qpsPerClient": 20,
+    },
+    "payment-reconcile": {
+        "declared": False,
+        "enabled": False,
+        "requiresExplicitProductionAuthorization": True,
+    },
+}
+PAYMENT_FUNCTION_TIMERS = {
+    "payment-api": {
+        "declared": False,
+        "enabled": False,
+        "requiresExplicitProductionAuthorization": True,
+    },
+    "payment-notify": {
+        "declared": False,
+        "enabled": False,
+        "requiresExplicitProductionAuthorization": True,
+    },
+    "payment-reconcile": {
+        "declared": True,
+        "enabled": True,
+        "requiresExplicitProductionAuthorization": True,
+        "name": "payment-reconcile",
+        "cron": "0 */2 * * * * *",
+    },
 }
 
 
@@ -61,6 +109,125 @@ def _read_json(path: Path, label: str) -> dict:
     if not isinstance(value, dict):
         raise _error(f"{label} 必须是 JSON 对象：{path}")
     return value
+
+
+def _git_value(repository: Path, *args: str) -> str:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repository), *args],
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise _error(f"无法核验 Git 工作树 {repository}：{' '.join(args)}") from exc
+    return result.stdout.strip()
+
+
+def _git_common_dir(repository: Path) -> Path:
+    value = _git_value(
+        repository,
+        "rev-parse",
+        "--path-format=absolute",
+        "--git-common-dir",
+    )
+    return Path(value).expanduser().resolve()
+
+
+def _registered_worktrees(canonical: Path) -> list[Path]:
+    output = _git_value(
+        canonical,
+        "-c",
+        "core.quotePath=false",
+        "worktree",
+        "list",
+        "--porcelain",
+    )
+    return [
+        Path(line[len("worktree "):]).expanduser().resolve()
+        for line in output.splitlines()
+        if line.startswith("worktree ")
+    ]
+
+
+def _load_context_policy(context_path: Path) -> dict:
+    policy_path = context_path.parent.parent / POLICY_FILENAME
+    policy = _read_json(policy_path, "发布策略")
+    for key in ("canonicalRepo", "contextRoot", "worktreeRoot"):
+        if not isinstance(policy.get(key), str) or not policy[key].strip():
+            raise _error(f"发布策略缺少字段：{key}")
+
+    canonical = Path(policy["canonicalRepo"]).expanduser().resolve()
+    expected_policy_path = canonical.parent / POLICY_FILENAME
+    if canonical.name.lower() != "wechat-miniapp" or not _same_path(
+        policy_path.resolve(), expected_policy_path.resolve()
+    ):
+        raise _error("发布策略不是 canonical 仓库旁的固定策略")
+    context_root = Path(policy["contextRoot"]).expanduser().resolve()
+    expected_context_root = canonical.parent / "wechat-miniapp-release-contexts"
+    if not _same_path(context_root, expected_context_root) or not _same_path(
+        context_path.parent, context_root
+    ):
+        raise _error("release context 不在发布策略的固定 contextRoot")
+    worktree_root = Path(policy["worktreeRoot"]).expanduser().resolve()
+    expected_worktree_root = canonical.parent / "wechat-miniapp-release-worktrees"
+    if not _same_path(worktree_root, expected_worktree_root):
+        raise _error("发布策略 worktreeRoot 不是固定目录")
+    return policy
+
+
+def _validate_context_repository(context: dict, context_path: Path) -> None:
+    policy = _load_context_policy(context_path)
+    canonical = Path(policy["canonicalRepo"]).expanduser().resolve()
+    context_canonical = Path(context["canonicalRepo"]).expanduser().resolve()
+    if not _same_path(context_canonical, canonical):
+        raise _error("release context canonicalRepo 与固定发布策略不一致")
+
+    operation_id = context["operationId"].strip()
+    if not OPERATION_PATTERN.fullmatch(operation_id):
+        raise _error(f"release context operationId 无效：{operation_id}")
+    if context_path.name != f"release-{operation_id}.json":
+        raise _error("release context 文件名未绑定同一 operationId")
+    source_root = Path(ROOT).expanduser().resolve()
+    if _same_path(canonical, source_root):
+        return
+
+    release_worktree_value = context.get("releaseWorktree")
+    if not isinstance(release_worktree_value, str) or not release_worktree_value.strip():
+        raise _error("来源版打包器要求 release context 绑定 releaseWorktree")
+    release_worktree_path = Path(release_worktree_value).expanduser()
+    if not release_worktree_path.is_absolute():
+        raise _error("release context releaseWorktree 必须是绝对路径")
+    release_worktree = release_worktree_path.resolve()
+    expected_worktree = (
+        Path(policy["worktreeRoot"]).expanduser().resolve()
+        / f"release-{operation_id}"
+    )
+    if not _same_path(release_worktree, expected_worktree):
+        raise _error("release context releaseWorktree 不在 operation 固定目录")
+    if not _same_path(release_worktree, source_root):
+        raise _error("release context releaseWorktree 与来源版打包器目录不一致")
+    if release_worktree.name != f"release-{operation_id}":
+        raise _error("release context releaseWorktree 未绑定同一 operationId")
+    if not canonical.is_dir() or not release_worktree.is_dir():
+        raise _error("release context canonicalRepo 或 releaseWorktree 不存在")
+
+    worktree_top = Path(_git_value(release_worktree, "rev-parse", "--show-toplevel")).resolve()
+    if not _same_path(worktree_top, release_worktree):
+        raise _error("来源版打包器目录不是 Git 工作树根目录")
+    if not _same_path(_git_common_dir(canonical), _git_common_dir(release_worktree)):
+        raise _error("releaseWorktree 与 canonicalRepo 不属于同一 Git 仓库")
+    if not any(_same_path(item, release_worktree) for item in _registered_worktrees(canonical)):
+        raise _error("releaseWorktree 未在 canonicalRepo 中登记")
+
+    release_commit = context["releaseCommit"].strip()
+    tree_sha = context["treeSha"].strip()
+    if _git_value(release_worktree, "rev-parse", "HEAD").lower() != release_commit.lower():
+        raise _error("releaseWorktree HEAD 与 release context.releaseCommit 不一致")
+    if _git_value(release_worktree, "rev-parse", "HEAD^{tree}").lower() != tree_sha.lower():
+        raise _error("releaseWorktree tree 与 release context.treeSha 不一致")
 
 
 def load_release_context(path: Path) -> dict:
@@ -100,10 +267,6 @@ def load_release_context(path: Path) -> dict:
         if not isinstance(context.get(key), str) or not context[key].strip():
             raise _error(f"release context 字段 {key} 必须是非空字符串")
 
-    canonical = Path(context["canonicalRepo"]).expanduser().resolve()
-    if not _same_path(canonical, ROOT):
-        raise _error(f"release context canonicalRepo 不是唯一发布源：{canonical}")
-
     version = context["version"].strip()
     if not re.fullmatch(r"\d+\.\d+\.\d+", version):
         raise _error(f"版本号不是三段 SemVer：{version}")
@@ -123,6 +286,8 @@ def load_release_context(path: Path) -> dict:
             raise _error("release context 已过期")
     except ValueError as exc:
         raise _error(f"expiresAt 不是有效 ISO-8601 时间：{context['expiresAt']}") from exc
+
+    _validate_context_repository(context, context_path)
 
     artifact = Path(context["artifactPath"]).expanduser()
     if not artifact.is_absolute():
@@ -277,6 +442,58 @@ def compute_source_sha256(source_root: Path) -> str:
     return digest.hexdigest()
 
 
+def _validate_visual_evidence_manifest(source_root: Path, version: str) -> dict:
+    """校验发布包必须携带的视觉证据清单及其文件集合。"""
+    manifest_path = source_root / VISUAL_EVIDENCE_MANIFEST_RELATIVE
+    manifest = _read_json(manifest_path, "视觉证据发布清单")
+    if manifest.get("schemaVersion") != 1:
+        raise _error("视觉证据发布清单 schemaVersion 必须为 1")
+    if manifest.get("status") != "accepted":
+        raise _error("视觉证据发布清单 status 必须为 accepted")
+    baseline_version = str(manifest.get("baselineVersion") or "")
+    if not re.fullmatch(r"\d+\.\d+\.\d+", baseline_version):
+        raise _error("视觉证据发布清单 baselineVersion 必须是三段版本号")
+    retention_days = manifest.get("retentionDays")
+    if not isinstance(retention_days, int) or retention_days < 1:
+        raise _error("视觉证据发布清单 retentionDays 必须是大于 0 的整数")
+    required_files = manifest.get("requiredFiles")
+    if not isinstance(required_files, list) or not required_files:
+        raise _error("视觉证据发布清单 requiredFiles 不能为空")
+    seen: set[str] = set()
+    checked: list[str] = []
+    sensitive_name = re.compile(r"(?:apiKey|secretKey|secretId|accessToken|authorization|password|token)", re.IGNORECASE)
+    for index, raw_relative in enumerate(required_files):
+        if not isinstance(raw_relative, str) or not raw_relative.strip():
+            raise _error(f"视觉证据发布清单 requiredFiles[{index}] 必须是非空字符串")
+        relative = Path(raw_relative.replace("\\", "/"))
+        relative_text = relative.as_posix()
+        if relative.is_absolute() or ".." in relative.parts:
+            raise _error(f"视觉证据发布清单路径不安全：{raw_relative}")
+        if relative_text in seen:
+            raise _error(f"视觉证据发布清单存在重复文件：{relative_text}")
+        if sensitive_name.search(relative_text):
+            raise _error(f"视觉证据发布清单路径疑似凭证文件：{relative_text}")
+        seen.add(relative_text)
+        candidate = (source_root / relative).resolve()
+        try:
+            candidate.relative_to(source_root.resolve())
+        except ValueError as exc:
+            raise _error(f"视觉证据发布清单路径越出源码目录：{relative_text}") from exc
+        if not candidate.is_file():
+            raise _error(f"视觉证据发布清单文件不存在：{relative_text}")
+        if candidate.stat().st_size <= 0:
+            raise _error(f"视觉证据发布清单文件为空：{relative_text}")
+        checked.append(relative_text)
+    return {
+        "manifest": VISUAL_EVIDENCE_MANIFEST_RELATIVE.as_posix(),
+        "status": manifest["status"],
+        "baselineVersion": baseline_version,
+        "retentionDays": retention_days,
+        "requiredFiles": checked,
+        "releaseVersion": version,
+    }
+
+
 def _validate_lockfile_version(path: Path, version: str) -> None:
     lock = _read_json(path, "package-lock")
     if lock.get("version") != version:
@@ -318,17 +535,20 @@ def _validate_payment_manifest(source_root: Path, version: str) -> dict | None:
         raise _error("支付云函数清单 schemaVersion 必须为 1")
     production = manifest.get("productionDeployment")
     if not isinstance(production, dict) or (
-        production.get("enabled") is not False
-        or production.get("automaticDeployment") is not False
+        production.get("enabled") is not True
+        or production.get("automaticDeployment") is not True
         or production.get("requiresExplicitProductionAuthorization") is not True
     ):
-        raise _error("支付生产部署必须默认关闭并要求单独生产授权")
+        raise _error("支付生产部署必须完整开启并保留显式生产授权要求")
 
     core = manifest.get("sharedCore")
     if not isinstance(core, dict):
         raise _error("支付云函数清单缺少 sharedCore")
     if core.get("name") != "aips-payment-core" or core.get("lockRequired") is not False:
         raise _error("payment-core 名称或 lockRequired 契约无效")
+    runtime_require = core.get("runtimeRequire")
+    if runtime_require != "./vendor/payment-core":
+        raise _error("payment-core runtimeRequire 必须为 ./vendor/payment-core")
     core_root = _payment_path(source_root, core.get("root"), "sharedCore.root")
     if core_root != (source_root / "cloudfunctions/payment-core").resolve():
         raise _error("payment-core 必须位于 cloudfunctions/payment-core")
@@ -416,8 +636,8 @@ def _validate_payment_manifest(source_root: Path, version: str) -> dict | None:
                 raise _error(f"{name}.{field} 必须为 {expected}")
         if item.get("timeoutSeconds") != timeout:
             raise _error(f"{name} timeoutSeconds 必须为 {timeout}")
-        if item.get("deploymentEnabled") is not False:
-            raise _error(f"{name} deploymentEnabled 必须默认关闭")
+        if item.get("deploymentEnabled") is not True:
+            raise _error(f"{name} deploymentEnabled 必须在已授权生产合同中开启")
         expected_client_invocation = PAYMENT_FUNCTION_CLIENT_INVOCATION[name]
         if item.get("clientInvocationAllowed") is not expected_client_invocation:
             raise _error(
@@ -425,22 +645,14 @@ def _validate_payment_manifest(source_root: Path, version: str) -> dict | None:
                 f"{str(expected_client_invocation).lower()}"
             )
         switches = item.get("runtimeSwitches")
-        if not isinstance(switches, dict) or not switches or any(
-            value is not False for value in switches.values()
-        ):
-            raise _error(f"{name} 的全部业务开关必须显式为 false")
+        if switches != PAYMENT_FUNCTION_RUNTIME_SWITCHES[name]:
+            raise _error(f"{name} 的业务开关与已授权生产合同不一致")
         http_route = item.get("httpRoute")
         timer = item.get("timer")
-        for trigger_name, trigger in (("httpRoute", http_route), ("timer", timer)):
-            if not isinstance(trigger, dict) or (
-                trigger.get("enabled") is not False
-                or trigger.get("requiresExplicitProductionAuthorization") is not True
-            ):
-                raise _error(f"{name}.{trigger_name} 必须关闭并要求单独生产授权")
-        if bool(http_route.get("declared")) != (name == "payment-notify"):
-            raise _error(f"{name}.httpRoute 声明与函数职责不一致")
-        if bool(timer.get("declared")) != (name == "payment-reconcile"):
-            raise _error(f"{name}.timer 声明与函数职责不一致")
+        if http_route != PAYMENT_FUNCTION_HTTP_ROUTES[name]:
+            raise _error(f"{name}.httpRoute 与已授权生产合同不一致")
+        if timer != PAYMENT_FUNCTION_TIMERS[name]:
+            raise _error(f"{name}.timer 与已授权生产合同不一致")
 
         entry_path = _payment_path(source_root, item.get("entry"), f"{name}.entry")
         package_path = _payment_path(
@@ -480,9 +692,43 @@ def _validate_payment_manifest(source_root: Path, version: str) -> dict | None:
         ):
             raise _error(f"{name} package name/version/main 与发布契约不一致")
         dependencies = package.get("dependencies")
-        if not isinstance(dependencies, dict) or dependencies.get(core.get("name")) != "file:vendor/payment-core":
-            raise _error(f"{name} 必须通过 file:vendor/payment-core 打包共享核心")
+        if not isinstance(dependencies, dict):
+            raise _error(f"{name} package.json dependencies 必须是对象")
+        if core.get("name") in dependencies:
+            raise _error(f"{name} 不得通过 npm file 依赖加载 payment-core")
         _validate_lockfile_version(lock_path, version)
+        package_lock = _read_json(lock_path, f"{name} package-lock.json")
+        lock_packages = package_lock.get("packages")
+        lock_root = lock_packages.get("") if isinstance(lock_packages, dict) else None
+        lock_dependencies = lock_root.get("dependencies") if isinstance(lock_root, dict) else None
+        if not isinstance(lock_dependencies, dict):
+            raise _error(f"{name} package-lock 根依赖必须是对象")
+        if (
+            core.get("name") in lock_dependencies
+            or f"node_modules/{core.get('name')}" in lock_packages
+        ):
+            raise _error(f"{name} package-lock 不得保留 payment-core npm 链接")
+        vendor_lock = lock_packages.get("vendor/payment-core")
+        if not isinstance(vendor_lock, dict) or (
+            vendor_lock.get("version") != version
+            or vendor_lock.get("extraneous") is not True
+        ):
+            raise _error(f"{name} package-lock 的 vendored core 版本或标记无效")
+        entry_source = entry_path.read_text(encoding="utf-8")
+        runtime_pattern = re.compile(
+            r"\brequire\s*\(\s*(['\"])"
+            + re.escape(runtime_require)
+            + r"\1\s*\)"
+        )
+        package_pattern = re.compile(
+            r"\brequire\s*\(\s*(['\"])"
+            + re.escape(str(core.get("name")))
+            + r"\1\s*\)"
+        )
+        if not runtime_pattern.search(entry_source):
+            raise _error(f"{name} 必须从 {runtime_require} 直接加载 payment-core")
+        if package_pattern.search(entry_source):
+            raise _error(f"{name} 不得通过包名加载 payment-core")
         config = _read_json(config_path, f"{name} config.json")
         if config.get("timeout") != timeout:
             raise _error(f"{name} config.json timeout 必须为 {timeout}")
@@ -567,6 +813,7 @@ def validate_source(source_root: Path) -> dict:
     _validate_lockfile_version(media_root / "package-lock.json", version)
 
     payment_manifest = _validate_payment_manifest(source_root, version)
+    visual_evidence = _validate_visual_evidence_manifest(source_root, version)
 
     return {
         "version": version,
@@ -578,6 +825,7 @@ def validate_source(source_root: Path) -> dict:
             else []
         ),
         "sourceSha256": compute_source_sha256(source_root),
+        "visualEvidence": visual_evidence,
     }
 
 
@@ -700,7 +948,7 @@ def _manifest_lines(
         "媒体解析保存：点击保存后由 api 转存到 CloudBase 临时文件，小程序下载并保存到手机，成功立即删除，失败最多保留约 2 小时",
         "数据库初始化：部署 api 后执行 scripts/init-cloud-database.ps1，自动补齐 26 个集合（含支付订单、事件和充值配置）",
         "数据库索引：执行 scripts/check-cloud-database-indexes.ps1，先检查再逐项确认创建 24 组必需索引（其中 2 组唯一）",
-        "支付云函数：正式包只包含 fail-closed 源码；payment-api/payment-notify/payment-reconcile 均未自动部署，HTTP 路由与 Timer 需单独生产授权后启用",
+        "支付云函数：正式包声明已授权生产合同；自动部署 payment-api/payment-notify/payment-reconcile，启用微信支付回调 HTTP 路由与两分钟对账 Timer，支付宝保持关闭",
         "旧任务历史：generation_operations 默认保留 90 天，每天 04:20 自动清理，单次最多 50 条，只删除已完成或已退款且没有 pending 标记的后台任务文档",
         "用户资料：仅在首次签到时要求选择头像、填写昵称并选择男/女，保存后自动签到",
         "自动贴脸策略：直接调用云端 detectFaceCircle；云端失败保留手动圈选",
@@ -922,8 +1170,11 @@ def _required_files(source_root: Path) -> set[str]:
             "scripts/install-git-hooks.cmd",
             "scripts/write-release-record.ps1",
             "RELEASE-MANIFEST.txt",
+            VISUAL_EVIDENCE_MANIFEST_RELATIVE.as_posix(),
         }
     )
+    visual_evidence = _validate_visual_evidence_manifest(source_root, read_version(source_root))
+    required.update(visual_evidence["requiredFiles"])
     payment_manifest = _validate_payment_manifest(source_root, read_version(source_root))
     if payment_manifest:
         required.add(PAYMENT_MANIFEST_RELATIVE.as_posix())

@@ -13,7 +13,9 @@ const path = require("path");
 
 const ROOT = path.resolve(__dirname, "..");
 const DEFAULT_VERSION = "local";
-const DEFAULT_RETENTION = 5;
+const DEFAULT_RETENTION_DAYS = 3;
+// 保留旧导出名，外部脚本仍可读取，但语义已经是“天数”而不是目录数量。
+const DEFAULT_RETENTION = DEFAULT_RETENTION_DAYS;
 const DEFAULT_SOURCE = path.join(ROOT, "visual-evidence", "captured-final-v8");
 const DEFAULT_OUTPUT_ROOT = path.join(ROOT, "visual-evidence", "archive");
 const DEFAULT_FILES = [
@@ -81,18 +83,104 @@ function isWithin(parent, candidate) {
   return relative === "" || (relative && !relative.startsWith(`..${path.sep}`) && relative !== "..");
 }
 
-function pruneArchives(outputRoot, retention = DEFAULT_RETENTION) {
-  const keep = Number(retention);
-  if (!Number.isInteger(keep) || keep < 1) throw new Error(`归档保留数量必须是大于 0 的整数：${retention}`);
+function normalizeRetentionOptions(options) {
+  if (options === undefined || options === null) return {};
+  if (typeof options === "number" || typeof options === "string") return { retentionDays: Number(options) };
+  if (typeof options !== "object") throw new Error(`归档保留天数参数无效：${options}`);
+  return options;
+}
+
+function parseArchiveTimestamp(value) {
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+  const text = String(value || "").trim();
+  if (!text) return null;
+  const parsed = new Date(text);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function archiveManifestInfo(target) {
+  const manifestPath = path.join(target, "archive-manifest.json");
+  if (!fs.existsSync(manifestPath)) return { manifestPath, archivedAt: null, reason: "missing-manifest" };
+  try {
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+    const archivedAt = parseArchiveTimestamp(manifest && manifest.archivedAt);
+    if (!archivedAt) return { manifestPath, archivedAt: null, reason: "invalid-archivedAt" };
+    return { manifestPath, archivedAt, reason: null };
+  } catch (error) {
+    return { manifestPath, archivedAt: null, reason: `invalid-manifest:${error.message || error}` };
+  }
+}
+
+function normalizeProtectedVersions(values) {
+  return new Set((Array.isArray(values) ? values : values ? [values] : []).map(value => {
+    const name = String(value || "").trim();
+    return name.startsWith("v") ? name : `v${name}`;
+  }));
+}
+
+function pruneArchives(outputRoot, options = DEFAULT_RETENTION_DAYS) {
+  const normalized = normalizeRetentionOptions(options);
+  const retentionDays = normalized.retentionDays === undefined
+    ? (normalized.retention === undefined ? DEFAULT_RETENTION_DAYS : Number(normalized.retention))
+    : Number(normalized.retentionDays);
+  if (!Number.isInteger(retentionDays) || retentionDays < 1) {
+    throw new Error(`归档保留天数必须是大于 0 的整数：${retentionDays}`);
+  }
+  const now = parseArchiveTimestamp(normalized.now || new Date());
+  if (!now) throw new Error(`归档清理时间无效：${normalized.now}`);
+  const cutoff = new Date(now.getTime() - retentionDays * 24 * 60 * 60 * 1000);
   const resolvedRoot = path.resolve(outputRoot);
   const versions = listArchiveVersions(resolvedRoot);
-  const remove = versions.slice(0, Math.max(0, versions.length - keep));
-  remove.forEach(versionName => {
+  const protectedVersions = normalizeProtectedVersions(normalized.protectVersions);
+  const prunedVersions = [];
+  const keptVersions = [];
+  const skippedVersions = [];
+  versions.forEach(versionName => {
     const target = path.join(resolvedRoot, versionName);
-    if (!isWithin(resolvedRoot, target) || path.dirname(target) !== resolvedRoot) throw new Error(`归档清理目标越界：${target}`);
-    fs.rmSync(target, { recursive: true, force: true });
+    if (!isWithin(resolvedRoot, target) || path.dirname(target) !== resolvedRoot) {
+      throw new Error(`归档清理目标越界：${target}`);
+    }
+    const stat = fs.lstatSync(target);
+    if (!stat.isDirectory() || stat.isSymbolicLink()) {
+      skippedVersions.push({ version: versionName, reason: "symlink-or-nondirectory" });
+      return;
+    }
+    if (protectedVersions.has(versionName)) {
+      keptVersions.push(versionName);
+      return;
+    }
+    const info = archiveManifestInfo(target);
+    if (!info.archivedAt) {
+      skippedVersions.push({ version: versionName, reason: info.reason });
+      return;
+    }
+    if (info.archivedAt.getTime() <= cutoff.getTime()) {
+      fs.rmSync(target, { recursive: true, force: true });
+      prunedVersions.push(versionName);
+    } else {
+      keptVersions.push(versionName);
+    }
   });
-  return { retention: keep, versions, prunedVersions: remove, keptVersions: listArchiveVersions(resolvedRoot) };
+  return {
+    retention: retentionDays,
+    retentionDays,
+    now: now.toISOString(),
+    cutoffAt: cutoff.toISOString(),
+    versions,
+    prunedVersions,
+    keptVersions: listArchiveVersions(resolvedRoot).filter(name => !prunedVersions.includes(name)),
+    skippedVersions,
+  };
+}
+
+function cleanup(options = {}) {
+  const root = path.resolve(options.root || ROOT);
+  const outputRoot = resolve(root, options.outputRoot || path.join("visual-evidence", "archive"));
+  return pruneArchives(outputRoot, {
+    retentionDays: options.retentionDays === undefined ? options.retention : options.retentionDays,
+    now: options.now,
+    protectVersions: options.protectVersions,
+  });
 }
 
 function run(options = {}) {
@@ -144,13 +232,19 @@ function run(options = {}) {
   } else {
     fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
   }
-  const retention = options.retention === undefined ? DEFAULT_RETENTION : options.retention;
-  const retentionResult = pruneArchives(outputRoot, retention);
+  const retentionDays = options.retentionDays === undefined
+    ? (options.retention === undefined ? DEFAULT_RETENTION_DAYS : options.retention)
+    : options.retentionDays;
+  const retentionResult = pruneArchives(outputRoot, {
+    retentionDays,
+    now: options.now,
+    protectVersions: [version, ...(Array.isArray(options.protectVersions) ? options.protectVersions : [])],
+  });
   return Object.assign(manifest, { output: output, manifestPath, ...retentionResult });
 }
 
 function parseArgs(argv) {
-  const result = { root: ROOT, version: DEFAULT_VERSION, retention: DEFAULT_RETENTION };
+  const result = { root: ROOT, version: DEFAULT_VERSION, retentionDays: DEFAULT_RETENTION_DAYS };
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
     if (token === "--help") result.help = true;
@@ -158,7 +252,13 @@ function parseArgs(argv) {
     else if (token === "--version") result.version = argv[++index] || result.version;
     else if (token === "--source") result.source = argv[++index] || result.source;
     else if (token === "--output-root") result.outputRoot = argv[++index] || result.outputRoot;
-    else if (token === "--retain") result.retention = Number(argv[++index] || result.retention);
+    else if (token === "--retain-days") result.retentionDays = Number(argv[++index] || result.retentionDays);
+    else if (token === "--retain") result.retentionDays = Number(argv[++index] || result.retentionDays);
+    else if (token === "--now") result.now = argv[++index] || result.now;
+    else if (token === "--protect-version") {
+      if (!Array.isArray(result.protectVersions)) result.protectVersions = [];
+      result.protectVersions.push(argv[++index] || "");
+    } else if (token === "--cleanup-only") result.cleanupOnly = true;
   }
   return result;
 }
@@ -166,11 +266,12 @@ function parseArgs(argv) {
 function main(argv = process.argv.slice(2)) {
   const options = parseArgs(argv);
   if (options.help) {
-    console.log("用法：node scripts/admin-v2-visual-archive.js --version <版本> [--source <截图目录>] [--output-root <目录>] [--retain <数量>]");
+    console.log("用法：node scripts/admin-v2-visual-archive.js --version <版本> [--source <截图目录>] [--output-root <目录>] [--retain-days 3]");
+    console.log("清理：node scripts/admin-v2-visual-archive.js --cleanup-only [--output-root <目录>] [--retain-days 3] [--now <ISO时间>]");
     return 0;
   }
   try {
-    const result = run(options);
+    const result = options.cleanupOnly ? cleanup(options) : run(options);
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     return 0;
   } catch (error) {
@@ -179,6 +280,6 @@ function main(argv = process.argv.slice(2)) {
   }
 }
 
-module.exports = { ROOT, DEFAULT_FILES, DEFAULT_REPORTS, DEFAULT_RETENTION, SENSITIVE_PATTERN, sha256, assertSafeArtifact, listArchiveVersions, pruneArchives, run, parseArgs, main };
+module.exports = { ROOT, DEFAULT_FILES, DEFAULT_REPORTS, DEFAULT_RETENTION, DEFAULT_RETENTION_DAYS, SENSITIVE_PATTERN, sha256, assertSafeArtifact, listArchiveVersions, parseArchiveTimestamp, pruneArchives, cleanup, run, parseArgs, main };
 
 if (require.main === module) process.exitCode = main();

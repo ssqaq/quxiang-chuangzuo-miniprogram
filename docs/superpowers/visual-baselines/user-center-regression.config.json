@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "contract": "user-center-same-device-png",
+  "canvas": {
+    "width": 338,
+    "height": 654
+  },
+  "baselineManifest": {
+    "path": "user-center-g1-v2/manifest.json",
+    "sha256": "2e7886052bb361c7577c74a6bd3bc77e9643a49e9162019ed4f7b739233427c9"
+  },
+  "candidateManifest": {
+    "path": "user-center-g4/manifest.json",
+    "sha256": "945f020f8dcd47e2beffbbbbc89f20211a99303a536d89a804e8409545577bd4"
+  },
+  "thresholds": {
+    "pixelDelta": 24,
+    "changedPixelRatio": 0.001,
+    "mae": 0.5,
+    "maxDelta": 128,
+    "ssim": 0.995
+  },
+  "pages": [
+    {
+      "id": "user-center",
+      "baseline": {
+        "path": "user-center-g1-v2/user-center.png",
+        "sha256": "6cad13e63701cbc6b53ed53e1f02a6bd80b20abe9cde3bab6c567303dbf4cb1b"
+      },
+      "candidate": {
+        "path": "user-center-g4/user-center-338.png"
+      }
+    },
+    {
+      "id": "recharge",
+      "baseline": {
+        "path": "user-center-g1-v2/recharge.png",
+        "sha256": "7cf5a5b9e52991fe391c2b2c5f40d3f53975cd4005de4bd290c8cac41eb4ed52"
+      },
+      "candidate": {
+        "path": "user-center-g4/recharge-338.png"
+      }
+    },
+    {
+      "id": "records",
+      "baseline": {
+        "path": "user-center-g1-v2/records.png",
+        "sha256": "1684fd4e1dac8f073f72c85285891a58b1a507f274db05a81c3e1bf38af0da0d"
+      },
+      "candidate": {
+        "path": "user-center-g4/records-338.png"
+      }
+    }
+  ]
+}

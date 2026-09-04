@@ -78,6 +78,247 @@ function Read-ReleaseLockOwner {
     }
 }
 
+function Get-ReleasePublishLockOperationState {
+    <#
+      Read the durable state for a lock owner without taking any queue or
+      filesystem write lock.  A missing state is deliberately reported as
+      unknown; an owner that cannot be proven terminal must block publish.
+    #>
+    param(
+        [Parameter(Mandatory = $true)][object]$Policy,
+        [string]$OperationId = ""
+    )
+
+    if ([string]::IsNullOrWhiteSpace($OperationId)) { return $null }
+    $queueRoot = if ($Policy.PSObject.Properties["queueRoot"] -and -not [string]::IsNullOrWhiteSpace([string]$Policy.queueRoot)) {
+        [IO.Path]::GetFullPath([string]$Policy.queueRoot)
+    }
+    else {
+        $parent = Split-Path ([IO.Path]::GetFullPath([string]$Policy.lockPath)) -Parent
+        Join-Path $parent "wechat-miniapp-release-queue"
+    }
+    $queuePath = Join-Path $queueRoot "queue.json"
+    if (Test-Path -LiteralPath $queuePath -PathType Leaf) {
+        try {
+            $queue = Get-Content -LiteralPath $queuePath -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($ticket in @($queue.tickets)) {
+                $ticketId = if ($ticket.PSObject.Properties["operationId"]) { [string]$ticket.operationId } else { "" }
+                if ($ticketId -ne $OperationId) { continue }
+                $status = if ($ticket.PSObject.Properties["status"]) { [string]$ticket.status } else { "" }
+                $phase = if ($ticket.PSObject.Properties["phase"]) { [string]$ticket.phase } else { "" }
+                return [pscustomobject][ordered]@{
+                    operationId = $OperationId
+                    status = $status
+                    phase = $phase
+                    terminal = $status -in @("succeeded", "failed", "cancelled", "expired", "recoverable")
+                    source = "queue"
+                }
+            }
+        }
+        catch {
+            return [pscustomobject][ordered]@{
+                operationId = $OperationId
+                status = "invalid"
+                phase = ""
+                terminal = $false
+                source = "queue-invalid"
+            }
+        }
+    }
+
+    # A queue ticket can be absent while a context is still being repaired.
+    # Inspect the canonical context/record trees before declaring the owner
+    # unknown, but never treat an absent record as proof of completion.
+    foreach ($rootName in @("contextRoot", "recordRoot")) {
+        if (-not $Policy.PSObject.Properties[$rootName]) { continue }
+        $root = [string]$Policy.$rootName
+        if ([string]::IsNullOrWhiteSpace($root) -or -not (Test-Path -LiteralPath $root -PathType Container)) { continue }
+        foreach ($file in @(Get-ChildItem -LiteralPath $root -Filter "*.json" -File -ErrorAction SilentlyContinue)) {
+            try { $value = Get-Content -LiteralPath $file.FullName -Raw -Encoding UTF8 | ConvertFrom-Json } catch { continue }
+            if (-not $value.PSObject.Properties["operationId"] -or [string]$value.operationId -ne $OperationId) { continue }
+            $status = if ($value.PSObject.Properties["terminalStatus"]) { [string]$value.terminalStatus } elseif ($value.PSObject.Properties["status"]) { [string]$value.status } else { "" }
+            $phase = if ($value.PSObject.Properties["phase"]) { [string]$value.phase } else { "" }
+            return [pscustomobject][ordered]@{
+                operationId = $OperationId
+                status = $status
+                phase = $phase
+                terminal = $status -in @("succeeded", "failed", "cancelled", "expired", "recoverable", "已推送")
+                source = $rootName
+            }
+        }
+    }
+    return [pscustomobject][ordered]@{
+        operationId = $OperationId
+        status = "unknown"
+        phase = ""
+        terminal = $false
+        source = "missing"
+    }
+}
+
+function Get-ReleasePublishLockHealth {
+    <# Read-only publish preflight.  It never creates, truncates, or cleans a lock. #>
+    param(
+        [Parameter(Mandatory = $true)][object]$Policy,
+        [ValidateRange(5, 86400)][int]$StaleAfterSeconds = 600,
+        # A resume caller may explicitly identify the prepared operation whose
+        # lock metadata it is going to reclaim.  Keep this opt-in; ordinary
+        # release must still fail closed on every non-terminal residue.
+        [Alias("AllowOperationId")][string]$ExpectedOperationId = ""
+    )
+
+    $lockPath = [IO.Path]::GetFullPath([string]$Policy.lockPath)
+    $ownerPath = "$lockPath.owner.json"
+    $pendingPath = "$lockPath.pending.json"
+    $lockExists = Test-Path -LiteralPath $lockPath -PathType Leaf
+    $ownerSidecarExists = Test-Path -LiteralPath $ownerPath -PathType Leaf
+    $pendingSidecarExists = Test-Path -LiteralPath $pendingPath -PathType Leaf
+    $osAvailable = $true
+    $osError = ""
+    $stream = $null
+    if ($lockExists) {
+        try {
+            $stream = [IO.File]::Open($lockPath, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+        }
+        catch {
+            $osAvailable = $false
+            $osError = $_.Exception.Message
+        }
+        finally {
+            if ($null -ne $stream) { $stream.Dispose() }
+        }
+    }
+
+    $ownerSidecarValid = $true
+    $owner = if ($ownerSidecarExists) {
+        $value = Read-ReleaseLockOwner -OwnerPath $ownerPath
+        if ($null -eq $value) { $ownerSidecarValid = $false }
+        $value
+    }
+    if ($null -eq $owner -and $lockExists) {
+        try {
+            $raw = [IO.File]::ReadAllText($lockPath, [Text.Encoding]::UTF8)
+            if (-not [string]::IsNullOrWhiteSpace($raw)) { $owner = $raw | ConvertFrom-Json }
+        }
+        catch { $owner = $null }
+    }
+    $pendingValid = $true
+    $pending = if ($pendingSidecarExists) {
+        try {
+            $value = Get-Content -LiteralPath $pendingPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ($null -eq $value) { $pendingValid = $false }
+            $value
+        }
+        catch {
+            $pendingValid = $false
+            $null
+        }
+    }
+    $ownerOperationId = if ($null -ne $owner -and $owner.PSObject.Properties["operationId"]) { [string]$owner.operationId } else { "" }
+    $pendingOperationId = if ($null -ne $pending -and $pending.PSObject.Properties["operationId"]) { [string]$pending.operationId } else { "" }
+    # A pending cloud task can outlive the owner sidecar after a normal lock
+    # release.  Use its operation id only when no owner identity remains, and
+    # reject contradictory identities instead of choosing one silently.
+    $operationId = if (-not [string]::IsNullOrWhiteSpace($ownerOperationId)) { $ownerOperationId } else { $pendingOperationId }
+    $identityMismatch =
+        (-not $ownerSidecarValid) -or
+        (-not $pendingValid) -or
+        ($pendingSidecarExists -and [string]::IsNullOrWhiteSpace($pendingOperationId)) -or
+        (-not [string]::IsNullOrWhiteSpace($ownerOperationId) -and
+            -not [string]::IsNullOrWhiteSpace($pendingOperationId) -and
+            -not [string]::Equals($ownerOperationId, $pendingOperationId, [StringComparison]::Ordinal))
+    $operation = Get-ReleasePublishLockOperationState -Policy $Policy -OperationId $operationId
+    $metadataPresent = $null -ne $owner -or $ownerSidecarExists -or $pendingSidecarExists
+    $reason = ""
+    $error = ""
+    $healthy = $true
+
+    if (-not $metadataPresent) {
+        $reason = if ($lockExists) { "empty-lock-file" } else { "lock-file-missing" }
+    }
+    elseif (-not $osAvailable) {
+        $healthy = $false
+        $reason = "active-lock"
+        $error = "发布前锁健康检查失败：发布锁当前被其他进程持有（$lockPath）。$osError"
+    }
+    elseif ($identityMismatch) {
+        $healthy = $false
+        $reason = "metadata-mismatch"
+        $detail = if (-not $ownerSidecarValid) {
+            "owner sidecar 无法解析"
+        }
+        elseif (-not $pendingValid) {
+            "pending sidecar 无法解析"
+        }
+        elseif ($pendingSidecarExists -and [string]::IsNullOrWhiteSpace($pendingOperationId)) {
+            "pending sidecar 缺少 operationId"
+        }
+        else {
+            "owner operationId=$ownerOperationId，pending operationId=$pendingOperationId"
+        }
+        $error = "发布前锁健康检查失败：锁元数据身份不一致（$detail）。请先完成或取消该发布操作，再重试。"
+    }
+    elseif ($null -ne $operation -and [bool]$operation.terminal) {
+        $reason = "terminal-metadata"
+    }
+    elseif (
+        -not [string]::IsNullOrWhiteSpace($ExpectedOperationId) -and
+        [string]::Equals($operationId, $ExpectedOperationId.Trim(), [StringComparison]::Ordinal) -and
+        $null -ne $operation -and
+        [string]::Equals([string]$operation.source, "queue", [StringComparison]::OrdinalIgnoreCase) -and
+        [string]::Equals([string]$operation.status, "queued", [StringComparison]::OrdinalIgnoreCase) -and
+        [string]::Equals([string]$operation.phase, "prepared", [StringComparison]::OrdinalIgnoreCase)
+    ) {
+        # The OS probe above already proved that no process currently owns the
+        # lock.  Only the exact prepared queue ticket may pass this explicit
+        # resume exception; a different operation or phase remains blocked.
+        $reason = "expected-nonterminal-residue"
+    }
+    else {
+        $healthy = $false
+        $reason = "nonterminal-residue"
+        $status = if ($null -eq $operation) { "unknown" } else { [string]$operation.status }
+        $phase = if ($null -eq $operation) { "" } else { [string]$operation.phase }
+        $detail = if ([string]::IsNullOrWhiteSpace($operationId)) { "operationId 缺失" } else { "operationId=$operationId，status=$status，phase=$phase" }
+        $error = "发布前锁健康检查失败：发现非终态残留锁（$detail）。请先完成或取消该发布操作，再重试。"
+    }
+
+    return [pscustomobject][ordered]@{
+        healthy = [bool]$healthy
+        reason = $reason
+        error = $error
+        lockPath = $lockPath
+        exists = [bool]$lockExists
+        osLockAvailable = [bool]$osAvailable
+        osError = $osError
+        ownerSidecarExists = [bool]$ownerSidecarExists
+        pendingSidecarExists = [bool]$pendingSidecarExists
+        metadataPresent = [bool]$metadataPresent
+        operationId = $operationId
+        ownerOperationId = $ownerOperationId
+        pendingOperationId = $pendingOperationId
+        operation = $operation
+        expectedOperationId = $ExpectedOperationId
+        checkedAt = [DateTimeOffset]::UtcNow.ToString("o")
+        staleAfterSeconds = $StaleAfterSeconds
+    }
+}
+
+function Assert-ReleasePublishLockHealth {
+    param(
+        [Parameter(Mandatory = $true)][object]$Policy,
+        [ValidateRange(5, 86400)][int]$StaleAfterSeconds = 600,
+        [Alias("AllowOperationId")][string]$ExpectedOperationId = ""
+    )
+
+    $result = Get-ReleasePublishLockHealth `
+        -Policy $Policy `
+        -StaleAfterSeconds $StaleAfterSeconds `
+        -ExpectedOperationId $ExpectedOperationId
+    if (-not [bool]$result.healthy) { throw [string]$result.error }
+    return $result
+}
+
 function Get-ReleaseLockOwnerMutexName {
     <#
       The OS lock protects the release critical section, but the owner sidecar
@@ -679,7 +920,26 @@ function Exit-ReleaseLock {
             -not [string]::IsNullOrWhiteSpace($expectedToken) -and
             [string]::Equals($ownerToken, $expectedToken, [StringComparison]::Ordinal)
         if ($sameOwner) {
-            Remove-Item -LiteralPath ([string]$LockHandle.OwnerPath) -Force -ErrorAction SilentlyContinue
+            # The lock stream also carries a legacy embedded owner snapshot.
+            # Clear it while the OS lock is still held, before removing the
+            # sidecar.  Otherwise a normal release leaves a non-terminal
+            # operation in the lock body; the read-only health preflight then
+            # mistakes that body for a live/stale owner and blocks recovery.
+            $embeddedOwnerCleared = $false
+            try {
+                if ($null -ne $LockHandle.Stream -and $LockHandle.Stream.CanWrite) {
+                    $LockHandle.Stream.SetLength(0)
+                    $LockHandle.Stream.Flush()
+                    $embeddedOwnerCleared = $true
+                }
+            }
+            catch { }
+            # Keep the sidecar when body cleanup failed.  A conservative
+            # residue is recoverable by the maintenance path; deleting the
+            # only identity marker would make the remaining body ambiguous.
+            if ($embeddedOwnerCleared) {
+                Remove-Item -LiteralPath ([string]$LockHandle.OwnerPath) -Force -ErrorAction SilentlyContinue
+            }
         }
     }
     catch { }

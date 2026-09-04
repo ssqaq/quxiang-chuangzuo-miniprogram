@@ -2,7 +2,8 @@ param(
   [string]$ProjectPath = (Split-Path -Parent $PSScriptRoot),
   [string]$WechatIde = "",
   [string]$ClientName = "default",
-  [switch]$DryRun
+  [switch]$DryRun,
+  [switch]$AllowOpenProjectWindow
 )
 
 # Keep this file ASCII-only so Windows PowerShell 5.1 can parse it without BOM.
@@ -39,6 +40,10 @@ function Invoke-WechatIde {
     [string]$CliPath,
     [string[]]$Arguments
   )
+
+  if (-not $AllowOpenProjectWindow) {
+    throw "为防止微信开发者工具自动弹出，默认禁止调用 WechatIDE。若需手动执行，请显式加 -AllowOpenProjectWindow。"
+  }
 
   $previousErrorActionPreference = $ErrorActionPreference
   $ErrorActionPreference = "Continue"
@@ -100,14 +105,18 @@ if ($DryRun) {
   exit 0
 }
 
-Invoke-WechatIde -CliPath $cli -Arguments @(
-  "-c", $ClientName,
-  "open_project_window",
-  "--project", $project,
-  "--window-mode", "liteMode"
-) | Out-Null
+if ($AllowOpenProjectWindow) {
+  Invoke-WechatIde -CliPath $cli -Arguments @(
+    "-c", $ClientName,
+    "open_project_window",
+    "--project", $project,
+    "--window-mode", "liteMode"
+  ) | Out-Null
 
-Start-Sleep -Seconds 2
+  Start-Sleep -Seconds 2
+} else {
+  Write-Host "Skip opening project window (default; use -AllowOpenProjectWindow to enable)"
+}
 
 $functionSource = "function() { return wx.cloud.callFunction({ name: '$functionName', data: { action: 'initializeDatabase', requestId: 'database-init-' + Date.now() } }).then(function(response) { return response.result; }); }"
 $response = Invoke-WechatIde -CliPath $cli -Arguments @(

@@ -30,6 +30,27 @@ function Replace-VersionOccurrences {
     return $builder.ToString()
 }
 
+function Replace-PaymentLockVersions {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Text,
+        [Parameter(Mandatory = $true)]
+        [string]$TargetVersion
+    )
+
+    $updated = Replace-VersionOccurrences -Text $Text -Count 2 -TargetVersion $TargetVersion
+    $pattern = '("vendor/payment-core"\s*:\s*\{[^{}]*?"version"\s*:\s*")[^"]+(")'
+    $match = [regex]::Match($updated, $pattern)
+    if (-not $match.Success) {
+        throw "支付云函数 package-lock 缺少 vendor/payment-core 版本。"
+    }
+    return $updated.Substring(0, $match.Index) +
+        $match.Groups[1].Value +
+        $TargetVersion +
+        $match.Groups[2].Value +
+        $updated.Substring($match.Index + $match.Length)
+}
+
 function Get-NextPatchVersion {
     param(
         [Parameter(Mandatory = $true)]
@@ -154,7 +175,7 @@ function Set-VersionText {
             return Replace-VersionOccurrences -Text $Text -Count 2 -TargetVersion $TargetVersion
         }
         { $_ -match '^cloudfunctions/payment-(?:api|notify|reconcile)/package-lock\.json$' } {
-            return Replace-VersionOccurrences -Text $Text -Count 2 -TargetVersion $TargetVersion
+            return Replace-PaymentLockVersions -Text $Text -TargetVersion $TargetVersion
         }
         { $_ -match '^cloudfunctions/payment-(?:api|notify|reconcile)/config\.json$' } {
             try {
@@ -184,20 +205,61 @@ function Set-VersionText {
                 throw "支付云函数清单不是有效 JSON。"
             }
             if ([int]$manifest.schemaVersion -ne 1 -or
-                [bool]$manifest.productionDeployment.enabled -or
-                [bool]$manifest.productionDeployment.automaticDeployment) {
-                throw "支付云函数清单必须保持生产部署默认关闭。"
+                -not [bool]$manifest.productionDeployment.enabled -or
+                -not [bool]$manifest.productionDeployment.automaticDeployment -or
+                -not [bool]$manifest.productionDeployment.requiresExplicitProductionAuthorization) {
+                throw "支付云函数清单必须完整开启并保留显式生产授权要求。"
+            }
+            $expectedNames = @("payment-api", "payment-notify", "payment-reconcile")
+            $actualNames = @($manifest.functions | ForEach-Object { [string]$_.name })
+            if ($actualNames.Count -ne $expectedNames.Count -or
+                @($expectedNames | Where-Object { $_ -notin $actualNames }).Count -gt 0) {
+                throw "支付云函数清单必须且只能包含 api/notify/reconcile。"
             }
             foreach ($paymentFunction in @($manifest.functions)) {
-                if ([bool]$paymentFunction.deploymentEnabled -or
-                    [bool]$paymentFunction.httpRoute.enabled -or
-                    [bool]$paymentFunction.timer.enabled) {
-                    throw "支付云函数部署、HTTP 路由和 Timer 必须默认关闭：$($paymentFunction.name)"
+                $name = [string]$paymentFunction.name
+                if (-not [bool]$paymentFunction.deploymentEnabled) {
+                    throw "支付云函数部署必须在已授权生产合同中开启：$name"
                 }
-                foreach ($property in @($paymentFunction.runtimeSwitches.PSObject.Properties)) {
-                    if ([bool]$property.Value) {
-                        throw "支付业务开关必须默认关闭：$($paymentFunction.name).$($property.Name)"
+                $switches = @($paymentFunction.runtimeSwitches.PSObject.Properties)
+                $expectedSwitch = switch ($name) {
+                    "payment-api" { "orderCreationEnabled" }
+                    "payment-notify" { "callbackProcessingEnabled" }
+                    "payment-reconcile" { "reconciliationEnabled" }
+                    default { throw "未批准的支付云函数：$name" }
+                }
+                if ($switches.Count -ne 1 -or
+                    [string]$switches[0].Name -ne $expectedSwitch -or
+                    -not [bool]$switches[0].Value) {
+                    throw "支付业务开关与已授权生产合同不一致：$name"
+                }
+                if (-not [bool]$paymentFunction.httpRoute.requiresExplicitProductionAuthorization -or
+                    -not [bool]$paymentFunction.timer.requiresExplicitProductionAuthorization) {
+                    throw "支付入口必须保留显式生产授权要求：$name"
+                }
+                if ($name -eq "payment-notify") {
+                    if (-not [bool]$paymentFunction.httpRoute.declared -or
+                        -not [bool]$paymentFunction.httpRoute.enabled -or
+                        [string]$paymentFunction.httpRoute.path -ne "/payment/xingju/notify" -or
+                        [bool]$paymentFunction.httpRoute.enableAuth -or
+                        [int]$paymentFunction.httpRoute.qpsTotal -ne 100 -or
+                        [int]$paymentFunction.httpRoute.qpsPerClient -ne 20) {
+                        throw "payment-notify HTTP 路由与已授权生产合同不一致。"
                     }
+                }
+                elseif ([bool]$paymentFunction.httpRoute.declared -or [bool]$paymentFunction.httpRoute.enabled) {
+                    throw "只有 payment-notify 允许 HTTP 路由：$name"
+                }
+                if ($name -eq "payment-reconcile") {
+                    if (-not [bool]$paymentFunction.timer.declared -or
+                        -not [bool]$paymentFunction.timer.enabled -or
+                        [string]$paymentFunction.timer.name -ne "payment-reconcile" -or
+                        [string]$paymentFunction.timer.cron -ne "0 */2 * * * * *") {
+                        throw "payment-reconcile Timer 与已授权生产合同不一致。"
+                    }
+                }
+                elseif ([bool]$paymentFunction.timer.declared -or [bool]$paymentFunction.timer.enabled) {
+                    throw "只有 payment-reconcile 允许 Timer：$name"
                 }
             }
             return $Text

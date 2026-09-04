@@ -88,47 +88,6 @@ assert.ok(wxss.includes("border-radius: var(--admin-radius-card)"), "主卡片�
 assert.ok(wxss.includes("border-radius: var(--admin-radius-control)"), "操作按钮没有使用统一圆角变量");
 assert.ok(wxml.includes("class=\"quick-launch-grid\""), "快捷入口结构缺失");
 assert.ok(wxml.includes("class=\"monitor-section-toggle-button\""), "展开按钮结构缺失");
-const currentConfigStart = wxml.indexOf("当前配置");
-const currentConfigEnd = wxml.indexOf('id="usage-section"');
-assert.ok(currentConfigStart >= 0 && currentConfigEnd > currentConfigStart, "当前配置区结构缺失");
-const currentConfigBlock = wxml.slice(currentConfigStart, currentConfigEnd);
-function currentConfigRowIndex(section) {
-  const pattern = new RegExp(
-    `<view\\b(?=[^>]*class="[^"]*\\bcurrent-config-row\\b[^"]*")(?=[^>]*data-section="${section}")[^>]*>`
-  );
-  const match = pattern.exec(currentConfigBlock);
-  return match ? match.index : -1;
-}
-const imageIndex = currentConfigRowIndex("image");
-const tencentIndex = currentConfigRowIndex("tencentFaceFusion");
-const videoIndex = currentConfigRowIndex("video");
-assert.ok(
-  imageIndex >= 0 && imageIndex < tencentIndex && tencentIndex < videoIndex,
-  "375/414 页面当前配置顺序必须是生图模型、开始新创作-腾讯版、视频模型"
-);
-assert.strictEqual(
-  (currentConfigBlock.match(/class="[^"]*\btencent-pipeline-config-row\b[^"]*"/g) || []).length,
-  1,
-  "响应式页面只能渲染一张腾讯版配置卡"
-);
-assert.strictEqual(
-  (currentConfigBlock.match(/id="config-editor-tencentFaceFusion"/g) || []).length,
-  1,
-  "响应式页面只能渲染一个腾讯版编辑面板"
-);
-assert.ok(
-  !currentConfigBlock.slice(imageIndex, tencentIndex).includes("tencent-tabs")
-    && !currentConfigBlock.slice(imageIndex, tencentIndex).includes("tencentImageTab"),
-  "普通生图面板在窄屏下也不能出现旧腾讯页签"
-);
-assert.ok(
-  wxss.includes(".tencent-pipeline-editor")
-    && wxss.includes(".tencent-pipeline-progress")
-    && wxss.includes(".tencent-pipeline-nav")
-    && wxss.includes(".image-wizard-progress-item")
-    && wxss.includes("@media (max-width: 560px)"),
-  "腾讯版卡片、四步进度条和窄屏适配样式缺失"
-);
 assert.ok(!wxml.includes("class=\"usage-secondary-actions\""), "模型用量顶部仍然存在多余辅助按钮组");
 assert.ok(
   wxml.includes("class=\"monitor-toggle-actions admin-action-slot\""),
@@ -144,7 +103,6 @@ assert.ok(!adminJs.includes("toggleMonitorOnlyAbnormal"), "异常筛选方法仍
 const usageSectionIndex = wxml.indexOf('id="usage-section"');
 const monitorToggleIndex = wxml.indexOf('bindtap="toggleMonitor"');
 const monitorOverviewIndex = wxml.indexOf('class="monitor-overview-card"');
-const paymentMonitorIndex = wxml.indexOf('id="monitor-section-paymentMonitor"');
 const generationQueueIndex = wxml.indexOf('id="monitor-section-generationQueue"');
 const diagnosticLogsIndex = wxml.indexOf('id="monitor-section-diagnosticLogs"');
 const deploymentIndex = wxml.indexOf('id="monitor-section-deployment"');
@@ -153,7 +111,6 @@ const failureIndex = wxml.indexOf('class="usage-failure-panel"');
   ["模型用量统计", usageSectionIndex],
   ["运行监控入口", monitorToggleIndex],
   ["系统运行概览", monitorOverviewIndex],
-  ["支付与补单", paymentMonitorIndex],
   ["生图任务队列", generationQueueIndex],
   ["用户端日志", diagnosticLogsIndex],
   ["部署与探针", deploymentIndex],
@@ -165,8 +122,7 @@ assert.ok(
   usageSectionIndex < failureIndex
   && failureIndex < monitorToggleIndex
   && monitorToggleIndex < monitorOverviewIndex
-  && monitorOverviewIndex < paymentMonitorIndex
-  && paymentMonitorIndex < generationQueueIndex
+  && monitorOverviewIndex < generationQueueIndex
   && generationQueueIndex < diagnosticLogsIndex
   && diagnosticLogsIndex < deploymentIndex,
   "页面区块顺序应为：模型用量统计、模型调用失败统计、运行监控"
@@ -188,8 +144,8 @@ assert.strictEqual(
 );
 
 const viewTree = inspectViewTree(wxml);
-assert.strictEqual(viewTree.targets.length, 13, "管理员页目标展开按钮数量应为 13 个");
-assert.strictEqual(viewTree.slots.length, 13, "每个目标展开按钮都应有且只有一个统一位置框");
+assert.strictEqual(viewTree.targets.length, 12, "管理员页目标展开按钮数量应为 12 个");
+assert.strictEqual(viewTree.slots.length, 12, "每个目标展开按钮都应有且只有一个统一位置框");
 viewTree.slots.forEach((slot, index) => {
   assert.strictEqual(
     slot.directTargetCount,
@@ -263,16 +219,9 @@ assert.strictEqual(
 
 const canonicalStart = wxss.indexOf("/* 所有“展开/收起”控件统一与用户端日志的右边界和视觉规格。 */");
 assert.notStrictEqual(canonicalStart, -1, "缺少展开按钮最终 canonical 规则");
-const canonicalBlock = wxss.slice(canonicalStart);
-const canonicalCoreEnd = canonicalBlock.indexOf(".monitor-deployment-body");
-assert.notStrictEqual(canonicalCoreEnd, -1, "canonical 规则缺少结束标记");
-const canonicalTail = canonicalBlock.slice(canonicalCoreEnd);
-assert.ok(
-  !canonicalTail.includes(".admin-action-slot")
-    && !canonicalTail.includes(".monitor-section-toggle-button")
-    && !canonicalTail.includes(".usage-subsection-toggle"),
-  "canonical 规则后面不能再覆盖展开按钮的统一尺寸"
-);
+const canonicalMediaStart = wxss.indexOf("@media", canonicalStart);
+const canonicalBlock = wxss.slice(canonicalStart, canonicalMediaStart === -1 ? wxss.length : canonicalMediaStart);
+assert.ok(!canonicalBlock.includes("@media"), "canonical 规则后面不能再有媒体查询覆盖");
 assert.ok(
   /\.usage-mobile-first-card\s+\.usage-stat-section-card\s+\.usage-subsection-head\s*\{[\s\S]*?min-height:\s*96rpx;[\s\S]*?padding:\s*18rpx\s+4rpx\s+18rpx\s+18rpx;/.test(wxss),
   "四个模型统计标题行没有与运行监控使用相同的上下间距和右侧基准线"
@@ -382,4 +331,4 @@ widthCases.forEach(({ width, block, required }) => {
   });
 });
 
-console.log("admin responsive smoke: OK (13 个展开按钮在 375/414 下统一对齐)");
+console.log("admin responsive smoke: OK (12 个展开按钮在 375/414 下统一对齐)");

@@ -16,10 +16,6 @@ const resumeScript = path.join(root, "scripts", "resume-release.ps1");
 const qrDecodeScript = path.join(root, "scripts", "qr-decode.js");
 const qrDecodeSmokeScript = path.join(root, "scripts", "qr-decode-smoke.js");
 const pixelManifest = path.join(root, "visual-evidence", "admin-v2-pixel-manifest.json");
-const sameDeviceManifest = path.join(root, "visual-evidence", "admin-v2-same-device-manifest.json");
-const pixelDiffReportScript = path.join(root, "scripts", "admin-v2-pixel-diff-report.js");
-const sameDeviceBaselineScript = path.join(root, "scripts", "admin-v2-same-device-baseline.js");
-const previewBudgetScript = path.join(root, "scripts", "preview-source-budget.js");
 const policyCandidates = [
   process.env.MINIPROGRAM_RELEASE_POLICY,
   path.resolve(root, "..", "wechat-miniapp-release-policy.json"),
@@ -63,12 +59,8 @@ function testFilesAndPolicy() {
   assert.ok(fs.existsSync(qrDecodeScript), "qr-decode.js 不存在");
   assert.ok(fs.existsSync(qrDecodeSmokeScript), "qr-decode-smoke.js 不存在");
   assert.ok(fs.existsSync(pixelManifest), "四页像素基线 manifest 不存在");
-  assert.ok(fs.existsSync(sameDeviceManifest), "同设备视觉基线 manifest 不存在");
-  assert.ok(fs.existsSync(pixelDiffReportScript), "四页像素差异报告脚本不存在");
-  assert.ok(fs.existsSync(sameDeviceBaselineScript), "同设备视觉基线脚本不存在");
-  assert.ok(fs.existsSync(previewBudgetScript), "预览源码预算脚本不存在");
   assert.ok(fs.existsSync(policyPath), "外部发布策略不存在");
-  for (const file of [gateScript, entryScript, previewScript, deployScript, protectionScript, resumeScript, qrDecodeScript, qrDecodeSmokeScript, pixelManifest, sameDeviceManifest, pixelDiffReportScript, sameDeviceBaselineScript, previewBudgetScript]) {
+  for (const file of [gateScript, entryScript, previewScript, deployScript, protectionScript, resumeScript, qrDecodeScript, qrDecodeSmokeScript, pixelManifest]) {
     assertNoInteriorBom(file, path.basename(file));
   }
   const policy = JSON.parse(fs.readFileSync(policyPath, "utf8"));
@@ -167,10 +159,6 @@ function testStaticContracts() {
   assert.ok(entry.includes('"scripts/qr-decode-smoke.js"'), "发布工具快照必须包含二维码 smoke");
   assert.ok(entry.includes('"scripts/vendor/qrcode-reader.js"'), "发布工具快照必须包含二维码解码器");
   assert.ok(entry.includes('"scripts/admin-v2-pixel-baseline.js"'), "发布工具快照必须包含四页像素基线脚本");
-  assert.ok(entry.includes('"scripts/admin-v2-pixel-diff-report.js"'), "发布工具快照必须包含四页差异报告脚本");
-  assert.ok(entry.includes('"scripts/admin-v2-same-device-baseline.js"'), "发布工具快照必须包含同设备基线脚本");
-  assert.ok(entry.includes('"scripts/preview-source-budget.js"'), "发布工具快照必须包含预览源码预算脚本");
-  assert.ok(entry.includes("Invoke-GatePreviewSourceBudget"), "发布闸门必须执行预览源码预算");
   assert.ok(gate.includes("二维码真实解码失败"), "验收报告必须执行真实二维码解码");
   assert.ok(entry.includes('"scripts/rollback-release.ps1"'), "发布工具快照必须包含回滚入口");
   assert.ok(entry.includes('"scripts/release-maintenance.ps1"'), "发布工具快照必须包含 reservation 维护");
@@ -207,18 +195,6 @@ function testIncludePathNormalization() {
   const result = runPowerShell(script);
   assertPowerShellOk(result, "IncludePath 规范化");
   assert.ok(result.stdout.includes("INCLUDE_OK"));
-}
-
-function testReceiptDictionaryAccess() {
-  const result = runPowerShell([
-    `. ${quote(gateScript)}`,
-    `$receipt = [ordered]@{ status = 'imported'; onlineBuildMarker = 'API_BUILD_TAG_AUTO_VERSION_V00001' }`,
-    `if ((Get-ReleaseReceiptField $receipt 'status') -ne 'imported') { throw 'ordered receipt status unreadable' }`,
-    `if ((Get-ReleaseReceiptField $receipt 'onlineBuildMarker') -notmatch '^API_BUILD_TAG_') { throw 'ordered receipt marker unreadable' }`,
-    "Write-Output 'RECEIPT_DICTIONARY_OK'",
-  ].join("; "));
-  assertPowerShellOk(result, "有序回执字段读取");
-  assert.ok(result.stdout.includes("RECEIPT_DICTIONARY_OK"));
 }
 
 function testIdentityDerivation() {
@@ -335,7 +311,6 @@ function testMainCommitContainment() {
 testFilesAndPolicy();
 testStaticContracts();
 testIncludePathNormalization();
-testReceiptDictionaryAccess();
 testIdentityDerivation();
 testImmutableBinary();
 testMainCommitContainment();

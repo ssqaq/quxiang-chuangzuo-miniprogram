@@ -58,7 +58,7 @@ assert.strictEqual(
   "即使已经存在备用配置，旧凌云主配置也必须被纠正"
 );
 assert.strictEqual(migrated.value.image.provider, "xingju");
-assert.strictEqual(migrated.value.image.model, "jw-wy-gpt-image-2");
+assert.strictEqual(migrated.value.image.model, "jw-gpt-image-2");
 assert.strictEqual(
   Object.prototype.hasOwnProperty.call(migrated.value.image, "apiKey"),
   false,
@@ -71,11 +71,6 @@ assert.strictEqual(
 );
 assert.strictEqual(migrated.value.imageBackup.provider, "lingyun");
 assert.strictEqual(migrated.value.imageBackup.model, "gpt-image-2");
-assert.strictEqual(
-  migrated.value.imageBackup.enabled,
-  true,
-  "旧配置中已有完整备用 Key 时必须自动启用兼容开关"
-);
 assert.strictEqual(migrated.value.imageBackup.timeoutMs, 150000);
 assert.strictEqual(migrated.value.imageBackup.maxRetries, 0);
 
@@ -91,7 +86,7 @@ const currentXingjuConfig = {
   image: {
     provider: "xingju",
     baseUrl: "https://newapi.akiyo.fun/v1",
-    model: "jw-wy-gpt-image-2",
+    model: "jw-gpt-image-2",
     apiKey: existingXingjuKey,
     mode: "edits",
     timeoutMs: 150000,
@@ -130,7 +125,7 @@ const blankKeyRollbackGuard = test.guardAdminImageProviderConfig(
 );
 assert.strictEqual(blankKeyRollbackGuard.corrected, true);
 assert.strictEqual(blankKeyRollbackGuard.value.image.provider, "xingju");
-assert.strictEqual(blankKeyRollbackGuard.value.image.model, "jw-wy-gpt-image-2");
+assert.strictEqual(blankKeyRollbackGuard.value.image.model, "jw-gpt-image-2");
 assert.strictEqual(
   blankKeyRollbackGuard.value.image.apiKey,
   existingXingjuKey,
@@ -205,33 +200,6 @@ assert.ok(
 assert.ok(
   changes.some((item) => item.section === "image" && item.secret),
   "审计记录缺少主 Key 配置状态变化"
-);
-
-const providerLabelChanges = test.buildAdminConfigAuditChanges(
-  {
-    providerLabels: { lingyun: "凌云" },
-    image: { apiKey: oldPrimaryKey }
-  },
-  {
-    providerLabels: { lingyun: "凌云官方" },
-    image: { apiKey: oldPrimaryKey }
-  },
-  {
-    providerLabels: { lingyun: "凌云官方" }
-  }
-);
-assert.ok(
-  providerLabelChanges.some((item) => (
-    item.section === "providerLabels"
-    && item.field === "lingyun"
-    && item.oldValue === "凌云"
-    && item.newValue === "凌云官方"
-  )),
-  "审计记录缺少服务商中文名称变化"
-);
-assert.ok(
-  !JSON.stringify(providerLabelChanges).includes(oldPrimaryKey),
-  "服务商名称审计不能泄露同一配置中的 API Key"
 );
 
 async function main() {

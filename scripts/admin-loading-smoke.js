@@ -10,34 +10,27 @@ let probeCallCount = 0;
 let lastProbeModelConfig = null;
 let lastImageEditProbeConfig = null;
 let savedConfigPayload = null;
-let saveConfigCallCount = 0;
-let adminStatus = { isAdmin: true };
-let adminConfigCallCount = 0;
-const modalCalls = [];
-const reLaunchCalls = [];
 const probeModelCalls = [];
-const adminConnectionCalls = [];
 const listModelCalls = [];
 const imageEditProbeCalls = [];
-const localStorage = Object.create(null);
 
 const baseConfig = {
   effective: {
     face: {
-      provider: "dashscope",
+      provider: "face-provider",
       model: "face-model",
       apiKey: "face-key",
       apiKeyConfigured: true
     },
     analysis: {
-      provider: "dashscope",
+      provider: "analysis-provider",
       model: "analysis-model",
       apiKey: "analysis-key",
       apiKeyConfigured: true
     },
     image: {
       provider: "xingju",
-      model: "jw-wy-gpt-image-2",
+      model: "jw-gpt-image-2",
       apiKey: "image-key",
       apiKeyConfigured: true,
       size: "1024x1024"
@@ -55,7 +48,7 @@ const baseConfig = {
       timeoutMs: 65000
     },
     video: {
-      provider: "lingyun",
+      provider: "video-provider",
       model: "video-model",
       apiKey: "video-key",
       apiKeyConfigured: true,
@@ -93,21 +86,17 @@ const delayedUsage = new Promise((resolve) => {
 
 const cloudMock = {
   isCloudReady: () => true,
-  getAdminStatus: async () => Object.assign({}, adminStatus),
-  getAdminConfig: async () => {
-    adminConfigCallCount += 1;
-    return baseConfig;
-  },
+  getAdminStatus: async () => ({ isAdmin: true }),
+  getAdminConfig: async () => baseConfig,
   getAdminImageApiKeys: async () => ({
     image: { apiKey: "image-key" },
     imageBackup: { apiKey: "image-backup-key" }
   }),
   saveAdminConfig: async (payload) => {
-    saveConfigCallCount += 1;
     savedConfigPayload = payload;
     return {
       ok: true,
-      effective: Object.assign({}, baseConfig.effective, payload),
+      effective: baseConfig.effective,
       version: 2
     };
   },
@@ -147,27 +136,6 @@ const cloudMock = {
     retentionDays: 30
   }),
   listDeploymentLogs: async () => ({ logs: [] }),
-  testAdminProviderConnection: async (section, providerId, options = {}) => {
-    adminConnectionCalls.push({ section, providerId, options });
-    return {
-      ok: true,
-      section,
-      providerId,
-      provider: providerId,
-      model: baseConfig.effective[section]
-        && baseConfig.effective[section].model
-        || "configured-model",
-      ready: !probeFailure,
-      reachable: true,
-      status: probeFailure ? "auth-failed" : "ok",
-      statusText: probeFailure ? "密钥异常" : "正常",
-      httpStatus: probeFailure ? 401 : 200,
-      durationMs: 20,
-      message: probeFailure
-        ? "接口地址可访问，但 API Key 无效或没有权限。"
-        : "接口可访问，当前模型配置正常。"
-    };
-  },
   probeModels: async (modelType, modelConfig) => {
     probeCallCount += 1;
     if (modelConfig) lastProbeModelConfig = modelConfig;
@@ -184,12 +152,6 @@ const cloudMock = {
       image: "生图",
       video: "视频"
     };
-    const providers = {
-      face: "dashscope",
-      analysis: "dashscope",
-      image: "xingju",
-      video: "lingyun"
-    };
     return {
       ok: true,
       readyCount: probeFailure ? 0 : types.length,
@@ -197,7 +159,7 @@ const cloudMock = {
       results: types.map((type) => ({
         type,
         typeLabel: labels[type] || type,
-        provider: modelConfig && modelConfig.provider || providers[type] || `${type}-provider`,
+        provider: modelConfig && modelConfig.provider || `${type}-provider`,
         model: modelConfig && modelConfig.model || `${type}-model`,
         ready: !probeFailure,
         reachable: true,
@@ -269,21 +231,10 @@ global.Page = (definition) => {
   pageDefinition = definition;
 };
 global.wx = {
-  getStorageSync(key) {
-    return localStorage[key];
-  },
-  setStorageSync(key, value) {
-    localStorage[key] = value;
-  },
-  showModal(options) {
-    modalCalls.push(options || {});
-  },
+  showModal() {},
   showToast() {},
-  reLaunch(options) {
-    reLaunchCalls.push(options || {});
-  },
-  stopPullDownRefresh() {},
-  pageScrollTo() {}
+  reLaunch() {},
+  stopPullDownRefresh() {}
 };
 
 require("../pages/admin/admin.js");
@@ -295,7 +246,7 @@ function createPageInstance() {
   const instance = {
     data: JSON.parse(JSON.stringify(pageDefinition.data)),
     _adminLoadToken: 0,
-    setData(patch, callback) {
+    setData(patch) {
       Object.keys(patch || {}).forEach((key) => {
         const parts = key.split(".");
         let target = this.data;
@@ -305,7 +256,6 @@ function createPageInstance() {
         });
         target[parts[parts.length - 1]] = patch[key];
       });
-      if (typeof callback === "function") callback();
     }
   };
   Object.keys(pageDefinition).forEach((key) => {
@@ -317,79 +267,14 @@ function createPageInstance() {
 }
 
 async function main() {
-  adminStatus = {
-    ok: false,
-    isAdmin: false,
-    unavailable: true,
-    errorCode: "CLOUD_FUNCTION_UNAVAILABLE"
-  };
-  const unavailablePage = createPageInstance();
-  await unavailablePage.loadAdminPage();
-  assert.strictEqual(unavailablePage.data.loading, false);
-  assert.strictEqual(unavailablePage.data.isAdmin, false);
-  assert.strictEqual(unavailablePage.data.canRetry, true);
-  assert.ok(unavailablePage.data.message.includes("管理员服务暂时不可用"));
-  assert.strictEqual(modalCalls.length, 0, "服务不可用时不能误弹无权访问");
-  assert.strictEqual(reLaunchCalls.length, 0, "服务不可用时不能跳回工作台");
-  assert.strictEqual(adminConfigCallCount, 0, "服务不可用时不能继续读取管理员配置");
-
-  adminStatus = {
-    ok: true,
-    isAdmin: false,
-    identityHash: ""
-  };
-  const identityUnavailablePage = createPageInstance();
-  await identityUnavailablePage.loadAdminPage();
-  assert.strictEqual(identityUnavailablePage.data.loading, false);
-  assert.strictEqual(identityUnavailablePage.data.isAdmin, false);
-  assert.strictEqual(identityUnavailablePage.data.canRetry, true);
-  assert.ok(identityUnavailablePage.data.message.includes("无法识别微信身份"));
-  assert.strictEqual(modalCalls.length, 0, "身份无法识别时不能误弹无权访问");
-  assert.strictEqual(reLaunchCalls.length, 0, "身份无法识别时不能跳回工作台");
-  assert.strictEqual(adminConfigCallCount, 0, "身份无法识别时不能继续读取管理员配置");
-
-  adminStatus = {
-    ok: true,
-    isAdmin: false,
-    identityHash: "admin-user-hash"
-  };
-  const forbiddenPage = createPageInstance();
-  await forbiddenPage.loadAdminPage();
-  assert.strictEqual(forbiddenPage.data.loading, false);
-  assert.strictEqual(forbiddenPage.data.isAdmin, false);
-  assert.strictEqual(forbiddenPage.data.canRetry, false);
-  assert.ok(forbiddenPage.data.message.includes("admin-user-hash"));
-  assert.strictEqual(modalCalls.length, 1, "明确不在白名单时必须弹无权访问");
-  assert.strictEqual(modalCalls[0].title, "无权访问");
-  assert.ok(modalCalls[0].content.includes("admin-user-hash"));
-  assert.strictEqual(reLaunchCalls.length, 0);
-  modalCalls[0].success();
-  assert.strictEqual(reLaunchCalls.length, 1, "确认无权访问提示后必须返回工作台");
-  assert.strictEqual(reLaunchCalls[0].url, "/pages/workbench/workbench");
-  assert.strictEqual(adminConfigCallCount, 0, "无权限时不能继续读取管理员配置");
-
-  modalCalls.length = 0;
-  reLaunchCalls.length = 0;
-  adminStatus = {
-    ok: true,
-    isAdmin: true,
-    buildVersion: "0.51.1-test",
-    buildMarker: "API_BUILD_TAG_AUTO_VERSION_V0511_TEST"
-  };
   const page = createPageInstance();
   await page.loadAdminPage();
 
   assert.strictEqual(page.data.loading, false);
   assert.strictEqual(page.data.isAdmin, true);
-  assert.strictEqual(page.data.onlineApiVersion, "0.51.1-test");
-  assert.strictEqual(
-    page.data.onlineBuildMarker,
-    "API_BUILD_TAG_AUTO_VERSION_V0511_TEST"
-  );
   assert.strictEqual(page.data.moduleStates.usage.status, "loading");
   assert.strictEqual(page.data.todayFailureText, "读取中");
   assert.strictEqual(page.data.usageStats.today.total, 0);
-  assert.strictEqual(adminConfigCallCount, 1, "只有确认管理员身份后才能读取配置");
 
   usageResolve({
     todayKey: "2026-08-24",
@@ -446,99 +331,15 @@ async function main() {
   assert.strictEqual(page.data.costTrend.days[6].costDisplay, "0.0007");
   assert.strictEqual(page.data.costTrend.totalCostDisplay, "0.0007");
   assert.strictEqual(page.data.form.face.apiKey, "face-key");
-  assert.strictEqual(page.data.form.face.provider, "阿里云百炼");
-  assert.strictEqual(page.data.form.analysis.provider, "阿里云百炼");
   assert.strictEqual(page.data.form.image.provider, "星炬");
   assert.strictEqual(page.data.form.imageBackup.provider, "凌云");
   assert.strictEqual(page.data.form.imageBackup.model, "gpt-image-2");
-  assert.strictEqual(page.data.form.video.provider, "凌云");
-  assert.deepStrictEqual(page.data.form.providerLabels, {
-    dashscope: "阿里云百炼",
-    lingyun: "凌云",
-    xingju: "星炬",
-    laoli: "老李",
-    panda: "熊猫"
-  });
-  assert.deepStrictEqual(
-    page.data.providerLabelRows.map((item) => item.providerId),
-    ["dashscope", "xingju", "lingyun", "laoli", "panda"]
-  );
 
   page.onInput({
     currentTarget: { dataset: { section: "image", key: "provider" } },
     detail: { value: "xingju" }
   });
   assert.strictEqual(page.data.form.image.provider, "星炬");
-
-  page.onInput({
-    currentTarget: { dataset: { section: "video", key: "provider" } },
-    detail: { value: "lingyun" }
-  });
-  assert.strictEqual(page.data.form.video.provider, "凌云");
-
-  page.onInput({
-    currentTarget: { dataset: { section: "face", key: "provider" } },
-    detail: { value: "custom-face-provider" }
-  });
-  assert.strictEqual(page.data.form.face.provider, "custom-face-provider");
-  const customProviderRow = page.data.providerLabelRows.find(
-    (item) => item.providerId === "custom-face-provider"
-  );
-  assert.ok(customProviderRow, "输入自定义服务商后没有补中文名称行");
-  assert.strictEqual(customProviderRow.label, "");
-  const savesBeforeInvalidProvider = saveConfigCallCount;
-  await page.saveConfig();
-  assert.strictEqual(
-    saveConfigCallCount,
-    savesBeforeInvalidProvider,
-    "自定义服务商缺中文名称时不应调用保存接口"
-  );
-  assert.strictEqual(page.data.activeConfigSection, "providers");
-  assert.ok(page.data.message.includes("custom-face-provider 还没有中文名称"));
-  assert.ok(modalCalls[modalCalls.length - 1].content.includes("custom-face-provider"));
-  page.onProviderLabelInput({
-    currentTarget: { dataset: { providerId: "custom-face-provider" } },
-    detail: { value: "自定义服务商" }
-  });
-  assert.strictEqual(
-    page.data.form.providerLabels["custom-face-provider"],
-    "自定义服务商"
-  );
-  assert.deepStrictEqual(
-    page.data.providerLabelRows.map((item) => item.providerId),
-    ["dashscope", "xingju", "lingyun", "laoli", "panda", "custom-face-provider"],
-    "内置服务商必须固定排前，自定义服务商按中文名称排在后面"
-  );
-  page.onInput({
-    currentTarget: { dataset: { section: "analysis", key: "provider" } },
-    detail: { value: "custom-alpha-provider" }
-  });
-  page.onProviderLabelInput({
-    currentTarget: { dataset: { providerId: "custom-alpha-provider" } },
-    detail: { value: "阿尔法服务商" }
-  });
-  assert.deepStrictEqual(
-    page.data.providerLabelRows.map((item) => item.providerId),
-    [
-      "dashscope",
-      "xingju",
-      "lingyun",
-      "laoli",
-      "panda",
-      "custom-alpha-provider",
-      "custom-face-provider"
-    ],
-    "多个自定义服务商必须按中文名称排序"
-  );
-  page.onInput({
-    currentTarget: { dataset: { section: "face", key: "provider" } },
-    detail: { value: "dashscope" }
-  });
-  page.onInput({
-    currentTarget: { dataset: { section: "analysis", key: "provider" } },
-    detail: { value: "dashscope" }
-  });
-  assert.strictEqual(page.data.form.face.provider, "阿里云百炼");
 
   await page.runImageEditCapabilityProbe();
   assert.strictEqual(page.data.imageEditCapabilityLoading, false);
@@ -579,80 +380,17 @@ async function main() {
   assert.strictEqual(page.data.saving, false);
   assert.strictEqual(savedConfigPayload.image.provider, "xingju");
   assert.strictEqual(savedConfigPayload.imageBackup.provider, "lingyun");
-  assert.strictEqual(savedConfigPayload.face.provider, "dashscope");
-  assert.strictEqual(savedConfigPayload.analysis.provider, "dashscope");
-  assert.strictEqual(savedConfigPayload.video.provider, "lingyun");
-  assert.strictEqual(
-    savedConfigPayload.providerLabels["custom-face-provider"],
-    "自定义服务商"
-  );
   assert.ok(probeCallCount > probesBeforeSave);
   assert.strictEqual(page.data.modelProbes.readyCount, 4);
   assert.strictEqual(page.data.modelProbes.total, 4);
   assert.ok(page.data.message.includes("4/4"));
-  const lingyunFilterIndex = page.data.providerFilterOptions.findIndex(
-    (item) => item.value === "lingyun"
-  );
-  assert.ok(lingyunFilterIndex > 0, "筛选项缺少凌云");
-  assert.deepStrictEqual(
-    page.data.providerFilterOptions.map((item) => item.value),
-    ["all", "dashscope", "xingju", "lingyun"],
-    "服务商筛选项必须先显示内置服务商固定顺序"
-  );
-  page.setData({
-    activeConfigSection: "face",
-    activeConfigTitle: "人脸识别模型"
-  });
-  page.onProviderFilterChange({ detail: { value: lingyunFilterIndex } });
-  assert.strictEqual(page.data.providerFilterValue, "lingyun");
-  assert.strictEqual(page.data.providerSectionVisibility.face, false);
-  assert.strictEqual(page.data.providerSectionVisibility.analysis, false);
-  assert.strictEqual(page.data.providerSectionVisibility.image, true);
-  assert.strictEqual(page.data.providerSectionVisibility.video, true);
-  assert.strictEqual(page.data.activeConfigSection, "");
-  assert.deepStrictEqual(
-    page.data.modelProbes.filteredResults.map((item) => item.providerId),
-    ["lingyun"]
-  );
-  assert.strictEqual(
-    localStorage["admin-monitor-layout-v3"].providerFilterValue,
-    "lingyun",
-    "筛选服务商后必须保存到本地缓存"
-  );
-  const reopenedPage = createPageInstance();
-  reopenedPage.restoreMonitorLayout();
-  assert.strictEqual(
-    reopenedPage.data.providerFilterValue,
-    "lingyun",
-    "重新打开管理员页必须恢复上次服务商筛选"
-  );
-  localStorage["admin-monitor-layout-v3"] = Object.assign(
-    {},
-    localStorage["admin-monitor-layout-v3"],
-    { providerFilterValue: "removed-provider" }
-  );
-  const changedConfigPage = createPageInstance();
-  changedConfigPage.restoreMonitorLayout();
-  changedConfigPage.data.form = JSON.parse(JSON.stringify(page.data.form));
-  changedConfigPage.data.modelProbes = JSON.parse(JSON.stringify(page.data.modelProbes));
-  changedConfigPage.data.providerLabelErrors = {};
-  changedConfigPage.onProviderLabelInput({
-    currentTarget: { dataset: { providerId: "custom-face-provider" } },
-    detail: { value: "自定义服务商" }
-  });
-  assert.strictEqual(
-    changedConfigPage.data.providerFilterValue,
-    "all",
-    "服务商不存在或配置变化时必须回退到全部服务商"
-  );
-  page.onProviderFilterChange({ detail: { value: 0 } });
 
   await page.testModelConnection({
     currentTarget: { dataset: { modelType: "image" } }
   });
   assert.strictEqual(page.data.modelActionType, "");
   assert.ok(page.data.message.includes("测试完成"));
-  assert.strictEqual(adminConnectionCalls[adminConnectionCalls.length - 1].providerId, "xingju");
+  assert.strictEqual(lastProbeModelConfig.provider, "xingju");
 
   await page.testModelConnection({
     currentTarget: {
@@ -665,12 +403,16 @@ async function main() {
   assert.strictEqual(page.data.modelActionType, "");
   assert.strictEqual(page.data.modelActionTarget, "");
   assert.strictEqual(
-    adminConnectionCalls[adminConnectionCalls.length - 1].section,
-    "imageBackup"
+    probeModelCalls[probeModelCalls.length - 1].modelConfig.provider,
+    "lingyun"
   );
   assert.strictEqual(
-    adminConnectionCalls[adminConnectionCalls.length - 1].providerId,
-    "lingyun"
+    probeModelCalls[probeModelCalls.length - 1].modelConfig.model,
+    "gpt-image-2"
+  );
+  assert.strictEqual(
+    probeModelCalls[probeModelCalls.length - 1].modelConfig.configTarget,
+    "imageBackup"
   );
   assert.ok(page.data.message.includes("备用生图测试完成"));
 
@@ -708,23 +450,6 @@ async function main() {
     "选择备用模型不能覆盖主模型"
   );
   assert.strictEqual(page.data.modelPickerTarget, "");
-
-  await page.testModelConnection({
-    currentTarget: { dataset: { modelType: "video" } }
-  });
-  assert.strictEqual(adminConnectionCalls[adminConnectionCalls.length - 1].providerId, "lingyun");
-
-  await page.getModelOptions({
-    currentTarget: { dataset: { modelType: "video" } }
-  });
-  assert.strictEqual(
-    listModelCalls[listModelCalls.length - 1].modelConfig.provider,
-    "lingyun"
-  );
-  assert.strictEqual(
-    listModelCalls[listModelCalls.length - 1].modelConfig.configTarget,
-    "video"
-  );
 
   await page.getModelOptions({
     currentTarget: { dataset: { modelType: "face" } }

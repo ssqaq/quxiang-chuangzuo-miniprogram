@@ -30,8 +30,32 @@ $canonicalRepo = ConvertTo-ReleaseFullPath -Path ([string]$policy.canonicalRepo)
 $queueRoot = [string]$policy.queueRoot
 $queuePollMilliseconds = if ($policy.queue.PSObject.Properties["pollMilliseconds"]) { [int]$policy.queue.pollMilliseconds } else { 500 }
 $queueLeaseSeconds = if ($policy.queue.PSObject.Properties["leaseSeconds"]) { [int]$policy.queue.leaseSeconds } else { 180 }
+
+# Do this read-only check before reading/claiming a queue lease.  A stale
+# owner for a non-terminal operation is not a bypass condition; it must be
+# resolved explicitly before a resume publish can cross the PR boundary.
+if ($Publish) {
+    $lockHealthStaleAfter = if ($policy.queue.PSObject.Properties["staleAfterSeconds"]) { [int]$policy.queue.staleAfterSeconds } else { 600 }
+    # A previous prepared run may have released its OS handle but left legacy
+    # embedded metadata behind.  Only this explicit resume, for this exact
+    # operation, may reclaim that queued/prepared residue.
+    $lockHealth = Assert-ReleasePublishLockHealth -Policy $policy -StaleAfterSeconds $lockHealthStaleAfter -ExpectedOperationId $OperationId
+    Write-Host "发布前锁健康检查通过：$($lockHealth.reason)。"
+}
 $ticket = Get-ReleaseQueueTicket -QueueRoot $queueRoot -OperationId $OperationId
 if ($null -eq $ticket) { throw "找不到可恢复的发布操作：$OperationId" }
+$persistedDeployCloud = $false
+if ($ticket.PSObject.Properties["metadata"] -and $null -ne $ticket.metadata -and
+    $ticket.metadata.PSObject.Properties["deployCloud"]) {
+    $rawDeployCloud = $ticket.metadata.deployCloud
+    $persistedDeployCloud = $rawDeployCloud -eq $true -or
+        [string]::Equals([string]$rawDeployCloud, "true", [StringComparison]::OrdinalIgnoreCase) -or
+        [string]$rawDeployCloud -eq "1"
+}
+if ($persistedDeployCloud -and -not $DeployCloud) {
+    $DeployCloud = $true
+    Write-Host "队列已记录 deployCloud=true；恢复时保持该生产部署意图，禁止降级。"
+}
 
 $contextPath = if ($ticket.PSObject.Properties["contextPath"] -and $ticket.contextPath) {
     [IO.Path]::GetFullPath([string]$ticket.contextPath)
@@ -154,6 +178,7 @@ function Write-ResumeReleaseRecord {
     elseif ($context.PSObject.Properties["mergedAt"]) { $record.mergedAt = [string]$context.mergedAt }
     $record.phase = if (-not [string]::IsNullOrWhiteSpace($Phase)) { $Phase } elseif ($context.PSObject.Properties["phase"]) { [string]$context.phase } else { "" }
     if ($context.PSObject.Properties["cloudReceipt"]) { $record.cloudReceipt = $context.cloudReceipt }
+    if ($context.PSObject.Properties["paymentDeployment"]) { $record["paymentDeployment"] = $context.paymentDeployment }
     if ($Status -eq "succeeded" -and $record.Contains("lastError")) { $record.Remove("lastError") }
     Write-ReleaseGateJsonAtomic -Path $recordPath -Value $record
     return $recordPath
@@ -229,6 +254,58 @@ function Get-ResumeCloudReceipt {
     $property = $Context.PSObject.Properties["cloudReceipt"]
     if ($null -eq $property -or $null -eq $property.Value) { return $null }
     return $property.Value
+}
+
+function Assert-ResumePaymentDeploymentReceipt {
+    param(
+        [Parameter(Mandatory = $true)][object]$Receipt,
+        [Parameter(Mandatory = $true)][object]$Context
+    )
+    $required = @(
+        "schemaVersion", "state", "status", "operationId", "environment", "version",
+        "releaseCommit", "treeSha", "sourceSha256", "packageSha256", "mainCommit",
+        "idempotencyKey", "credentialsConfigured", "providerState", "missingCredentialKeys",
+        "functions", "route", "timer", "rechargeConfig", "verifiedAt"
+    )
+    foreach ($field in $required) {
+        if ($null -eq $Receipt.PSObject.Properties[$field]) {
+            throw "支付生产部署回执缺少字段：$field"
+        }
+    }
+    if ([int]$Receipt.schemaVersion -ne 1 -or
+        [string]$Receipt.state -ne "verified" -or
+        [string]$Receipt.status -ne "verified" -or
+        [string]::IsNullOrWhiteSpace([string]$Receipt.verifiedAt)) {
+        throw "支付生产部署回执未通过核验。"
+    }
+    foreach ($field in @("operationId", "version", "releaseCommit", "treeSha", "sourceSha256", "packageSha256", "mainCommit")) {
+        $expected = [string](Get-ResumeProperty -Value $Context -Name $field -Default "")
+        if ([string]::IsNullOrWhiteSpace($expected) -or
+            -not [string]::Equals([string]$Receipt.$field, $expected, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "支付生产部署回执 $field 与 release context 不一致。"
+        }
+    }
+    $cloudbaseEnvironment = Get-ResumeProperty -Value $Context -Name "cloudbaseEnvironment" -Default $null
+    $expectedEnvironment = [string](Get-ResumeProperty -Value $cloudbaseEnvironment -Name "environmentId" -Default "")
+    if ([string]::IsNullOrWhiteSpace([string]$Receipt.environment) -or
+        (-not [string]::IsNullOrWhiteSpace($expectedEnvironment) -and
+         -not [string]::Equals([string]$Receipt.environment, $expectedEnvironment, [StringComparison]::OrdinalIgnoreCase))) {
+        throw "支付生产部署回执 environment 与 CloudBase 环境不一致。"
+    }
+    $expectedKey = "payment:$([string]$Context.operationId):$([string]$Context.releaseCommit):$([string]$Context.treeSha):$([string]$Receipt.environment)"
+    if (-not [string]::Equals([string]$Receipt.idempotencyKey, $expectedKey, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "支付生产部署回执 idempotencyKey 与 release context 不一致。"
+    }
+    $paymentCredentialsConfigured = $Receipt.PSObject.Properties["credentialsConfigured"].Value
+    if ($paymentCredentialsConfigured -isnot [bool]) {
+        throw "支付生产部署回执 credentialsConfigured 不是布尔值。"
+    }
+    $missingCredentialKeys = @($Receipt.PSObject.Properties["missingCredentialKeys"].Value)
+    if (($paymentCredentialsConfigured -and ([string]$Receipt.providerState -ne "configured" -or $missingCredentialKeys.Count -ne 0)) -or
+        (-not $paymentCredentialsConfigured -and ([string]$Receipt.providerState -ne "fail-closed" -or $missingCredentialKeys.Count -eq 0))) {
+        throw "支付生产部署回执凭据状态自相矛盾。"
+    }
+    return $Receipt
 }
 
 function Get-ResumeCloudOnlineMatch {
@@ -625,12 +702,33 @@ try {
                 verifiedAt = [DateTimeOffset]::UtcNow.ToString("o")
                 status = "verified"
             }
+            $receipt = [pscustomobject]$receipt
             $context = Save-ResumeContext -Values @{ phase = "deployed"; cloudReceipt = $receipt; cloudDeployment = [ordered]@{ state = "verified"; idempotencyKey = $receipt.idempotencyKey; receipt = $receipt; updatedAt = [DateTimeOffset]::UtcNow.ToString("o") }; postMergeStatus = "running" }
             $phase = "deployed"
             $cloudReceiptValid = $true
         }
         elseif ($DeployCloud -and $cloudReceiptValid -and -not (Get-ResumeCloudOnlineMatch -WorktreePath $worktree -Context $context)) {
             throw "已有 CloudBase receipt 但线上构建身份不匹配，拒绝假设成功；请保留 context 现场审计。"
+        }
+
+        if ($DeployCloud) {
+            $paymentDeployScript = Join-Path $worktree "scripts/deploy-payment-production.ps1"
+            if (-not (Test-Path -LiteralPath $paymentDeployScript -PathType Leaf)) { throw "缺少支付生产部署入口：$paymentDeployScript" }
+            Write-ResumeLog "payment-cloud" "为已合并 context 幂等核验并补做支付生产部署。"
+            $env:RELEASE_GATE_CONTEXT = $contextPath
+            & pwsh -NoProfile -ExecutionPolicy Bypass -File $paymentDeployScript -ProjectPath $worktree -ReleaseContext $contextPath -ReleaseGateLockHeld -ReleaseGateLockToken ([string]$lock.Owner.handoffToken) -DeployLockPath ([string]$policy.lockPath) -LockWaitSeconds $LockWaitSeconds -AllowPostMergeRecovery
+            if ($LASTEXITCODE -ne 0) { throw "支付生产补部署失败；保留原 context，可用同一 operationId 重试。" }
+            $context = Get-Content -LiteralPath $contextPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            $context = Assert-ResumeContextIdentity -Value $context
+            if (-not ($context.PSObject.Properties["paymentDeployment"] -and $null -ne $context.paymentDeployment)) {
+                throw "支付生产部署未写入 paymentDeployment 回执。"
+            }
+            $paymentReceipt = Assert-ResumePaymentDeploymentReceipt -Receipt $context.paymentDeployment -Context $context
+            $context = Save-ResumeContext -Values @{ postMergeStatus = "running" }
+            $phase = [string](Get-ResumeProperty -Value $context -Name "phase" -Default $phase)
+            if ([bool]$paymentReceipt.credentialsConfigured -eq $false) {
+                Write-ResumeLog "payment-cloud" "支付资源与开关已核验；生产凭据未配置，provider 保持失败关闭。"
+            }
         }
 
         if ($Preview -and -not (Test-ResumeFinalPreview -Value $context)) {
@@ -753,10 +851,29 @@ try {
                 verifiedAt = [DateTimeOffset]::UtcNow.ToString("o")
                 status = "verified"
             }
+            $receipt = [pscustomobject]$receipt
             Assert-ResumeCloudReceipt -Receipt $receipt -Context $context | Out-Null
             $context = Save-ResumeContext -Values @{ phase = "deployed"; cloudReceipt = $receipt; cloudDeployment = [ordered]@{ state = "verified"; idempotencyKey = $receipt.idempotencyKey; receipt = $receipt; updatedAt = [DateTimeOffset]::UtcNow.ToString("o") } }
-            Set-ReleaseQueuePhase -QueueRoot $queueRoot -OperationId $OperationId -Phase "deployed" -Status "running" -Version ([string]$context.version) -BaseHead ([string]$context.baseHead) -ContextPath $contextPath -Lease $queueLease | Out-Null
             $phase = "deployed"
+        }
+
+        $paymentDeployScript = Join-Path $worktree "scripts/deploy-payment-production.ps1"
+        if (-not (Test-Path -LiteralPath $paymentDeployScript -PathType Leaf)) { throw "缺少支付生产部署入口：$paymentDeployScript" }
+        Write-ResumeLog "payment-cloud" "继续原 context 的支付生产部署。"
+        $env:RELEASE_GATE_CONTEXT = $contextPath
+        & pwsh -NoProfile -ExecutionPolicy Bypass -File $paymentDeployScript -ProjectPath $worktree -ReleaseContext $contextPath -ReleaseGateLockHeld -ReleaseGateLockToken ([string]$lock.Owner.handoffToken) -DeployLockPath ([string]$policy.lockPath) -LockWaitSeconds $LockWaitSeconds -AllowPostMergeRecovery:$false
+        if ($LASTEXITCODE -ne 0) { throw "支付生产恢复部署失败；保留原 context。" }
+        $context = Get-Content -LiteralPath $contextPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        $context = Assert-ResumeContextIdentity -Value $context
+        if (-not ($context.PSObject.Properties["paymentDeployment"] -and $null -ne $context.paymentDeployment)) {
+            throw "支付生产部署未写入 paymentDeployment 回执。"
+        }
+        $paymentReceipt = Assert-ResumePaymentDeploymentReceipt -Receipt $context.paymentDeployment -Context $context
+        $context = Save-ResumeContext -Values @{ phase = "deployed" }
+        Set-ReleaseQueuePhase -QueueRoot $queueRoot -OperationId $OperationId -Phase "deployed" -Status "running" -Version ([string]$context.version) -BaseHead ([string]$context.baseHead) -ContextPath $contextPath -Lease $queueLease | Out-Null
+        $phase = "deployed"
+        if ([bool]$paymentReceipt.credentialsConfigured -eq $false) {
+            Write-ResumeLog "payment-cloud" "支付资源与开关已核验；生产凭据未配置，provider 保持失败关闭。"
         }
     }
 

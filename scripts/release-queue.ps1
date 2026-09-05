@@ -286,7 +286,7 @@ function Normalize-ReleaseQueueIncludePaths {
             if ($normalized -match '(^|/)\.(?:git|worktrees)(?:/|$)' -or $normalized -match '[*?\[\]]') {
                 throw "IncludePath 不允许指向 Git 内部目录或使用通配符：$value"
             }
-            if ($normalized -match '(^|/)(?:\.env(?:\..*)?|.*(?:secret|apikey|api_key|appsecret|private.key).*)$') {
+            if ($normalized -match '(^|/)(?:\.env$|\.env\.(?!example$)[^/]+|.*(?:secret|apikey|api_key|appsecret|private.key).*)$') {
                 throw "IncludePath 疑似包含敏感文件，已拒绝：$value"
             }
             if (-not $result.Contains($normalized)) {

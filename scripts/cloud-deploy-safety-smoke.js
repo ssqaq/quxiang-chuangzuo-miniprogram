@@ -64,6 +64,11 @@ assert.ok(
     deploySource.indexOf("Join-Path $project \"scripts\\validate.js\""),
   "本地校验前必须先准备云函数依赖"
 );
+assert.ok(
+  deploySource.indexOf("Ensure-ManifestCloudFunctionDependencies") <
+    deploySource.indexOf("Join-Path $project \"scripts\\validate.js\""),
+  "支付 smoke 使用的三个云函数依赖必须在本地校验前准备"
+);
 const cloudHelperSource = fs.readFileSync(helperPath, "utf8");
 assert.ok(
   cloudHelperSource.includes("CloudBase 部署只允许消费 PR 已合并后的 context") &&

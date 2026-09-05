@@ -973,6 +973,15 @@ try {
     -CacheRoot $NpmCachePath `
     -DependencyCheckScript (Join-Path $project "scripts\check-cloudfunction-dependencies.js")
   Write-Host "本地 npm 缓存键：$($npmCacheInfo.Key)"
+  $paymentManifestPath = Join-Path $project "scripts\payment-cloudfunctions.json"
+  if (Test-Path -LiteralPath $paymentManifestPath -PathType Leaf) {
+    $paymentDependencyResults = Ensure-ManifestCloudFunctionDependencies `
+      -ProjectRoot $project `
+      -ManifestPath $paymentManifestPath `
+      -CacheRoot $NpmCachePath `
+      -DependencyCheckScript (Join-Path $project "scripts\check-cloudfunction-dependencies.js")
+    Write-Host "支付云函数依赖准备完成：$(@($paymentDependencyResults).Count) 个函数"
+  }
   & node (Join-Path $project "scripts\validate.js")
   if ($LASTEXITCODE -ne 0) {
     throw "Local project validation failed."

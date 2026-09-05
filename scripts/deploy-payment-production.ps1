@@ -352,6 +352,82 @@ function ConvertFrom-TcbOutput {
   }
 }
 
+function Get-TcbTimeoutSeconds {
+  param([Parameter(Mandatory = $true)][string[]]$Arguments)
+  $joined = ($Arguments -join " ").ToLowerInvariant()
+  if ($joined -match '\bfn\s+deploy\b') { return 180 }
+  if ($joined -match '\bapi\s+flexdb\b|\broutes\s+(edit|add|delete)\b|\btimer\b') { return 60 }
+  return 30
+}
+
+function Remove-TcbAnsi {
+  param([AllowNull()][string]$Text)
+  if ($null -eq $Text) { return "" }
+  return [regex]::Replace($Text, "`e\[[0-9;?]*[ -/]*[@-~]", "")
+}
+
+function Invoke-TcbProcess {
+  param(
+    [Parameter(Mandatory = $true)][string]$Cli,
+    [Parameter(Mandatory = $true)][string[]]$Arguments,
+    [string]$WorkingDirectory = "",
+    [int]$TimeoutSeconds = 30
+  )
+  $psi = [Diagnostics.ProcessStartInfo]::new()
+  $psi.FileName = (Get-Command pwsh.exe -ErrorAction Stop).Source
+  $psi.UseShellExecute = $false
+  $psi.CreateNoWindow = $true
+  $psi.RedirectStandardInput = $true
+  $psi.RedirectStandardOutput = $true
+  $psi.RedirectStandardError = $true
+  $psi.StandardOutputEncoding = [Text.Encoding]::UTF8
+  $psi.StandardErrorEncoding = [Text.Encoding]::UTF8
+  if (-not [string]::IsNullOrWhiteSpace($WorkingDirectory)) { $psi.WorkingDirectory = $WorkingDirectory }
+  [void]$psi.ArgumentList.Add("-NoProfile")
+  [void]$psi.ArgumentList.Add("-NonInteractive")
+  [void]$psi.ArgumentList.Add("-ExecutionPolicy")
+  [void]$psi.ArgumentList.Add("Bypass")
+  [void]$psi.ArgumentList.Add("-File")
+  [void]$psi.ArgumentList.Add($Cli)
+  foreach ($argument in $Arguments) { [void]$psi.ArgumentList.Add([string]$argument) }
+  $psi.Environment["CI"] = "true"
+  $psi.Environment["CLOUDBASE_CI"] = "true"
+  $psi.Environment["NO_COLOR"] = "1"
+  $stdout = [Text.StringBuilder]::new()
+  $stderr = [Text.StringBuilder]::new()
+  $process = [Diagnostics.Process]::new()
+  $process.StartInfo = $psi
+  $process.add_OutputDataReceived({ param($sender, $event) if ($null -ne $event.Data) { [void]$stdout.AppendLine($event.Data) } })
+  $process.add_ErrorDataReceived({ param($sender, $event) if ($null -ne $event.Data) { [void]$stderr.AppendLine($event.Data) } })
+  $startedAt = [DateTimeOffset]::UtcNow
+  $timedOut = $false
+  try {
+    if (-not $process.Start()) { throw "CloudBase CLI process could not start." }
+    $process.BeginOutputReadLine()
+    $process.BeginErrorReadLine()
+    $process.StandardInput.Close()
+    if (-not $process.WaitForExit([Math]::Max(1, $TimeoutSeconds) * 1000)) {
+      $timedOut = $true
+      try { $process.Kill($true) } catch { try { & taskkill.exe /PID $process.Id /T /F | Out-Null } catch { } }
+      [void]$process.WaitForExit(10000)
+    }
+    $exitCode = if ($timedOut) { 124 } else { $process.ExitCode }
+  }
+  finally {
+    if (-not $process.HasExited) { try { $process.Kill($true) } catch { } }
+    $process.Dispose()
+  }
+  $duration = ([DateTimeOffset]::UtcNow - $startedAt).TotalMilliseconds
+  return [pscustomobject]@{
+    ExitCode = $exitCode
+    TimedOut = $timedOut
+    Stdout = Remove-TcbAnsi $stdout.ToString()
+    Stderr = Remove-TcbAnsi $stderr.ToString()
+    DurationMs = [int][Math]::Max(0, $duration)
+    ProcessTreeTerminated = $timedOut
+  }
+}
+
 function Resolve-TcbCli {
   $npxCommand = Get-Command "npx.cmd" -ErrorAction SilentlyContinue
   if ($null -eq $npxCommand) { throw "npx.cmd is required to resolve CloudBase CLI 3.8.1." }
@@ -391,22 +467,10 @@ function Invoke-TcbJsonResult {
     [Parameter(Mandatory = $true)][string[]]$Arguments,
     [string]$WorkingDirectory = ""
   )
-  $previousPreference = $ErrorActionPreference
-  $ErrorActionPreference = "Continue"
-  $pushed = $false
-  try {
-    if (-not [string]::IsNullOrWhiteSpace($WorkingDirectory)) {
-      Push-Location -LiteralPath $WorkingDirectory
-      $pushed = $true
-    }
-    $output = & $Cli @Arguments 2>&1
-    $exitCode = $LASTEXITCODE
-  }
-  finally {
-    if ($pushed) { Pop-Location }
-    $ErrorActionPreference = $previousPreference
-  }
-  $text = ($output | Out-String).Trim()
+  $timeoutSeconds = Get-TcbTimeoutSeconds -Arguments $Arguments
+  $result = Invoke-TcbProcess -Cli $Cli -Arguments $Arguments -WorkingDirectory $WorkingDirectory -TimeoutSeconds $timeoutSeconds
+  $exitCode = [int]$result.ExitCode
+  $text = (($result.Stdout + "`n" + $result.Stderr).Trim())
   $payload = $null
   try { $payload = ConvertFrom-TcbOutput -Text $text } catch {
     if ($exitCode -eq 0) {
@@ -415,7 +479,15 @@ function Invoke-TcbJsonResult {
       $payload = [pscustomobject]@{}
     }
   }
-  return [pscustomobject]@{ ExitCode = $exitCode; Payload = $payload }
+  return [pscustomobject]@{
+    ExitCode = $exitCode
+    Payload = $payload
+    TimedOut = [bool]$result.TimedOut
+    DurationMs = [int]$result.DurationMs
+    ProcessTreeTerminated = [bool]$result.ProcessTreeTerminated
+    StdoutSummary = $result.Stdout.Substring(0, [Math]::Min(800, $result.Stdout.Length))
+    StderrSummary = $result.Stderr.Substring(0, [Math]::Min(800, $result.Stderr.Length))
+  }
 }
 
 function Invoke-TcbJson {
@@ -471,7 +543,7 @@ function Test-TcbResourceNotFoundCode {
     @("RESOURCE_NOT_FOUND", "ResourceNotFound.FunctionName", "ResourceNotFound.Function")
   }
   else {
-    @("RESOURCE_NOT_FOUND", "ResourceNotFound.Collection")
+    @("RESOURCE_NOT_FOUND", "ResourceNotFound.Collection", "ResourceNotFound")
   }
   return $accepted -contains $Code
 }
@@ -741,7 +813,8 @@ function Ensure-RechargeConfig {
 function New-FunctionEnvironment {
   param(
     [Parameter(Mandatory = $true)][Collections.IDictionary]$Secrets,
-    [Parameter(Mandatory = $true)][string]$SwitchName
+    [Parameter(Mandatory = $true)][string]$SwitchName,
+    [Parameter(Mandatory = $true)][string]$BuildVersion
   )
   $environment = [ordered]@{
     NODE_ENV = "production"
@@ -754,6 +827,7 @@ function New-FunctionEnvironment {
     if ($Secrets.Contains($key)) { $environment[$key] = [string]$Secrets[$key] }
   }
   $environment[$SwitchName] = "true"
+  $environment["PAYMENT_BUILD_VERSION"] = $BuildVersion
   if ($SwitchName -eq "PAYMENT_ORDER_CREATION_ENABLED") {
     $environment["ALIPAY_PROTOCOL_CONFIRMED"] = "false"
   }
@@ -915,7 +989,7 @@ function Deploy-PaymentFunction {
     throw "Function runtime switch is not approved: $switchName"
   }
   $switchEnvironmentName = [string]$script:RuntimeSwitchMap[$switchName]
-  $functionEnvironment = New-FunctionEnvironment -Secrets $Secrets -SwitchName $switchEnvironmentName
+  $functionEnvironment = New-FunctionEnvironment -Secrets $Secrets -SwitchName $switchEnvironmentName -BuildVersion $version
 
   $tempParent = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd("\", "/")
   $tempRoot = Join-Path $tempParent ("aips-payment-production-" + [guid]::NewGuid().ToString("N"))
@@ -926,6 +1000,28 @@ function Deploy-PaymentFunction {
   try {
     New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
     Protect-SensitivePath -Path $tempRoot -Directory
+    $stageRoot = Join-Path $tempRoot "function"
+    New-Item -ItemType Directory -Path $stageRoot -Force | Out-Null
+    $runtimeFiles = @(Get-ChildItem -LiteralPath $root -Recurse -File | Where-Object {
+      $_.FullName -notmatch "[\\/]node_modules[\\/]"
+        -and $_.FullName -notmatch "[\\/]tests[\\/]"
+        -and $_.Name -notmatch '^\\.env(?:\\.|$)'
+        -and $_.Name -notmatch '(?i)(secret|apikey|appsecret|private-key)'
+    })
+    foreach ($runtimeFile in $runtimeFiles) {
+      $relative = [IO.Path]::GetRelativePath($root, $runtimeFile.FullName)
+      $target = Join-Path $stageRoot $relative
+      $parent = Split-Path -Parent $target
+      if (-not (Test-Path -LiteralPath $parent -PathType Container)) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
+      Copy-Item -LiteralPath $runtimeFile.FullName -Destination $target -Force
+    }
+    foreach ($required in @("index.js", "package.json", "package-lock.json")) {
+      if (-not (Test-Path -LiteralPath (Join-Path $stageRoot $required) -PathType Leaf)) { throw "Deployment stage missing required file: $required" }
+    }
+    $stageForbidden = @(Get-ChildItem -LiteralPath $stageRoot -Recurse -File | Where-Object {
+      $_.Name -match '^\\.env(?:\\.|$)' -or $_.FullName -match "[\\/]node_modules[\\/]"
+    })
+    if ($stageForbidden.Count -gt 0) { throw "Deployment stage contains forbidden files." }
     $config = [ordered]@{
       envId = $Environment
       functions = @([ordered]@{
@@ -944,13 +1040,36 @@ function Deploy-PaymentFunction {
       [Text.UTF8Encoding]::new($false)
     )
     Protect-SensitivePath -Path $temporaryConfigPath
-    Invoke-TcbJson -Cli $Cli -WorkingDirectory $tempRoot -Arguments @(
+    $deployArguments = @(
       "fn", "deploy", $name,
-      "--dir", $root,
+      "--dir", $stageRoot,
       "--force",
       "--install-dependency", "true",
       "--json"
-    ) -Operation "deploy function $name" | Out-Null
+    )
+    $deployResult = Invoke-TcbJsonResult -Cli $Cli -WorkingDirectory $tempRoot -Arguments $deployArguments
+    if ($deployResult.TimedOut) {
+      Write-Warning "CloudBase function deploy timeout: $name; checking remote state before one zip retry."
+      $remote = Get-FunctionDetail -Cli $Cli -Environment $Environment -Name $name
+      $remoteCode = [string](Get-FirstObjectProperty $remote @("CodeInfo", "codeInfo") "")
+      $remoteVersion = if ($remoteCode -match 'API_BUILD_TAG_AUTO_VERSION_V(\d+)') { $Matches[1] } else { "" }
+      if (-not $remoteVersion) {
+        $zipArguments = @(
+          "fn", "deploy", $name,
+          "--dir", $root,
+          "--force",
+          "--install-dependency", "true",
+          "--deployMode", "zip",
+          "--json"
+        )
+        $retry = Invoke-TcbJsonResult -Cli $Cli -WorkingDirectory $tempRoot -Arguments $zipArguments
+        if ($retry.TimedOut) { throw "CLOUDBASE_DEPLOY_TIMEOUT: $name" }
+        if ($retry.ExitCode -ne 0 -or $null -eq $retry.Payload) { throw "CloudBase function deploy failed after zip retry: $name" }
+      }
+    }
+    elseif ($deployResult.ExitCode -ne 0 -or $null -eq $deployResult.Payload) {
+      throw "CloudBase function deploy failed: $name"
+    }
   }
   finally {
     if ((Test-Path -LiteralPath $tempRoot) `

@@ -350,6 +350,7 @@ function orderPaymentResponse(order) {
 
 async function createOrder(event, context) {
   const openid = requireOpenId(context);
+  const wxContext = cloud.getWXContext() || {};
   const switches = payment.paymentRuntimeSwitches(process.env);
   if (
     !switches.orderCreationEnabled
@@ -400,6 +401,8 @@ async function createOrder(event, context) {
       channel,
       provider: "xingju",
       pid: runtime.provider.config.pid,
+      clientIp: String(wxContext.CLIENTIP || wxContext.CLIENT_IP || "127.0.0.1"),
+      subAppid: String(wxContext.APPID || "wxa5aaf3392cbeb39a"),
       status: "created",
       statusVersion: 1,
       providerStatus: "",

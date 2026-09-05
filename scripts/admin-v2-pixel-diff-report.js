@@ -66,6 +66,10 @@ function readManifest(manifestPath, root = ROOT) {
   if (manifest.schemaVersion !== 1) {
     throw new Error("像素差异 manifest schemaVersion 必须为 1。");
   }
+  const manifestRenderer = String(manifest.renderer || manifest.capture?.renderer || "");
+  if (manifestRenderer && manifestRenderer !== "wechat-devtools-skill-cli") {
+    throw new Error(`基线来源不匹配：renderer=${manifestRenderer}`);
+  }
   if (!Array.isArray(manifest.pages) || manifest.pages.length !== PAGE_NAMES.length) {
     throw new Error("像素差异 manifest 必须正好覆盖四个页面。");
   }
@@ -77,6 +81,10 @@ function readManifest(manifestPath, root = ROOT) {
     if (!item || typeof item !== "object" || !item.actual || !item.reference) {
       throw new Error("像素差异页面必须提供 actual 和 reference 路径。");
     }
+    const renderer = String(item.renderer || manifestRenderer || "");
+    if (renderer && renderer !== "wechat-devtools-skill-cli") {
+      throw new Error(`基线来源不匹配：${item.name} 必须来自微信开发者工具`);
+    }
     return {
       name: String(item.name),
       route: safeRoute(item.route),
@@ -84,6 +92,7 @@ function readManifest(manifestPath, root = ROOT) {
       reference: String(item.reference),
       actualPath: resolveFromRoot(root, item.actual),
       referencePath: resolveFromRoot(root, item.reference),
+      renderer,
     };
   });
   return {
@@ -100,6 +109,9 @@ function readManifest(manifestPath, root = ROOT) {
     fixtureId: manifest.fixtureId ? String(manifest.fixtureId) : "",
     fontProfile: manifest.fontProfile ? String(manifest.fontProfile) : "",
     stateId: manifest.stateId ? String(manifest.stateId) : "",
+    renderer: manifestRenderer,
+    captureStatus: manifest.captureStatus || (manifest.capturedAt ? "captured" : "unknown"),
+    capturedAt: manifest.capturedAt || null,
     pages,
   };
 }

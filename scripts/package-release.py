@@ -190,8 +190,7 @@ def _validate_context_repository(context: dict, context_path: Path) -> None:
         raise _error(f"release context operationId 无效：{operation_id}")
     if context_path.name != f"release-{operation_id}.json":
         raise _error("release context 文件名未绑定同一 operationId")
-    source_root = Path(ROOT).expanduser().resolve()
-    if _same_path(canonical, source_root):
+    if _same_path(canonical, ROOT):
         return
 
     release_worktree_value = context.get("releaseWorktree")
@@ -207,8 +206,6 @@ def _validate_context_repository(context: dict, context_path: Path) -> None:
     )
     if not _same_path(release_worktree, expected_worktree):
         raise _error("release context releaseWorktree 不在 operation 固定目录")
-    if not _same_path(release_worktree, source_root):
-        raise _error("release context releaseWorktree 与来源版打包器目录不一致")
     if release_worktree.name != f"release-{operation_id}":
         raise _error("release context releaseWorktree 未绑定同一 operationId")
     if not canonical.is_dir() or not release_worktree.is_dir():
@@ -221,6 +218,8 @@ def _validate_context_repository(context: dict, context_path: Path) -> None:
         raise _error("releaseWorktree 与 canonicalRepo 不属于同一 Git 仓库")
     if not any(_same_path(item, release_worktree) for item in _registered_worktrees(canonical)):
         raise _error("releaseWorktree 未在 canonicalRepo 中登记")
+    if not _same_path(release_worktree, ROOT):
+        raise _error("release context releaseWorktree 与来源版打包器目录不一致")
 
     release_commit = context["releaseCommit"].strip()
     tree_sha = context["treeSha"].strip()

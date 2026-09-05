@@ -17,6 +17,20 @@ manifest.pages.forEach(item => {
   assert.ok(item.actual && item.reference, `manifest ${item.name} 缺少 actual/reference`);
 });
 
+// 防止把浏览器预览图再次混入真实 DevTools 基线。
+const mismatchedManifestPath = path.join(require("os").tmpdir(), "admin-v2-pixel-mismatched-source.json");
+fs.writeFileSync(mismatchedManifestPath, JSON.stringify({
+  schemaVersion: 1,
+  renderer: "codex-in-app-browser",
+  pages: manifest.pages
+}), "utf8");
+assert.throws(
+  () => baseline.readBaselines(mismatchedManifestPath),
+  /基线来源不匹配/,
+  "浏览器来源混入 DevTools 基线时必须拒绝"
+);
+fs.rmSync(mismatchedManifestPath, { force: true });
+
 assert.strictEqual(baseline.BASELINES.length, 4, "像素基线必须覆盖四个页面");
 baseline.BASELINES.forEach(item => assert.ok(item.name && item.actual && item.reference, "基线项缺少名称或路径"));
 const missing = baseline.BASELINES.filter(item => (

@@ -13,8 +13,8 @@
       "wxml": "pages/admin-dashboard/admin-dashboard.wxml",
       "wxss": "pages/admin-dashboard/admin-dashboard.wxss",
       "sourceSha256": {
-        "wxml": "065b785072cb1a902c6a4597e74ea1a34e969310b639178fef57c1ffe558833c",
-        "wxss": "f7d748143fa8a3969f550801a2fdeecc2f7d76e3a7cd7c6cfa1561199b1793c0"
+        "wxml": "905b2f78326e9bdf1796c15e3430b45ff29d9dd18da638ef774380baa689b820",
+        "wxss": "a123f1064297f0210f878143f0069589fbc1ce789c6f1311974223e196d29dd7"
       },
       "missingSelectors": [],
       "checks": [
@@ -59,7 +59,7 @@
       "wxss": "pages/admin-operations/admin-operations.wxss",
       "sourceSha256": {
         "wxml": "f1f5db20fa42577774a89aa3c89f1d5d7bc807604e09f0e6f380b71f0d2d6617",
-        "wxss": "6986c9859c381972df96eaf093ae2cf24c763653ca6b45b8da634255052989aa"
+        "wxss": "d845e61bfb3ea8dbd44e616b8a9006a2cda1ca377a9920da0d55d52b99ca892c"
       },
       "missingSelectors": [],
       "checks": [
@@ -119,8 +119,8 @@
       "wxml": "pages/admin-config/admin-config.wxml",
       "wxss": "pages/admin-config/admin-config.wxss",
       "sourceSha256": {
-        "wxml": "9115bbdfbbac6a2b32165b1fc979017dd4f62e4ce26f5d2b5858be6853b81955",
-        "wxss": "754e2507f63ea8529e780ac8adab183ed559c182a1941997e272c9114c66d279"
+        "wxml": "30a0ae376f75cc47a169286fce3ee1331ebacde89595f6a308e2145889fd867f",
+        "wxss": "299802629cc53318711ff90bdd68c19c53903e8a39bf97bc892604965695da80"
       },
       "missingSelectors": [],
       "checks": [
@@ -180,8 +180,8 @@
       "wxml": "pages/admin-provider/admin-provider.wxml",
       "wxss": "pages/admin-provider/admin-provider.wxss",
       "sourceSha256": {
-        "wxml": "1866f29e29dcc15bff554661eec9faef4615892b66f24d386d9fd111a9f3336a",
-        "wxss": "7a0acb3c29e68c86b150d34b9a922aeaad5b991bed9757b69e77f70761b72220"
+        "wxml": "b74e5efd7e0f7875532771becf00abd30180dae2081194a95f1fa37c5b203c17",
+        "wxss": "c0e970a52e1f76c899fd5d389251aa354b3002df80d967dc8f89db073b19240d"
       },
       "missingSelectors": [],
       "checks": [
@@ -445,5 +445,5 @@
       "pass": true
     }
   ],
-  "checkedAt": "2026-09-04T13:45:16.231Z"
+  "checkedAt": "2026-09-05T02:09:52.980Z"
 }

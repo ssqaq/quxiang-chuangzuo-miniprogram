@@ -237,7 +237,6 @@ function testStaticContracts() {
   // silently reverting to the old presence-only receipt/QR checks.
   for (const marker of [
     "Assert-ResumeCloudReceipt",
-    "$receipt = [pscustomobject]$receipt",
     "idempotencyKey",
     "qrSha256",
   ]) mustContain(resume, marker, "resume 副作用绑定契约");

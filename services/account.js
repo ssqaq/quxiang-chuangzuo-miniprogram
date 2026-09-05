@@ -5,9 +5,10 @@ const accountUi = require("../utils/account-ui");
 const PAYMENT_FUNCTION_NAME = String(config.paymentCloudFunctionName || "payment-api");
 const POINTS_FALLBACK_SOURCE = "points-api-fallback";
 const POINT_LEDGER_MAX_PAGE_SIZE = 50;
-const RECORD_FILTERS = Object.freeze(["all", "recharge", "spend", "reward", "refund"]);
+const RECORD_FILTERS = Object.freeze(["all", "recharge", "redeem", "spend", "reward", "refund"]);
 const RECORD_TYPE_GROUPS = Object.freeze({
   recharge: Object.freeze(["recharge"]),
+  redeem: Object.freeze(["redeem", "voucher"]),
   spend: Object.freeze(["spend"]),
   reward: Object.freeze(["checkin", "daily-free", "promo-free"]),
   refund: Object.freeze(["refund", "payment-reversal"])
@@ -221,6 +222,13 @@ function createRequestId(prefix = "payment") {
   return `${prefix}-${Date.now().toString(36)}-${random}`;
 }
 
+function createUuidV4() {
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (char) => {
+    const value = Math.random() * 16 | 0;
+    return (char === "x" ? value : (value & 3 | 8)).toString(16);
+  });
+}
+
 module.exports = {
   __test__: {
     paymentError,
@@ -234,6 +242,7 @@ module.exports = {
     getPointsFallbackRecords
   },
   createRequestId,
+  createUuidV4,
 
   getUserProfile(options = {}) {
     return cloud.getMyUserProfile({
@@ -244,6 +253,26 @@ module.exports = {
 
   getRechargeConfig() {
     return invokePaymentApi("getConfig", {}, { retryLimit: 0 });
+  },
+
+  getPendingOrderStatus(productId) {
+    return invokePaymentApi("getPendingOrderStatus", {
+      productId: String(productId || "")
+    }, { retryLimit: 0 });
+  },
+
+  redeemPoints(options = {}) {
+    return invokePaymentApi("redeem", {
+      clientAttemptId: String(options.clientAttemptId || createUuidV4()),
+      code: String(options.code || "")
+    }, { retryLimit: 0 });
+  },
+
+  queryRedeem(requestId, clientAttemptId) {
+    return invokePaymentApi("redeemStatus", {
+      requestId: String(requestId || ""),
+      clientAttemptId: String(clientAttemptId || "")
+    }, { retryLimit: 0 });
   },
 
   async getAccountOverview() {
@@ -282,8 +311,12 @@ module.exports = {
     return invokePaymentApi("createOrder", {
       requestId: String(options.requestId || createRequestId()),
       productId: String(options.productId || ""),
-      channel: "wxpay"
+      channel: String(options.channel || "wxpay").toLowerCase()
     }, { retryLimit: 0 });
+  },
+
+  createAlipayRechargeOrder(options = {}) {
+    return this.createRechargeOrder(Object.assign({}, options, { channel: "alipay" }));
   },
 
   queryRechargeOrder(orderNo) {

@@ -51,6 +51,7 @@ function normalizeRechargeConfig(value) {
   const strategy = strategyValid ? requestedStrategy : strategySpecified ? "whitelist" : "hash";
   const rechargeEnabledSpecified = Object.prototype.hasOwnProperty.call(source, "rechargeEnabled");
   const wxpaySpecified = Object.prototype.hasOwnProperty.call(channelConfig, "wxpay");
+  const alipaySpecified = Object.prototype.hasOwnProperty.call(channelConfig, "alipay");
   const rolloutSpecified = Object.prototype.hasOwnProperty.call(gray, "rolloutPercent");
   const requestedRolloutPercent = rolloutSpecified
     ? Number(gray.rolloutPercent) || 0
@@ -69,8 +70,11 @@ function normalizeRechargeConfig(value) {
           ? Boolean(channelConfig.wxpay && channelConfig.wxpay.enabled === true)
           : DEFAULT_RECHARGE_CONFIG.channelConfig.wxpay.enabled
       },
-      // 首版禁止支付宝 provider、入口和 launcher，即使误配也强制关闭。
-      alipay: { enabled: false }
+      alipay: {
+        enabled: alipaySpecified
+          ? Boolean(channelConfig.alipay && channelConfig.alipay.enabled === true)
+          : DEFAULT_RECHARGE_CONFIG.channelConfig.alipay.enabled
+      }
     },
     productConfig: {
       enabledProductIds: hasProductList

@@ -109,6 +109,7 @@ function createAdapter() {
       const type = String(options.type || "").trim().toLowerCase();
       const groups = {
         recharge: ["recharge"],
+        redeem: ["redeem", "voucher"],
         spend: ["spend", "consume"],
         reward: ["checkin", "daily-free", "promo-free"],
         refund: ["refund", "payment-reversal"]
@@ -117,7 +118,22 @@ function createAdapter() {
         ? DEMO_RECORDS.filter((item) => groups[type].includes(item.type))
         : DEMO_RECORDS;
       return { items: clone(items), hasMore: false, nextCursor: null, source: "visual-test-fixture" };
-    }
+    },
+    redeemPoints: async () => ({
+      status: "success",
+      requestStatus: "success",
+      points: 30,
+      balance: 158.5,
+      message: "演示兑换成功"
+    }),
+    queryRedeem: async () => ({
+      status: "success",
+      requestStatus: "success",
+      points: 30,
+      balance: 158.5,
+      message: "演示兑换成功"
+    })
+
   });
 }
 

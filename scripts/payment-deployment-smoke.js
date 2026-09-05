@@ -6,6 +6,7 @@ const fs = require("fs");
 const path = require("path");
 
 const root = path.resolve(__dirname, "..");
+const deployScript = fs.readFileSync(path.join(root, "scripts", "deploy-payment-production.ps1"), "utf8");
 const read = (relative) => fs.readFileSync(path.join(root, relative), "utf8");
 const readJson = (relative) => JSON.parse(read(relative));
 const manifest = readJson("scripts/payment-cloudfunctions.json");
@@ -56,7 +57,7 @@ assert.strictEqual(manifest.sharedCore.root, "cloudfunctions/payment-core");
 assert.strictEqual(manifest.sharedCore.lockRequired, false);
 assert.strictEqual(manifest.sharedCore.runtimeRequire, "./vendor/payment-core");
 assert.ok(Array.isArray(manifest.sharedCore.requiredFiles));
-assert.strictEqual(manifest.sharedCore.requiredFiles.length, 13);
+assert.strictEqual(manifest.sharedCore.requiredFiles.length, 14);
 assert.deepStrictEqual(manifest.sharedCore.vendorExcludedFiles, [".env.example"]);
 assert.deepStrictEqual(manifest.sharedCore.vendorExcludedPrefixes, ["tests/"]);
 
@@ -73,6 +74,8 @@ for (const marker of [
 ]) {
   assert.ok(coreConfigSource.includes(marker), `支付默认关闭配置缺少 ${marker}`);
 }
+assert.ok(deployScript.includes('ALIPAY_PROTOCOL_CONFIRMED'), "部署环境必须显式写入支付宝协议确认开关");
+assert.ok(deployScript.includes('= "false"'), "支付宝协议确认开关默认必须为 false");
 for (const relative of manifest.sharedCore.requiredFiles) {
   assert.ok(fs.statSync(path.join(root, relative)).isFile(), `payment-core 缺少 ${relative}`);
 }
@@ -214,4 +217,4 @@ assert.ok(workflow.includes("payment-cloudfunctions.json"));
 assert.ok(!/(?:tcb|cloudbase)[^\r\n]*(?:deploy|create)[^\r\n]*payment-/i.test(workflow),
   "CI 禁止部署支付函数、创建 HTTP 路由或启用 Timer");
 
-console.log("payment deployment smoke: OK (production-authorized/wxpay-only)");
+console.log("payment deployment smoke: OK (production-authorized/wxpay-plus-alipay-code)");

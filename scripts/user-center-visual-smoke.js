@@ -169,6 +169,8 @@ function testStaticContract() {
 
   assertIncludes(read("pages/user-center/user-center.wxml"), "quick-symbol-wallet", "用户中心充值图标");
   assertIncludes(read("pages/user-center/user-center.wxml"), "quick-symbol-records", "用户中心记录图标");
+  assertIncludes(read("pages/user-center/user-center.wxml"), "openRedeem", "用户中心兑换入口");
+  assertIncludes(read("app.json"), "pages/redeem/redeem", "兑换页路由注册");
   assertIncludes(read("pages/recharge/recharge.wxml"), "payment-note-icon", "充值页锁图标");
   assert.ok(/\.quick-symbol-wallet::before\s*\{[^}]*width:\s*42rpx/.test(read("pages/user-center/user-center.wxss")), "充值快捷图标尺寸必须接近 G1");
   assert.ok(/\.quick-symbol-records::before\s*\{[^}]*width:\s*38rpx/.test(read("pages/user-center/user-center.wxss")), "记录快捷图标尺寸必须接近 G1");
@@ -186,13 +188,15 @@ function testRechargeVisualContract() {
   ]) assertIncludes(js, marker, "充值套餐展示契约");
   for (const marker of [
     "本次预计到账",
-    "仅支持微信支付",
+    "请选择支付方式",
+    "支付宝支付",
+    "通道暂未开通",
     'class="package-grid"',
     'class="pay-hit"',
     "selectedAmountText",
     "selectedGrantPointsText"
   ]) assertIncludes(wxml, marker, "充值页视觉契约");
-  assert.strictEqual(/支付宝|alipay/i.test(wxml), false, "一期不得出现支付宝入口");
+  assert.ok(/支付宝支付/.test(wxml), "充值页必须出现支付宝支付入口");
   assert.ok(/\.pay-hit\s*\{[^}]*height:\s*44px/.test(wxss), "支付触控层必须为 44px");
   assert.ok(/\.pay-button\s*\{[^}]*height:\s*38\.5px/.test(wxss), "支付视觉层必须为 38.5px");
   assert.ok(/\.package-grid\s*\{[^}]*display:\s*flex/.test(wxss), "套餐必须三列横排");

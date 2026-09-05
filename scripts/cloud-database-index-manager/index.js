@@ -99,7 +99,7 @@ function validateManifest(manifest) {
     !isPlainObject(manifest)
     || manifest.version !== 1
     || !Array.isArray(manifest.indexes)
-    || manifest.indexes.length !== 24
+    || manifest.indexes.length !== 25
   ) {
     throw createError("INDEX_MANIFEST_INVALID");
   }

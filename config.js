@@ -20,7 +20,7 @@ module.exports = {
     quality: 82,
     minBytes: 262144
   },
-  appVersion: "0.57.158",
+  appVersion: "0.57.174",
   // 正式包始终使用 production；视觉回归包只在隔离副本中改为 visual-test。
   buildProfile: "production",
   points: {

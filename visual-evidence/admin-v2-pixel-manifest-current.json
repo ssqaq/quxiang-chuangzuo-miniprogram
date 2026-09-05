@@ -6,7 +6,7 @@
   "fontProfile": "admin-reference-font-v1",
   "stateId": "collapsed-default-v1",
   "threshold": 32,
-  "maxDiffRatio": 0.5,
+  "maxDiffRatio": 0.08,
   "baselineVersion": "0.57.133",
   "baselineStatus": "accepted",
   "capture": {

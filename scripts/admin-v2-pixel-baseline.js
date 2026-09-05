@@ -5,7 +5,7 @@ const path = require("path");
 const regression = require("./admin-v2-pixel-regression");
 
 const ROOT = path.resolve(__dirname, "..");
-const DEFAULT_MAX_DIFF_RATIO = 0.5;
+const DEFAULT_MAX_DIFF_RATIO = 0.08;
 const MANIFEST_PATH = path.join(ROOT, "visual-evidence", "admin-v2-pixel-manifest-current.json");
 const LEGACY_MANIFEST_PATH = path.join(ROOT, "visual-evidence", "admin-v2-pixel-manifest.json");
 const FALLBACK_BASELINES = [
@@ -67,7 +67,7 @@ function run(options = {}) {
 function main(argv = process.argv.slice(2)) {
   const options = parseArgs(argv);
   if (options.help) {
-    console.log("用法：node scripts/admin-v2-pixel-baseline.js [--manifest visual-evidence/admin-v2-pixel-manifest-current.json] [--threshold 32] [--max-diff-ratio 0.5] [--output-root visual-evidence/pixel-diffs]");
+    console.log("用法：node scripts/admin-v2-pixel-baseline.js [--manifest visual-evidence/admin-v2-pixel-manifest-current.json] [--threshold 32] [--max-diff-ratio 0.08] [--output-root visual-evidence/pixel-diffs]");
     return 0;
   }
   try {

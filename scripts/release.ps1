@@ -45,7 +45,9 @@
 
     [string]$ResumeOperation = "",
     [string]$OperationId = "",
-    [switch]$Status
+    [switch]$Status,
+    [ValidateSet("Https", "Ssh443")][string]$GitTransport = "Https",
+    [string]$SshKeyPath = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -60,6 +62,7 @@ $scriptRoot = $PSScriptRoot
 . (Join-Path $scriptRoot "release-gate.ps1")
 . (Join-Path $scriptRoot "release-lock.ps1")
 . (Join-Path $scriptRoot "release-version.ps1")
+Set-ReleaseGitTransport -Transport $GitTransport -SshKeyPath $SshKeyPath
 $queueScript = Join-Path $scriptRoot "release-queue.ps1"
 if (-not (Test-Path -LiteralPath $queueScript -PathType Leaf)) { throw "缺少发布队列工具：$queueScript" }
 # Dot-source at script scope.  Loading it inside an `if {}` block creates a
@@ -79,6 +82,10 @@ if (-not (Test-ReleasePathEqual -Left $canonicalGuess -Right ([string]$policy.ca
     throw "旧 clone/worktree 不允许直接调用发布入口，请从 canonical 仓库执行：$([string]$policy.canonicalRepo)"
 }
 $canonicalRepo = ConvertTo-ReleaseFullPath -Path ([string]$policy.canonicalRepo)
+    $canonicalVersionConflict = Get-CanonicalVersionConflict -RepositoryPath $canonicalRepo
+if ($canonicalVersionConflict.conflict) {
+    Write-Host "[canonical] CANONICAL_VERSION_CONFLICT：仅记录冲突，不修改 canonical；继续使用干净 release worktree。"
+}
 $queueRoot = if ($policy.PSObject.Properties["queueRoot"]) { [string]$policy.queueRoot } else { Join-Path (Split-Path ([string]$policy.lockPath) -Parent) "wechat-miniapp-release-queue" }
 
 if ($Status) {
@@ -101,6 +108,8 @@ if (-not [string]::IsNullOrWhiteSpace($ResumeOperation)) {
     }
     & pwsh -NoProfile -ExecutionPolicy Bypass -File $resumeScript `
         -OperationId $ResumeOperation `
+        -GitTransport $GitTransport `
+        -SshKeyPath $SshKeyPath `
         -PolicyPath ([string]$policy.policyPath) `
         -Publish:$effectivePublish `
         -Preview:$effectivePreview `
@@ -682,8 +691,16 @@ try {
     # The lock covers fetch, reservation, package, preview, cloud handoff and
     # GitHub operations.  No other entry point may safely interleave here.
     $sourceSnapshot = Get-ReleaseFileSnapshot -SourceRoot $sourceRepo.Root -RelativePath $includePaths
+    # A locked base can contain a file removed by the canonical vendor
+    # contract.  Listing it explicitly lets the isolated tree stage the
+    # deletion without ever touching the canonical worktree.
+    $releaseSnapshotRemovalPaths = @(
+        "cloudfunctions/payment-api/vendor/payment-core/redeem.js",
+        "cloudfunctions/payment-notify/vendor/payment-core/redeem.js",
+        "cloudfunctions/payment-reconcile/vendor/payment-core/redeem.js"
+    )
     foreach ($entry in $sourceSnapshot.GetEnumerator()) {
-        if (-not [bool]$entry.Value.exists) {
+        if (-not [bool]$entry.Value.exists -and $entry.Key -notin $releaseSnapshotRemovalPaths) {
             throw "发布源文件不存在：$($entry.Key)"
         }
     }
@@ -853,12 +870,20 @@ try {
         -Path $contextPath `
         -OperationId $operationId `
         -Policy $policy `
+        -SourceInputPath ([IO.Path]::GetFullPath($SourcePath)) `
+        -SourcePath $releaseWorktree `
+        -SourceDirty ([bool]$sourceRepo.Dirty) `
+        -SourceSnapshotSha256 (Get-ReleaseSnapshotSha256 -Snapshot $sourceSnapshot) `
         -Version $target `
         -SourceCommit $sourceCommit `
         -ReleaseCommit $finalCommit `
         -TreeSha $finalTree `
         -SourceSha256 $preSha `
         -ArtifactPath $artifactPath `
+        -RemoteName "origin" `
+        -RemoteUrl ([string]$policy.remote) `
+        -AppId (Get-ReleaseProjectConfigAppId -ProjectPath $releaseWorktree) `
+        -ExpectedAppId (Get-ReleaseProjectConfigAppId -ProjectPath $releaseWorktree) `
         -BaseHead $baseHead `
         -QueueTicketPath (Join-Path $queueRoot "queue.json") `
         -ReleaseWorktree $releaseWorktree `
@@ -896,6 +921,14 @@ try {
     }
     $contextHash.utf8Preflight = $utf8Preflight
     $contextHash.cloudbaseEnvironment = $cloudbasePreflight
+    $contextHash.gitTransport = $script:GitTransportState
+    $contextHash.canonicalVersionConflict = [bool]$canonicalVersionConflict.conflict
+    $contextHash.canonicalConflictFiles = @($canonicalVersionConflict.files)
+    $contextHash.canonicalConflictValues = $canonicalVersionConflict.values
+    $contextHash.sourceWorktreeClean = -not [bool]$sourceRepo.Dirty
+    $contextHash.sourceWorktreeHead = [string]$sourceCommit
+    $contextHash.resumeReleaseSha256 = if (Test-Path -LiteralPath (Join-Path $releaseWorktree "scripts/resume-release.ps1") -PathType Leaf) { (Get-FileHash -LiteralPath (Join-Path $releaseWorktree "scripts/resume-release.ps1") -Algorithm SHA256).Hash.ToLowerInvariant() } else { "" }
+    $contextHash.includedTooling = @($releaseToolPaths)
     $contextHash.status = "prepared"
     Write-ReleaseGateJsonAtomic -Path $contextPath -Value $contextHash
     Write-GateHost "package" "不可变发布包已生成：$artifactPath（$($artifact.Length) bytes，SHA256=$packageSha）。"

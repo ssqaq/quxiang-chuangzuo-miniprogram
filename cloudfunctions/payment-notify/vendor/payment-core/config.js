@@ -7,9 +7,9 @@ const { paymentError } = require("./errors");
 
 const DEFAULT_RECHARGE_CONFIG = Object.freeze({
   version: 1,
-  rechargeEnabled: true,
+  rechargeEnabled: false,
   channelConfig: Object.freeze({
-    wxpay: Object.freeze({ enabled: true }),
+    wxpay: Object.freeze({ enabled: false }),
     alipay: Object.freeze({ enabled: false })
   }),
   productConfig: Object.freeze({
@@ -18,7 +18,7 @@ const DEFAULT_RECHARGE_CONFIG = Object.freeze({
   gray: Object.freeze({
     strategy: "hash",
     allowOpenidHashes: Object.freeze([]),
-    rolloutPercent: 100
+    rolloutPercent: 0
   })
 });
 
@@ -49,32 +49,16 @@ function normalizeRechargeConfig(value) {
   const strategySpecified = Object.prototype.hasOwnProperty.call(gray, "strategy");
   const strategyValid = ["whitelist", "hash"].includes(requestedStrategy);
   const strategy = strategyValid ? requestedStrategy : strategySpecified ? "whitelist" : "hash";
-  const rechargeEnabledSpecified = Object.prototype.hasOwnProperty.call(source, "rechargeEnabled");
-  const wxpaySpecified = Object.prototype.hasOwnProperty.call(channelConfig, "wxpay");
-  const alipaySpecified = Object.prototype.hasOwnProperty.call(channelConfig, "alipay");
-  const rolloutSpecified = Object.prototype.hasOwnProperty.call(gray, "rolloutPercent");
-  const requestedRolloutPercent = rolloutSpecified
-    ? Number(gray.rolloutPercent) || 0
-    : DEFAULT_RECHARGE_CONFIG.gray.rolloutPercent;
   const rolloutPercent = strategyValid || !strategySpecified
-    ? Math.max(0, Math.min(100, requestedRolloutPercent))
+    ? Math.max(0, Math.min(100, Number(gray.rolloutPercent) || 0))
     : 0;
   return {
     version: Math.max(1, Number(source.version) || DEFAULT_RECHARGE_CONFIG.version),
-    rechargeEnabled: rechargeEnabledSpecified
-      ? source.rechargeEnabled === true
-      : DEFAULT_RECHARGE_CONFIG.rechargeEnabled,
+    rechargeEnabled: source.rechargeEnabled === true,
     channelConfig: {
-      wxpay: {
-        enabled: wxpaySpecified
-          ? Boolean(channelConfig.wxpay && channelConfig.wxpay.enabled === true)
-          : DEFAULT_RECHARGE_CONFIG.channelConfig.wxpay.enabled
-      },
-      alipay: {
-        enabled: alipaySpecified
-          ? Boolean(channelConfig.alipay && channelConfig.alipay.enabled === true)
-          : DEFAULT_RECHARGE_CONFIG.channelConfig.alipay.enabled
-      }
+      wxpay: { enabled: Boolean(channelConfig.wxpay && channelConfig.wxpay.enabled === true) },
+      // 首版禁止支付宝 provider、入口和 launcher，即使误配也强制关闭。
+      alipay: { enabled: false }
     },
     productConfig: {
       enabledProductIds: hasProductList
@@ -134,15 +118,6 @@ function parseList(value) {
 }
 
 function explicitTestEnvironment(env = process.env) {
-  // 生产标记优先级高于任何测试开关，避免误把生产函数切到 MD5。
-  const productionEnvironment = [
-    env.NODE_ENV,
-    env.APP_ENV,
-    env.PAYMENT_ENV,
-    env.XINGJU_ENV
-  ].some((value) => ["production", "prod", "live", "release"]
-    .includes(String(value || "").trim().toLowerCase()));
-  if (productionEnvironment) return false;
   const namedEnvironment = [env.NODE_ENV, env.APP_ENV, env.PAYMENT_ENV, env.XINGJU_ENV]
     .some((value) => String(value || "").trim().toLowerCase() === "test");
   const explicitFlag = [
@@ -157,34 +132,18 @@ function explicitTestEnvironment(env = process.env) {
 
 function md5ModeAllowed(env, pid) {
   if (!explicitTestEnvironment(env)) return false;
-  const normalizedPid = String(pid || "").trim().toLowerCase();
-  if (!normalizedPid) return false;
-  const localUnitTest = String(env.WECHAT_MINIAPP_TEST || "").trim() === "1";
-  const declaredTestEnvironmentId = String(env.XINGJU_TEST_ENV_ID || "").trim();
-  const currentEnvironmentId = String(
-    env.TCB_ENV
-      || env.CLOUDBASE_ENV_ID
-      || env.TENCENTCLOUD_ENV_ID
-      || env.SCF_NAMESPACE
-      || ""
-  ).trim();
-  if (!localUnitTest && (
-    !declaredTestEnvironmentId
-    || !currentEnvironmentId
-    || declaredTestEnvironmentId !== currentEnvironmentId
-  )) return false;
   const allowlist = parseList(
     env.XINGJU_MD5_ALLOWLIST
       || env.XINGJU_SIGNATURE_MD5_ALLOWLIST
       || env.XINGJU_TEST_MERCHANT_ALLOWLIST
       || env.XINGJU_MD5_TEST_MERCHANT_ALLOWLIST
   ).map((item) => item.toLowerCase());
-  const declaredTestMerchant = String(
-    env.XINGJU_TEST_MERCHANT_ID || env.XINGJU_TEST_MERCHANT || ""
+  const merchantId = String(
+    env.XINGJU_TEST_MERCHANT_ID || env.XINGJU_TEST_MERCHANT || pid || ""
   ).trim().toLowerCase();
-  if (!declaredTestMerchant || declaredTestMerchant !== normalizedPid) return false;
-  // 只接受当前 XINGJU_PID 的单一精确白名单项，不接受通配词或别的商户号。
-  return allowlist.length === 1 && allowlist[0] === normalizedPid;
+  return allowlist.length === 1
+    && (allowlist[0] === "xingju" || allowlist[0] === merchantId
+      || allowlist[0] === String(pid || "").toLowerCase());
 }
 
 function evaluateProviderConfig(env = process.env) {

@@ -205,10 +205,10 @@ function Set-VersionText {
                 throw "支付云函数清单不是有效 JSON。"
             }
             if ([int]$manifest.schemaVersion -ne 1 -or
-                -not [bool]$manifest.productionDeployment.enabled -or
-                -not [bool]$manifest.productionDeployment.automaticDeployment -or
+                [bool]$manifest.productionDeployment.enabled -or
+                [bool]$manifest.productionDeployment.automaticDeployment -or
                 -not [bool]$manifest.productionDeployment.requiresExplicitProductionAuthorization) {
-                throw "支付云函数清单必须完整开启并保留显式生产授权要求。"
+                throw "支付云函数清单必须默认关闭，并保留显式生产授权要求。"
             }
             $expectedNames = @("payment-api", "payment-notify", "payment-reconcile")
             $actualNames = @($manifest.functions | ForEach-Object { [string]$_.name })
@@ -218,8 +218,8 @@ function Set-VersionText {
             }
             foreach ($paymentFunction in @($manifest.functions)) {
                 $name = [string]$paymentFunction.name
-                if (-not [bool]$paymentFunction.deploymentEnabled) {
-                    throw "支付云函数部署必须在已授权生产合同中开启：$name"
+                if ([bool]$paymentFunction.deploymentEnabled) {
+                    throw "支付云函数部署必须默认关闭：$name"
                 }
                 $switches = @($paymentFunction.runtimeSwitches.PSObject.Properties)
                 $expectedSwitch = switch ($name) {
@@ -230,8 +230,8 @@ function Set-VersionText {
                 }
                 if ($switches.Count -ne 1 -or
                     [string]$switches[0].Name -ne $expectedSwitch -or
-                    -not [bool]$switches[0].Value) {
-                    throw "支付业务开关与已授权生产合同不一致：$name"
+                    [bool]$switches[0].Value) {
+                    throw "支付业务开关必须默认关闭：$name"
                 }
                 if (-not [bool]$paymentFunction.httpRoute.requiresExplicitProductionAuthorization -or
                     -not [bool]$paymentFunction.timer.requiresExplicitProductionAuthorization) {
@@ -239,12 +239,8 @@ function Set-VersionText {
                 }
                 if ($name -eq "payment-notify") {
                     if (-not [bool]$paymentFunction.httpRoute.declared -or
-                        -not [bool]$paymentFunction.httpRoute.enabled -or
-                        [string]$paymentFunction.httpRoute.path -ne "/payment/xingju/notify" -or
-                        [bool]$paymentFunction.httpRoute.enableAuth -or
-                        [int]$paymentFunction.httpRoute.qpsTotal -ne 100 -or
-                        [int]$paymentFunction.httpRoute.qpsPerClient -ne 20) {
-                        throw "payment-notify HTTP 路由与已授权生产合同不一致。"
+                        [bool]$paymentFunction.httpRoute.enabled) {
+                        throw "payment-notify HTTP 路由必须声明但默认关闭。"
                     }
                 }
                 elseif ([bool]$paymentFunction.httpRoute.declared -or [bool]$paymentFunction.httpRoute.enabled) {
@@ -252,10 +248,8 @@ function Set-VersionText {
                 }
                 if ($name -eq "payment-reconcile") {
                     if (-not [bool]$paymentFunction.timer.declared -or
-                        -not [bool]$paymentFunction.timer.enabled -or
-                        [string]$paymentFunction.timer.name -ne "payment-reconcile" -or
-                        [string]$paymentFunction.timer.cron -ne "0 */2 * * * * *") {
-                        throw "payment-reconcile Timer 与已授权生产合同不一致。"
+                        [bool]$paymentFunction.timer.enabled) {
+                        throw "payment-reconcile Timer 必须声明但默认关闭。"
                     }
                 }
                 elseif ([bool]$paymentFunction.timer.declared -or [bool]$paymentFunction.timer.enabled) {

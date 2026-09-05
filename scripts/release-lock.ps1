@@ -1,4 +1,4 @@
-Set-StrictMode -Version Latest
+﻿Set-StrictMode -Version Latest
 
 function ConvertTo-ReleaseUtcDateTime {
     param([Parameter(Mandatory = $true)][object]$Value)

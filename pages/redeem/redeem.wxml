@@ -1,0 +1,24 @@
+<view class="redeem-page">
+  <view class="redeem-header">
+    <view>
+      <view class="page-eyebrow">积分账户</view>
+      <view class="page-title">兑换积分</view>
+    </view>
+    <view class="balance-box">
+      <text class="balance-label">当前余额</text>
+      <text class="balance-value">{{balanceText}}</text>
+    </view>
+  </view>
+  <view class="redeem-panel">
+    <view class="panel-title">输入兑换码</view>
+    <view class="panel-note">请输入 8 位小写字母和数字组成的兑换码</view>
+    <input class="code-input" value="{{code}}" maxlength="8" focus="{{!loading}}" placeholder="例如 ab12cd34" bindinput="onCodeInput" />
+    <button class="redeem-button {{buttonEnabled && !submitting ? 'is-ready' : ''}}" disabled="{{!buttonEnabled || submitting}}" loading="{{submitting}}" bindtap="submit">兑换</button>
+  </view>
+  <view wx:if="{{status !== 'idle'}}" class="status-panel status-{{status}}">
+    <view class="status-title">{{statusTitle}}</view>
+    <view class="status-message">{{statusMessage}}</view>
+    <view wx:if="{{statusBalance}}" class="status-balance">{{statusBalance}}</view>
+  </view>
+  <button class="back-button" bindtap="back">返回用户中心</button>
+</view>

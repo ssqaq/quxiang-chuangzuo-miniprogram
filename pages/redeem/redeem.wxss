@@ -1,0 +1,22 @@
+page { background: #f5f7fb; }
+.redeem-page { min-height: 100vh; padding: 28px 18px calc(40px + env(safe-area-inset-bottom)); color: #24324a; }
+.redeem-header { display: flex; align-items: flex-start; justify-content: space-between; }
+.page-eyebrow { color: #7e8da2; font-size: 11px; }
+.page-title { margin-top: 6px; font-size: 28px; font-weight: 800; }
+.balance-box { min-width: 112px; padding: 12px; border: 1px solid #dfe7f0; border-radius: 12px; background: #fff; text-align: right; }
+.balance-label { display: block; color: #8a98aa; font-size: 10px; }
+.balance-value { display: block; margin-top: 5px; color: #1f6feb; font-size: 19px; font-weight: 800; }
+.redeem-panel { margin-top: 24px; padding: 20px; border: 1px solid #e1e8f1; border-radius: 14px; background: #fff; }
+.panel-title { font-size: 16px; font-weight: 800; }
+.panel-note { margin-top: 7px; color: #8997aa; font-size: 11px; }
+.code-input { box-sizing: border-box; width: 100%; height: 50px; margin-top: 18px; padding: 0 14px; border: 1px solid #cbd7e5; border-radius: 9px; color: #24324a; font-size: 16px; letter-spacing: 1px; }
+.redeem-button { width: 100%; height: 46px; margin-top: 16px; border-radius: 9px; color: #fff; background: #aebdce; font-size: 14px; line-height: 46px; }
+.redeem-button.is-ready { background: #1f6feb; }
+.status-panel { margin-top: 16px; padding: 16px; border-radius: 12px; background: #eef4fb; }
+.status-success { color: #19764c; background: #e9f8f0; }
+.status-failed { color: #ad4242; background: #fff0f0; }
+.status-manual_review { color: #7a6640; background: #fff8e8; }
+.status-title { font-size: 14px; font-weight: 800; }
+.status-message { margin-top: 6px; font-size: 11px; line-height: 18px; }
+.status-balance { margin-top: 4px; font-size: 11px; font-weight: 700; }
+.back-button { height: 44px; margin-top: 22px; border: 1px solid #ccd8e6; border-radius: 9px; color: #53657d; background: #fff; font-size: 13px; line-height: 44px; }

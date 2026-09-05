@@ -1,0 +1,4 @@
+<view class="legacy-user-route">
+  <view wx:if="{{redirecting}}" class="legacy-user-route-copy">正在打开用户中心…</view>
+  <button wx:else class="legacy-user-route-retry" bindtap="redirectToUserCenter">重新打开</button>
+</view>

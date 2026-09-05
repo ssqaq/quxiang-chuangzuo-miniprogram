@@ -59,17 +59,45 @@
 
       <view class="mini-block-title payment-title">
         <text>支付方式</text>
-        <text class="payment-title-note">仅支持微信支付</text>
+        <text class="payment-title-note">请选择支付方式</text>
       </view>
 
       <view wx:if="{{eligible}}" class="channel-list">
-        <view class="channel-row {{hasWxpay ? 'channel-row-selected' : 'channel-row-disabled'}}">
+        <view class="channel-row channel-row-disabled" aria-disabled="true">
           <view class="channel-icon">微</view>
           <view class="channel-copy">
             <view class="channel-title">微信支付</view>
-            <view class="channel-description">{{hasWxpay ? '当前可用' : channelMessage || '支付通道准备中'}}</view>
+            <view class="channel-description">通道暂未开通</view>
           </view>
-          <view class="channel-check">{{hasWxpay ? '✓' : '…'}}</view>
+          <view class="channel-lock" aria-hidden="true">🔒</view>
+        </view>
+        <view
+          class="channel-row {{hasAlipay ? 'channel-row-alipay' : 'channel-row-disabled'}}"
+          bindtap="submitAlipayPayment"
+          aria-disabled="{{!hasAlipay}}"
+        >
+          <view class="channel-icon channel-icon-alipay">支</view>
+          <view class="channel-copy">
+            <view class="channel-title">支付宝支付</view>
+            <view class="channel-description">{{hasAlipay ? '使用另一部手机扫码' : '通道维护中'}}</view>
+          </view>
+          <view class="channel-check">{{hasAlipay ? '›' : '…'}}</view>
+        </view>
+      </view>
+
+      <view wx:if="{{alipayModalVisible}}" class="alipay-modal" role="dialog" aria-label="支付宝支付二维码">
+        <view class="alipay-modal-mask" catchtap="closeAlipayModal"></view>
+        <view class="alipay-modal-card" catchtap="stopModalTap">
+          <view class="alipay-modal-head">
+            <view class="alipay-modal-title">支付宝支付</view>
+            <view class="alipay-modal-close" bindtap="closeAlipayModal">×</view>
+          </view>
+          <view class="alipay-modal-tip">请用另一部手机打开支付宝扫码</view>
+          <image class="alipay-qrcode" src="{{alipayQrCode}}" mode="aspectFit" show-menu-by-longpress="true" />
+          <view class="alipay-modal-amount">支付金额 {{alipayAmountText}}</view>
+          <view class="alipay-modal-order">订单号 {{alipayOrderNo}}</view>
+          <button class="alipay-query-button" bindtap="queryAlipayPayment" loading="{{alipayQuerying}}" disabled="{{alipayQuerying}}">{{alipayQuerying ? '查询中...' : '我已支付，查询结果'}}</button>
+          <view class="alipay-modal-note">支付成功后积分由服务端确认到账</view>
         </view>
       </view>
 

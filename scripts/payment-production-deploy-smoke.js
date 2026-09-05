@@ -38,6 +38,7 @@ for (const collection of [
   "payment_orders",
   "payment_events",
   "recharge_config",
+  "payment_order_guards",
   "payment_monitor_status",
 ]) {
   assert.ok(source.includes(`\"${collection}\"`), `missing collection ${collection}`);
@@ -69,7 +70,7 @@ for (const marker of [
   "0 */2 * * * * *",
   "rechargeEnabled = $true",
   "wxpay = [ordered]@{ enabled = $true }",
-  "alipay = [ordered]@{ enabled = $false }",
+  "alipay = [ordered]@{ enabled = $true }",
   "rolloutPercent = 100",
   "CreateTable",
   "DescribeTable",

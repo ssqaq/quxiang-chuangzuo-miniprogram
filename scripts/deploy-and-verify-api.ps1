@@ -247,6 +247,32 @@ function Repair-CloudFunctionTimeout {
   Write-Host "已通过 CloudBase CLI 请求把云函数超时修正为 $TimeoutSeconds 秒。"
 }
 
+function Ensure-VisualDiffDependencies {
+  param([Parameter(Mandatory = $true)][string]$ProjectPath)
+
+  $previewRoot = Join-Path ([IO.Path]::GetFullPath($ProjectPath)) "tools\user-center-preview"
+  $packageLock = Join-Path $previewRoot "package-lock.json"
+  $sharpPath = Join-Path $previewRoot "node_modules\sharp"
+  if (-not (Test-Path -LiteralPath $packageLock -PathType Leaf) -or (Test-Path -LiteralPath $sharpPath -PathType Container)) {
+    return
+  }
+  $npm = Get-Command "npm.cmd" -ErrorAction SilentlyContinue
+  if (-not $npm) { $npm = Get-Command "npm" -ErrorAction SilentlyContinue }
+  if (-not $npm) { throw "npm 未找到，无法准备用户中心视觉差分依赖。" }
+  Write-Host "视觉差分依赖缺失，按锁文件安装 tools/user-center-preview。"
+  $result = Invoke-CloudBaseProcess `
+    -FilePath $npm.Source `
+    -WorkingDirectory $previewRoot `
+    -TimeoutSeconds 180 `
+    -Arguments @("ci", "--no-audit", "--no-fund")
+  if ($result.TimedOut) {
+    throw "CLOUDBASE_DEPLOY_TIMEOUT：视觉差分依赖安装超过 180 秒，已终止子进程树。"
+  }
+  if ($result.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $sharpPath -PathType Container)) {
+    throw "视觉差分依赖安装失败，原始输出已隐藏。"
+  }
+}
+
 function Invoke-CloudBaseCliJson {
   param([string[]]$Arguments)
 
@@ -982,6 +1008,7 @@ try {
       -DependencyCheckScript (Join-Path $project "scripts\check-cloudfunction-dependencies.js")
     Write-Host "支付云函数依赖准备完成：$(@($paymentDependencyResults).Count) 个函数"
   }
+  Ensure-VisualDiffDependencies -ProjectPath $project
   & node (Join-Path $project "scripts\validate.js")
   if ($LASTEXITCODE -ne 0) {
     throw "Local project validation failed."

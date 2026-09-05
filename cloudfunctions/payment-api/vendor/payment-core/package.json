@@ -1,6 +1,6 @@
 {
   "name": "aips-payment-core",
-  "version": "0.57.183",
+  "version": "0.57.197",
   "private": true,
   "main": "index.js",
   "scripts": {

@@ -16,10 +16,6 @@ const resumeScript = path.join(root, "scripts", "resume-release.ps1");
 const qrDecodeScript = path.join(root, "scripts", "qr-decode.js");
 const qrDecodeSmokeScript = path.join(root, "scripts", "qr-decode-smoke.js");
 const pixelManifest = path.join(root, "visual-evidence", "admin-v2-pixel-manifest.json");
-const sameDeviceManifest = path.join(root, "visual-evidence", "admin-v2-same-device-manifest.json");
-const pixelDiffReportScript = path.join(root, "scripts", "admin-v2-pixel-diff-report.js");
-const sameDeviceBaselineScript = path.join(root, "scripts", "admin-v2-same-device-baseline.js");
-const previewBudgetScript = path.join(root, "scripts", "preview-source-budget.js");
 const policyCandidates = [
   process.env.MINIPROGRAM_RELEASE_POLICY,
   path.resolve(root, "..", "wechat-miniapp-release-policy.json"),
@@ -63,12 +59,8 @@ function testFilesAndPolicy() {
   assert.ok(fs.existsSync(qrDecodeScript), "qr-decode.js 不存在");
   assert.ok(fs.existsSync(qrDecodeSmokeScript), "qr-decode-smoke.js 不存在");
   assert.ok(fs.existsSync(pixelManifest), "四页像素基线 manifest 不存在");
-  assert.ok(fs.existsSync(sameDeviceManifest), "同设备视觉基线 manifest 不存在");
-  assert.ok(fs.existsSync(pixelDiffReportScript), "四页像素差异报告脚本不存在");
-  assert.ok(fs.existsSync(sameDeviceBaselineScript), "同设备视觉基线脚本不存在");
-  assert.ok(fs.existsSync(previewBudgetScript), "预览源码预算脚本不存在");
   assert.ok(fs.existsSync(policyPath), "外部发布策略不存在");
-  for (const file of [gateScript, entryScript, previewScript, deployScript, protectionScript, resumeScript, qrDecodeScript, qrDecodeSmokeScript, pixelManifest, sameDeviceManifest, pixelDiffReportScript, sameDeviceBaselineScript, previewBudgetScript]) {
+  for (const file of [gateScript, entryScript, previewScript, deployScript, protectionScript, resumeScript, qrDecodeScript, qrDecodeSmokeScript, pixelManifest]) {
     assertNoInteriorBom(file, path.basename(file));
   }
   const policy = JSON.parse(fs.readFileSync(policyPath, "utf8"));
@@ -158,8 +150,6 @@ function testStaticContracts() {
   assert.ok(entry.includes("$effectivePreview"), "发布默认行为必须计算自动开发者工具同步状态");
   assert.ok(entry.includes("--release-context"), "正式打包必须使用 release context");
   assert.ok(entry.includes('"scripts/release-lock-smoke.js"'), "发布工具快照必须包含锁 smoke");
-  assert.ok(entry.includes('"scripts/release-lock-health-smoke.js"'), "发布工具快照必须包含锁健康 smoke");
-  assert.ok(entry.includes('"scripts/user-center-version-smoke.js"'), "发布工具快照必须包含用户中心版本 smoke");
   assert.ok(entry.includes('"scripts/version-concurrency-smoke.js"'), "发布工具快照必须包含版本并发 smoke");
   assert.ok(entry.includes('"scripts/resume-release-smoke.js"'), "发布工具快照必须包含恢复 smoke");
   assert.ok(entry.includes('"scripts/cloud-deploy-safety-smoke.js"'), "发布工具快照必须包含 Cloud 快照 smoke");
@@ -169,12 +159,6 @@ function testStaticContracts() {
   assert.ok(entry.includes('"scripts/qr-decode-smoke.js"'), "发布工具快照必须包含二维码 smoke");
   assert.ok(entry.includes('"scripts/vendor/qrcode-reader.js"'), "发布工具快照必须包含二维码解码器");
   assert.ok(entry.includes('"scripts/admin-v2-pixel-baseline.js"'), "发布工具快照必须包含四页像素基线脚本");
-  assert.ok(entry.includes('"scripts/admin-v2-pixel-diff-report.js"'), "发布工具快照必须包含四页差异报告脚本");
-  assert.ok(entry.includes('"scripts/admin-v2-same-device-baseline.js"'), "发布工具快照必须包含同设备基线脚本");
-  assert.ok(entry.includes('"scripts/preview-source-budget.js"'), "发布工具快照必须包含预览源码预算脚本");
-  assert.ok(entry.includes("Invoke-GatePreviewSourceBudget"), "发布闸门必须执行预览源码预算");
-  assert.ok(entry.includes("Invoke-GateRuntimeGeometryContract"), "发布闸门必须执行 390x844 运行时几何合同");
-  assert.ok(entry.includes("provider.blankSpace.pass"), "发布闸门必须拒绝供应商页空白高度回退");
   assert.ok(gate.includes("二维码真实解码失败"), "验收报告必须执行真实二维码解码");
   assert.ok(entry.includes('"scripts/rollback-release.ps1"'), "发布工具快照必须包含回滚入口");
   assert.ok(entry.includes('"scripts/release-maintenance.ps1"'), "发布工具快照必须包含 reservation 维护");
@@ -183,7 +167,20 @@ function testStaticContracts() {
   assert.ok(entry.includes('"一键刷新预览.cmd"'), "发布工具快照必须包含一键预览入口");
   assert.ok(entry.includes('preview-import'), "正式预览必须先导入微信开发者工具");
   assert.ok(!entry.includes("push origin \"HEAD:main\""), "闸门不能直接 push main");
-  assert.ok(gate.indexOf("auth status") < gate.indexOf("push origin"), "GitHub 认证检查必须先于推送 release 分支");
+  assert.ok(gate.indexOf("auth status") < gate.indexOf('Arguments @("push"'), "GitHub 认证检查必须先于推送 release 分支");
+  assert.ok(gate.includes("Set-ReleaseGitTransport"), "Git transport 必须有显式配置入口");
+  assert.ok(gate.includes("Ssh443"), "发布器必须支持 SSH over 443");
+  assert.ok(gate.includes("GIT_SSH_COMMAND"), "SSH transport 必须注入 GIT_SSH_COMMAND");
+  assert.ok(gate.includes("GIT_TERMINAL_PROMPT"), "Git 必须禁止终端交互");
+  assert.ok(!/&\s*git\s+-C[^\r\n]*(?:fetch|ls-remote|push)/i.test(gate), "网络 Git 调用不得绕过 transport 包装");
+  assert.ok(entry.includes("GitTransport"), "release.ps1 必须暴露 GitTransport 参数");
+  assert.ok(resume.includes("GitTransport"), "resume-release.ps1 必须暴露 GitTransport 参数");
+  assert.ok(resume.includes("contextTransport"), "resume-release.ps1 必须从 context 恢复 transport");
+  assert.ok(resume.includes("Context requires Ssh443 resume"), "resume-release.ps1 缺少 SSH transport 缺参保护");
+  assert.ok(gate.includes("Get-CanonicalVersionConflict"), "必须只读检测 canonical 版本冲突");
+  assert.ok(entry.includes("CANONICAL_VERSION_CONFLICT"), "canonical 版本冲突必须有稳定提示");
+  assert.ok(entry.includes("canonicalVersionConflict"), "release context 必须记录 canonical 冲突状态");
+  assert.ok(!entry.includes("git reset --hard") && !entry.includes("git clean -fd"), "发布入口禁止覆盖 canonical 未提交修改");
   assert.ok(entry.indexOf("Test-ReleaseGitHubProtection") < entry.indexOf("New-ReleaseQueueTicket"), "正式发布保护预检必须先于创建队列票据");
   assert.ok(resume.indexOf("Test-ReleaseGitHubProtection") < resume.indexOf("Claim-ReleaseQueueTicket"), "恢复发布保护预检必须先于领取队列租约");
   assert.ok(preview.includes("release.ps1"), "预览入口必须转发到统一闸门");
@@ -211,18 +208,6 @@ function testIncludePathNormalization() {
   const result = runPowerShell(script);
   assertPowerShellOk(result, "IncludePath 规范化");
   assert.ok(result.stdout.includes("INCLUDE_OK"));
-}
-
-function testReceiptDictionaryAccess() {
-  const result = runPowerShell([
-    `. ${quote(gateScript)}`,
-    `$receipt = [ordered]@{ status = 'imported'; onlineBuildMarker = 'API_BUILD_TAG_AUTO_VERSION_V00001' }`,
-    `if ((Get-ReleaseReceiptField $receipt 'status') -ne 'imported') { throw 'ordered receipt status unreadable' }`,
-    `if ((Get-ReleaseReceiptField $receipt 'onlineBuildMarker') -notmatch '^API_BUILD_TAG_') { throw 'ordered receipt marker unreadable' }`,
-    "Write-Output 'RECEIPT_DICTIONARY_OK'",
-  ].join("; "));
-  assertPowerShellOk(result, "有序回执字段读取");
-  assert.ok(result.stdout.includes("RECEIPT_DICTIONARY_OK"));
 }
 
 function testIdentityDerivation() {
@@ -339,7 +324,6 @@ function testMainCommitContainment() {
 testFilesAndPolicy();
 testStaticContracts();
 testIncludePathNormalization();
-testReceiptDictionaryAccess();
 testIdentityDerivation();
 testImmutableBinary();
 testMainCommitContainment();

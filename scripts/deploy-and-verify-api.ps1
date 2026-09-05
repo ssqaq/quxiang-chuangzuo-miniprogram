@@ -233,18 +233,16 @@ function Repair-CloudFunctionTimeout {
     $EnvironmentId,
     "--json"
   )
-  $previousErrorActionPreference = $ErrorActionPreference
-  $ErrorActionPreference = "Continue"
-  try {
-    $output = & $npxCommand.Source @arguments 2>&1
-    $exitCode = $LASTEXITCODE
+  $result = Invoke-CloudBaseProcess `
+    -FilePath $npxCommand.Source `
+    -WorkingDirectory ([Environment]::CurrentDirectory) `
+    -TimeoutSeconds 60 `
+    -Arguments $arguments
+  if ($result.TimedOut) {
+    throw "CLOUDBASE_CLI_TIMEOUT：自动修正云函数超时请求超过 60 秒，已终止子进程树。"
   }
-  finally {
-    $ErrorActionPreference = $previousErrorActionPreference
-  }
-  if ($exitCode -ne 0) {
-    $text = ($output | Out-String).Trim()
-    throw "自动修正云函数超时失败（exit code ${exitCode}）：$text"
+  if ($result.ExitCode -ne 0) {
+    throw "自动修正云函数超时失败（exit code $($result.ExitCode)）。原始输出已隐藏。"
   }
   Write-Host "已通过 CloudBase CLI 请求把云函数超时修正为 $TimeoutSeconds 秒。"
 }
@@ -266,20 +264,21 @@ function Invoke-CloudBaseCliJson {
     "@cloudbase/cli",
     "tcb"
   ) + $Arguments
-  $previousErrorActionPreference = $ErrorActionPreference
-  $ErrorActionPreference = "Continue"
-  try {
-    # CloudBase detail 会返回环境变量；这里只在内存中解析，绝不回显原始输出。
-    $output = & $npxCommand.Source @fullArguments 2>&1
-    $exitCode = $LASTEXITCODE
+  # CloudBase detail 会返回环境变量；这里只在内存中解析，绝不回显原始输出。
+  $result = Invoke-CloudBaseProcess `
+    -FilePath $npxCommand.Source `
+    -WorkingDirectory ([Environment]::CurrentDirectory) `
+    -TimeoutSeconds 60 `
+    -Arguments $fullArguments
+  if ($result.TimedOut) {
+    throw "CLOUDBASE_CLI_TIMEOUT：CloudBase 只读核验超过 60 秒，已终止子进程树。"
   }
-  finally {
-    $ErrorActionPreference = $previousErrorActionPreference
-  }
-  if ($exitCode -ne 0) {
+  if ($result.ExitCode -ne 0) {
     throw "CloudBase CLI 请求失败（原始输出已隐藏，防止环境变量或密钥泄露）。"
   }
-  $text = ($output | Out-String).Trim()
+  $text = [string]$result.Stdout
+  if ([string]::IsNullOrWhiteSpace($text)) { $text = [string]$result.Stderr }
+  $text = $text.Trim()
   $jsonStart = $text.IndexOf("{")
   if ($jsonStart -lt 0) {
     throw "CloudBase CLI 没有返回可解析的 JSON（原始输出已隐藏）。"
@@ -968,25 +967,6 @@ try {
     throw "WechatIDE login has expired. Log in again before deploying."
   }
 
-  Write-Host "2/7 Install local cloud function dependencies"
-  $npmCacheInfo = Ensure-LocalCloudFunctionDependencies `
-    -ApiPath $apiPath `
-    -CacheRoot $NpmCachePath `
-    -DependencyCheckScript (Join-Path $project "scripts\check-cloudfunction-dependencies.js")
-  Write-Host "本地 npm 缓存键：$($npmCacheInfo.Key)"
-  & node (Join-Path $project "scripts\check-cloudfunction-dependencies.js")
-  if ($LASTEXITCODE -ne 0) {
-    throw "Cloud function dependency check failed."
-  }
-
-  $paymentManifestPath = Join-Path $project "scripts\payment-cloudfunctions.json"
-  $paymentDependencyResults = Ensure-ManifestCloudFunctionDependencies `
-    -ProjectRoot $project `
-    -ManifestPath $paymentManifestPath `
-    -CacheRoot $NpmCachePath `
-    -DependencyCheckScript (Join-Path $project "scripts\check-cloudfunction-dependencies.js")
-  Write-Host "支付云函数本地依赖安装完成：$(@($paymentDependencyResults).Count) 个函数。"
-
   Write-Host "2/7 Run local deployment checks"
   & node (Join-Path $project "scripts\validate.js")
   if ($LASTEXITCODE -ne 0) {
@@ -995,6 +975,15 @@ try {
   & node (Join-Path $project "scripts\check-deployment.js") --strict
   if ($LASTEXITCODE -ne 0) {
     throw "Strict deployment check failed."
+  }
+  $npmCacheInfo = Ensure-LocalCloudFunctionDependencies `
+    -ApiPath $apiPath `
+    -CacheRoot $NpmCachePath `
+    -DependencyCheckScript (Join-Path $project "scripts\check-cloudfunction-dependencies.js")
+  Write-Host "本地 npm 缓存键：$($npmCacheInfo.Key)"
+  & node (Join-Path $project "scripts\check-cloudfunction-dependencies.js")
+  if ($LASTEXITCODE -ne 0) {
+    throw "Cloud function dependency check failed."
   }
 
   Write-Host "3/7 Verify local source snapshot"

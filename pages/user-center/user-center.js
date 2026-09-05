@@ -40,6 +40,7 @@ Page({
     accountServicePreparing: false,
     rechargeVisible: false,
     rechargeDisabled: true,
+    redeemVisible: true,
     rechargeHint: "",
     hasAnyError: false,
     visualDemoAvailable: false,
@@ -162,11 +163,12 @@ Page({
       nextData.rechargeHint = "账户功能准备中";
     } else if (configResult.ok) {
       const config = accountUi.normalizeRechargeConfig(configResult.value);
+      const paymentAvailable = config.hasWxpay || config.hasAlipay;
       nextData.rechargeVisible = config.eligible;
-      nextData.rechargeDisabled = !config.hasWxpay;
+      nextData.rechargeDisabled = !paymentAvailable;
       nextData.rechargeHint = !config.eligible
         ? config.message || "充值服务暂未开放"
-        : !config.hasWxpay
+        : !paymentAvailable
           ? config.message || "支付通道准备中"
           : "";
     } else if (overviewResult.ok && isAccountServiceNotDeployed(configResult)) {
@@ -232,6 +234,13 @@ Page({
     this.navigate(
       accountDemo.pageUrl("/pages/recharge/recharge", this._demoEnabled),
       "充值页打开失败"
+    );
+  },
+
+  openRedeem() {
+    this.navigate(
+      accountDemo.pageUrl("/pages/redeem/redeem", this._demoEnabled),
+      "兑换页打开失败"
     );
   },
 

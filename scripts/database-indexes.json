@@ -231,6 +231,22 @@
     },
     {
       "collection": "payment_orders",
+      "name": "idx_openid_hash_updated_at",
+      "keys": [
+        {
+          "name": "openidHash",
+          "direction": 1
+        },
+        {
+          "name": "updatedAt",
+          "direction": -1
+        }
+      ],
+      "unique": false,
+      "reason": "按用户读取最近更新的未终态充值订单"
+    },
+    {
+      "collection": "payment_orders",
       "name": "idx_reconcile_required_next_at",
       "keys": [
         {

@@ -70,13 +70,22 @@
           <view class="quick-description">{{rechargeDisabled ? '通道准备中' : '固定套餐'}}</view>
         </view>
       </button>
+      <button wx:if="{{redeemVisible}}" class="quick-card" bindtap="openRedeem" aria-label="兑换积分">
+        <view class="quick-symbol quick-symbol-redeem" aria-hidden="true">
+          <text class="quick-redeem-mark">兑</text>
+        </view>
+        <view class="quick-copy">
+          <view class="quick-title">兑换积分</view>
+          <view class="quick-description">兑换码</view>
+        </view>
+      </button>
       <button class="quick-card" bindtap="openAccountRecords" aria-label="收支记录">
         <view class="quick-symbol quick-symbol-records" aria-hidden="true">
           <image class="quick-symbol-image" src="/assets/account/receipt-text.png" mode="aspectFit"></image>
         </view>
         <view class="quick-copy">
           <view class="quick-title">收支记录</view>
-          <view class="quick-description">充值与消费</view>
+          <view class="quick-description">充值、兑换与消费</view>
         </view>
       </button>
     </view>

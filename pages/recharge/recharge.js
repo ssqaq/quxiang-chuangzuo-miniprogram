@@ -204,8 +204,80 @@ function isRechargeGateError(error) {
   ].includes(accountUi.accountErrorCode(error));
 }
 
+function isDeterministicNoOrderError(error) {
+  return [
+    "PAYMENT_ALIPAY_PROTOCOL_UNCONFIRMED",
+    "PAYMENT_CHANNEL_DISABLED",
+    "PAYMENT_ORDER_CREATION_DISABLED",
+    "PAYMENT_NOT_ELIGIBLE",
+    "PAYMENT_PRODUCT_INVALID",
+    "PAYMENT_CHANNEL_UNSUPPORTED",
+    "PAYMENT_ORDER_GUARD_INVALID"
+  ].includes(accountUi.accountErrorCode(error));
+}
+
 function isIdempotencyConflict(error) {
   return accountUi.accountErrorCode(error) === "IDEMPOTENCY_CONFLICT";
+}
+
+async function checkPendingBeforeCreate(page, service, selected, cached) {
+  const selectedProductId = valueText(selected && selected.productId);
+  const cachedProductId = valueText(cached && cached.productId);
+  if (
+    cachedProductId
+    && cachedProductId === selectedProductId
+    && valueText(cached && cached.orderNo)
+    && !["canceled", "confirming"].includes(
+      String(page && page.data && page.data.paymentStatus || "")
+    )
+  ) {
+    page.setData({
+      paymentStatus: "confirming",
+      statusTitle: "订单核实中",
+      statusMessage: "您有一笔相同套餐订单正在核实，请稍后重试或联系客服。"
+    });
+    return false;
+  }
+
+  let pending = null;
+  if (service && typeof service.getPendingOrderStatus === "function") {
+    try {
+      pending = await service.getPendingOrderStatus(selectedProductId);
+    } catch (error) {
+      page.setData({
+        paymentStatus: "failed",
+        statusTitle: "订单状态读取失败",
+        statusMessage: accountUi.userErrorMessage(error, "请稍后重试。")
+      });
+      return false;
+    }
+  }
+  if (pending && pending.sameProductBlocked) {
+    page.setData({
+      paymentStatus: "confirming",
+      statusTitle: "订单核实中",
+      statusMessage: "您有一笔相同套餐订单正在核实，请稍后重试或联系客服。"
+    });
+    return false;
+  }
+
+  const hasOtherProduct = Boolean(
+    (pending && Array.isArray(pending.otherProductOrders) && pending.otherProductOrders.length)
+    || (cachedProductId && cachedProductId !== selectedProductId)
+  );
+  if (!hasOtherProduct) return true;
+
+  const modal = typeof wx.showModal === "function"
+    ? await new Promise((resolve) => wx.showModal({
+      title: "已有待确认订单",
+      content: "您还有其他套餐订单正在核实，继续充值可能产生重复扣款风险。是否继续？",
+      confirmText: "继续充值",
+      cancelText: "返回",
+      success: resolve,
+      fail: () => resolve({ confirm: false })
+    }))
+    : { confirm: false };
+  return Boolean(modal && modal.confirm);
 }
 
 function orderStatus(result) {
@@ -268,7 +340,13 @@ Page({
     selectedAmountText: "",
     selectedGrantPointsText: "",
     hasWxpay: false,
+    hasAlipay: false,
     channelMessage: "",
+    alipayModalVisible: false,
+    alipayQrCode: "",
+    alipayOrderNo: "",
+    alipayAmountText: "",
+    alipayQuerying: false,
     paying: false,
     paymentStatus: "idle",
     statusTitle: "",
@@ -364,10 +442,10 @@ Page({
           : config.message || "充值暂未向当前账号开放",
         packages: config.products,
         selectedProductId,
-        hasWxpay: config.hasWxpay,
-        channelMessage: config.hasWxpay
-          ? ""
-          : config.message || "支付通道准备中"
+        // 当前版本按产品要求暂不开放微信支付，保留服务端能力但前端入口锁定。
+        hasWxpay: false,
+        hasAlipay: config.hasAlipay,
+        channelMessage: "通道暂未开通"
       }, selectedPackageDisplay(config.products, selectedProductId)));
       return true;
     } catch (error) {
@@ -381,6 +459,7 @@ Page({
         selectedAmountText: "",
         selectedGrantPointsText: "",
         hasWxpay: false,
+        hasAlipay: false,
         errorMessage: accountUi.userErrorMessage(error, "充值配置读取失败，请重试。")
       });
       return false;
@@ -395,11 +474,6 @@ Page({
     if (this._paymentFlowActive || this.data.paying) return;
     const productId = String(event.currentTarget.dataset.productId || "");
     if (!this.data.packages.some((item) => item.productId === productId)) return;
-    const pending = this._demoEnabled ? null : this._pendingOrder || readPendingOrder();
-    if (pending && pending.requestId && pending.productId !== productId) {
-      wx.showToast({ title: "请先完成待确认订单", icon: "none" });
-      return;
-    }
     this.setData(Object.assign({
       selectedProductId: productId,
       paymentStatus: "idle",
@@ -435,8 +509,9 @@ Page({
       wx.showToast({ title: "请先清理失效订单", icon: "none" });
       return;
     }
-    if (cached && cached.requestId && cached.productId !== selected.productId) {
-      wx.showToast({ title: "请先完成待确认订单", icon: "none" });
+    this._paymentFlowActive = true;
+    if (!await checkPendingBeforeCreate(this, service, selected, cached)) {
+      this._paymentFlowActive = false;
       return;
     }
     const requestId = cached && cached.requestId
@@ -661,6 +736,158 @@ Page({
     }
   },
 
+  async submitAlipayPayment() {
+    if (this._paymentFlowActive || this.data.paying || !this.data.eligible) return;
+    if (!this.data.hasAlipay) {
+      wx.showToast({ title: "支付宝通道暂不可用", icon: "none" });
+      return;
+    }
+    const selected = this.data.packages.find(
+      (item) => item.productId === this.data.selectedProductId
+    );
+    if (!selected) {
+      wx.showToast({ title: "请先选择充值套餐", icon: "none" });
+      return;
+    }
+    if (this._demoEnabled) {
+      wx.showToast({ title: "演示模式不创建真实订单", icon: "none" });
+      return;
+    }
+    const service = this._accountClient || accountService;
+    const cached = discardInvalidPending(this, this._pendingOrder || readPendingOrder());
+    if (cached && !hasPendingFields(cached)) {
+      wx.showToast({ title: "请先清理失效订单", icon: "none" });
+      return;
+    }
+    this._paymentFlowActive = true;
+    if (!await checkPendingBeforeCreate(this, service, selected, cached)) {
+      this._paymentFlowActive = false;
+      return;
+    }
+    const requestId = service.createRequestId("alipay");
+    const pendingDraft = {
+      requestId,
+      productId: selected.productId,
+      channel: "alipay",
+      createdAt: Date.now()
+    };
+    this._pendingOrder = pendingDraft;
+    if (!savePendingOrder(pendingDraft)) {
+      this._paymentFlowActive = false;
+      this._pendingOrder = null;
+      this.setData({
+        paymentStatus: "failed",
+        statusTitle: "订单未创建",
+        statusMessage: "无法保存订单状态，请清理存储空间后重试。"
+      });
+      return;
+    }
+    this.setData({
+      paying: true,
+      alipayQuerying: false,
+      paymentStatus: "creating",
+      statusTitle: "正在创建支付宝订单",
+      statusMessage: "二维码生成中，请稍候。"
+    });
+    try {
+      const result = await service.createAlipayRechargeOrder({
+        requestId,
+        productId: selected.productId
+      });
+      const order = result && result.order || {};
+      const payment = result && (result.payment || result.payParams || result.launcher) || {};
+      const orderNo = String(order.orderNo || result.orderNo || "");
+      const qrCode = String(payment.qrCode || payment.qrcode || payment.qr_code || "").trim();
+      if (!orderNo || !/^https:\/\//i.test(qrCode)) {
+        throw new Error("支付通道未返回支付宝二维码，请稍后重试。");
+      }
+      this._pendingOrder = Object.assign({}, pendingDraft, { orderNo });
+      if (!savePendingOrder(this._pendingOrder)) {
+        throw new Error("无法保存支付宝订单状态，请清理存储空间后重试。");
+      }
+      this.setData({
+        paying: false,
+        alipayModalVisible: true,
+        alipayQrCode: qrCode,
+        alipayOrderNo: orderNo,
+        alipayAmountText: String(order.amountText || selected.amountText || ""),
+        paymentStatus: "confirming",
+        statusTitle: "等待支付宝扫码",
+        statusMessage: "请用另一部手机打开支付宝扫码。",
+        lastOrderNo: orderNo
+      });
+    } catch (error) {
+      const failedOrder = error && error.payload && (error.payload.order
+        || error.payload.details && error.payload.details.order);
+      const failedOrderNo = String(failedOrder && failedOrder.orderNo || "");
+      if (failedOrderNo) {
+        this._pendingOrder = Object.assign({}, pendingDraft, {
+          orderNo: failedOrderNo,
+          channel: String(failedOrder.channel || "alipay")
+        });
+        savePendingOrder(this._pendingOrder);
+        this.setData({
+          paying: false,
+          paymentStatus: "confirming",
+          statusTitle: String(failedOrder.status || "").toLowerCase() === "review"
+            ? "订单核实中"
+            : "支付结果确认中",
+          statusMessage: String(failedOrder.status || "").toLowerCase() === "review"
+            ? "已有订单正在核实，请联系客服后再继续充值。"
+            : "订单创建结果需要确认，请勿重复付款。",
+          lastOrderNo: failedOrderNo
+        });
+      } else if (isDeterministicNoOrderError(error)) {
+        clearPagePendingRequest(this, pendingDraft);
+        this.setData({
+          paying: false,
+          paymentStatus: "failed",
+          statusTitle: accountUi.accountErrorCode(error) === "PAYMENT_ALIPAY_PROTOCOL_UNCONFIRMED"
+            ? "支付宝通道维护中"
+            : "充值暂时不可用",
+          statusMessage: accountUi.userErrorMessage(error, "请稍后重试。")
+        });
+      } else {
+        this.setData({
+          paying: false,
+          paymentStatus: "confirming",
+          statusTitle: "订单核实中",
+          statusMessage: "支付服务暂时无法确认，请联系客服，勿重复付款。"
+        });
+      }
+    } finally {
+      this._paymentFlowActive = false;
+      this.setData({ paying: false });
+    }
+  },
+
+  closeAlipayModal() {
+    if (this.data.alipayQuerying) return;
+    this.setData({ alipayModalVisible: false });
+  },
+
+  stopModalTap() {},
+
+  async queryAlipayPayment() {
+    const orderNo = String(this.data.alipayOrderNo || this._pendingOrder && this._pendingOrder.orderNo || "").trim();
+    if (!orderNo || this.data.alipayQuerying) return;
+    this.setData({ alipayQuerying: true });
+    try {
+      await this.confirmOrder(orderNo, QUERY_ATTEMPTS, String(this._pendingOrder && this._pendingOrder.requestId || ""));
+      if (this.data.paymentStatus === "success") {
+        this.setData({ alipayModalVisible: false });
+      }
+    } catch (error) {
+      this.setData({
+        paymentStatus: "confirming",
+        statusTitle: "订单确认中",
+        statusMessage: accountUi.userErrorMessage(error, "暂时无法确认，请稍后重试。")
+      });
+    } finally {
+      this.setData({ alipayQuerying: false });
+    }
+  },
+
   async confirmOrder(orderNo, attempts = 1, requestId = "") {
     const service = this._accountClient || accountService;
     const queryToken = (this._queryToken || 0) + 1;
@@ -677,6 +904,14 @@ Page({
         lastResult = await service.queryRechargeOrder(orderNo);
       } catch (error) {
         if (queryToken !== this._queryToken) return;
+        if (accountUi.accountErrorCode(error) === "PAYMENT_PROVIDER_QUERY_REFERENCE_MISSING") {
+          this.setData({
+            paymentStatus: "confirming",
+            statusTitle: "订单核实中",
+            statusMessage: "支付通道没有返回平台订单号，请联系客服核实后再继续充值。"
+          });
+          return;
+        }
         if (!isOrderNotFound(error)) throw error;
         const clearResult = clearPagePendingOrder(this, expected);
         if (!clearResult.ok) {

@@ -100,11 +100,10 @@ async function main() {
       recharge.page.onLoad({ demo: "1", capture: "1" });
       await settle();
       assert.strictEqual(recharge.page.data.eligible, true);
-      assert.strictEqual(recharge.page.data.hasWxpay, true);
+      assert.strictEqual(recharge.page.data.hasWxpay, false);
       assert.strictEqual(recharge.page.data.selectedGrantPointsText, "+330");
       await recharge.page.submitPayment();
-      assert.strictEqual(recharge.page.data.paymentStatus, "success");
-      assert.strictEqual(recharge.page.data.currentBalanceText, "128.5");
+      assert.strictEqual(recharge.page.data.paymentStatus, "idle");
       assert.strictEqual(recharge.getStorageCalls(), 0);
     } finally { recharge.restore(); }
     console.log("account demo page smoke: OK (三页零真实服务/存储调用)");

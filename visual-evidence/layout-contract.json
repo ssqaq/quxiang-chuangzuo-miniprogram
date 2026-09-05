@@ -181,7 +181,7 @@
       "wxss": "pages/admin-provider/admin-provider.wxss",
       "sourceSha256": {
         "wxml": "b74e5efd7e0f7875532771becf00abd30180dae2081194a95f1fa37c5b203c17",
-        "wxss": "c0e970a52e1f76c899fd5d389251aa354b3002df80d967dc8f89db073b19240d"
+        "wxss": "6ab5b055cca710c2bd625e583361ea3bbd8d9795ebdc9ccefbcfbd974125f934"
       },
       "missingSelectors": [],
       "checks": [
@@ -445,5 +445,5 @@
       "pass": true
     }
   ],
-  "checkedAt": "2026-09-05T02:31:09.933Z"
+  "checkedAt": "2026-09-05T08:54:37.174Z"
 }

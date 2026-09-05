@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
   "productionDeployment": {
-    "enabled": true,
-    "automaticDeployment": true,
+    "enabled": false,
+    "automaticDeployment": false,
     "requiresExplicitProductionAuthorization": true
   },
   "sharedCore": {
     "name": "aips-payment-core",
     "root": "cloudfunctions/payment-core",
     "packageJson": "cloudfunctions/payment-core/package.json",
-    "lockRequired": false,
     "runtimeRequire": "./vendor/payment-core",
+    "lockRequired": false,
     "vendorExcludedFiles": [
       ".env.example"
     ],
@@ -28,7 +28,6 @@
       "cloudfunctions/payment-core/operations.js",
       "cloudfunctions/payment-core/products.js",
       "cloudfunctions/payment-core/provider-xingju.js",
-      "cloudfunctions/payment-core/redeem.js",
       "cloudfunctions/payment-core/signature.js",
       "cloudfunctions/payment-core/state-machine.js",
       "cloudfunctions/payment-core/storage.js"
@@ -43,14 +42,13 @@
       "packageJson": "cloudfunctions/payment-api/package.json",
       "packageLock": "cloudfunctions/payment-api/package-lock.json",
       "config": "cloudfunctions/payment-api/config.json",
-      "runtimeFiles": [],
       "timeoutSeconds": 15,
       "sharedCoreRoot": "cloudfunctions/payment-core",
       "vendoredCoreRoot": "cloudfunctions/payment-api/vendor/payment-core",
-      "deploymentEnabled": true,
+      "deploymentEnabled": false,
       "clientInvocationAllowed": true,
       "runtimeSwitches": {
-        "orderCreationEnabled": true
+        "orderCreationEnabled": false
       },
       "httpRoute": {
         "declared": false,
@@ -71,23 +69,18 @@
       "packageJson": "cloudfunctions/payment-notify/package.json",
       "packageLock": "cloudfunctions/payment-notify/package-lock.json",
       "config": "cloudfunctions/payment-notify/config.json",
-      "runtimeFiles": [],
       "timeoutSeconds": 15,
       "sharedCoreRoot": "cloudfunctions/payment-core",
       "vendoredCoreRoot": "cloudfunctions/payment-notify/vendor/payment-core",
-      "deploymentEnabled": true,
+      "deploymentEnabled": false,
       "clientInvocationAllowed": false,
       "runtimeSwitches": {
-        "callbackProcessingEnabled": true
+        "callbackProcessingEnabled": false
       },
       "httpRoute": {
         "declared": true,
-        "enabled": true,
-        "requiresExplicitProductionAuthorization": true,
-        "path": "/payment/xingju/notify",
-        "enableAuth": false,
-        "qpsTotal": 100,
-        "qpsPerClient": 20
+        "enabled": false,
+        "requiresExplicitProductionAuthorization": true
       },
       "timer": {
         "declared": false,
@@ -103,16 +96,16 @@
       "packageJson": "cloudfunctions/payment-reconcile/package.json",
       "packageLock": "cloudfunctions/payment-reconcile/package-lock.json",
       "config": "cloudfunctions/payment-reconcile/config.json",
+      "timeoutSeconds": 120,
       "runtimeFiles": [
         "cloudfunctions/payment-reconcile/monitor.js"
       ],
-      "timeoutSeconds": 120,
       "sharedCoreRoot": "cloudfunctions/payment-core",
       "vendoredCoreRoot": "cloudfunctions/payment-reconcile/vendor/payment-core",
-      "deploymentEnabled": true,
+      "deploymentEnabled": false,
       "clientInvocationAllowed": false,
       "runtimeSwitches": {
-        "reconciliationEnabled": true
+        "reconciliationEnabled": false
       },
       "httpRoute": {
         "declared": false,
@@ -121,10 +114,8 @@
       },
       "timer": {
         "declared": true,
-        "enabled": true,
-        "requiresExplicitProductionAuthorization": true,
-        "name": "payment-reconcile",
-        "cron": "0 */2 * * * * *"
+        "enabled": false,
+        "requiresExplicitProductionAuthorization": true
       }
     }
   ]

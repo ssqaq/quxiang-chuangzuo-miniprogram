@@ -635,37 +635,7 @@ async function commitReconcileOutcome(options) {
     } else {
       const age = Math.max(0, now.getTime() - dateMillis(order.createdAt));
       const retryAt = new Date(now.getTime() + reconcileDelayMs(order, now, attemptCount));
-      const noQueryReference = String(outcome.errorCode || "") === "PAYMENT_PROVIDER_QUERY_REFERENCE_MISSING"
-        && !String(order.providerTradeNo || "").trim();
-      if (noQueryReference && ["created", "creation_unknown", "pending", "verifying"].includes(order.status)) {
-        next = transitionOrder(next, "review", {
-          createClaimToken: "",
-          reconcileRequired: false,
-          nextReconcileAt: null,
-          lastQueryErrorCode: String(outcome.errorCode || "").slice(0, 100),
-          updatedAt: now
-        }, {
-          reviewReason: "provider_query_reference_missing",
-          reviewEvidence: {
-            providerTradeNo: "",
-            queryAttemptCount: attemptCount,
-            responseHash: outcome.responseHash || ""
-          },
-          now
-        });
-        const reviewEventId = sha256(`payment-event:review:${orderId}:${next.statusVersion}:provider_query_reference_missing`);
-        const reviewEventRef = transaction.collection(PAYMENT_COLLECTIONS.events).doc(reviewEventId);
-        if (!await readDocument(reviewEventRef)) {
-          await reviewEventRef.set({ data: {
-            orderId,
-            eventType: "order_review_required",
-            outcome: "review",
-            reason: "provider_query_reference_missing",
-            attentionRequired: true,
-            createdAt: now
-          } });
-        }
-      } else if (order.status === "created") {
+      if (order.status === "created") {
         next = transitionOrder(next, "creation_unknown", {
           createClaimToken: "",
           creationErrorCode: "PAYMENT_CREATE_COMPLETION_UNKNOWN",

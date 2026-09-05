@@ -51,7 +51,6 @@ function defaultPointsAccount(openid, now = new Date()) {
     totalEarned: 0,
     totalSpent: 0,
     totalPurchasedPoints: 0,
-    totalRedeemedPoints: 0,
     totalReversedPurchasedPoints: 0,
     currentStreak: 0,
     lastCheckinDate: "",
@@ -67,18 +66,12 @@ function accountView(account) {
     totalEarned: Math.max(0, Number(source.totalEarned) || 0),
     totalSpent: Math.max(0, Number(source.totalSpent) || 0),
     totalPurchasedPoints: Math.max(0, Number(source.totalPurchasedPoints) || 0),
-    totalRedeemedPoints: Math.max(0, Number(source.totalRedeemedPoints) || 0),
     totalReversedPurchasedPoints: Math.max(0, Number(source.totalReversedPurchasedPoints) || 0)
   };
 }
 
 function orderView(order) {
   if (!order) return null;
-  const reviewAtValue = order.reviewedAt || order.reviewAt || order.createdAt;
-  const reviewOverdueAtValue = order.reviewOverdueAt
-    || (String(order.status || "") === "review" && dateMillis(reviewAtValue) > 0
-      ? new Date(dateMillis(reviewAtValue) + 48 * 60 * 60 * 1000)
-      : null);
   return {
     orderNo: String(order.outTradeNo || ""),
     status: String(order.status || ""),
@@ -89,14 +82,7 @@ function orderView(order) {
     createdAt: dateIso(order.createdAt),
     paidAt: dateIso(order.paidAt),
     fulfilledAt: dateIso(order.fulfilledAt),
-    attentionRequired: Boolean(order.attentionRequired),
-    reviewAt: dateIso(reviewAtValue),
-    reviewOverdueAt: dateIso(reviewOverdueAtValue),
-    reviewOverdue: Boolean(
-      String(order.status || "") === "review"
-      && dateMillis(reviewOverdueAtValue) > 0
-      && dateMillis(reviewOverdueAtValue) <= Date.now()
-    )
+    attentionRequired: Boolean(order.attentionRequired)
   };
 }
 

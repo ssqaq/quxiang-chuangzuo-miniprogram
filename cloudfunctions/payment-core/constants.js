@@ -17,7 +17,6 @@ const PAYMENT_COLLECTIONS = Object.freeze({
   orders: "payment_orders",
   events: "payment_events",
   rechargeConfig: "recharge_config",
-  orderGuards: "payment_order_guards",
   pointsAccounts: "user_accounts",
   pointsLedger: "point_ledger"
 });
@@ -34,7 +33,6 @@ const PROVIDER_MAX_RESPONSE_BYTES = 128 * 1024;
 const RECONCILE_LEASE_MS = 180 * 1000;
 const RECONCILE_STOP_CLAIMING_MS = 90 * 1000;
 const NOT_FOUND_REVIEW_THRESHOLD = 3;
-const REVIEW_OVERDUE_MS = 48 * 60 * 60 * 1000;
 
 module.exports = {
   PAYMENT_STATUSES,
@@ -50,6 +48,5 @@ module.exports = {
   PROVIDER_MAX_RESPONSE_BYTES,
   RECONCILE_LEASE_MS,
   RECONCILE_STOP_CLAIMING_MS,
-  NOT_FOUND_REVIEW_THRESHOLD,
-  REVIEW_OVERDUE_MS
+  NOT_FOUND_REVIEW_THRESHOLD
 };

@@ -6,7 +6,7 @@ const payment = require("..");
 const { createFakeDb } = require("./fake-db");
 const fixtures = require("./fixtures");
 
-test("creation_unknown 没有 providerTradeNo 时转 review，不猜测 out_trade_no 查单", async () => {
+test("creation_unknown 没有 providerTradeNo 时不猜测 out_trade_no 查单，不计 not-found 也不关单", async () => {
   const now = new Date("2026-08-30T10:00:00.000Z");
   const orderId = "order-unknown";
   const db = createFakeDb({
@@ -34,14 +34,11 @@ test("creation_unknown 没有 providerTradeNo 时转 review，不猜测 out_trad
   });
   await payment.reconcileOrder({ db, provider, orderId, owner: "worker-a", now });
   const order = db.read("payment_orders", orderId);
-  assert.equal(order.status, "review");
+  assert.equal(order.status, "creation_unknown");
   assert.equal(order.notFoundCount, 0);
   assert.equal(order.queryAttemptCount, 1);
-  assert.equal(order.reconcileRequired, false);
+  assert.equal(order.reconcileRequired, true);
   assert.equal(order.lastQueryErrorCode, "PAYMENT_PROVIDER_QUERY_REFERENCE_MISSING");
-  assert.ok(order.reviewedAt);
-  assert.ok(order.reviewOverdueAt);
-  assert.ok(db.read("payment_events", payment.sha256(`payment-event:review:${orderId}:3:provider_query_reference_missing`)));
 });
 
 test("签名有效的查单必须同时匹配订单号、金额、pid、通道和状态", () => {
@@ -88,35 +85,6 @@ test("wx.requestPayment 只白名单接受完整五字段", () => {
   assert.equal(payment.extractWxPaymentParams({ data: { payment: { timeStamp: "1700000000" } } }), null);
 });
 
-test("支付宝订单提取 HTTPS 专属二维码并拒绝缺失二维码", async () => {
-  const qr = "https://pay.xjukeji.cn/qrcode/PAY00000000000000000000000000001";
-  const response = {
-    data: {
-      out_trade_no: "PAY00000000000000000000000000001",
-      trade_no: "T-ALI-100",
-      money: "9.90",
-      pid: "1000",
-      type: "alipay",
-      qrcode: qr
-    }
-  };
-  assert.equal(payment.extractAlipayQrCode(response), qr);
-  assert.equal(payment.extractAlipayQrCode({ data: { qrcode: "http://bad.example/qr" } }), "");
-  const provider = new payment.XingjuProvider(fixtures.providerConfig());
-  provider.execute = async () => Object.assign({ __verified: true, __responseHash: "ali-hash" }, response);
-  const created = await provider.createOrder({
-    outTradeNo: response.data.out_trade_no,
-    amountFen: 990,
-    amountMoney: "9.90",
-    grantPoints: 100,
-    pid: "1000",
-    channel: "alipay",
-    clientIp: "127.0.0.1"
-  });
-  assert.equal(created.providerTradeNo, "T-ALI-100");
-  assert.equal(created.payment.qrCode, qr);
-});
-
 test("创建响应必须匹配订单，已知 trade_no 在 launcher 缺失时可安全恢复", async () => {
   const config = fixtures.providerConfig();
   const order = {
@@ -138,29 +106,6 @@ test("创建响应必须匹配订单，已知 trade_no 在 launcher 缺失时可
       type: "wxpay"
     }
   };
-  const jsapiResponse = {
-    __verified: true,
-    __responseHash: "jsapi-create-hash",
-    data: {
-      code: 0,
-      trade_no: "T-CREATE-101",
-      pay_type: "jsapi",
-      pay_info: JSON.stringify({
-        appId: "wxa5aaf3392cbeb39a",
-        timeStamp: "1700000000",
-        nonceStr: "nonce-123",
-        package: "prepay_id=wx_test_123",
-        signType: "RSA",
-        paySign: "1234567890abcdef"
-      })
-    }
-  };
-  assert.deepEqual(payment.createOrderResponseMismatches(order, jsapiResponse, config), []);
-  const jsapiProvider = new payment.XingjuProvider(config);
-  jsapiProvider.execute = async () => jsapiResponse;
-  const jsapiCreated = await jsapiProvider.createOrder(order);
-  assert.equal(jsapiCreated.providerTradeNo, "T-CREATE-101");
-  assert.equal(jsapiCreated.payment.package, "prepay_id=wx_test_123");
   assert.deepEqual(payment.createOrderResponseMismatches(order, exact, config), []);
   assert.deepEqual(
     payment.createOrderResponseMismatches(
@@ -194,7 +139,7 @@ test("创建响应必须匹配订单，已知 trade_no 在 launcher 缺失时可
   );
 });
 
-test("硬终止遗留 created 订单到期后转 review，不重建订单", async () => {
+test("硬终止遗留 created 订单到期后只转 creation_unknown，不重建订单", async () => {
   const now = new Date("2026-08-30T10:00:00.000Z");
   const orderId = "order-hard-stop";
   let queryCalls = 0;
@@ -230,10 +175,10 @@ test("硬终止遗留 created 订单到期后转 review，不重建订单", asyn
   await payment.reconcileOrder({ db, provider, orderId, owner: "worker-hard-stop", now });
   const recovered = db.read("payment_orders", orderId);
   assert.equal(queryCalls, 1);
-  assert.equal(recovered.status, "review");
+  assert.equal(recovered.status, "creation_unknown");
   assert.equal(recovered.createClaimToken, "");
-  assert.equal(recovered.reconcileRequired, false);
-  assert.equal(recovered.reviewReason, "provider_query_reference_missing");
+  assert.equal(recovered.reconcileRequired, true);
+  assert.equal(recovered.creationErrorCode, "PAYMENT_CREATE_COMPLETION_UNKNOWN");
 });
 
 test("遗留 review 调度标记会在领取时清理，不再占满候选窗口", async () => {

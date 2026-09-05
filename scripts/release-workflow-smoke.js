@@ -10,7 +10,6 @@ const path = require("path");
 
 const root = path.resolve(__dirname, "..");
 const workflowPath = path.join(root, ".github", "workflows", "release-gate.yml");
-const previewRoot = path.join(root, "tools", "user-center-preview");
 const entryPath = path.join(root, "scripts", "release.ps1");
 const gatePath = path.join(root, "scripts", "release-gate.ps1");
 const lockPath = path.join(root, "scripts", "release-lock.ps1");
@@ -46,23 +45,6 @@ function assertOrdered(text, before, after, label) {
 }
 
 function testWorkflowContract(workflow) {
-  for (const relativePath of [
-    "app/globals.css",
-    "app/layout.tsx",
-    "app/page.tsx",
-    "components.json",
-    "next.config.ts",
-    "package-lock.json",
-    "package.json",
-    "scripts/freeze-g1.mjs",
-    "tsconfig.json",
-    "vite.config.ts",
-  ]) {
-    assert.ok(
-      fs.existsSync(path.join(previewRoot, relativePath)),
-      `版本化预览源码缺失：tools/user-center-preview/${relativePath}`
-    );
-  }
   // Workflow-level concurrency is deliberately not cancelable.  Job-level
   // groups would still allow two release workflows to race on the queue.
   mustMatch(workflow, /^concurrency:\s*$/m, "workflow 并发配置");
@@ -111,8 +93,6 @@ function testWorkflowContract(workflow) {
   for (const step of [
     "Release safety smoke",
     "Release lock smoke",
-    "Release lock health smoke",
-    "User center version smoke",
     "Release queue smoke",
     "Version concurrency smoke",
     "Release gate smoke",
@@ -122,7 +102,6 @@ function testWorkflowContract(workflow) {
     "Cloud deploy entry smoke",
     "Payment UI smoke",
     "Payment package and deployment safety smoke",
-    "Payment production deployment smoke",
     "Payment dependency manifest check",
     "Payment core tests",
     "Package smoke",
@@ -130,16 +109,10 @@ function testWorkflowContract(workflow) {
   ]) {
     mustContain(workflow, `- name: ${step}`, "必需检查步骤");
   }
-  mustContain(workflow, 'node-version: "22.13.0"', "预览依赖 Node 版本");
-  mustContain(workflow, "cache-dependency-path: tools/user-center-preview/package-lock.json", "预览依赖缓存");
-  mustContain(workflow, "- name: Install versioned preview dependencies", "预览依赖安装步骤");
-  mustContain(workflow, 'npm ci --prefix "$env:GITHUB_WORKSPACE\\tools\\user-center-preview"', "预览依赖安装命令");
-  mustContain(workflow, "SHARP_MODULE: ${{ github.workspace }}\\tools\\user-center-preview\\node_modules\\sharp", "sharp 显式模块路径");
-  assertOrdered(workflow, "- name: Install versioned preview dependencies", "- name: Validate source", "预览依赖安装 → 源码校验");
   assert.strictEqual(/release\.ps1[^\n]*-Publish/.test(workflow), false, "CI 检查不能绕过闸门直接发布");
 }
 
-function testStageFailureContracts(entry, gate, lock, protection, resume) {
+function testStageFailureContracts(entry, gate, lock, protection) {
   // Every externally visible stage must leave an operation-log breadcrumb.
   // This makes a failed run resumable/auditable instead of an unexplained
   // version reservation.
@@ -196,52 +169,7 @@ function testStageFailureContracts(entry, gate, lock, protection, resume) {
   // confirmed before CloudBase can receive the same immutable context.
   assertOrdered(entry, "不可变发布包已生成", "Invoke-ReleasePullRequest", "package → PR");
   assertOrdered(entry, "Invoke-ReleasePullRequest", "PR 已合并，使用同一 release context 部署 CloudBase", "PR → cloud");
-  assertOrdered(entry, 'Write-GateHost "cloud"', 'Write-GateHost "payment-cloud"', "API cloud → payment cloud");
   assertOrdered(entry, "status = \"finalizing\"", "Set-GateQueueStage -Stage \"succeeded\"", "finalizing → queue terminal");
-
-  for (const marker of [
-    '"scripts/deploy-payment-production.ps1"',
-    '"scripts/payment-production-deploy-smoke.js"',
-    "$paymentDeployScript",
-    "-ReleaseGateLockHeld",
-    "-ReleaseGateLockToken",
-    "-DeployLockPath",
-    "paymentDeployment",
-    "credentialsConfigured",
-    '$record["paymentDeployment"]',
-  ]) {
-    mustContain(entry, marker, "支付生产正式发布接入");
-  }
-  for (const marker of [
-    "$paymentDeployScript",
-    "-ReleaseGateLockHeld",
-    "-ReleaseGateLockToken",
-    "-DeployLockPath",
-    "paymentDeployment",
-    "credentialsConfigured",
-    '$record["paymentDeployment"]',
-  ]) {
-    mustContain(resume, marker, "支付生产恢复接入");
-  }
-  assert.strictEqual(
-    (resume.match(/\$paymentDeployScript\s*=\s*Join-Path/g) || []).length,
-    2,
-    "普通恢复和已终态补部署都必须调用支付生产部署"
-  );
-  mustContain(resume, "-AllowPostMergeRecovery:$false", "普通恢复支付部署必须拒绝终态 context");
-  mustContain(resume, "-AllowPostMergeRecovery\n", "终态补部署必须显式允许原 context");
-  assertOrdered(
-    entry,
-    '$contextHash["paymentDeployment"] = $paymentReceipt',
-    'Set-GateQueueStage -Stage "deployed"',
-    "支付回执 → deployed 阶段"
-  );
-  assert.strictEqual(
-    /if\s*\(\s*-not\s+\$paymentCredentialsConfigured\s*\)/.test(entry)
-      || /if\s*\(\s*-not\s+\$paymentCredentialsConfigured\s*\)/.test(resume),
-    false,
-    "缺少生产密钥时 provider 应失败关闭，但资源部署/发布不能因此失败"
-  );
 
   // PR checks may be reported late; the gate must wait and fail closed, never
   // treat "no checks reported" as success.
@@ -285,26 +213,6 @@ function testStageFailureContracts(entry, gate, lock, protection, resume) {
   ]) {
     mustContain(lock, marker, "发布锁失败场景");
   }
-  for (const marker of [
-    "function Get-ReleasePublishLockHealth",
-    "function Assert-ReleasePublishLockHealth",
-    "ExpectedOperationId",
-    "expected-nonterminal-residue",
-    "nonterminal-residue",
-    "active-lock",
-  ]) {
-    mustContain(lock, marker, "发布前锁健康检查");
-  }
-  mustContain(entry, '"scripts/release-lock-health-smoke.js"', "发布工具清单");
-  mustContain(entry, 'Write-Host "[lock-health]', "创建操作日志前的锁健康输出");
-  for (const generatedEvidence of [
-    '"visual-evidence/layout-contract.json"',
-    '"visual-evidence/font-contract.json"',
-    '"visual-evidence/runtime-geometry/geometry-contract.json"',
-  ]) {
-    mustContain(entry, generatedEvidence, "发布合同证据白名单");
-  }
-  assertOrdered(entry, "Assert-ReleasePublishLockHealth", "New-ReleaseQueueTicket", "普通发布锁健康检查必须先于创建队列票据");
 }
 
 function testDurableQueueIntegration(entry, gate, queue, resume, status) {
@@ -356,14 +264,7 @@ function testDurableQueueIntegration(entry, gate, queue, resume, status) {
   ]) {
     mustContain(resume, marker, "失败恢复入口");
   }
-  mustContain(resume, "-ExpectedOperationId $OperationId", "恢复发布必须绑定当前 operation");
-  mustMatch(
-    entry,
-    /-OperationId\s+\$ResumeOperation[\s\S]{0,800}-AllowOutOfOrder:\$AllowOutOfOrder/,
-    "统一入口恢复发布必须转发 AllowOutOfOrder"
-  );
   assertOrdered(resume, "必须显式带 -Publish", "Claim-ReleaseQueueTicket", "resume 预检必须先于领取租约");
-  assertOrdered(resume, "Assert-ReleasePublishLockHealth", "Claim-ReleaseQueueTicket", "恢复发布锁健康检查必须先于领取队列租约");
   mustContain(status, "Get-ReleaseQueueTickets", "发布状态入口");
 
   const declared = new Set();
@@ -423,7 +324,7 @@ function main() {
   const resume = readText(resumePath);
   const status = readText(statusPath);
   testWorkflowContract(workflow);
-  testStageFailureContracts(entry, gate, lock, protection, resume);
+  testStageFailureContracts(entry, gate, lock, protection);
   testDurableQueueIntegration(entry, gate, queue, resume, status);
   testRuntimeProtectionContract();
   console.log("release workflow smoke: OK");

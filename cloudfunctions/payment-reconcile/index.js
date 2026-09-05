@@ -2,7 +2,6 @@
 
 const cloud = require("wx-server-sdk");
 const payment = require("./vendor/payment-core");
-const monitor = require("./monitor");
 
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 const db = cloud.database();
@@ -51,9 +50,7 @@ async function runReconcile(event = {}) {
   const candidates = await loadCandidates(new Date(), event.limit);
   const summary = {
     scanned: candidates.length,
-    claimed: 0,
     processed: 0,
-    fulfilled: 0,
     skipped: 0,
     failed: 0,
     stoppedEarly: false
@@ -72,16 +69,7 @@ async function runReconcile(event = {}) {
         now: new Date()
       });
       if (result && result.skipped) summary.skipped += 1;
-      else {
-        summary.claimed += 1;
-        summary.processed += 1;
-        const fulfilled = result && (
-          result.order && result.order.status === "fulfilled"
-          || result.fulfilled && result.fulfilled.order
-            && result.fulfilled.order.status === "fulfilled"
-        );
-        if (fulfilled) summary.fulfilled += 1;
-      }
+      else summary.processed += 1;
     } catch (error) {
       summary.failed += 1;
       console.error("payment-reconcile.order-failed", {
@@ -111,71 +99,19 @@ exports.main = async (event = {}, context = {}) => {
       message: "支付对账任务未开启。"
     };
   }
-  const runStartedAt = new Date();
-  const previous = await monitor.readSnapshot(db);
-  let summary = null;
-  let runError = null;
   try {
-    summary = await runReconcile(event);
+    return await runReconcile(event);
   } catch (error) {
-    runError = error;
     console.error("payment-reconcile.failed", {
       code: String(error && error.code || "PAYMENT_RECONCILE_FAILED")
     });
+    return payment.toPublicFailure(error, "支付对账任务执行失败。");
   }
-  let metrics = {};
-  let metricsAvailable = true;
-  try {
-    metrics = await monitor.loadPaymentHealthMetrics(db, new Date());
-  } catch (error) {
-    metricsAvailable = false;
-    console.error("payment-reconcile.metrics-failed", {
-      code: String(error && error.code || "PAYMENT_MONITOR_METRICS_FAILED")
-    });
-  }
-  const completedAt = new Date();
-  const safeSummary = summary || {
-    scanned: 0,
-    claimed: 0,
-    processed: 0,
-    fulfilled: 0,
-    failed: 1,
-    skipped: 0,
-    stoppedEarly: false
-  };
-  const snapshot = monitor.buildSnapshot({
-    previous,
-    summary: safeSummary,
-    metrics,
-    metricsAvailable,
-    mode: "enabled",
-    startedAt: runStartedAt,
-    completedAt,
-    runError: Boolean(runError)
-  });
-  try {
-    await monitor.writeSnapshot(db, snapshot);
-  } catch (error) {
-    console.error("payment-reconcile.monitor-write-failed", {
-      code: String(error && error.code || "PAYMENT_MONITOR_WRITE_FAILED")
-    });
-    if (!runError) runError = payment.paymentError(
-      "PAYMENT_MONITOR_WRITE_FAILED",
-      "支付监控状态写入失败。",
-      { cause: error, retryable: true }
-    );
-  }
-  if (runError) return payment.toPublicFailure(runError, "支付对账任务执行失败。");
-  return Object.assign({}, summary, {
-    ok: true,
-    monitor: monitor.publicSnapshot(snapshot, completedAt)
-  });
 };
 
 exports.__test__ = {
   triggerName,
   callerOpenid,
   loadCandidates,
-  runReconcile,
-  monitor
+  runReconcile
 };

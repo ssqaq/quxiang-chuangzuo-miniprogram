@@ -20,10 +20,6 @@ function paymentOrderId(openidHash, hashedRequestId) {
   return sha256(`payment-order:${openidHash}:${hashedRequestId}`).slice(0, 32);
 }
 
-function paymentOrderGuardId(openidHash, productId) {
-  return `LOCK_${sha256(`payment-order-guard:${openidHash}:${String(productId || "")}`).slice(0, 27).toUpperCase()}`;
-}
-
 function merchantOrderNo(openidHash, hashedRequestId) {
   return `PAY${sha256(`out-trade-no:${openidHash}:${hashedRequestId}`).slice(0, 29).toUpperCase()}`;
 }
@@ -69,7 +65,6 @@ module.exports = {
   requestFingerprint,
   requestIdHash,
   paymentOrderId,
-  paymentOrderGuardId,
   merchantOrderNo,
   paymentLedgerId,
   callbackEventId,

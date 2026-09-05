@@ -12,13 +12,6 @@ test("状态机只有 C4 确认的 10 个状态", () => {
   ]);
 });
 
-test("未终态订单集合覆盖跨通道重复扣款保护状态", () => {
-  assert.deepEqual(
-    [...payment.UNRESOLVED_PAYMENT_STATUSES].sort(),
-    ["created", "creation_unknown", "paid", "pending", "review", "verifying"]
-  );
-});
-
 test("verifying 只能主动查单确认后进 paid，closed/refunded 不能自动进入", () => {
   const verifying = { status: "verifying", statusVersion: 3 };
   assert.equal(payment.canTransition(verifying, "paid"), true);
@@ -85,20 +78,18 @@ test("商品金额和积分是固定常量", () => {
   assert.equal(payment.moneyToFen("9.999"), null);
 });
 
-test("生产充值和微信通道默认开启，支付宝按配置开关控制", () => {
+test("充值和两个通道默认全关，支付宝误配也不能开", () => {
   const defaults = payment.normalizeRechargeConfig(null);
-  assert.equal(defaults.rechargeEnabled, true);
-  assert.equal(defaults.channelConfig.wxpay.enabled, true);
+  assert.equal(defaults.rechargeEnabled, false);
+  assert.equal(defaults.channelConfig.wxpay.enabled, false);
   assert.equal(defaults.channelConfig.alipay.enabled, false);
-  assert.equal(defaults.gray.strategy, "hash");
-  assert.equal(defaults.gray.rolloutPercent, 100);
   const configured = payment.normalizeRechargeConfig({
     rechargeEnabled: true,
     channelConfig: { wxpay: { enabled: true }, alipay: { enabled: true } },
     gray: { strategy: "hash", rolloutPercent: 100 }
   });
   assert.equal(configured.channelConfig.wxpay.enabled, true);
-  assert.equal(configured.channelConfig.alipay.enabled, true);
+  assert.equal(configured.channelConfig.alipay.enabled, false);
   assert.deepEqual(payment.normalizeRechargeConfig({
     rechargeEnabled: true,
     productConfig: { enabledProductIds: [] },
@@ -138,9 +129,7 @@ test("provider 配置默认 RSA，MD5 只有测试白名单才启用", () => {
     XINGJU_SIGNATURE_MODE: "md5",
     XINGJU_MD5_KEY: fixtures.MD5_KEY,
     NODE_ENV: "test",
-    XINGJU_MD5_ALLOWLIST: fixtures.providerConfig().pid,
-    XINGJU_TEST_MERCHANT_ID: fixtures.providerConfig().pid,
-    WECHAT_MINIAPP_TEST: "1"
+    XINGJU_MD5_ALLOWLIST: fixtures.providerConfig().pid
   };
   assert.equal(payment.evaluateProviderConfig({}).value.signatureMode, "rsa");
   assert.equal(payment.evaluateProviderConfig(base).value.signatureMode, "md5");

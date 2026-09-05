@@ -92,12 +92,6 @@ function buildSnapshot(options = {}) {
     now: completedAt,
     consecutiveFailureCount
   });
-  if (options.metricsAvailable === false) {
-    if (!health.reasonCodes.includes("METRICS_UNAVAILABLE")) {
-      health.reasonCodes.push("METRICS_UNAVAILABLE");
-    }
-    health.severity = maxSeverity(health.severity, "warning");
-  }
   const previousSuccessAt = previous.lastSuccessAt || null;
   return {
     schemaVersion: MONITOR_SCHEMA_VERSION,
@@ -172,49 +166,6 @@ async function readSnapshot(db) {
   }
 }
 
-function publicSnapshot(snapshot, now = new Date()) {
-  const source = snapshot && typeof snapshot === "object" ? snapshot : {};
-  const completedAtMs = dateMillis(source.lastRunCompletedAt);
-  const nowMs = dateMillis(now) || Date.now();
-  const mode = source.mode === "enabled" ? "enabled" : "disabled";
-  const stale = mode === "enabled"
-    && (!completedAtMs || nowMs - completedAtMs > TIMER_STALE_MS);
-  const storedSeverity = ["disabled", "healthy", "warning", "critical"]
-    .includes(source.severity)
-    ? source.severity
-    : mode === "enabled" ? "warning" : "disabled";
-  const reasonCodes = (Array.isArray(source.reasonCodes) ? source.reasonCodes : [])
-    .map((value) => String(value || "").trim().slice(0, 80))
-    .filter((value, index, list) => /^[A-Z0-9_]+$/.test(value) && list.indexOf(value) === index)
-    .slice(0, 20);
-  if (stale && !reasonCodes.includes("TIMER_STALE")) reasonCodes.push("TIMER_STALE");
-  return {
-    available: Boolean(snapshot),
-    schemaVersion: normalizeCount(source.schemaVersion) || MONITOR_SCHEMA_VERSION,
-    mode,
-    stale,
-    severity: stale ? "critical" : storedSeverity,
-    reasonCodes,
-    lastRunStartedAt: source.lastRunStartedAt || null,
-    lastRunCompletedAt: source.lastRunCompletedAt || null,
-    lastSuccessAt: source.lastSuccessAt || null,
-    durationMs: normalizeCount(source.durationMs),
-    scanned: normalizeCount(source.scanned),
-    claimed: normalizeCount(source.claimed),
-    fulfilled: normalizeCount(source.fulfilled),
-    failed: normalizeCount(source.failed),
-    skipped: normalizeCount(source.skipped),
-    stoppedEarly: Boolean(source.stoppedEarly),
-    dueBacklogCount: normalizeCount(source.dueBacklogCount),
-    oldestDueAt: source.oldestDueAt || null,
-    reviewCount: normalizeCount(source.reviewCount),
-    refundReviewCount: normalizeCount(source.refundReviewCount),
-    paidUnfulfilledCount: normalizeCount(source.paidUnfulfilledCount),
-    consecutiveFailureCount: normalizeCount(source.consecutiveFailureCount),
-    metricsAvailable: source.metricsAvailable !== false
-  };
-}
-
 async function writeSnapshot(db, snapshot) {
   await db.collection(MONITOR_COLLECTION).doc(MONITOR_DOCUMENT_ID).set({
     data: Object.assign({}, snapshot)
@@ -236,6 +187,5 @@ module.exports = {
   buildSnapshot,
   loadPaymentHealthMetrics,
   readSnapshot,
-  publicSnapshot,
   writeSnapshot
 };

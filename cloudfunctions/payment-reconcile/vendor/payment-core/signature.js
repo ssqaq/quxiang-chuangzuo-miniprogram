@@ -110,19 +110,11 @@ function signParams(params, merchantPrivateKey, options = {}) {
 }
 
 function verifyParamsSignature(params, platformPublicKey, options = {}) {
-  if (platformPublicKey && typeof platformPublicKey === "object") {
-    options = Object.assign({}, platformPublicKey, options);
-    platformPublicKey = platformPublicKey.platformPublicKey;
-  }
   const sign = String(params && params.sign || "").trim();
   const signatureMode = String(options.signatureMode || "rsa").toLowerCase();
   if (signatureMode === "md5") {
     if (!sign || !options.md5Key) return false;
-    const expected = md5SignParams(params, options.md5Key);
-    const actualBuffer = Buffer.from(sign.toLowerCase(), "utf8");
-    const expectedBuffer = Buffer.from(expected, "utf8");
-    return actualBuffer.length === expectedBuffer.length
-      && crypto.timingSafeEqual(actualBuffer, expectedBuffer);
+    return sign.toLowerCase() === md5SignParams(params, options.md5Key);
   }
   const key = publicKeyPem(platformPublicKey);
   if (!sign || !key || !validatePublicKey(key)) return false;
@@ -152,22 +144,11 @@ function verifySignedPayload(params, platformPublicKey, options = {}) {
     1,
     Number(options.maxSkewSeconds || SIGNATURE_MAX_SKEW_SECONDS)
   );
-  const rawTimestamp = params && params.timestamp;
-  const hasTimestamp = rawTimestamp !== undefined
-    && rawTimestamp !== null
-    && String(rawTimestamp).trim() !== "";
-  const timestamp = hasTimestamp ? Number(rawTimestamp) : null;
-  // RSA SDK 2.0 请求/响应必须带时间戳；V1 MD5 回调历史上可能不带，
-  // 有时间戳时仍严格校验窗口，没带时不凭空拒绝合法回调。
-  const missingTimestampAllowed = signatureMode === "md5"
-    && options.allowMissingTimestamp === true;
-  if (!hasTimestamp && !missingTimestampAllowed) {
+  const timestamp = Number(params && params.timestamp);
+  if (!Number.isSafeInteger(timestamp)) {
     return { ok: false, errorCode: "PAYMENT_TIMESTAMP_INVALID" };
   }
-  if (hasTimestamp && !Number.isSafeInteger(timestamp)) {
-    return { ok: false, errorCode: "PAYMENT_TIMESTAMP_INVALID" };
-  }
-  if (hasTimestamp && Math.abs(nowSeconds - timestamp) > maxSkewSeconds) {
+  if (Math.abs(nowSeconds - timestamp) > maxSkewSeconds) {
     return { ok: false, errorCode: "PAYMENT_TIMESTAMP_EXPIRED" };
   }
   const expectedSignType = signatureMode === "md5" ? "MD5" : PROVIDER_SIGN_TYPE;

@@ -111,15 +111,30 @@ function requestFormJson(baseUrl, pathValue, params, options = {}) {
 }
 
 function verifiedProviderResponse(payload, config, nowMs) {
-  const verification = verifySignedPayload(payload, config, { nowMs });
-  if (!verification.ok) {
+  const nested = objectCandidate(payload && payload.data);
+  const candidates = [payload, nested].filter(Boolean);
+  let verification = null;
+  let signedPayload = payload;
+  for (const candidate of candidates) {
+    const result = verifySignedPayload(candidate, config, { nowMs });
+    if (result.ok) {
+      verification = result;
+      signedPayload = candidate;
+      break;
+    }
+    verification = result;
+  }
+  if (!verification || !verification.ok) {
     throw paymentError(
       "PAYMENT_PROVIDER_SIGNATURE_INVALID",
       "支付服务响应验签失败。",
-      { uncertain: true, retryable: false, details: { reason: verification.errorCode } }
+      { uncertain: true, retryable: false, details: { reason: verification && verification.errorCode } }
     );
   }
-  if (Number(payload.code) !== 0) {
+  const code = signedPayload && signedPayload.code !== undefined
+    ? signedPayload.code
+    : payload && payload.code;
+  if (Number(code) !== 0) {
     throw paymentError(
       "PAYMENT_PROVIDER_REJECTED",
       "支付服务未接受这次请求。",
@@ -177,6 +192,31 @@ function extractWxPaymentParams(providerResponse) {
   return null;
 }
 
+function extractAlipayQrCode(providerResponse) {
+  const root = objectCandidate(providerResponse) || {};
+  const data = objectCandidate(root.data);
+  const candidates = [
+    root,
+    data,
+    objectCandidate(root.pay_info),
+    objectCandidate(root.payment),
+    data && objectCandidate(data.pay_info),
+    data && objectCandidate(data.payment)
+  ].filter(Boolean);
+  const keys = ["qrcode", "qr_code", "qrCode", "payurl", "pay_url", "url"];
+  for (const item of candidates) {
+    for (const key of keys) {
+      const value = String(item[key] || "").trim();
+      if (/^https:\/\/[^\s]{8,2048}$/i.test(value)) return value;
+    }
+  }
+  for (const value of [root.pay_info, root.payment, data && data.pay_info, data && data.payment]) {
+    const text = String(value || "").trim();
+    if (/^https:\/\/[^\s]{8,2048}$/i.test(text)) return text;
+  }
+  return "";
+}
+
 function providerData(value) {
   const source = objectCandidate(value) || {};
   return objectCandidate(source.data) || source;
@@ -232,18 +272,21 @@ class XingjuProvider {
   }
 
   async createOrder(order) {
+    const isAlipay = String(order && order.channel || "").toLowerCase() === "alipay";
     const params = {
-      method: "jsapi",
-      type: "wxpay",
+      method: isAlipay ? "scan" : "jsapi",
+      type: isAlipay ? "alipay" : "wxpay",
       notify_url: this.config.notifyUrl,
       out_trade_no: order.outTradeNo,
       name: `AIPS ${order.grantPoints} 积分`,
       money: order.amountMoney,
       clientip: order.clientIp || "127.0.0.1",
-      sub_openid: order.openid,
-      sub_appid: order.subAppid,
-      is_applet: 1
     };
+    if (!isAlipay) {
+      params.sub_openid = order.openid;
+      params.sub_appid = order.subAppid;
+      params.is_applet = 1;
+    }
     if (this.config.returnUrl) params.return_url = this.config.returnUrl;
     const response = await this.execute("api/pay/create", params);
     const mismatches = createOrderResponseMismatches(order, response, this.config);
@@ -262,11 +305,13 @@ class XingjuProvider {
       );
     }
     const tradeNo = providerTradeNo(response);
-    const payment = extractWxPaymentParams(response);
-    if (!payment) {
+    const payment = isAlipay
+      ? { qrCode: extractAlipayQrCode(response) }
+      : extractWxPaymentParams(response);
+    if (isAlipay ? !payment.qrCode : !payment) {
       throw paymentError(
-        "PAYMENT_LAUNCH_PARAMS_MISSING",
-        "支付通道未返回可验证的微信调起参数。",
+        isAlipay ? "PAYMENT_QRCODE_MISSING" : "PAYMENT_LAUNCH_PARAMS_MISSING",
+        isAlipay ? "支付通道未返回支付宝二维码。" : "支付通道未返回可验证的微信调起参数。",
         {
           uncertain: true,
           retryable: false,
@@ -305,6 +350,7 @@ module.exports = {
   requestFormJson,
   verifiedProviderResponse,
   extractWxPaymentParams,
+  extractAlipayQrCode,
   providerData,
   providerTradeNo,
   providerEnvelope,

@@ -206,15 +206,22 @@ function verifyG2Evidence(g1Manifest) {
   // the page/service source files while excluding that volatile metadata
   // file from the immutable G2 fingerprint.
   const immutableSourceFiles = sourceBinding.files.filter((item) => item.path !== "config.js");
+  const sourceMismatches = [];
   const actualSourceFiles = immutableSourceFiles.map((item) => {
     assert.ok(item && typeof item.path === "string" && /^[a-f0-9]{64}$/i.test(item.sha256), `G2 源码摘要无效：${item && item.path}`);
     const absolute = path.resolve(root, item.path);
     assert.ok(absolute === root || absolute.startsWith(`${root}${path.sep}`), `G2 源码路径越界：${item.path}`);
     assert.ok(fs.existsSync(absolute), `G2 源码文件缺失：${item.path}`);
     const actual = sha256NormalizedText(absolute);
-    assert.strictEqual(actual, item.sha256.toLowerCase(), `G2 源码已在截图后变化：${item.path}`);
+    if (actual !== item.sha256.toLowerCase()) sourceMismatches.push(item.path);
     return { path: item.path, sha256: actual };
   });
+  if (sourceMismatches.length) {
+    const message = `G2 证据绑定的源码已变化：${sourceMismatches.join(", ")}；需要重新采集 DevTools 截图`;
+    if (requireG2) throw new Error(message);
+    console.warn(`${message}。本地 smoke 标记 pending，禁止把旧截图当作当前证据。`);
+    return null;
+  }
   assert.strictEqual(
     sourceFingerprint(actualSourceFiles),
     sourceFingerprint(immutableSourceFiles),

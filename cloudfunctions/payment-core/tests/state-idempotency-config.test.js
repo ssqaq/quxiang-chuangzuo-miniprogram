@@ -12,6 +12,13 @@ test("状态机只有 C4 确认的 10 个状态", () => {
   ]);
 });
 
+test("未终态订单集合覆盖跨通道重复扣款保护状态", () => {
+  assert.deepEqual(
+    [...payment.UNRESOLVED_PAYMENT_STATUSES].sort(),
+    ["created", "creation_unknown", "paid", "pending", "review", "verifying"]
+  );
+});
+
 test("verifying 只能主动查单确认后进 paid，closed/refunded 不能自动进入", () => {
   const verifying = { status: "verifying", statusVersion: 3 };
   assert.equal(payment.canTransition(verifying, "paid"), true);
@@ -78,7 +85,7 @@ test("商品金额和积分是固定常量", () => {
   assert.equal(payment.moneyToFen("9.999"), null);
 });
 
-test("生产充值和微信通道默认开启，支付宝误配仍不能开", () => {
+test("生产充值和微信通道默认开启，支付宝按配置开关控制", () => {
   const defaults = payment.normalizeRechargeConfig(null);
   assert.equal(defaults.rechargeEnabled, true);
   assert.equal(defaults.channelConfig.wxpay.enabled, true);
@@ -91,7 +98,7 @@ test("生产充值和微信通道默认开启，支付宝误配仍不能开", ()
     gray: { strategy: "hash", rolloutPercent: 100 }
   });
   assert.equal(configured.channelConfig.wxpay.enabled, true);
-  assert.equal(configured.channelConfig.alipay.enabled, false);
+  assert.equal(configured.channelConfig.alipay.enabled, true);
   assert.deepEqual(payment.normalizeRechargeConfig({
     rechargeEnabled: true,
     productConfig: { enabledProductIds: [] },

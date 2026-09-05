@@ -69,6 +69,21 @@ async function runRechargeCase(options = {}) {
         ? options.createResult(payload)
         : options.createResult;
     },
+    async createAlipayRechargeOrder(payload) {
+      requestIds.push(payload.requestId);
+      createPayloads.push(Object.assign({}, payload, { channel: "alipay" }));
+      return typeof options.alipayCreateResult === "function"
+        ? options.alipayCreateResult(payload)
+        : options.alipayCreateResult;
+    },
+    async getPendingOrderStatus() {
+      return options.pendingStatusResult || {
+        sameProductBlocked: false,
+        sameProductOrder: null,
+        otherProductOrders: [],
+        serverTime: new Date().toISOString()
+      };
+    },
     async queryRechargeOrder(orderNo) {
       queryCalls += 1;
       if (options.queryGate) {
@@ -146,6 +161,7 @@ async function runRechargeCase(options = {}) {
       data: Object.assign({}, pageDefinition.data, {
         eligible: true,
         hasWxpay: true,
+        hasAlipay: options.hasAlipay === true,
         packages: options.packages || [
           { productId: "pkg_990", amountFen: 990, grantPoints: 100 }
         ],
@@ -179,6 +195,8 @@ async function runRechargeCase(options = {}) {
       }
     } else if (options.action === "pullDown") {
       await page.onPullDownRefresh();
+    } else if (options.action === "alipay") {
+      await page.submitAlipayPayment();
     } else if (options.concurrentSubmit) {
       await Promise.all([page.submitPayment(), page.submitPayment()]);
     } else {
@@ -505,6 +523,13 @@ async function main() {
   assert.deepStrictEqual(enabled.channels, ["wxpay"]);
   assert.strictEqual(enabled.hasWxpay, true);
 
+  const channelsWithAlipay = accountUi.normalizeRechargeConfig({
+    eligible: true,
+    channels: ["wxpay", "alipay"]
+  });
+  assert.deepStrictEqual(channelsWithAlipay.channels, ["wxpay", "alipay"]);
+  assert.strictEqual(channelsWithAlipay.hasAlipay, true);
+
   const validPayment = {
     timeStamp: "1788048000",
     nonceStr: "noncestring",
@@ -529,6 +554,47 @@ async function main() {
     paymentLauncher.launchPayment("unknown", validPayment),
     (error) => error && error.code === "UNSUPPORTED_PAYMENT_PROVIDER"
   );
+
+  const rechargeWxml = read("pages/recharge/recharge.wxml");
+  assertIncludes(rechargeWxml, "支付宝支付", "支付宝支付入口");
+  assertIncludes(rechargeWxml, "通道暂未开通", "微信不可用说明");
+  assertIncludes(rechargeWxml, "alipay-qrcode", "支付宝二维码弹窗");
+
+  const alipayQr = await runRechargeCase({
+    action: "alipay",
+    hasAlipay: true,
+    alipayCreateResult: {
+      order: { orderNo: "PAY00000000000000000000000000001", status: "pending", amountText: "¥9.90" },
+      payment: { qrCode: "https://pay.xjukeji.cn/qrcode/test-order" }
+    }
+  });
+  assert.strictEqual(alipayQr.createPayloads[0].channel, "alipay");
+  assert.strictEqual(alipayQr.data.alipayModalVisible, true);
+  assert.strictEqual(alipayQr.data.alipayQrCode, "https://pay.xjukeji.cn/qrcode/test-order");
+  assert.strictEqual(alipayQr.paymentCalls, 0, "支付宝二维码流程不得调用微信拉起接口");
+
+  const staleWxPending = await runRechargeCase({
+    action: "alipay",
+    hasAlipay: true,
+    initialStored: {
+      requestId: "fixed-stale-wx-request",
+      productId: "pkg_2990",
+      channel: "wxpay",
+      orderNo: "PAY00000000000000000000000000001"
+    },
+    pendingStatusResult: {
+      sameProductBlocked: true,
+      sameProductOrder: { orderNo: "PAY00000000000000000000000000001", status: "review", productId: "pkg_2990" },
+      otherProductOrders: []
+    },
+    alipayCreateResult: {
+      order: { orderNo: "PAY00000000000000000000000000002", status: "pending", amountText: "¥29.90" },
+      payment: { qrCode: "https://pay.xjukeji.cn/qrcode/alipay-new-order" }
+    }
+  });
+  assert.strictEqual(staleWxPending.data.alipayModalVisible, false, "同套餐旧订单必须阻塞支付宝二维码");
+  assert.strictEqual(staleWxPending.createPayloads.length, 0, "同套餐旧订单不得创建新支付宝订单");
+  assert.ok(/订单核实中/.test(staleWxPending.data.statusTitle), "同套餐旧订单必须显示核实中");
 
   const concurrentSubmit = await runRechargeCase({
     concurrentSubmit: true,
@@ -566,10 +632,9 @@ async function main() {
       page.selectPackage({ currentTarget: { dataset: { productId: "pkg_2990" } } });
     }
   });
-  assert.strictEqual(packageLockedWithoutOrderNo.data.selectedProductId, "pkg_990");
-  assert.strictEqual(packageLockedWithoutOrderNo.createPayloads[0].productId, "pkg_990");
-  assert.strictEqual(packageLockedWithoutOrderNo.createPayloads[0].requestId, "fixed-existing-request");
-  assert.strictEqual(packageLockedWithoutOrderNo.toasts[0].title, "请先完成待确认订单");
+  assert.strictEqual(packageLockedWithoutOrderNo.data.selectedProductId, "pkg_2990");
+  assert.strictEqual(packageLockedWithoutOrderNo.createPayloads.length, 0);
+  assert.strictEqual(packageLockedWithoutOrderNo.data.paymentStatus, "idle");
 
   let uncertainCreateCalls = 0;
   const uncertainCreateResume = await runRechargeCase({
@@ -976,7 +1041,7 @@ async function main() {
   assert.strictEqual(userCenterJs.includes("openProfile"), false, "用户中心不得保留资料编辑入口");
   assert.strictEqual(userCenterJs.includes("/pages/profile/profile?from=user-center"), false, "用户中心不得跳转资料编辑页");
   assertIncludes(userCenterJs, "nextData.rechargeVisible = config.eligible", "充值资格隐藏逻辑");
-  assertIncludes(userCenterJs, "nextData.rechargeDisabled = !config.hasWxpay", "空通道禁用逻辑");
+  assertIncludes(userCenterJs, "nextData.rechargeDisabled = !paymentAvailable", "无可用通道禁用逻辑");
   assertIncludes(userCenterJs, "accountServicePreparing", "账户服务未部署态收口");
   const userCenterWxml = read("pages/user-center/user-center.wxml");
   assertIncludes(userCenterWxml, "账户功能准备中", "账户服务未部署态提示");
@@ -994,7 +1059,7 @@ async function main() {
   const createEnd = accountServiceSource.indexOf("queryRechargeOrder", createStart);
   const createSource = accountServiceSource.slice(createStart, createEnd);
   assertIncludes(createSource, "retryLimit: 0", "创建订单调用");
-  assertIncludes(createSource, 'channel: "wxpay"', "创建订单调用");
+  assertIncludes(createSource, 'channel: String(options.channel || "wxpay")', "创建订单调用");
   assert.strictEqual(/amountFen|grantPoints|money/.test(createSource), false, "客户端创建订单不得提交金额或积分");
 
   const frontendFiles = [
@@ -1011,12 +1076,15 @@ async function main() {
     "pages/account-records/account-records.js",
     "pages/account-records/account-records.wxml"
   ];
+  assert.ok(/支付宝支付/.test(read("pages/recharge/recharge.wxml")), "充值页必须包含支付宝支付入口");
+  assert.ok(/createAlipayRechargeOrder/.test(accountServiceSource), "账户服务必须提供支付宝订单方法");
+  const userCenterPaymentSource = read("pages/user-center/user-center.js");
+  assertIncludes(userCenterPaymentSource, "config.hasWxpay || config.hasAlipay", "支付宝可用时充值入口解锁");
+  const paymentApiSource = read("cloudfunctions/payment-api/index.js");
+  assertIncludes(paymentApiSource, "PAYMENT_ALIPAY_PROTOCOL_UNCONFIRMED", "支付宝协议未确认时服务端拒绝");
+  assertIncludes(paymentApiSource, "getPendingOrderStatus", "未终态订单查询接口");
   frontendFiles.forEach((relative) => {
-    assert.strictEqual(
-      /alipay|支付宝|plugin/i.test(read(relative)),
-      false,
-      `首版前端不得包含支付宝或插件实现：${relative}`
-    );
+    assert.strictEqual(/XINGJU_MERCHANT_PRIVATE_KEY|BEGIN PRIVATE KEY/.test(read(relative)), false, `前端不得包含商户私钥：${relative}`);
   });
 
   delete global.wx;

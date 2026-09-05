@@ -12,5 +12,6 @@ module.exports = Object.assign(
   require("./idempotency"),
   require("./provider-xingju"),
   require("./storage"),
-  require("./operations")
+  require("./operations"),
+  require("./redeem")
 );

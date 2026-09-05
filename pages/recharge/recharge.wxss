@@ -120,6 +120,9 @@ page {
 .channel-description { margin-top: 3px; overflow: hidden; color: #8b99aa; font-size: 7px; line-height: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .channel-check { display: flex; width: 35.5rpx; height: 35.5rpx; flex: none; align-items: center; justify-content: center; border: 1px solid #1f6feb; border-radius: 50%; color: #ffffff; background: #1f6feb; font-size: 8px; font-weight: 800; }
 .channel-row-disabled .channel-check { border-color: #cbd4e0; color: #8492a6; background: #e5eaf1; }
+.channel-lock { width: 35.5rpx; flex: none; color: #69778a; font-size: 17px; line-height: 1; text-align: center; opacity: .8; }
+.channel-row-alipay { border-color: #9bc9ff; background: #f5faff; }
+.channel-icon-alipay { background: #1677ff; }
 
 .pay-hit {
   display: flex;
@@ -157,6 +160,20 @@ page {
   font-weight: 800;
 }
 .pay-button-disabled { color: #eef2f7; background: #9ba9bb; box-shadow: none; }
+
+.alipay-modal { position: fixed; z-index: 99; top: 0; right: 0; bottom: 0; left: 0; }
+.alipay-modal-mask { position: absolute; top: 0; right: 0; bottom: 0; left: 0; background: rgba(15, 23, 42, .48); }
+.alipay-modal-card { position: absolute; top: 50%; left: 50%; width: 82vw; max-width: 322px; padding: 18px 16px 15px; transform: translate(-50%, -50%); border-radius: 12px; background: #fff; box-shadow: 0 12px 36px rgba(15, 23, 42, .24); box-sizing: border-box; text-align: center; }
+.alipay-modal-head { display: flex; align-items: center; justify-content: space-between; }
+.alipay-modal-title { color: #1d2d45; font-size: 19px; font-weight: 800; }
+.alipay-modal-close { width: 25px; height: 25px; color: #728099; font-size: 21px; line-height: 22px; text-align: center; }
+.alipay-modal-tip { margin-top: 7px; color: #6c7b91; font-size: 13px; line-height: 19px; }
+.alipay-qrcode { display: block; width: 224px; height: 224px; margin: 12px auto 8px; border: 1px solid #e7edf5; border-radius: 6px; background: #fff; }
+.alipay-modal-amount { color: #14233b; font-size: 16px; font-weight: 700; }
+.alipay-modal-order { margin-top: 4px; color: #98a5b7; font-size: 11px; word-break: break-all; }
+.alipay-query-button { margin-top: 12px; color: #fff; background: #1677ff; border-radius: 7px; font-size: 15px; font-weight: 700; }
+.alipay-query-button::after { border: 0; }
+.alipay-modal-note { margin-top: 7px; color: #9aa7b8; font-size: 11px; }
 
 .payment-note { display: flex; margin-top: 14px; align-items: flex-start; justify-content: center; color: #8c99aa; font-size: 7px; line-height: 11px; text-align: center; }
 .payment-note-icon {

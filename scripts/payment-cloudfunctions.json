@@ -28,6 +28,7 @@
       "cloudfunctions/payment-core/operations.js",
       "cloudfunctions/payment-core/products.js",
       "cloudfunctions/payment-core/provider-xingju.js",
+      "cloudfunctions/payment-core/redeem.js",
       "cloudfunctions/payment-core/signature.js",
       "cloudfunctions/payment-core/state-machine.js",
       "cloudfunctions/payment-core/storage.js"

@@ -32,11 +32,11 @@
     {
       "name": "provider",
       "path": "pages/admin-provider/admin-provider.wxss",
-      "sourceSha256": "c0e970a52e1f76c899fd5d389251aa354b3002df80d967dc8f89db073b19240d",
+      "sourceSha256": "6ab5b055cca710c2bd625e583361ea3bbd8d9795ebdc9ccefbcfbd974125f934",
       "expected": "\"Microsoft YaHei\",\"PingFang SC\",\"SimHei\",system-ui,sans-serif",
       "actual": "\"Microsoft YaHei\",\"PingFang SC\",\"SimHei\",system-ui,sans-serif",
       "pass": true
     }
   ],
-  "checkedAt": "2026-09-05T02:31:10.086Z"
+  "checkedAt": "2026-09-05T09:37:09.702Z"
 }

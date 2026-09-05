@@ -1,6 +1,6 @@
 "use strict";
 
-const { PAYMENT_STATUSES } = require("./constants");
+const { PAYMENT_STATUSES, REVIEW_OVERDUE_MS } = require("./constants");
 const { paymentError } = require("./errors");
 
 const STATUS_SET = new Set(PAYMENT_STATUSES);
@@ -10,6 +10,14 @@ const RECONCILE_STOP_STATUSES = new Set([
   "refund_review",
   "refunded",
   "review"
+]);
+const UNRESOLVED_PAYMENT_STATUSES = new Set([
+  "created",
+  "creation_unknown",
+  "review",
+  "pending",
+  "verifying",
+  "paid"
 ]);
 const TRANSITIONS = Object.freeze({
   created: new Set(["pending", "creation_unknown", "verifying", "review"]),
@@ -79,6 +87,11 @@ function transitionOrder(order, nextStatus, patch = {}, context = {}) {
       ? (patch.reviewEvidence || null)
       : context.reviewEvidence;
     value.reviewStatusVersion = nextVersion;
+    const reviewAt = context.now instanceof Date
+      ? context.now
+      : new Date(context.now || patch.reviewedAt || Date.now());
+    value.reviewedAt = reviewAt;
+    value.reviewOverdueAt = new Date(reviewAt.getTime() + REVIEW_OVERDUE_MS);
     value.attentionRequired = true;
   }
   if (source.status === "review" && nextStatus !== "review") {
@@ -90,6 +103,7 @@ function transitionOrder(order, nextStatus, patch = {}, context = {}) {
 module.exports = {
   PAYMENT_STATUSES,
   RECONCILE_STOP_STATUSES,
+  UNRESOLVED_PAYMENT_STATUSES,
   assertStatus,
   canTransition,
   transitionOrder

@@ -59,6 +59,11 @@ assert.ok(
     !/\$output\s*=\s*&\s*\$npxCommand\.Source[\s\S]*?2>&1/.test(deploySource),
   "CloudBase 直部署的 CLI 核验和超时修正必须经过有界进程封装"
 );
+assert.ok(
+  deploySource.indexOf("Ensure-LocalCloudFunctionDependencies") <
+    deploySource.indexOf("Join-Path $project \"scripts\\validate.js\""),
+  "本地校验前必须先准备云函数依赖"
+);
 const cloudHelperSource = fs.readFileSync(helperPath, "utf8");
 assert.ok(
   cloudHelperSource.includes("CloudBase 部署只允许消费 PR 已合并后的 context") &&

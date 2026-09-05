@@ -106,6 +106,29 @@ test("创建响应必须匹配订单，已知 trade_no 在 launcher 缺失时可
       type: "wxpay"
     }
   };
+  const jsapiResponse = {
+    __verified: true,
+    __responseHash: "jsapi-create-hash",
+    data: {
+      code: 0,
+      trade_no: "T-CREATE-101",
+      pay_type: "jsapi",
+      pay_info: JSON.stringify({
+        appId: "wxa5aaf3392cbeb39a",
+        timeStamp: "1700000000",
+        nonceStr: "nonce-123",
+        package: "prepay_id=wx_test_123",
+        signType: "RSA",
+        paySign: "1234567890abcdef"
+      })
+    }
+  };
+  assert.deepEqual(payment.createOrderResponseMismatches(order, jsapiResponse, config), []);
+  const jsapiProvider = new payment.XingjuProvider(config);
+  jsapiProvider.execute = async () => jsapiResponse;
+  const jsapiCreated = await jsapiProvider.createOrder(order);
+  assert.equal(jsapiCreated.providerTradeNo, "T-CREATE-101");
+  assert.equal(jsapiCreated.payment.package, "prepay_id=wx_test_123");
   assert.deepEqual(payment.createOrderResponseMismatches(order, exact, config), []);
   assert.deepEqual(
     payment.createOrderResponseMismatches(

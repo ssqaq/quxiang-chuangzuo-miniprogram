@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "renderer": "wechat-devtools-skill-cli",
+  "fixtureId": "admin-v2-reference-20260901-v1",
+  "state": "collapsed-default-v1",
+  "devtoolsVersion": "2.02.2608040",
+  "baseLibrary": "3.16.2",
+  "contractViewport": { "width": 390, "height": 844 },
+  "imageViewport": { "width": 388, "height": 840 },
+  "project": "_devtools-import-v0.57.161",
+  "captureKind": "reference",
+  "capturedAt": "2026-09-05"
+}

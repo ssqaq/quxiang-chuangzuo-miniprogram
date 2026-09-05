@@ -968,15 +968,7 @@ try {
     throw "WechatIDE login has expired. Log in again before deploying."
   }
 
-  Write-Host "2/7 Run local deployment checks"
-  & node (Join-Path $project "scripts\validate.js")
-  if ($LASTEXITCODE -ne 0) {
-    throw "Local project validation failed."
-  }
-  & node (Join-Path $project "scripts\check-deployment.js") --strict
-  if ($LASTEXITCODE -ne 0) {
-    throw "Strict deployment check failed."
-  }
+  Write-Host "2/7 Install local cloud function dependencies"
   $npmCacheInfo = Ensure-LocalCloudFunctionDependencies `
     -ApiPath $apiPath `
     -CacheRoot $NpmCachePath `
@@ -985,6 +977,24 @@ try {
   & node (Join-Path $project "scripts\check-cloudfunction-dependencies.js")
   if ($LASTEXITCODE -ne 0) {
     throw "Cloud function dependency check failed."
+  }
+
+  $paymentManifestPath = Join-Path $project "scripts\payment-cloudfunctions.json"
+  $paymentDependencyResults = Ensure-ManifestCloudFunctionDependencies `
+    -ProjectRoot $project `
+    -ManifestPath $paymentManifestPath `
+    -CacheRoot $NpmCachePath `
+    -DependencyCheckScript (Join-Path $project "scripts\check-cloudfunction-dependencies.js")
+  Write-Host "支付云函数本地依赖安装完成：$(@($paymentDependencyResults).Count) 个函数。"
+
+  Write-Host "2/7 Run local deployment checks"
+  & node (Join-Path $project "scripts\validate.js")
+  if ($LASTEXITCODE -ne 0) {
+    throw "Local project validation failed."
+  }
+  & node (Join-Path $project "scripts\check-deployment.js") --strict
+  if ($LASTEXITCODE -ne 0) {
+    throw "Strict deployment check failed."
   }
 
   Write-Host "3/7 Verify local source snapshot"

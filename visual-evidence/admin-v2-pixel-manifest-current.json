@@ -1,43 +1,55 @@
 {
   "schemaVersion": 1,
+  "renderer": "wechat-devtools-skill-cli",
   "viewport": { "width": 390, "height": 844, "device": "iPhone 12/13 (Pro)" },
   "mode": "demo=1",
   "fixtureId": "admin-v2-reference-20260901-v1",
   "fontProfile": "admin-reference-font-v1",
   "stateId": "collapsed-default-v1",
   "threshold": 32,
-  "maxDiffRatio": 0.5,
-  "baselineVersion": "0.57.133",
+  "maxDiffRatio": 0.08,
+  "baselineVersion": "0.57.161",
   "baselineStatus": "accepted",
+  "captureStatus": "captured",
+  "capturedAt": "2026-09-05",
   "capture": {
     "tool": "wechat-devtools-skill-cli",
-    "source": "visual-evidence/captured-v0.57.133-390/capture-manifest.json",
-    "generatedAt": "2026-09-03"
+    "source": "visual-evidence/devtools-current-v0.57.161-390/capture-manifest.json",
+    "renderer": "wechat-devtools-skill-cli",
+    "devtoolsVersion": "2.02.2608040",
+    "baseLibrary": "3.16.2",
+    "contractViewport": { "width": 390, "height": 844 },
+    "imageViewport": { "width": 388, "height": 840 },
+    "generatedAt": "2026-09-05"
   },
   "pages": [
     {
       "name": "dashboard",
       "route": "/pages/admin-dashboard/admin-dashboard?demo=1&fixture=admin-v2-reference-20260901-v1",
-      "actual": "visual-evidence/captured-v0.57.133-390/dashboard-390x844.png",
-      "reference": "visual-evidence/browser-reference-v5/dashboard-browser-390x844.png"
+      "actual": "visual-evidence/devtools-candidate-v0.57.161-390/dashboard-390x844.png",
+      "reference": "visual-evidence/devtools-current-v0.57.161-390/dashboard-390x844.png",
+      "renderer": "wechat-devtools-skill-cli"
     },
     {
       "name": "operations",
       "route": "/pages/admin-operations/admin-operations?view=usage&demo=1&fixture=admin-v2-reference-20260901-v1",
-      "actual": "visual-evidence/captured-v0.57.133-390/operations-390x844.png",
-      "reference": "visual-evidence/browser-reference-v5/operations-browser-390x844.png"
+      "actual": "visual-evidence/devtools-candidate-v0.57.161-390/operations-390x844.png",
+      "reference": "visual-evidence/devtools-current-v0.57.161-390/operations-390x844.png",
+      "renderer": "wechat-devtools-skill-cli"
     },
     {
       "name": "config",
       "route": "/pages/admin-config/admin-config?demo=1&fixture=admin-v2-reference-20260901-v1",
-      "actual": "visual-evidence/captured-v0.57.133-390/config-390x844.png",
-      "reference": "visual-evidence/browser-reference-v5/config-browser-390x844.png"
+      "actual": "visual-evidence/devtools-candidate-v0.57.161-390/config-390x844.png",
+      "reference": "visual-evidence/devtools-current-v0.57.161-390/config-390x844.png",
+      "renderer": "wechat-devtools-skill-cli"
     },
     {
       "name": "provider",
       "route": "/pages/admin-provider/admin-provider?demo=1&fixture=admin-v2-reference-20260901-v1",
-      "actual": "visual-evidence/captured-v0.57.133-390/provider-390x844.png",
-      "reference": "visual-evidence/browser-reference-v5/provider-browser-390x844.png"
+      "actual": "visual-evidence/devtools-candidate-v0.57.161-390/provider-390x844.png",
+      "reference": "visual-evidence/devtools-current-v0.57.161-390/provider-390x844.png",
+      "renderer": "wechat-devtools-skill-cli"
     }
   ]
 }

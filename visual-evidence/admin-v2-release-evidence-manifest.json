@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "status": "accepted",
-  "baselineVersion": "0.57.133",
+  "baselineVersion": "0.57.161",
   "retentionDays": 3,
   "requiredFiles": [
     "visual-evidence/admin-v2-pixel-manifest-current.json",

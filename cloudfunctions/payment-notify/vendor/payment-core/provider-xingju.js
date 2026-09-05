@@ -195,18 +195,19 @@ function providerEnvelope(value) {
 function createOrderResponseMismatches(order, response, providerConfig) {
   const data = providerEnvelope(response);
   const mismatches = [];
-  if (!data.out_trade_no || String(data.out_trade_no) !== String(order.outTradeNo)) {
+  if (data.out_trade_no && String(data.out_trade_no) !== String(order.outTradeNo)) {
     mismatches.push("outTradeNo");
   }
-  if (moneyToFen(data.money) !== Number(order.amountFen)) mismatches.push("amountFen");
+  if (data.money !== undefined && data.money !== null && moneyToFen(data.money) !== Number(order.amountFen)) {
+    mismatches.push("amountFen");
+  }
   if (
-    !data.pid
-    || String(data.pid) !== String(providerConfig.pid)
-    || String(order.pid) !== String(providerConfig.pid)
+    (data.pid && String(data.pid) !== String(providerConfig.pid))
+    || (order.pid && String(order.pid) !== String(providerConfig.pid))
   ) {
     mismatches.push("pid");
   }
-  if (!data.type || String(data.type) !== String(order.channel)) mismatches.push("channel");
+  if (data.type && String(data.type) !== String(order.channel)) mismatches.push("channel");
   if (!String(data.trade_no || "").trim()) mismatches.push("providerTradeNo");
   return mismatches;
 }
@@ -232,11 +233,16 @@ class XingjuProvider {
 
   async createOrder(order) {
     const params = {
+      method: "jsapi",
       type: "wxpay",
       notify_url: this.config.notifyUrl,
       out_trade_no: order.outTradeNo,
       name: `AIPS ${order.grantPoints} 积分`,
-      money: order.amountMoney
+      money: order.amountMoney,
+      clientip: order.clientIp || "127.0.0.1",
+      sub_openid: order.openid,
+      sub_appid: order.subAppid,
+      is_applet: 1
     };
     if (this.config.returnUrl) params.return_url = this.config.returnUrl;
     const response = await this.execute("api/pay/create", params);

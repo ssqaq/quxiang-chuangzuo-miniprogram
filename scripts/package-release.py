@@ -380,6 +380,7 @@ def should_include(path: Path, source_root: Path) -> bool:
         or ".superpowers" in relative.parts
         or ".worktrees" in relative.parts
         or ".githooks" in relative.parts
+        or "artifacts" in relative.parts
         or "__pycache__" in relative.parts
     ):
         return False

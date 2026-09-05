@@ -145,6 +145,7 @@ const jsFiles = [
   "pages/user-center/user-center.js",
   "pages/account-records/account-records.js",
   "pages/recharge/recharge.js",
+  "pages/redeem/redeem.js",
   "scripts/admin-image-api-key-display-smoke.js",
   "scripts/admin-runtime-compat-smoke.js",
   "scripts/admin-loading-smoke.js",
@@ -721,7 +722,7 @@ const uniqueDatabaseIndexNames = uniqueDatabaseIndexes
 if (
   databaseIndexes.version !== 1
   || !Array.isArray(databaseIndexes.indexes)
-  || databaseIndexes.indexes.length !== 24
+  || databaseIndexes.indexes.length !== 25
   || databaseIndexes.indexes.some((item) => typeof item.unique !== "boolean")
   || uniqueDatabaseIndexes.length !== 2
   || uniqueDatabaseIndexNames.join(",") !== [

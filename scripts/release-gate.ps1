@@ -1,4 +1,4 @@
-﻿Set-StrictMode -Version Latest
+Set-StrictMode -Version Latest
 
 # Shared release-gate primitives.  The orchestration entry point is release.ps1.
 

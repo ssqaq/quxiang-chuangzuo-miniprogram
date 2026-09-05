@@ -2,6 +2,8 @@ const config = require("./config");
 const diagnosticLog = require("./utils/diagnostic-log");
 const cloud = require("./services/cloud");
 const visualTestBuild = config.buildProfile === "visual-test";
+const LEGACY_USER_ROUTE = "pages/user/user";
+const LEGACY_USER_TARGET_ROUTE = "/pages/workbench/workbench";
 
 App({
   globalData: {
@@ -71,7 +73,20 @@ App({
     });
   },
 
-  onShow() {
+  onShow(options = {}) {
+    const path = String(options.path || options.route || "").replace(/^\/+/, "");
+    if (path === LEGACY_USER_ROUTE && !this._legacyUserRedirecting) {
+      this._legacyUserRedirecting = true;
+      wx.reLaunch({
+        url: LEGACY_USER_TARGET_ROUTE,
+        complete: () => {
+          setTimeout(() => {
+            this._legacyUserRedirecting = false;
+          }, 1200);
+        }
+      });
+      return;
+    }
     if (this.globalData.cloudReady) diagnosticLog.flushRemote();
   },
 
@@ -80,6 +95,10 @@ App({
   },
 
   onPageNotFound(event = {}) {
+    if (String(event.path || "").replace(/^\/+/, "") === LEGACY_USER_ROUTE) {
+      wx.reLaunch({ url: LEGACY_USER_TARGET_ROUTE });
+      return;
+    }
     diagnosticLog.error("navigation", "page-not-found", "访问了不存在的页面", {
       route: event.path || "",
       query: event.query || {},

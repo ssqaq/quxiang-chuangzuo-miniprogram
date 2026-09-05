@@ -16,7 +16,7 @@ function assertNonBlankString(value, label) {
 
 assert.strictEqual(manifest.version, 1, "manifest.version 必须为 1");
 assert.ok(Array.isArray(manifest.indexes), "manifest.indexes 必须是数组");
-assert.strictEqual(manifest.indexes.length, 24, "manifest.indexes.length 必须为 24");
+assert.strictEqual(manifest.indexes.length, 25, "manifest.indexes.length 必须为 25");
 assert.deepStrictEqual(
   manifest.indexes.find((index) => (
     index.collection === "generation_operations"

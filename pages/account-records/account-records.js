@@ -28,6 +28,7 @@ Page({
     filters: [
       { id: "all", label: "全部" },
       { id: "recharge", label: "充值" },
+      { id: "redeem", label: "兑换" },
       { id: "spend", label: "消费" },
       { id: "reward", label: "奖励" },
       { id: "refund", label: "退款" }

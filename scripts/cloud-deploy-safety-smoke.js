@@ -54,6 +54,11 @@ assert.ok(
   deploySource.includes("Assert-CloudDeploySourceSnapshotStable"),
   "真实部署必须检查云函数源码快照"
 );
+assert.ok(
+  deploySource.includes("Invoke-CloudBaseProcess") &&
+    !/\$output\s*=\s*&\s*\$npxCommand\.Source[\s\S]*?2>&1/.test(deploySource),
+  "CloudBase 直部署的 CLI 核验和超时修正必须经过有界进程封装"
+);
 const cloudHelperSource = fs.readFileSync(helperPath, "utf8");
 assert.ok(
   cloudHelperSource.includes("CloudBase 部署只允许消费 PR 已合并后的 context") &&
@@ -165,6 +170,19 @@ try {
   const apiRoot = path.join(tempRoot, "api");
   fs.mkdirSync(apiRoot, { recursive: true });
   fs.writeFileSync(path.join(apiRoot, "index.js"), "module.exports = 1;\n");
+
+  const timeoutNpx = path.join(tempRoot, "fake-npx-timeout.cmd");
+  fs.writeFileSync(timeoutNpx, ["@echo off", "powershell -NoProfile -NonInteractive -Command \"Start-Sleep -Seconds 30\"", "exit /b 0", ""].join("\r\n"));
+  const timeoutCommand = [
+    `. ${psQuote(helperPath)}`,
+    `$caught = $false`,
+    `try { Invoke-CloudBaseFunctionDeploy -EnvironmentId 'env-smoke' -FunctionName 'api' -ApiPath ${psQuote(apiRoot)} -ProcessTimeoutSeconds 1 -NpxPath ${psQuote(timeoutNpx)} | Out-Null } catch { if ($_.Exception.Message -like '*CLOUDBASE_DEPLOY_TIMEOUT*') { $caught = $true } else { throw } }`,
+    `if (-not $caught) { throw 'CloudBase timeout was not enforced.' }`,
+    "Write-Output 'DIRECT_TIMEOUT_OK'",
+  ].join("; ");
+  const timeoutResult = runPowerShell(timeoutCommand);
+  assert.strictEqual(timeoutResult.status, 0, `CloudBase 超时终止测试失败\n${timeoutResult.stdout}\n${timeoutResult.stderr}`);
+  assert.ok(timeoutResult.stdout.includes("DIRECT_TIMEOUT_OK"));
 
   const successLog = path.join(tempRoot, "cloudbase-success.log");
   const successNpx = path.join(tempRoot, "fake-npx-success.cmd");

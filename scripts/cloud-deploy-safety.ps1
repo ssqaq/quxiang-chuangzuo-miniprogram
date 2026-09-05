@@ -614,6 +614,65 @@ function Resolve-CloudDeployTransport {
     throw "自动部署没有可用的 CloudBase CLI 或微信开发者工具 CLI。"
 }
 
+function Invoke-CloudBaseProcess {
+    param(
+        [Parameter(Mandatory = $true)][string]$FilePath,
+        [Parameter(Mandatory = $true)][string[]]$Arguments,
+        [Parameter(Mandatory = $true)][string]$WorkingDirectory,
+        [ValidateRange(1, 3600)][int]$TimeoutSeconds = 60,
+        [hashtable]$Environment = @{}
+    )
+
+    $startInfo = [Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $FilePath
+    $startInfo.WorkingDirectory = $WorkingDirectory
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    foreach ($argument in $Arguments) {
+        [void]$startInfo.ArgumentList.Add([string]$argument)
+    }
+    foreach ($entry in $Environment.GetEnumerator()) {
+        $startInfo.Environment[$entry.Key] = [string]$entry.Value
+    }
+
+    $process = [Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+    try {
+        if (-not $process.Start()) { throw "CloudBase CLI 子进程启动失败。" }
+        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+        $stderrTask = $process.StandardError.ReadToEndAsync()
+        $completed = $process.WaitForExit($TimeoutSeconds * 1000)
+        if (-not $completed) {
+            try {
+                $process.Kill($true)
+            }
+            catch {
+                try { & taskkill.exe /PID $process.Id /T /F *> $null } catch { }
+            }
+            $process.WaitForExit(5000) | Out-Null
+            return [pscustomobject]@{
+                ExitCode = $null
+                TimedOut = $true
+                Stdout = $stdoutTask.GetAwaiter().GetResult()
+                Stderr = $stderrTask.GetAwaiter().GetResult()
+                ProcessId = $process.Id
+            }
+        }
+        return [pscustomobject]@{
+            ExitCode = $process.ExitCode
+            TimedOut = $false
+            Stdout = $stdoutTask.GetAwaiter().GetResult()
+            Stderr = $stderrTask.GetAwaiter().GetResult()
+            ProcessId = $process.Id
+        }
+    }
+    finally {
+        $process.Dispose()
+    }
+}
+
 function Invoke-CloudBaseFunctionDeploy {
     param(
         [Parameter(Mandatory = $true)]
@@ -624,6 +683,7 @@ function Invoke-CloudBaseFunctionDeploy {
         [string]$ApiPath,
         [ValidateRange(1, 900)]
         [int]$TimeoutSeconds = 900,
+        [ValidateRange(1, 3600)][int]$ProcessTimeoutSeconds = 180,
         [string]$NpxPath = ""
     )
 
@@ -668,27 +728,20 @@ function Invoke-CloudBaseFunctionDeploy {
             [Text.UTF8Encoding]::new($false)
         )
 
-        Push-Location $tempRoot
-        try {
-            $output = & $npx `
-                -y `
-                -p "@cloudbase/cli" `
-                tcb `
-                fn `
-                deploy `
-                $FunctionName `
-                --dir $api `
-                --force `
-                --install-dependency true `
-                --json 2>&1
-            $exitCode = $LASTEXITCODE
+        $result = Invoke-CloudBaseProcess `
+            -FilePath $npx `
+            -WorkingDirectory $tempRoot `
+            -TimeoutSeconds $ProcessTimeoutSeconds `
+            -Arguments @(
+                "-y", "-p", "@cloudbase/cli", "tcb", "fn", "deploy", $FunctionName,
+                "--dir", $api, "--force", "--install-dependency", "true", "--json"
+            )
+        if ($result.TimedOut) {
+            throw "CLOUDBASE_DEPLOY_TIMEOUT：CloudBase 直部署超过 $ProcessTimeoutSeconds 秒，已终止子进程树。"
         }
-        finally {
-            Pop-Location
-        }
-        if ($exitCode -ne 0) {
+        if ($result.ExitCode -ne 0) {
             # CLI 原始输出可能带环境变量或其他敏感信息，绝不回显。
-            throw "CloudBase 直部署失败，退出码：$exitCode。未自动切换到另一种部署方式。"
+            throw "CloudBase 直部署失败，退出码：$($result.ExitCode)。未自动切换到另一种部署方式。"
         }
         return [pscustomobject]@{
             Transport = "cloudbase"
@@ -710,7 +763,8 @@ function Invoke-CloudBaseFunctionDeploy {
 function Invoke-CloudBaseCliJson {
     param(
         [Parameter(Mandatory = $true)][string[]]$Arguments,
-        [string]$NpxPath = ""
+        [string]$NpxPath = "",
+        [ValidateRange(1, 3600)][int]$TimeoutSeconds = 60
     )
 
     $npx = if ([string]::IsNullOrWhiteSpace($NpxPath)) {
@@ -723,24 +777,20 @@ function Invoke-CloudBaseCliJson {
         throw "CloudBase CLI 不可用，无法执行只读核验。"
     }
 
-    $previousErrorActionPreference = $ErrorActionPreference
-    $ErrorActionPreference = "Continue"
-    try {
-        $output = & $npx `
-            -y `
-            -p "@cloudbase/cli" `
-            tcb `
-            @Arguments `
-            2>&1
-        $exitCode = $LASTEXITCODE
+    $result = Invoke-CloudBaseProcess `
+        -FilePath $npx `
+        -WorkingDirectory ([Environment]::CurrentDirectory) `
+        -TimeoutSeconds $TimeoutSeconds `
+        -Arguments (@("-y", "-p", "@cloudbase/cli", "tcb") + $Arguments)
+    if ($result.TimedOut) {
+        throw "CLOUDBASE_CLI_TIMEOUT：CloudBase 只读请求超过 $TimeoutSeconds 秒，已终止子进程树。"
     }
-    finally {
-        $ErrorActionPreference = $previousErrorActionPreference
-    }
-    if ($exitCode -ne 0) {
+    if ($result.ExitCode -ne 0) {
         throw "CloudBase CLI 请求失败（原始输出已隐藏，防止环境变量或密钥泄露）。"
     }
-    $text = ($output | Out-String).Trim()
+    $text = [string]$result.Stdout
+    if ([string]::IsNullOrWhiteSpace($text)) { $text = [string]$result.Stderr }
+    $text = $text.Trim()
     $jsonStart = $text.IndexOf("{")
     if ($jsonStart -lt 0) {
         throw "CloudBase CLI 没有返回可解析的 JSON（原始输出已隐藏）。"

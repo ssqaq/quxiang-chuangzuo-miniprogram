@@ -1,4 +1,4 @@
-Set-StrictMode -Version Latest
+﻿Set-StrictMode -Version Latest
 
 # Shared release-gate primitives.  The orchestration entry point is release.ps1.
 
@@ -161,13 +161,61 @@ function Test-ReleasePathEqual {
     )
 }
 
+$script:ReleaseGitTransport = "Https"
+$script:GitSshKeyPath = ""
+$script:GitTransportState = [ordered]@{ transport = "Https"; host = "github.com"; sshPort = 22; proxyConfigured = $false; connectTimeout = 21; retryCount = 0; remoteRefVerified = $false; sshKeyHash = "" }
+
+function Set-ReleaseGitTransport {
+    param([ValidateSet("Https", "Ssh443")][string]$Transport = "Https", [string]$SshKeyPath = "")
+    if ($Transport -eq "Ssh443") {
+        if ([string]::IsNullOrWhiteSpace($SshKeyPath)) { throw "Ssh443 transport requires -SshKeyPath." }
+        $resolved = [IO.Path]::GetFullPath($SshKeyPath)
+        if (-not (Test-Path -LiteralPath $resolved -PathType Leaf)) { throw "SSH key file does not exist: $resolved" }
+        $script:GitSshKeyPath = $resolved
+        $script:GitTransportState.transport = "Ssh443"
+        $script:GitTransportState.host = "ssh.github.com"
+        $script:GitTransportState.sshPort = 443
+        $script:GitTransportState.connectTimeout = 10
+        $script:GitTransportState.sshKeyHash = (Get-FileHash -LiteralPath $resolved -Algorithm SHA256).Hash
+    }
+    # Keep the internal state name distinct from release.ps1's public
+    # -GitTransport parameter; dot-sourcing this file must not overwrite it.
+    $script:ReleaseGitTransport = $Transport
+    $script:GitTransportState.transport = $Transport
+}
+
+function Test-ReleaseGitNetworkCommand {
+    param([string[]]$Arguments)
+    return $Arguments.Count -gt 0 -and @("fetch", "ls-remote", "push") -contains [string]$Arguments[0]
+}
+
 function Invoke-ReleaseGit {
     param(
         [Parameter(Mandatory = $true)][string]$WorkingDirectory,
         [Parameter(Mandatory = $true)][string[]]$Arguments,
         [switch]$AllowFailure
     )
-    $output = & git -C $WorkingDirectory @Arguments 2>&1
+    $effectiveArguments = @($Arguments)
+    $oldSsh = $env:GIT_SSH_COMMAND; $oldPrompt = $env:GIT_TERMINAL_PROMPT; $oldGcm = $env:GCM_INTERACTIVE
+    try {
+        if (($script:ReleaseGitTransport -eq "Ssh443" -or -not [string]::IsNullOrWhiteSpace($env:GIT_SSH_COMMAND)) -and (Test-ReleaseGitNetworkCommand -Arguments $Arguments)) {
+            $effectiveArguments = @("-c", "url.ssh://git@ssh.github.com:443/ssqaq/quxiang-chuangzuo-miniprogram.git.insteadOf=https://github.com/ssqaq/quxiang-chuangzuo-miniprogram.git") + $effectiveArguments
+            if ([string]::IsNullOrWhiteSpace($script:GitSshKeyPath) -and -not [string]::IsNullOrWhiteSpace($env:GIT_SSH_COMMAND)) {
+                # Keep the caller-provided, already validated SSH command when
+                # a nested release process only inherited the environment.
+                $env:GIT_SSH_COMMAND = $env:GIT_SSH_COMMAND
+            }
+            else {
+                $env:GIT_SSH_COMMAND = "ssh -o IdentitiesOnly=yes -o ConnectTimeout=10 -i $($script:GitSshKeyPath.Replace('\','/')) -p 443"
+            }
+            $env:GIT_TERMINAL_PROMPT = "0"
+            $env:GCM_INTERACTIVE = "never"
+        }
+        $output = & git -C $WorkingDirectory @effectiveArguments 2>&1
+    }
+    finally {
+        $env:GIT_SSH_COMMAND = $oldSsh; $env:GIT_TERMINAL_PROMPT = $oldPrompt; $env:GCM_INTERACTIVE = $oldGcm
+    }
     if (-not $AllowFailure -and $LASTEXITCODE -ne 0) {
         throw "Git 命令失败：git -C $WorkingDirectory $($Arguments -join ' ')`n$($output -join "`n")"
     }
@@ -213,14 +261,17 @@ function Assert-ReleaseGitRepository {
         throw "发布源不能从 worktree 直接发布；请通过 release.ps1 的 SourcePath 读取文件。"
     }
     $branch = Get-ReleaseGitValue -WorkingDirectory $path -Arguments @("branch", "--show-current")
+    $dirtyLines = @(Invoke-ReleaseGit -WorkingDirectory $path -Arguments @("status", "--porcelain") -AllowFailure | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
     return [pscustomobject]@{
         Path = $path
         Root = $root
         Remote = $remote.Trim()
         Branch = $branch.Trim()
+        Dirty = $dirtyLines.Count -gt 0
         IsWorktree = $isWorktree
         Commit = Get-ReleaseGitValue -WorkingDirectory $path -Arguments @("rev-parse", "HEAD")
         CommonDir = $commonDirFull
+        DirtyFiles = @($dirtyLines | ForEach-Object { [string]$_ })
     }
 }
 
@@ -280,7 +331,7 @@ function Normalize-ReleaseIncludePaths {
             if ($normalized -match '[*?\[\]]') {
                 throw "IncludePath 不允许通配符：$value"
             }
-            if ($normalized -match '(^|/)(?:\.env(?:\..*)?|project\.private\.config\.json|.*(?:secret|apikey|api_key|appsecret).*)$') {
+            if ($normalized -match '(^|/)(?:\.env$|\.env\.(?!example$)[^/]+|project\.private\.config\.json|.*(?:secret|apikey|api_key|appsecret).*)$') {
                 throw "IncludePath 疑似包含敏感文件，已拒绝：$value"
             }
             if (-not $result.Contains($normalized)) {
@@ -316,6 +367,56 @@ function Get-ReleaseFileSnapshot {
         }
     }
     return $snapshot
+}
+
+function Get-CanonicalVersionConflict {
+    param([Parameter(Mandatory = $true)][string]$RepositoryPath)
+    $values = [ordered]@{}
+    $files = @(
+        @{ Path = "config.js"; Pattern = 'appVersion:\s*"([^"]+)"' },
+        @{ Path = "cloudfunctions/api/index.js"; Pattern = 'API_BUILD_VERSION\s*=\s*"([^"]+)"' }
+    )
+    foreach ($item in $files) {
+        $full = Join-Path $RepositoryPath $item.Path
+        if (Test-Path -LiteralPath $full -PathType Leaf) {
+            $text = Get-Content -LiteralPath $full -Raw -Encoding UTF8
+            $match = [regex]::Match($text, $item.Pattern)
+            if ($match.Success) { $values[$item.Path] = $match.Groups[1].Value }
+        }
+    }
+    $distinct = @($values.Values | Sort-Object -Unique)
+    return [pscustomobject]@{
+        conflict = $distinct.Count -gt 1
+        files = @($values.Keys)
+        values = $values
+    }
+}
+
+function Get-ReleaseSnapshotSha256 {
+    param([Parameter(Mandatory = $true)][object]$Snapshot)
+    $items = @($Snapshot.GetEnumerator() | ForEach-Object {
+        [ordered]@{ path = [string]$_.Key; exists = [bool]$_.Value.exists; sha256 = [string]$_.Value.sha256 }
+    } | Sort-Object path)
+    return Get-ReleaseCanonicalJsonSha256 -Value ([ordered]@{ files = $items })
+}
+
+function Get-ReleaseCanonicalJsonSha256 {
+    param([Parameter(Mandatory = $true)][object]$Value)
+    $json = $Value | ConvertTo-Json -Depth 40 -Compress
+    $bytes = [Text.UTF8Encoding]::new($false).GetBytes($json)
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { return ([BitConverter]::ToString($sha.ComputeHash($bytes))).Replace('-', '').ToLowerInvariant() }
+    finally { $sha.Dispose() }
+}
+
+function Get-ReleaseProjectConfigAppId {
+    param([Parameter(Mandatory = $true)][string]$ProjectPath)
+    $configPath = Join-Path ([IO.Path]::GetFullPath($ProjectPath)) "project.config.json"
+    try { $config = Get-Content -LiteralPath $configPath -Raw -Encoding UTF8 | ConvertFrom-Json -ErrorAction Stop }
+    catch { throw "预览项目配置无法读取。" }
+    $appId = [string]$config.appid
+    if ($appId -notmatch '^wx[a-f0-9]{13,}$') { throw "预览项目 AppID 格式无效。" }
+    return $appId
 }
 
 function Assert-ReleaseFileSnapshotStable {
@@ -1074,6 +1175,14 @@ function New-ReleaseContext {
         [Parameter(Mandatory = $true)][string]$TreeSha,
         [Parameter(Mandatory = $true)][string]$SourceSha256,
         [Parameter(Mandatory = $true)][string]$ArtifactPath,
+        [string]$SourceInputPath = "",
+        [string]$SourcePath = "",
+        [bool]$SourceDirty = $false,
+        [string]$SourceSnapshotSha256 = "",
+        [string]$RemoteName = "origin",
+        [string]$RemoteUrl = "",
+        [string]$AppId = "",
+        [string]$ExpectedAppId = "",
         [int]$ExpiresMinutes = 180,
         [string]$BaseHead = "",
         [string]$QueueTicketPath = "",
@@ -1087,8 +1196,16 @@ function New-ReleaseContext {
         schemaVersion = 2
         operationId = $OperationId
         canonicalRepo = [IO.Path]::GetFullPath([string]$Policy.canonicalRepo)
-        remote = [string]$Policy.remote
+        remote = if ([string]::IsNullOrWhiteSpace($RemoteUrl)) { [string]$Policy.remote } else { $RemoteUrl }
+        remoteName = $RemoteName
+        remoteUrl = if ([string]::IsNullOrWhiteSpace($RemoteUrl)) { [string]$Policy.remote } else { $RemoteUrl }
         branch = [string]$Policy.branch
+        sourceInputPath = if ([string]::IsNullOrWhiteSpace($SourceInputPath)) { [string]$SourcePath } else { $SourceInputPath }
+        sourcePath = if ([string]::IsNullOrWhiteSpace($SourcePath)) { "" } else { [IO.Path]::GetFullPath($SourcePath) }
+        sourceDirty = [bool]$SourceDirty
+        sourceSnapshotSha256 = [string]$SourceSnapshotSha256.ToLowerInvariant()
+        appId = [string]$AppId
+        expectedAppId = if ([string]::IsNullOrWhiteSpace($ExpectedAppId)) { [string]$AppId } else { [string]$ExpectedAppId }
         version = $Version
         sourceCommit = $SourceCommit
         releaseCommit = $ReleaseCommit
@@ -1117,12 +1234,15 @@ function Assert-ReleaseContextShape {
         [Parameter(Mandatory = $true)][object]$Context,
         [Parameter(Mandatory = $true)][object]$Policy
     )
-    foreach ($name in @("schemaVersion", "operationId", "canonicalRepo", "version", "sourceCommit", "releaseCommit", "treeSha", "sourceSha256", "artifactPath", "expiresAt")) {
+    foreach ($name in @("schemaVersion", "operationId", "canonicalRepo", "sourceInputPath", "sourcePath", "sourceCommit", "sourceSnapshotSha256", "releaseCommit", "treeSha", "sourceSha256", "artifactPath", "appId", "expectedAppId", "expiresAt")) {
         if ($null -eq $Context.PSObject.Properties[$name] -or [string]::IsNullOrWhiteSpace([string]$Context.$name)) {
             throw "release context 缺少字段：$name"
         }
     }
     if ([int]$Context.schemaVersion -notin @(1, 2)) { throw "不支持的 release context schemaVersion：$($Context.schemaVersion)" }
+    if (-not [string]::Equals([string]$Context.remoteName, "origin", [StringComparison]::OrdinalIgnoreCase)) { throw "release context remoteName 必须是 origin。" }
+    if (-not [string]::Equals([string]$Context.remoteUrl, [string]$Policy.remote, [StringComparison]::OrdinalIgnoreCase)) { throw "release context remoteUrl 不匹配策略。" }
+    if ($Context.sourceDirty -isnot [bool]) { throw "release context sourceDirty 必须是布尔值。" }
     if (-not (Test-ReleasePathEqual -Left ([string]$Context.canonicalRepo) -Right ([string]$Policy.canonicalRepo))) { throw "release context canonicalRepo 不匹配策略。" }
     $remoteProperty = $Context.PSObject.Properties["remote"]
     if ($null -ne $remoteProperty -and -not [string]::Equals([string]$remoteProperty.Value, [string]$Policy.remote, [StringComparison]::OrdinalIgnoreCase)) {
@@ -1133,7 +1253,9 @@ function Assert-ReleaseContextShape {
         throw "release context branch 不匹配策略。"
     }
     if ([string]$Context.version -notmatch '^\d+\.\d+\.\d+$') { throw "release context 版本号无效：$($Context.version)" }
+    if ([string]$Context.sourceSnapshotSha256 -notmatch '^[0-9a-fA-F]{64}$') { throw "release context sourceSnapshotSha256 无效。" }
     if ([string]$Context.sourceSha256 -notmatch '^[0-9a-fA-F]{64}$') { throw "release context 源码 SHA256 无效。" }
+    if (-not [string]::Equals([string]$Context.appId, [string]$Context.expectedAppId, [StringComparison]::OrdinalIgnoreCase)) { throw "release context appId 与 expectedAppId 不一致。" }
     if ([string]$Context.releaseCommit -notmatch '^[0-9a-fA-F]{7,64}$') { throw "release context releaseCommit 无效。" }
     if ([string]$Context.treeSha -notmatch '^[0-9a-fA-F]{7,64}$') { throw "release context treeSha 无效。" }
     if ([int]$Context.schemaVersion -ge 2) {
@@ -2098,8 +2220,7 @@ function Invoke-ReleasePullRequest {
     # Never force-push.  The branch is immutable for an operation; a non-fast
     # forward error means the remote branch was tampered with and must be
     # investigated instead of overwritten.
-    $push = & git -C $RepositoryRoot push origin "$CommitSha`:refs/heads/$Branch" 2>&1
-    if ($LASTEXITCODE -ne 0) { throw "PR 发布分支推送失败：$($push -join "`n")" }
+    $push = Invoke-ReleaseGit -WorkingDirectory $RepositoryRoot -Arguments @("push", "origin", "$CommitSha`:refs/heads/$Branch")
     if ([string]::IsNullOrWhiteSpace($prUrl)) {
         $title = "release: v$Version ($OperationId)"
         $body = "由统一发布闸门生成。operationId=$OperationId`nreleaseCommit=$CommitSha`n目标：main（PR-only）"

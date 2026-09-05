@@ -8,7 +8,7 @@
     {
       "name": "dashboard",
       "path": "pages/admin-dashboard/admin-dashboard.wxss",
-      "sourceSha256": "f7d748143fa8a3969f550801a2fdeecc2f7d76e3a7cd7c6cfa1561199b1793c0",
+      "sourceSha256": "a123f1064297f0210f878143f0069589fbc1ce789c6f1311974223e196d29dd7",
       "expected": "\"Microsoft YaHei\",\"PingFang SC\",\"SimHei\",system-ui,sans-serif",
       "actual": "\"Microsoft YaHei\",\"PingFang SC\",\"SimHei\",system-ui,sans-serif",
       "pass": true
@@ -16,7 +16,7 @@
     {
       "name": "operations",
       "path": "pages/admin-operations/admin-operations.wxss",
-      "sourceSha256": "6986c9859c381972df96eaf093ae2cf24c763653ca6b45b8da634255052989aa",
+      "sourceSha256": "d845e61bfb3ea8dbd44e616b8a9006a2cda1ca377a9920da0d55d52b99ca892c",
       "expected": "\"Microsoft YaHei\",\"PingFang SC\",\"SimHei\",system-ui,sans-serif",
       "actual": "\"Microsoft YaHei\",\"PingFang SC\",\"SimHei\",system-ui,sans-serif",
       "pass": true
@@ -24,7 +24,7 @@
     {
       "name": "config",
       "path": "pages/admin-config/admin-config.wxss",
-      "sourceSha256": "754e2507f63ea8529e780ac8adab183ed559c182a1941997e272c9114c66d279",
+      "sourceSha256": "299802629cc53318711ff90bdd68c19c53903e8a39bf97bc892604965695da80",
       "expected": "\"Microsoft YaHei\",\"PingFang SC\",\"SimHei\",system-ui,sans-serif",
       "actual": "\"Microsoft YaHei\",\"PingFang SC\",\"SimHei\",system-ui,sans-serif",
       "pass": true
@@ -32,11 +32,11 @@
     {
       "name": "provider",
       "path": "pages/admin-provider/admin-provider.wxss",
-      "sourceSha256": "7a0acb3c29e68c86b150d34b9a922aeaad5b991bed9757b69e77f70761b72220",
+      "sourceSha256": "c0e970a52e1f76c899fd5d389251aa354b3002df80d967dc8f89db073b19240d",
       "expected": "\"Microsoft YaHei\",\"PingFang SC\",\"SimHei\",system-ui,sans-serif",
       "actual": "\"Microsoft YaHei\",\"PingFang SC\",\"SimHei\",system-ui,sans-serif",
       "pass": true
     }
   ],
-  "checkedAt": "2026-09-04T13:45:16.364Z"
+  "checkedAt": "2026-09-05T01:56:43.287Z"
 }

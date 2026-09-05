@@ -29,6 +29,17 @@ const ACCOUNT_ERROR_MESSAGES = Object.freeze({
   ACCOUNT_RECORDS_PAGINATION_UNAVAILABLE: "积分记录暂不支持翻页，请稍后重试。",
   PAYMENT_ORDER_CREATION_DISABLED: "充值服务暂未开放。",
   PAYMENT_RECHARGE_DISABLED: "充值服务暂未开放。",
+  PAYMENT_ALIPAY_PROTOCOL_UNCONFIRMED: "支付宝通道正在核验，请稍后重试。",
+  PAYMENT_ORDER_REVIEW_REQUIRED: "您有一笔相同套餐订单正在核实，请联系客服。",
+  PAYMENT_PROVIDER_QUERY_REFERENCE_MISSING: "订单核实中，请联系客服确认。",
+  PAYMENT_QRCODE_MISSING: "支付宝二维码生成失败，请稍后重试。",
+  PAYMENT_CREATION_UNKNOWN: "支付结果确认中，请稍后查看。",
+  REDEEM_CODE_INVALID: "兑换码格式不正确。",
+  REDEEM_ATTEMPT_ID_INVALID: "兑换请求编号无效。",
+  REDEEM_ATTEMPT_CONFLICT: "兑换请求已绑定其他兑换码。",
+  REDEEM_REQUEST_NOT_FOUND: "兑换记录不存在。",
+  REDEEM_REQUEST_CONFLICT: "兑换请求已绑定其他兑换码。",
+  REDEEM_LEDGER_CONFLICT: "兑换记录需要人工核验。",
   PAYMENT_RECORD_CURSOR_INVALID: "收支记录已更新，请重新加载。",
   PAYMENT_RECORD_CURSOR_MISSING: "收支记录已更新，请重新加载。"
 });
@@ -215,13 +226,16 @@ function normalizeAccount(source = {}) {
     pointsBalanceText: formatPoints(account.pointsBalance, { fallback: "0" }),
     totalPurchasedPoints,
     totalPurchasedPointsText: formatPoints(totalPurchasedPoints, { fallback: "0" }),
-    totalReversedPurchasedPoints: Math.max(0, safeNumber(account.totalReversedPurchasedPoints))
+    totalReversedPurchasedPoints: Math.max(0, safeNumber(account.totalReversedPurchasedPoints)),
+    totalRedeemedPoints: Math.max(0, safeNumber(account.totalRedeemedPoints)),
+    totalRedeemedPointsText: formatPoints(account.totalRedeemedPoints, { fallback: "0" })
   };
 }
 
 function recordKind(type) {
   const value = String(type || "").trim().toLowerCase();
   if (value === "recharge") return "recharge";
+  if (value === "redeem" || value === "voucher") return "redeem";
   if (value === "spend" || value === "consume") return "spend";
   if (value === "refund" || value === "payment-reversal") return "refund";
   if (value === "checkin" || value === "check-in") return "checkin";
@@ -233,6 +247,7 @@ function recordKind(type) {
 function recordMeta(kind) {
   const map = {
     recharge: { icon: "充", label: "积分充值", tone: "recharge" },
+    redeem: { icon: "兑", label: "兑换积分", tone: "redeem" },
     spend: { icon: "消", label: "积分消费", tone: "spend" },
     refund: { icon: "退", label: "积分退回", tone: "refund" },
     checkin: { icon: "签", label: "签到奖励", tone: "checkin" },
@@ -279,10 +294,10 @@ function normalizeChannels(channels) {
     return channels
       .map((item) => typeof item === "string" ? item : item && (item.id || item.channel || item.provider))
       .map((item) => String(item || "").toLowerCase())
-      .filter((item, index, list) => item === "wxpay" && list.indexOf(item) === index);
+      .filter((item, index, list) => ["wxpay", "alipay"].includes(item) && list.indexOf(item) === index);
   }
   if (channels && typeof channels === "object") {
-    return Object.keys(channels).filter((key) => key === "wxpay" && Boolean(channels[key]));
+    return Object.keys(channels).filter((key) => ["wxpay", "alipay"].includes(key) && Boolean(channels[key]));
   }
   return [];
 }
@@ -312,6 +327,7 @@ function normalizeRechargeConfig(result = {}) {
     eligible: Boolean(result.eligible),
     channels,
     hasWxpay: channels.includes("wxpay"),
+    hasAlipay: channels.includes("alipay"),
     products: normalizeProducts(result.products || result.packages),
     message: String(result.message || "").trim()
   };

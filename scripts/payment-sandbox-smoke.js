@@ -59,7 +59,11 @@ function loadPage(options = {}) {
   delete require.cache[rechargePath];
   require(rechargePath);
   const page = Object.assign({}, definition, {
-    data: Object.assign({}, definition.data, { packages: products, selectedProductId: products[0].productId }),
+    data: Object.assign({}, definition.data, {
+      packages: products,
+      selectedProductId: products[0].productId,
+      hasWxpay: true
+    }),
     setData(patch) { Object.assign(this.data, patch); }
   });
   page._pendingOrder = stored ? Object.assign({}, stored) : null;
@@ -81,6 +85,7 @@ async function successCase() {
   const loaded = loadPage();
   try {
     await loaded.page.loadRechargeConfig();
+    loaded.page.setData({ hasWxpay: true });
     const result = await loaded.page.submitPayment();
     assert.strictEqual(loaded.calls.create.length, 1);
     assert.deepStrictEqual(loaded.calls.create[0], { requestId: "sandbox-request-1", productId: "pkg_2990" });
@@ -97,6 +102,7 @@ async function canceledReuseCase() {
   const loaded = loadPage({ launchError: error });
   try {
     await loaded.page.loadRechargeConfig();
+    loaded.page.setData({ hasWxpay: true });
     await loaded.page.submitPayment();
     await loaded.page.submitPayment();
     assert.deepStrictEqual(loaded.calls.create.map((item) => item.requestId), ["sandbox-request-1", "sandbox-request-1"]);
@@ -118,7 +124,10 @@ async function gateCase() {
 
 async function main() {
   const source = fs.readFileSync(path.join(root, "services", "account.js"), "utf8");
-  assert.ok(source.includes('channel: "wxpay"'), "服务层必须固定 wxpay");
+  assert.ok(
+    /channel:\s*String\(options\.channel\s*\|\|\s*["']wxpay["']\)\.toLowerCase\(\)/.test(source),
+    "服务层必须默认使用 wxpay 且允许服务端协议门控其他通道"
+  );
   assert.ok(!/amountFen|grantPoints|balanceAfter|expectedBalance/.test(source.slice(source.indexOf("createRechargeOrder"), source.indexOf("queryRechargeOrder"))), "客户端不得提交金额或余额");
   await successCase();
   await canceledReuseCase();

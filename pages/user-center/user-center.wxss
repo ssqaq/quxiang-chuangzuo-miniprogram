@@ -344,6 +344,8 @@ page {
   content: "";
 }
 .quick-copy { min-width: 0; }
+.quick-symbol-redeem { color: #2e9b72; }
+.quick-redeem-mark { font-size: 24px; font-weight: 800; line-height: 1; }
 .quick-title,
 .quick-description {
   overflow: hidden;

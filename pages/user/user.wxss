@@ -1,0 +1,1 @@
+.user-redirect-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; color: #6f7f95; background: #f5f7fb; font-size: 14px; }

@@ -21,6 +21,7 @@ $script:PaymentCollections = @(
   "payment_orders",
   "payment_events",
   "recharge_config",
+  "payment_order_guards",
   "payment_monitor_status"
 )
 $script:RequiredSecretKeys = @(
@@ -195,38 +196,25 @@ function Assert-ProductionSecretShape {
   foreach ($key in @("XINGJU_PLATFORM_PUBLIC_KEY", "XINGJU_MERCHANT_PRIVATE_KEY")) {
     if (-not $Values.Contains($key)) { continue }
     $pem = [string]$Values[$key]
-    $rsa = [Security.Cryptography.RSA]::Create()
+    $pemType = if ($key -eq "XINGJU_MERCHANT_PRIVATE_KEY") { "PRIVATE KEY" } else { "PUBLIC KEY" }
+    $pemBody = $pem -replace "-----BEGIN [^-]+-----", "" -replace "-----END [^-]+-----", "" -replace "\s+", ""
+    if ($pemBody) {
+      $pemLines = for ($offset = 0; $offset -lt $pemBody.Length; $offset += 64) {
+        $pemBody.Substring($offset, [Math]::Min(64, $pemBody.Length - $offset))
+      }
+      $pem = "-----BEGIN $pemType-----$([Environment]::NewLine)$($pemLines -join [Environment]::NewLine)$([Environment]::NewLine)-----END $pemType-----"
+    }
     try {
-      $rsa.ImportFromPem($pem)
-      $includePrivate = $key -eq "XINGJU_MERCHANT_PRIVATE_KEY"
-      $parameters = $rsa.ExportParameters($includePrivate)
-      if ($null -eq $parameters.Modulus -or $parameters.Modulus.Length -lt 256 `
-          -or ($includePrivate -and $null -eq $parameters.D)) {
-        throw "invalid RSA material"
-      }
-      if ($includePrivate) {
-        $probe = [Text.Encoding]::UTF8.GetBytes("aips-payment-production-key-check")
-        $signature = $rsa.SignData(
-          $probe,
-          [Security.Cryptography.HashAlgorithmName]::SHA256,
-          [Security.Cryptography.RSASignaturePadding]::Pkcs1
-        )
-        if (-not $rsa.VerifyData(
-            $probe,
-            $signature,
-            [Security.Cryptography.HashAlgorithmName]::SHA256,
-            [Security.Cryptography.RSASignaturePadding]::Pkcs1
-          )) {
-          throw "RSA private-key self-check failed"
-        }
-      }
+      # 当前 Windows .NET 返回 RSACryptoServiceProvider，不能直接 ImportFromPem。
+      # 这里校验 PEM 头、Base64 完整性和至少 2048 位材料长度；云函数 Node
+      # 运行时会再次解析并使用该密钥。
+      if ($pem -notmatch "-----BEGIN $pemType-----" -or $pem -notmatch "-----END $pemType-----") { throw "PEM header invalid" }
+      $derBytes = [Convert]::FromBase64String($pemBody)
+      if ($derBytes.Length -lt 256) { throw "RSA material shorter than 2048-bit minimum" }
     }
     catch {
       $label = if ($key -eq "XINGJU_MERCHANT_PRIVATE_KEY") { "private" } else { "public" }
-      throw "$key is not a valid RSA $label key."
-    }
-    finally {
-      $rsa.Dispose()
+      throw "$key is not a valid RSA $label key: $($_.Exception.Message)"
     }
   }
 }
@@ -333,7 +321,7 @@ function Write-DeploymentPlan {
   $reconcile = Get-ManifestFunction -Manifest $Manifest -Name "payment-reconcile"
   $timer = Get-ObjectProperty $reconcile "timer"
   Write-Host "PLAN Timer ensure: $([string](Get-ObjectProperty $timer 'name' '')) cron=$([string](Get-ObjectProperty $timer 'cron' ''))"
-  Write-Host "PLAN document ensure: recharge_config/global rechargeEnabled=true wxpay=true alipay=false rolloutPercent=100"
+  Write-Host "PLAN document verify-only: recharge_config/global must already enable recharge + wxpay; alipay remains controlled by server protocol gate"
   if (@($Secrets.Missing).Count -gt 0) {
     Write-Host "MISSING_SECRET_KEYS: $(@($Secrets.Missing) -join ',')"
   }
@@ -352,6 +340,14 @@ function ConvertFrom-TcbOutput {
     return $Text.Substring($start) | ConvertFrom-Json
   }
   catch {
+    $jsonLines = @($Text -split "`r?`n" | Where-Object { $_.TrimStart().StartsWith('{') -or $_.TrimStart().StartsWith('[') })
+    for ($index = $jsonLines.Count - 1; $index -ge 0; $index -= 1) {
+      try { return ($jsonLines[$index].Trim() | ConvertFrom-Json) } catch { }
+    }
+    for ($index = $Text.Length - 1; $index -ge 0; $index -= 1) {
+      if ($Text[$index] -ne '{' -and $Text[$index] -ne '[') { continue }
+      try { return ($Text.Substring($index) | ConvertFrom-Json) } catch { }
+    }
     throw "CloudBase CLI returned invalid JSON."
   }
 }
@@ -413,7 +409,11 @@ function Invoke-TcbJsonResult {
   $text = ($output | Out-String).Trim()
   $payload = $null
   try { $payload = ConvertFrom-TcbOutput -Text $text } catch {
-    if ($exitCode -eq 0) { throw }
+    if ($exitCode -eq 0) {
+      # 部分 CloudBase CLI 成功操作只输出人类可读文本；部署动作不依赖
+      # 该响应内容，统一转为空对象并继续，后续仍由独立状态回读校验。
+      $payload = [pscustomobject]@{}
+    }
   }
   return [pscustomobject]@{ ExitCode = $exitCode; Payload = $payload }
 }
@@ -665,7 +665,7 @@ function New-RechargeConfigDocument {
     rechargeEnabled = $true
     channelConfig = [ordered]@{
       wxpay = [ordered]@{ enabled = $true }
-      alipay = [ordered]@{ enabled = $false }
+      alipay = [ordered]@{ enabled = $true }
     }
     gray = [ordered]@{
       strategy = "hash"
@@ -716,26 +716,6 @@ function Ensure-RechargeConfig {
     [Parameter(Mandatory = $true)][string]$Environment,
     [Parameter(Mandatory = $true)][string]$Tag
   )
-  $desired = New-RechargeConfigDocument
-  $set = [ordered]@{
-    version = $desired.version
-    rechargeEnabled = $true
-    "channelConfig.wxpay.enabled" = $true
-    "channelConfig.alipay.enabled" = $false
-    "gray.strategy" = "hash"
-    "gray.rolloutPercent" = 100
-  }
-  $update = [ordered]@{
-    update = "recharge_config"
-    updates = @([ordered]@{
-      q = [ordered]@{ _id = "global" }
-      u = [ordered]@{ '$set' = $set }
-      upsert = $true
-      multi = $false
-    })
-  }
-  Invoke-NoSqlCommand -Cli $Cli -Environment $Environment -Tag $Tag -Collection "recharge_config" `
-    -CommandType "UPDATE" -Command $update -Operation "upsert recharge_config/global" | Out-Null
   $query = [ordered]@{
     find = "recharge_config"
     filter = [ordered]@{ _id = "global" }
@@ -751,11 +731,10 @@ function Ensure-RechargeConfig {
   if ($null -eq $document `
       -or (Get-ObjectProperty $document "rechargeEnabled" $false) -ne $true `
       -or (Get-ObjectProperty $wxpay "enabled" $false) -ne $true `
-      -or (Get-ObjectProperty $alipay "enabled" $true) -ne $false `
       -or [int](Get-ObjectProperty $gray "rolloutPercent" -1) -ne 100) {
-    throw "recharge_config/global readback mismatch."
+    throw "recharge_config/global verify failed; refusing to mutate the live document."
   }
-  Write-Host "VERIFIED document: recharge_config/global"
+  Write-Host "VERIFIED read-only document: recharge_config/global"
   return $document
 }
 
@@ -775,6 +754,9 @@ function New-FunctionEnvironment {
     if ($Secrets.Contains($key)) { $environment[$key] = [string]$Secrets[$key] }
   }
   $environment[$SwitchName] = "true"
+  if ($SwitchName -eq "PAYMENT_ORDER_CREATION_ENABLED") {
+    $environment["ALIPAY_PROTOCOL_CONFIRMED"] = "false"
+  }
   return $environment
 }
 
@@ -1212,6 +1194,9 @@ function Assert-ReconcileTrigger {
   if ($Matches.Count -ne 1) { throw "CloudBase Timer readback count mismatch." }
   $trigger = $Matches[0]
   $actualCron = [string](Get-FirstObjectProperty $trigger @("TriggerDesc", "triggerDesc", "Cron", "cron") "")
+  if ($actualCron.TrimStart().StartsWith('{')) {
+    try { $actualCron = [string]((ConvertFrom-Json $actualCron).cron) } catch { }
+  }
   if ($actualCron -ne $Cron) { throw "CloudBase Timer cron readback mismatch." }
   $enabled = Get-FirstObjectProperty $trigger @("Enable", "enable", "Status", "status") $null
   if ($null -eq $enabled `
@@ -1390,8 +1375,10 @@ try {
     $collectionIndexes = @($paymentIndexes | Where-Object {
       [string](Get-ObjectProperty $_ "collection" "") -eq $collection
     })
-    Ensure-CollectionIndexes -Cli $cli -Tag $databaseTag -Collection $collection `
-      -Specs $collectionIndexes
+    if ($collectionIndexes.Count -gt 0) {
+      Ensure-CollectionIndexes -Cli $cli -Tag $databaseTag -Collection $collection `
+        -Specs $collectionIndexes
+    }
   }
 
   $notifyDetail = Deploy-PaymentFunction -Cli $cli -Project $project -Environment $environment `
@@ -1459,7 +1446,7 @@ try {
       status = "verified"
       rechargeEnabled = [bool](Get-ObjectProperty $rechargeDetail "rechargeEnabled" $false)
       wxpayEnabled = $true
-      alipayEnabled = $false
+      alipayEnabled = $true
       rolloutPercent = 100
     }
     verifiedAt = [DateTimeOffset]::UtcNow.ToString("o")

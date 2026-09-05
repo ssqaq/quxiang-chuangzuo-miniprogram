@@ -10,13 +10,15 @@ const db = cloud.database();
 const RECORD_CURSOR_VERSION = 1;
 const RECORD_CURSOR_MAX_LENGTH = 768;
 const RECORD_CURSOR_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
-const RECORD_FILTERS = Object.freeze(["all", "recharge", "spend", "reward", "refund"]);
+const RECORD_FILTERS = Object.freeze(["all", "recharge", "spend", "reward", "refund", "redeem"]);
 const RECORD_TYPE_GROUPS = Object.freeze({
   recharge: Object.freeze(["recharge"]),
   spend: Object.freeze(["spend"]),
   reward: Object.freeze(["checkin", "daily-free", "promo-free"]),
-  refund: Object.freeze(["refund", "payment-reversal"])
+  refund: Object.freeze(["refund", "payment-reversal"]),
+  redeem: Object.freeze(["redeem", "voucher"])
 });
+const UNRESOLVED_ORDER_STATUSES = payment.UNRESOLVED_PAYMENT_STATUSES;
 
 function success(data = {}) {
   return Object.assign({ ok: true }, data);
@@ -64,13 +66,28 @@ function providerRuntime() {
   };
 }
 
+function alipayProtocolConfirmed() {
+  return String(process.env.ALIPAY_PROTOCOL_CONFIRMED || "false").trim().toLowerCase() === "true";
+}
+
+function unresolvedOrders(rows) {
+  return (Array.isArray(rows) ? rows : []).filter((row) => (
+    row && UNRESOLVED_ORDER_STATUSES.has(String(row.status || "").toLowerCase())
+  ));
+}
+
+async function readUserOrders(source, openidHash) {
+  let query = source.collection(payment.PAYMENT_COLLECTIONS.orders).where({ openidHash });
+  if (query && typeof query.orderBy === "function") query = query.orderBy("updatedAt", "desc");
+  const result = await query.limit(100).get();
+  return unresolvedOrders(result && result.data);
+}
+
 async function getConfig(_event, context) {
   const openid = getOpenId(context);
   const switches = payment.paymentRuntimeSwitches(process.env);
   if (
     !switches.orderCreationEnabled
-    || !switches.callbackProcessingEnabled
-    || !switches.reconciliationEnabled
   ) {
     return success({
       eligible: false,
@@ -87,7 +104,14 @@ async function getConfig(_event, context) {
     && rechargeConfig.channelConfig.wxpay.enabled
     && switches.orderCreationEnabled
     && runtime.evaluated.configured;
-  const channels = wxpayAvailable ? ["wxpay"] : [];
+  const alipayAvailable = eligible
+    && rechargeConfig.channelConfig.alipay.enabled
+    && switches.orderCreationEnabled
+    && runtime.evaluated.configured
+    && alipayProtocolConfirmed();
+  const channels = [];
+  if (wxpayAvailable) channels.push("wxpay");
+  if (alipayAvailable) channels.push("alipay");
   let message = "";
   if (eligible && !channels.length) message = "支付通道准备中";
   return success({
@@ -307,6 +331,22 @@ async function loadRecords(openid, event = {}) {
   }
 }
 
+async function getPendingOrderStatus(event, context) {
+  const openid = requireOpenId(context);
+  const productId = String(event.productId || "").trim();
+  const rows = await readUserOrders(db, payment.sha256(openid));
+  const sameProduct = rows.filter((row) => !productId || String(row.productId) === productId);
+  return success({
+    sameProductBlocked: sameProduct.length > 0,
+    sameProductOrder: sameProduct.length ? payment.orderView(sameProduct[0]) : null,
+    otherProductOrders: rows
+      .filter((row) => productId && String(row.productId) !== productId)
+      .slice(0, 5)
+      .map(payment.orderView),
+    serverTime: new Date().toISOString()
+  });
+}
+
 async function getOverview(_event, context) {
   const openid = requireOpenId(context);
   const [account, records] = await Promise.all([
@@ -327,8 +367,8 @@ function validateCreateInput(event, rechargeConfig) {
     throw payment.paymentError("PAYMENT_REQUEST_ID_INVALID", "充值请求编号无效。");
   }
   const channel = String(event.channel || "wxpay").trim();
-  if (channel !== "wxpay") {
-    throw payment.paymentError("PAYMENT_CHANNEL_UNSUPPORTED", "当前版本仅支持微信支付。");
+  if (!["wxpay", "alipay"].includes(channel)) {
+    throw payment.paymentError("PAYMENT_CHANNEL_UNSUPPORTED", "当前版本不支持该支付方式。");
   }
   const product = payment.getProduct(event.productId);
   if (
@@ -354,8 +394,6 @@ async function createOrder(event, context) {
   const switches = payment.paymentRuntimeSwitches(process.env);
   if (
     !switches.orderCreationEnabled
-    || !switches.callbackProcessingEnabled
-    || !switches.reconciliationEnabled
   ) {
     throw payment.paymentError("PAYMENT_ORDER_CREATION_DISABLED", "支付通道准备中，请稍后再试。");
   }
@@ -364,18 +402,34 @@ async function createOrder(event, context) {
   if (!payment.isEligibleOpenidHash(openidHash, rechargeConfig)) {
     throw payment.paymentError("PAYMENT_NOT_ELIGIBLE", "充值功能尚未对当前账号开放。");
   }
-  if (!rechargeConfig.channelConfig.wxpay.enabled) {
+  const { requestId, channel, product } = validateCreateInput(event, rechargeConfig);
+  if (!rechargeConfig.channelConfig[channel] || !rechargeConfig.channelConfig[channel].enabled) {
     throw payment.paymentError("PAYMENT_CHANNEL_DISABLED", "支付通道准备中，请稍后再试。");
+  }
+  if (channel === "alipay" && !alipayProtocolConfirmed()) {
+    throw payment.paymentError(
+      "PAYMENT_ALIPAY_PROTOCOL_UNCONFIRMED",
+      "支付宝通道正在核验，请稍后再试。"
+    );
   }
   const runtime = providerRuntime();
   if (!runtime.provider) payment.requireProviderConfig(process.env);
-  const { requestId, channel, product } = validateCreateInput(event, rechargeConfig);
   const hashedRequestId = payment.requestIdHash(requestId);
   const fingerprint = payment.requestFingerprint(Object.assign({}, product, { channel }));
   const orderId = payment.paymentOrderId(openidHash, hashedRequestId);
   const outTradeNo = payment.merchantOrderNo(openidHash, hashedRequestId);
   const now = new Date();
   const createClaimToken = payment.randomToken();
+  // CloudBase 事务只支持 doc 级操作，不支持 where 查询。先在事务外
+  // 做用户订单预检，再在事务内重新读取候选订单，避免把非法 where 调用
+  // 带进生产事务；未终态硬拦截仍由服务端执行。
+  const preflightOrders = await readUserOrders(db, openidHash);
+  const preflightSameProduct = preflightOrders
+    .filter((row) => String(row.productId) === String(product.productId))
+    .sort((left, right) => payment.dateMillis(right.updatedAt || right.createdAt)
+      - payment.dateMillis(left.updatedAt || left.createdAt))
+    .slice(0, 50);
+  const guardId = payment.paymentOrderGuardId(openidHash, product.productId);
 
   const local = await db.runTransaction(async (transaction) => {
     const ref = transaction.collection(payment.PAYMENT_COLLECTIONS.orders).doc(orderId);
@@ -387,6 +441,83 @@ async function createOrder(event, context) {
       payment.assertIdempotentRequest(existing, fingerprint);
       return { order: existing, shouldCreate: false };
     }
+    const guardRef = transaction.collection(payment.PAYMENT_COLLECTIONS.orderGuards).doc(guardId);
+    const guard = await payment.readDocument(guardRef);
+    if (guard && (
+      guard.kind !== "payment_guard"
+      || String(guard.openidHash || "") !== openidHash
+      || String(guard.productId || "") !== String(product.productId)
+      || !guard.activeOrderId
+    )) return { guardInvalid: true };
+    const guardOrder = guard && guard.activeOrderId
+      ? await payment.readDocument(
+        transaction.collection(payment.PAYMENT_COLLECTIONS.orders).doc(String(guard.activeOrderId))
+      )
+      : null;
+    if (guard && guard.activeOrderId && (
+      !guardOrder
+      || !payment.PAYMENT_STATUSES.includes(String(guardOrder.status || ""))
+    )) return { guardInvalid: true };
+    const candidates = [];
+    if (guardOrder) candidates.push(guardOrder);
+    for (const candidate of preflightSameProduct) {
+      if (!candidate || candidates.some((item) => item && item._id === candidate._id)) continue;
+      const current = await payment.readDocument(
+        transaction.collection(payment.PAYMENT_COLLECTIONS.orders).doc(candidate._id)
+      );
+      if (current) candidates.push(current);
+    }
+    const unresolved = candidates
+      .filter((row) => row && UNRESOLVED_ORDER_STATUSES.has(String(row.status || "").toLowerCase()))
+      .sort((left, right) => payment.dateMillis(right.updatedAt || right.createdAt)
+        - payment.dateMillis(left.updatedAt || left.createdAt));
+    if (unresolved.length) {
+      const blocked = unresolved[0];
+      if (blocked.status === "creation_unknown" && !blocked.providerTradeNo) {
+        const reviewed = payment.transitionOrder(blocked, "review", {
+          reconcileRequired: false,
+          nextReconcileAt: null,
+          updatedAt: new Date()
+        }, {
+          reviewReason: "unresolved_same_product_order",
+          reviewEvidence: { source: "createOrder-preflight" },
+          now: new Date()
+        });
+        await transaction.collection(payment.PAYMENT_COLLECTIONS.orders)
+          .doc(blocked._id)
+          .set({ data: payment.stripDocumentId(reviewed) });
+        const reviewEventId = payment.sha256(
+          `payment-event:review:${blocked._id}:${reviewed.statusVersion}:unresolved_same_product_order`
+        );
+        const reviewEventRef = transaction.collection(payment.PAYMENT_COLLECTIONS.events).doc(reviewEventId);
+        if (!await payment.readDocument(reviewEventRef)) {
+          await reviewEventRef.set({ data: {
+            orderId: blocked._id,
+            eventType: "order_review_required",
+            outcome: "review",
+            reason: "unresolved_same_product_order",
+            attentionRequired: true,
+            createdAt: new Date()
+          } });
+        }
+        await guardRef.set({ data: {
+          kind: "payment_guard",
+          openidHash,
+          productId: product.productId,
+          activeOrderId: reviewed._id,
+          updatedAt: new Date()
+        } });
+        return { blockedOrder: reviewed };
+      }
+      return { blockedOrder: blocked };
+    }
+    await guardRef.set({ data: {
+      kind: "payment_guard",
+      openidHash,
+      productId: product.productId,
+      activeOrderId: orderId,
+      updatedAt: new Date()
+    } });
     const order = {
       _id: orderId,
       openid,
@@ -427,6 +558,19 @@ async function createOrder(event, context) {
     return { order, shouldCreate: true };
   }, 5);
 
+  if (local.guardInvalid) {
+    throw payment.paymentError(
+      "PAYMENT_ORDER_GUARD_INVALID",
+      "充值订单状态正在核对，请联系客服后再试。"
+    );
+  }
+  if (local.blockedOrder) {
+    throw payment.paymentError(
+      "PAYMENT_ORDER_REVIEW_REQUIRED",
+      "您有一笔相同套餐订单正在核实，请稍后重试或联系客服。",
+      { details: { order: payment.orderView(local.blockedOrder) } }
+    );
+  }
   if (!local.shouldCreate) return success(orderPaymentResponse(local.order));
 
   try {
@@ -515,11 +659,39 @@ async function queryOrder(event, context) {
   });
 }
 
+async function redeem(event, context) {
+  try {
+    const result = await payment.redeem(db, event, { OPENID: getOpenId(context) }, process.env);
+    return success(result);
+  } catch (error) {
+    const messages = {
+      PAYMENT_AUTH_REQUIRED: "请先完成微信授权。",
+      REDEEM_CODE_INVALID: "兑换码格式不正确。",
+      REDEEM_ATTEMPT_ID_INVALID: "兑换请求编号无效。",
+      REDEEM_ATTEMPT_CONFLICT: "兑换请求已绑定其他兑换码。",
+      REDEEM_REQUEST_ID_INVALID: "兑换请求编号无效。",
+      REDEEM_REQUEST_CONFLICT: "兑换请求已绑定其他兑换码。",
+      REDEEM_REQUEST_NOT_FOUND: "兑换记录不存在。",
+      REDEEM_LEDGER_CONFLICT: "兑换记录需要人工核验。"
+    };
+    const code = String(error && error.code || "REDEEM_INTERNAL_ERROR");
+    throw payment.paymentError(code, messages[code] || "兑换服务暂时不可用，请稍后重试。", { retryable: !messages[code] });
+  }
+}
+
+async function redeemStatus(event, context) {
+  const result = await payment.redeemStatus(db, event, { OPENID: getOpenId(context) });
+  return success(result);
+}
+
 const ACTIONS = Object.freeze({
   getConfig,
   getRechargeConfig: getConfig,
   getOverview,
   getAccountOverview: getOverview,
+  getPendingOrderStatus,
+  redeem,
+  redeemStatus,
   getRecords,
   getAccountRecords: getRecords,
   createOrder,
@@ -550,6 +722,9 @@ exports.main = async (event = {}, context = {}) => {
 
 exports.__test__ = {
   getOpenId,
+  alipayProtocolConfirmed,
+  unresolvedOrders,
+  readUserOrders,
   validateCreateInput,
   recordTypes,
   normalizeRecordFilter,

@@ -968,6 +968,11 @@ try {
   }
 
   Write-Host "2/7 Run local deployment checks"
+  $npmCacheInfo = Ensure-LocalCloudFunctionDependencies `
+    -ApiPath $apiPath `
+    -CacheRoot $NpmCachePath `
+    -DependencyCheckScript (Join-Path $project "scripts\check-cloudfunction-dependencies.js")
+  Write-Host "本地 npm 缓存键：$($npmCacheInfo.Key)"
   & node (Join-Path $project "scripts\validate.js")
   if ($LASTEXITCODE -ne 0) {
     throw "Local project validation failed."
@@ -976,11 +981,6 @@ try {
   if ($LASTEXITCODE -ne 0) {
     throw "Strict deployment check failed."
   }
-  $npmCacheInfo = Ensure-LocalCloudFunctionDependencies `
-    -ApiPath $apiPath `
-    -CacheRoot $NpmCachePath `
-    -DependencyCheckScript (Join-Path $project "scripts\check-cloudfunction-dependencies.js")
-  Write-Host "本地 npm 缓存键：$($npmCacheInfo.Key)"
   & node (Join-Path $project "scripts\check-cloudfunction-dependencies.js")
   if ($LASTEXITCODE -ne 0) {
     throw "Cloud function dependency check failed."

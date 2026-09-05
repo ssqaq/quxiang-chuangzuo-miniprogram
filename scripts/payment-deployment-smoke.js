@@ -76,6 +76,20 @@ for (const marker of [
 }
 assert.ok(deployScript.includes('ALIPAY_PROTOCOL_CONFIRMED'), "部署环境必须显式写入支付宝协议确认开关");
 assert.ok(deployScript.includes('= "false"'), "支付宝协议确认开关默认必须为 false");
+assert.ok(deployScript.includes("Diagnostics.ProcessStartInfo"), "CLI 必须使用受控 Process 启动");
+assert.ok(deployScript.includes("RedirectStandardOutput"), "CLI stdout 必须独立捕获");
+assert.ok(deployScript.includes("RedirectStandardError"), "CLI stderr 必须独立捕获");
+assert.ok(deployScript.includes("Kill($true)"), "超时必须终止整个进程树");
+assert.ok(deployScript.includes("CLOUDBASE_CI"), "CLI 必须显式设置非交互环境");
+assert.ok(deployScript.includes("CLOUDBASE_DEPLOY_TIMEOUT"), "函数超时必须返回稳定错误码");
+assert.ok(!/&\s*\$Cli\s+@Arguments/.test(deployScript), "禁止使用无超时的同步 CLI 调用");
+assert.ok(deployScript.includes("Get-TcbTimeoutSeconds"), "CLI 必须按操作类型选择超时");
+assert.ok(deployScript.includes("return 180"), "函数部署超时必须为 180 秒");
+assert.ok(deployScript.includes("return 60"), "写操作超时必须为 60 秒");
+assert.ok(deployScript.includes("return 30"), "只读回读超时必须为 30 秒");
+assert.ok(deployScript.includes("$stageRoot"), "函数部署必须使用临时白名单目录");
+assert.ok(deployScript.includes('"--deployMode", "zip"'), "超时重试必须切换 zip transport");
+assert.ok(deployScript.includes("PAYMENT_BUILD_VERSION"), "线上回读必须绑定构建版本标记");
 for (const relative of manifest.sharedCore.requiredFiles) {
   assert.ok(fs.statSync(path.join(root, relative)).isFile(), `payment-core 缺少 ${relative}`);
 }

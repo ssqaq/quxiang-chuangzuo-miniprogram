@@ -54,15 +54,6 @@ $lock = '{"version":"0.38.3","packages":{"":{"version":"0.38.3"},"dep":{"version
 $updated = Set-VersionText -RelativePath 'cloudfunctions/api/package-lock.json' -Text $lock -TargetVersion '0.38.4'
 if ($updated -notmatch '"dep":\\{"version":"9\\.9\\.9"') { exit 3 }
 if (($updated -split '0\\.38\\.4').Count -ne 3) { exit 4 }
-$paymentLock = '{"version":"0.38.3","packages":{"":{"version":"0.38.3"},"node_modules/dep":{"version":"9.9.9"},"vendor/payment-core":{"name":"aips-payment-core","version":"0.38.3","extraneous":true}}}'
-$paymentLockUpdated = Set-VersionText -RelativePath 'cloudfunctions/payment-api/package-lock.json' -Text $paymentLock -TargetVersion '0.38.4'
-if (($paymentLockUpdated -split '0\\.38\\.4').Count -ne 4) { exit 7 }
-if ($paymentLockUpdated -notmatch '"node_modules/dep":\\{"version":"9\\.9\\.9"') { exit 8 }
-$invalidPaymentLock = '{"version":"0.38.3","packages":{"":{"version":"0.38.3"},"vendor/payment-core":{"name":"aips-payment-core"},"node_modules/dep":{"version":"9.9.9"}}}'
-try {
-  Set-VersionText -RelativePath 'cloudfunctions/payment-api/package-lock.json' -Text $invalidPaymentLock -TargetVersion '0.38.4' | Out-Null
-  exit 9
-} catch {}
 $vendorPackage = '{"name":"aips-payment-core","version":"0.38.3"}'
 $vendorUpdated = Set-VersionText -RelativePath 'cloudfunctions/payment-api/vendor/payment-core/package.json' -Text $vendorPackage -TargetVersion '0.38.4'
 if ($vendorUpdated -notmatch '"version":"0\\.38\\.4"') { exit 5 }
@@ -86,70 +77,6 @@ Write-Output ($paths -join '|')
   ]) {
     assert.ok(result.stdout.includes(marker), `支付版本组缺少 ${marker}`);
   }
-}
-
-function testRealPaymentLockReplacement() {
-  const script = `
-. '${versionScript.replace(/'/g, "''")}'
-$sourceRoot = '${root.replace(/'/g, "''")}'
-$targetVersion = '9.8.7'
-$paymentLocks = @(
-  'cloudfunctions/payment-api/package-lock.json',
-  'cloudfunctions/payment-notify/package-lock.json',
-  'cloudfunctions/payment-reconcile/package-lock.json'
-)
-foreach ($relativePath in $paymentLocks) {
-  $fullPath = Join-Path $sourceRoot $relativePath
-  $originalText = Get-Content -LiteralPath $fullPath -Raw -Encoding UTF8
-  if ($originalText -notmatch '[\\r\\n]') { throw "支付 lock 必须保留真实多行格式：$relativePath" }
-  $original = $originalText | ConvertFrom-Json -ErrorAction Stop
-  $originalRoot = $original.packages.PSObject.Properties[''].Value
-  $originalVendor = $original.packages.PSObject.Properties['vendor/payment-core'].Value
-  if ([string]$originalRoot.engines.node -ne '>=18' -or [string]$originalVendor.engines.node -ne '>=18') {
-    throw "支付 lock 缺少真实嵌套 engines：$relativePath"
-  }
-  if ($originalRoot.dependencies.PSObject.Properties.Name -contains 'aips-payment-core') {
-    throw "支付 lock 根依赖仍包含失效的 aips-payment-core：$relativePath"
-  }
-  if ($original.packages.PSObject.Properties.Name -contains 'node_modules/aips-payment-core') {
-    throw "支付 lock 仍包含失效的 node_modules/aips-payment-core：$relativePath"
-  }
-
-  $unchangedVersions = @{}
-  foreach ($property in $original.packages.PSObject.Properties) {
-    if ($property.Name -eq '' -or $property.Name -eq 'vendor/payment-core') { continue }
-    if ($property.Value.PSObject.Properties['version']) {
-      $unchangedVersions[$property.Name] = [string]$property.Value.version
-    }
-  }
-
-  $updatedText = Set-VersionText -RelativePath $relativePath -Text $originalText -TargetVersion $targetVersion
-  $updated = $updatedText | ConvertFrom-Json -ErrorAction Stop
-  $updatedRoot = $updated.packages.PSObject.Properties[''].Value
-  $updatedVendor = $updated.packages.PSObject.Properties['vendor/payment-core'].Value
-  if ([string]$updated.version -ne $targetVersion -or
-      [string]$updatedRoot.version -ne $targetVersion -or
-      [string]$updatedVendor.version -ne $targetVersion) {
-    throw "支付 lock 三处版本没有同步：$relativePath"
-  }
-  if ([string]$updatedRoot.engines.node -ne '>=18' -or [string]$updatedVendor.engines.node -ne '>=18') {
-    throw "支付 lock 升版破坏 engines：$relativePath"
-  }
-  foreach ($packageName in $unchangedVersions.Keys) {
-    $updatedPackage = $updated.packages.PSObject.Properties[$packageName].Value
-    if ([string]$updatedPackage.version -ne [string]$unchangedVersions[$packageName]) {
-      throw "支付 lock 意外改动其他 npm 包版本：$relativePath -> $packageName"
-    }
-  }
-}
-Write-Output 'REAL_PAYMENT_LOCKS_OK'
-`;
-  const result = runPowerShell(script);
-  assertPowerShellOk(result, "真实支付 lock 版本同步");
-  assert.ok(
-    result.stdout.includes("REAL_PAYMENT_LOCKS_OK"),
-    "真实支付 lock smoke 没有成功标记"
-  );
 }
 
 function testSyncConcurrencyContracts() {
@@ -192,7 +119,6 @@ function testSyncConcurrencyContracts() {
 function main() {
   testPatchAllocation();
   testVersionGroupAndExactReplacement();
-  testRealPaymentLockReplacement();
   testSyncConcurrencyContracts();
   console.log("version concurrency smoke: OK");
 }

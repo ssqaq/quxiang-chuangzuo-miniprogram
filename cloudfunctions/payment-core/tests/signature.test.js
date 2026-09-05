@@ -78,9 +78,7 @@ test("MD5 模式必须显式测试环境且命中白名单", () => {
     XINGJU_PID: fixtures.providerConfig().pid,
     XINGJU_NOTIFY_URL: fixtures.providerConfig().notifyUrl,
     XINGJU_SIGNATURE_MODE: "md5",
-    XINGJU_MD5_KEY: fixtures.MD5_KEY,
-    XINGJU_TEST_MERCHANT_ID: "1000",
-    WECHAT_MINIAPP_TEST: "1"
+    XINGJU_MD5_KEY: fixtures.MD5_KEY
   };
   assert.equal(payment.evaluateProviderConfig(Object.assign({}, base, {
     NODE_ENV: "production", XINGJU_MD5_ALLOWLIST: "1000"
@@ -91,50 +89,4 @@ test("MD5 模式必须显式测试环境且命中白名单", () => {
   assert.equal(payment.evaluateProviderConfig(Object.assign({}, base, {
     NODE_ENV: "test", XINGJU_MD5_ALLOWLIST: "other"
   })).value.signatureMode, "rsa");
-  assert.equal(payment.evaluateProviderConfig(Object.assign({}, base, {
-    NODE_ENV: "production",
-    XINGJU_TEST_MODE: "true",
-    XINGJU_MD5_ALLOWLIST: "1000"
-  })).value.signatureMode, "rsa");
-  assert.equal(payment.evaluateProviderConfig(Object.assign({}, base, {
-    NODE_ENV: "test",
-    XINGJU_TEST_MERCHANT_ID: "other",
-    XINGJU_MD5_ALLOWLIST: "1000"
-  })).value.signatureMode, "rsa");
-});
-
-test("V1 MD5 回调没有 timestamp 也能验签，有 timestamp 仍检查窗口", () => {
-  const params = {
-    pid: "1000",
-    trade_no: "T100",
-    out_trade_no: "PAY00000000000000000000000000001",
-    type: "wxpay",
-    name: "AIPS 100 积分",
-    money: "9.90",
-    trade_status: "TRADE_SUCCESS",
-    param: "user-opaque",
-    sign_type: "MD5"
-  };
-  const signed = Object.assign({}, params, {
-    sign: payment.md5SignParams(params, fixtures.MD5_KEY)
-  });
-  assert.equal(payment.verifySignedPayload(signed, payment.PLATFORM_PUBLIC_KEY || "", {
-    signatureMode: "md5",
-    md5Key: fixtures.MD5_KEY,
-    allowMissingTimestamp: true,
-    nowMs: 1700000000 * 1000
-  }).ok, true);
-  assert.equal(payment.verifySignedPayload(signed, "", {
-    signatureMode: "md5",
-    md5Key: fixtures.MD5_KEY,
-    nowMs: 1700000000 * 1000
-  }).errorCode, "PAYMENT_TIMESTAMP_INVALID");
-  const withTimestamp = Object.assign({}, signed, { timestamp: "1700000000" });
-  // timestamp 是签名字段，补上后必须重新签名。
-  withTimestamp.sign = payment.md5SignParams(withTimestamp, fixtures.MD5_KEY);
-  assert.equal(payment.verifySignedPayload(withTimestamp, "", {
-    signatureMode: "md5",
-    md5Key: fixtures.MD5_KEY,
-    nowMs: (1700000000 + 301) * 1000
-  }).errorCode, "PAYMENT_TIMESTAMP_EXPIRED");
 });

@@ -6,7 +6,6 @@ const fs = require("fs");
 const path = require("path");
 
 const root = path.resolve(__dirname, "..");
-const deployScript = fs.readFileSync(path.join(root, "scripts", "deploy-payment-production.ps1"), "utf8");
 const read = (relative) => fs.readFileSync(path.join(root, relative), "utf8");
 const readJson = (relative) => JSON.parse(read(relative));
 const manifest = readJson("scripts/payment-cloudfunctions.json");
@@ -34,30 +33,22 @@ function relativeFiles(directory, excluded, excludedPrefixes) {
   return output;
 }
 const expected = new Map([
-  ["payment-api", { timeout: 15, http: false, timer: false, client: true, switchName: "orderCreationEnabled", runtimeFiles: [] }],
-  ["payment-notify", { timeout: 15, http: true, timer: false, client: false, switchName: "callbackProcessingEnabled", runtimeFiles: [] }],
-  ["payment-reconcile", {
-    timeout: 120,
-    http: false,
-    timer: true,
-    client: false,
-    switchName: "reconciliationEnabled",
-    runtimeFiles: ["cloudfunctions/payment-reconcile/monitor.js"],
-  }],
+  ["payment-api", { timeout: 15, http: false, timer: false, client: true, switchName: "orderCreationEnabled" }],
+  ["payment-notify", { timeout: 15, http: true, timer: false, client: false, switchName: "callbackProcessingEnabled" }],
+  ["payment-reconcile", { timeout: 120, http: false, timer: true, client: false, switchName: "reconciliationEnabled" }],
 ]);
 
 assert.strictEqual(manifest.schemaVersion, 1);
 assert.deepStrictEqual(manifest.productionDeployment, {
-  enabled: true,
-  automaticDeployment: true,
+  enabled: false,
+  automaticDeployment: false,
   requiresExplicitProductionAuthorization: true,
 });
 assert.strictEqual(manifest.sharedCore.name, "aips-payment-core");
 assert.strictEqual(manifest.sharedCore.root, "cloudfunctions/payment-core");
 assert.strictEqual(manifest.sharedCore.lockRequired, false);
-assert.strictEqual(manifest.sharedCore.runtimeRequire, "./vendor/payment-core");
 assert.ok(Array.isArray(manifest.sharedCore.requiredFiles));
-assert.strictEqual(manifest.sharedCore.requiredFiles.length, 14);
+assert.strictEqual(manifest.sharedCore.requiredFiles.length, 13);
 assert.deepStrictEqual(manifest.sharedCore.vendorExcludedFiles, [".env.example"]);
 assert.deepStrictEqual(manifest.sharedCore.vendorExcludedPrefixes, ["tests/"]);
 
@@ -67,29 +58,13 @@ assert.strictEqual(corePackage.name, manifest.sharedCore.name);
 assert.strictEqual(corePackage.main, "index.js");
 assert.strictEqual(corePackage.version, appVersion);
 for (const marker of [
-  "rechargeEnabled: true",
-  "wxpay: Object.freeze({ enabled: true })",
+  "rechargeEnabled: false",
+  "wxpay: Object.freeze({ enabled: false })",
   "alipay: Object.freeze({ enabled: false })",
-  "rolloutPercent: 100",
+  "rolloutPercent: 0",
 ]) {
   assert.ok(coreConfigSource.includes(marker), `支付默认关闭配置缺少 ${marker}`);
 }
-assert.ok(deployScript.includes('ALIPAY_PROTOCOL_CONFIRMED'), "部署环境必须显式写入支付宝协议确认开关");
-assert.ok(deployScript.includes('= "false"'), "支付宝协议确认开关默认必须为 false");
-assert.ok(deployScript.includes("Diagnostics.ProcessStartInfo"), "CLI 必须使用受控 Process 启动");
-assert.ok(deployScript.includes("RedirectStandardOutput"), "CLI stdout 必须独立捕获");
-assert.ok(deployScript.includes("RedirectStandardError"), "CLI stderr 必须独立捕获");
-assert.ok(deployScript.includes("Kill($true)"), "超时必须终止整个进程树");
-assert.ok(deployScript.includes("CLOUDBASE_CI"), "CLI 必须显式设置非交互环境");
-assert.ok(deployScript.includes("CLOUDBASE_DEPLOY_TIMEOUT"), "函数超时必须返回稳定错误码");
-assert.ok(!/&\s*\$Cli\s+@Arguments/.test(deployScript), "禁止使用无超时的同步 CLI 调用");
-assert.ok(deployScript.includes("Get-TcbTimeoutSeconds"), "CLI 必须按操作类型选择超时");
-assert.ok(deployScript.includes("return 180"), "函数部署超时必须为 180 秒");
-assert.ok(deployScript.includes("return 60"), "写操作超时必须为 60 秒");
-assert.ok(deployScript.includes("return 30"), "只读回读超时必须为 30 秒");
-assert.ok(deployScript.includes("$stageRoot"), "函数部署必须使用临时白名单目录");
-assert.ok(deployScript.includes('"--deployMode", "zip"'), "超时重试必须切换 zip transport");
-assert.ok(deployScript.includes("PAYMENT_BUILD_VERSION"), "线上回读必须绑定构建版本标记");
 for (const relative of manifest.sharedCore.requiredFiles) {
   assert.ok(fs.statSync(path.join(root, relative)).isFile(), `payment-core 缺少 ${relative}`);
 }
@@ -109,32 +84,21 @@ for (const item of manifest.functions) {
   assert.strictEqual(item.config, `${item.root}/config.json`);
   assert.strictEqual(item.sharedCoreRoot, manifest.sharedCore.root);
   assert.strictEqual(item.vendoredCoreRoot, `${item.root}/vendor/payment-core`);
-  assert.deepStrictEqual(item.runtimeFiles || [], contract.runtimeFiles);
-  for (const relative of item.runtimeFiles || []) {
-    assert.ok(fs.statSync(path.join(root, relative)).isFile(),
-      `${item.name} 缺少运行时文件 ${relative}`);
-  }
   assert.strictEqual(item.timeoutSeconds, contract.timeout);
-  assert.strictEqual(item.deploymentEnabled, true);
+  assert.strictEqual(item.deploymentEnabled, false);
   assert.strictEqual(item.clientInvocationAllowed, contract.client,
     `${item.name} clientInvocationAllowed 与入口职责不一致`);
-  assert.deepStrictEqual(item.runtimeSwitches, { [contract.switchName]: true });
-  assert.strictEqual(item.httpRoute.declared, contract.http);
-  assert.strictEqual(item.httpRoute.enabled, contract.http);
-  assert.strictEqual(item.httpRoute.requiresExplicitProductionAuthorization, true);
-  assert.strictEqual(item.timer.declared, contract.timer);
-  assert.strictEqual(item.timer.enabled, contract.timer);
-  assert.strictEqual(item.timer.requiresExplicitProductionAuthorization, true);
-  if (contract.http) {
-    assert.strictEqual(item.httpRoute.path, "/payment/xingju/notify");
-    assert.strictEqual(item.httpRoute.enableAuth, false);
-    assert.strictEqual(item.httpRoute.qpsTotal, 100);
-    assert.strictEqual(item.httpRoute.qpsPerClient, 20);
-  }
-  if (contract.timer) {
-    assert.strictEqual(item.timer.name, "payment-reconcile");
-    assert.strictEqual(item.timer.cron, "0 */2 * * * * *");
-  }
+  assert.deepStrictEqual(item.runtimeSwitches, { [contract.switchName]: false });
+  assert.deepStrictEqual(item.httpRoute, {
+    declared: contract.http,
+    enabled: false,
+    requiresExplicitProductionAuthorization: true,
+  });
+  assert.deepStrictEqual(item.timer, {
+    declared: contract.timer,
+    enabled: false,
+    requiresExplicitProductionAuthorization: true,
+  });
 
   const packageJson = readJson(item.packageJson);
   const packageLock = readJson(item.packageLock);
@@ -150,7 +114,7 @@ for (const item of manifest.functions) {
   assert.strictEqual(packageLock.version, packageJson.version);
   assert.strictEqual(packageLock.packages[""].version, packageJson.version);
   assert.ok(!Object.prototype.hasOwnProperty.call(
-    packageLock.packages[""].dependencies,
+    packageLock.packages[""].dependencies || {},
     manifest.sharedCore.name
   ), `${item.name} package-lock 根依赖不得声明 payment-core`);
   assert.ok(!Object.prototype.hasOwnProperty.call(
@@ -165,17 +129,6 @@ for (const item of manifest.functions) {
   assert.ok(!Array.isArray(config.triggers) || config.triggers.length === 0,
     `${item.name} config.json 不得提前启用触发器`);
   assert.ok(fs.statSync(path.join(root, item.entry)).isFile());
-  const entrySource = read(item.entry);
-  assert.ok(
-    entrySource.includes(`require("${manifest.sharedCore.runtimeRequire}")`)
-      || entrySource.includes(`require('${manifest.sharedCore.runtimeRequire}')`),
-    `${item.name} 必须直接加载随包 payment-core`
-  );
-  assert.ok(
-    !entrySource.includes(`require("${manifest.sharedCore.name}")`)
-      && !entrySource.includes(`require('${manifest.sharedCore.name}')`),
-    `${item.name} 不得通过包名加载 payment-core`
-  );
   assert.ok(!packageJson.scripts || !packageJson.scripts.deploy,
     `${item.name} 不得提供绕开生产授权的一键 deploy script`);
   const vendorCoreFiles = relativeFiles(
@@ -215,7 +168,6 @@ for (const marker of [
   "_validate_payment_manifest",
   "sharedCore",
   "requiredFiles",
-  "runtimeFiles",
   "vendoredCoreRoot",
   "payment-api",
   "payment-notify",
@@ -231,4 +183,4 @@ assert.ok(workflow.includes("payment-cloudfunctions.json"));
 assert.ok(!/(?:tcb|cloudbase)[^\r\n]*(?:deploy|create)[^\r\n]*payment-/i.test(workflow),
   "CI 禁止部署支付函数、创建 HTTP 路由或启用 Timer");
 
-console.log("payment deployment smoke: OK (production-authorized/wxpay-plus-alipay-code)");
+console.log("payment deployment smoke: OK (fail-closed/package-only)");

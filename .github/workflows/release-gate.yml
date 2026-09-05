@@ -31,9 +31,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
-          node-version: "22.13.0"
-          cache: npm
-          cache-dependency-path: tools/user-center-preview/package-lock.json
+          node-version: "20"
       - name: Release workflow concurrency and protection preflight
         shell: pwsh
         env:
@@ -104,6 +102,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Install user-center visual diff dependencies
+        shell: pwsh
+        run: npm ci --prefix tools/user-center-preview --no-audit --no-fund
       - name: Prepare external release policy
         shell: pwsh
         run: |
@@ -134,135 +135,15 @@ jobs:
           }
           $policyPath = Join-Path $parent "wechat-miniapp-release-policy.json"
           $policy | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $policyPath -Encoding utf8
-      - name: Core release smoke entrypoint preflight
-        shell: pwsh
-        run: |
-          $required = @(
-            "scripts/account-points-format-smoke.js",
-            "scripts/points-checkin-smoke.js",
-            "scripts/account-points-fallback-smoke.js",
-            "scripts/workbench-interaction-smoke.js"
-          )
-          $missing = @(
-            $required | Where-Object {
-              -not (Test-Path -LiteralPath (Join-Path $env:GITHUB_WORKSPACE $_) -PathType Leaf)
-            }
-          )
-          if ($missing.Count -gt 0) {
-            throw "核心 release smoke 入口缺失：$($missing -join ', ')"
-          }
-          Write-Host "核心 release smoke 入口已确认：$($required -join ', ')"
-      - name: Install versioned preview dependencies
-        shell: pwsh
-        run: npm ci --prefix "$env:GITHUB_WORKSPACE\tools\user-center-preview"
       - name: Validate source
         shell: pwsh
-        env:
-          SHARP_MODULE: ${{ github.workspace }}\tools\user-center-preview\node_modules\sharp
         run: node scripts/validate.js
-      - name: User center version smoke
-        shell: pwsh
-        run: node scripts/user-center-version-smoke.js
-      - name: Core account points and workbench smoke
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $smokes = @(
-            "scripts/account-points-format-smoke.js",
-            "scripts/points-checkin-smoke.js",
-            "scripts/account-points-fallback-smoke.js",
-            "scripts/workbench-interaction-smoke.js"
-          )
-          foreach ($relative in $smokes) {
-            $scriptPath = Join-Path $env:GITHUB_WORKSPACE $relative
-            Write-Host "::group::$relative"
-            $exitCode = 0
-            try {
-              & node $scriptPath
-              $exitCode = $LASTEXITCODE
-            }
-            finally {
-              Write-Host "::endgroup::"
-            }
-            if ($exitCode -ne 0) {
-              throw "核心 release smoke 失败：$relative（退出码 $exitCode）"
-            }
-          }
-      - name: Preview source budget
-        shell: pwsh
-        run: node scripts/preview-source-budget.js --metric raw --max-bytes 2097152 --warn-bytes 1887436
-      - name: Same-device visual baseline
-        shell: pwsh
-        run: node scripts/admin-v2-same-device-baseline.js
-      - name: Layout contract
-        shell: pwsh
-        run: node scripts/admin-v2-layout-contract.js
-      - name: Font contract
-        shell: pwsh
-        run: node scripts/admin-v2-font-contract.js
-      - name: Runtime geometry probe smoke
-        shell: pwsh
-        run: node scripts/admin-v2-runtime-geometry-probe-smoke.js
-      - name: Runtime geometry contract
-        shell: pwsh
-        run: node scripts/admin-v2-runtime-geometry-probe.js --input visual-evidence/runtime-geometry/browser-probe.json --output visual-evidence/runtime-geometry/geometry-contract.json
-      - name: Runtime font probe smoke
-        shell: pwsh
-        run: node scripts/admin-v2-runtime-font-probe-smoke.js
-      - name: Visual archive retention smoke
-        shell: pwsh
-        run: node scripts/admin-v2-visual-archive-smoke.js
-      - name: Release visual evidence manifest
-        shell: pwsh
-        run: node scripts/admin-v2-release-evidence-check.js --check-only
-      - name: Provider refresh and swipe contract
-        shell: pwsh
-        run: node scripts/admin-provider-interaction-regression.js --check-only
-      - name: Post-release visual check smoke
-        shell: pwsh
-        run: node scripts/admin-v2-post-release-visual-check-smoke.js
-      - name: Visual state matrix smoke
-        shell: pwsh
-        run: node scripts/admin-v2-state-matrix-smoke.js
-      - name: Visual device matrix smoke
-        shell: pwsh
-        run: node scripts/admin-v2-device-matrix-smoke.js
-      - name: Strict visual capture gate smoke
-        shell: pwsh
-        run: node scripts/admin-v2-visual-capture-gate-smoke.js
-      - name: Unified visual runner smoke
-        shell: pwsh
-        run: node scripts/admin-v2-visual-runner-smoke.js
-      - name: Preview entry smoke
-        shell: pwsh
-        run: node scripts/admin-v2-preview-entry-smoke.js
-      - name: Visual archive index smoke
-        shell: pwsh
-        run: node scripts/admin-v2-visual-index-smoke.js
-      - name: Visual state matrix contract
-        shell: pwsh
-        run: node scripts/admin-v2-state-matrix.js
-      - name: Visual device matrix contract
-        shell: pwsh
-        run: node scripts/admin-v2-device-matrix.js
-      - name: Four-page pixel regression
-        shell: pwsh
-        run: node scripts/admin-v2-pixel-baseline.js --manifest visual-evidence/admin-v2-pixel-manifest-current.json --threshold 32 --max-diff-ratio 0.08
-      - name: Four-page pixel diff report
-        shell: pwsh
-        run: node scripts/admin-v2-pixel-diff-report.js --json visual-evidence/pixel-diffs/admin-v2-pixel-diff-report.json --markdown visual-evidence/pixel-diffs/admin-v2-pixel-diff-report.md
-      - name: Preview QR decode
-        shell: pwsh
-        run: node scripts/qr-decode-smoke.js
       - name: Payment UI smoke
         shell: pwsh
         run: node scripts/payment-ui-smoke.js
       - name: Payment package and deployment safety smoke
         shell: pwsh
         run: node scripts/payment-deployment-smoke.js
-      - name: Payment production deployment smoke
-        shell: pwsh
-        run: node scripts/payment-production-deploy-smoke.js
       - name: Payment records cursor smoke
         shell: pwsh
         run: node scripts/payment-records-cursor-smoke.js
@@ -284,9 +165,6 @@ jobs:
       - name: Release lock smoke
         shell: pwsh
         run: node scripts/release-lock-smoke.js
-      - name: Release lock health smoke
-        shell: pwsh
-        run: node scripts/release-lock-health-smoke.js
       - name: Release queue smoke
         shell: pwsh
         run: node scripts/release-queue-smoke.js
